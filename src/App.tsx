@@ -951,9 +951,8 @@ export default function App() {
         'جست‌وجو و فیلتر پیشرفته کتاب‌ها، ثبت موجودی فیزیکی قفسه‌ها (SH-01 تا SH-04)، جانمایی طبقات و چاپ برچسب کتاب‌ها'
     },
     martyrs: {
-      title: 'پرونده شهدا و بانک جامع مزارات گلزار شهدای تهران (۲۸٬۳۶۸ شهید)',
-      description:
-        'جست‌وجوی مشخصات شهدا، قطعه، ردیف و شماره مزار، ثبت پرونده جدید و اتصال مستقیم شهید به کتاب‌های مرتبط'
+      title: 'پرونده شهدا و بانک جامع مزارات گلزار شهدای تهران',
+      description: ''
     },
     smart_search: {
       title: 'جست‌وجوی هوشمند کتاب‌ها و منابع مرتبط با شهدا',
@@ -1108,39 +1107,33 @@ export default function App() {
           </div>
         </>
       ) : (
-        /* هدر اختصاصی سایر برگ‌ها: عنوان، توضیح و دکمه خروج */
-        <header className="sticky top-0 z-30 w-full max-w-full bg-[#8C3B2B] text-white px-3 sm:px-8 py-3 sm:py-4 shadow-xs border-b border-[#702D20]">
+        /* هدر تمیز و متناسب سایر برگ‌ها: بدون شلوغی و با یک دکمه خروج فوق‌العاده ظریف و شکیل */
+        <header className="sticky top-0 z-30 w-full max-w-full bg-[#8C3B2B] text-white px-3 sm:px-8 py-2.5 sm:py-3.5 shadow-xs border-b border-[#702D20]">
           <div className="max-w-6xl mx-auto flex items-center justify-between gap-3">
-            <div className="min-w-0 space-y-1">
-              <h1 className="font-titr text-base sm:text-xl font-bold text-[#FDF8F2] leading-snug">
+            <div className="min-w-0 flex-1">
+              <h1 className="font-titr text-base sm:text-lg md:text-xl font-bold text-[#FDF8F2] leading-snug">
                 {TAB_HEADER_INFO[activeTab].title}
               </h1>
-              <p className="text-[11px] sm:text-xs text-amber-100/95 leading-relaxed">
-                {TAB_HEADER_INFO[activeTab].description}
-              </p>
+              {TAB_HEADER_INFO[activeTab].description ? (
+                <p className="text-[11px] sm:text-xs text-amber-100/90 leading-relaxed mt-0.5">
+                  {TAB_HEADER_INFO[activeTab].description}
+                </p>
+              ) : null}
             </div>
 
-            {/* نشانگر پایگاه book در گوشی و دکمه خروج / پایان شیفت */}
-            <div className="flex items-center gap-2 shrink-0">
-              <div
-                title="اطلاعات در پایگاه داده اختصاصی book در حافظه این گوشی ذخیره می‌شود"
-                className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/10 rounded-lg text-xs font-mono border border-white/20"
-              >
-                <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                <span className="text-[11px] font-sans font-medium text-amber-50">
-                  پایگاه: <strong>book</strong>
-                </span>
-              </div>
+            {/* کلید خروج فوق‌العاده ظریف و کوچک (فقط یک آیکون خروج مینیمال بدون برهم زدن هدر) */}
+            <div className="flex items-center shrink-0">
               <button
                 type="button"
                 onClick={() => setShowExitConfirmModal(true)}
-                className="min-h-[36px] px-3 py-1.5 text-xs font-bold bg-[#FDF8F2] hover:bg-amber-100 text-[#8C3B2B] rounded-xl shadow-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-                title="تأیید ذخیره‌سازی اطلاعات و خروج امن از سامانه"
+                className="min-h-[32px] px-2.5 py-1 text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded-lg border border-white/20 shadow-xs inline-flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                title="خروج با تأیید و ذخیره امن"
+                aria-label="خروج با تأیید"
               >
                 <LogOut className="w-3.5 h-3.5 shrink-0" />
-                <span>پایان شیفت و خروج</span>
+                <span className="text-[10px] sm:text-xs font-bold">خروج</span>
                 {sessionEditsCount > 0 && (
-                  <span className="w-5 h-5 rounded-full bg-[#8C3B2B] text-white text-[10px] flex items-center justify-center font-mono">
+                  <span className="w-4 h-4 rounded-full bg-white text-[#8C3B2B] text-[9px] font-bold flex items-center justify-center shrink-0">
                     {toPersianDigits(sessionEditsCount)}
                   </span>
                 )}
@@ -1150,53 +1143,55 @@ export default function App() {
         </header>
       )}
 
-      {/* نوار وضعیت پایگاه داده book در حافظه محلی گوشی */}
-      <div className="w-full bg-[#FAF3EA] border-b border-[#E6D5C1] px-2.5 sm:px-6 py-1.5">
-        <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2 text-[11px] sm:text-xs text-[#5D4636]">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="inline-flex items-center gap-1 font-bold text-[#8C3B2B]">
-              <span className="w-2 h-2 rounded-full bg-[#2E7D5B]" />
-              عنوان پایگاه داده در گوشی: <strong className="font-mono bg-white px-1.5 py-0.5 rounded border border-[#E6D5C1]">book</strong>
-            </span>
-            <span className="text-[#8C7A6B]">|</span>
-            <span>کل رکوردهای ثبت‌شده در دستگاه: <strong>{toPersianDigits(totalSavedCount)}</strong></span>
-            {sessionEditsCount > 0 && (
-              <>
-                <span className="text-[#8C7A6B]">|</span>
-                <span className="text-[#2E7D5B] font-bold">
-                  {toPersianDigits(sessionEditsCount)} ثبت جدید در این نشست (ذخیره آنی در دستگاه)
-                </span>
-              </>
-            )}
-            {lastSavedTime && (
-              <span className="hidden md:inline text-slate-500">
-                (آخرین ثبت: {lastSavedTime})
+      {/* نوار وضعیت پایگاه داده book در حافظه محلی گوشی (فقط در صفحه اول نمایش داده می‌شود) */}
+      {activeTab === 'home' && (
+        <div className="w-full bg-[#FAF3EA] border-b border-[#E6D5C1] px-2.5 sm:px-6 py-1.5">
+          <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2 text-[11px] sm:text-xs text-[#5D4636]">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1 font-bold text-[#8C3B2B]">
+                <span className="w-2 h-2 rounded-full bg-[#2E7D5B]" />
+                عنوان پایگاه داده در گوشی: <strong className="font-mono bg-white px-1.5 py-0.5 rounded border border-[#E6D5C1]">book</strong>
               </span>
-            )}
-          </div>
+              <span className="text-[#8C7A6B]">|</span>
+              <span>کل رکوردهای ثبت‌شده در دستگاه: <strong>{toPersianDigits(totalSavedCount)}</strong></span>
+              {sessionEditsCount > 0 && (
+                <>
+                  <span className="text-[#8C7A6B]">|</span>
+                  <span className="text-[#2E7D5B] font-bold">
+                    {toPersianDigits(sessionEditsCount)} ثبت جدید در این نشست (ذخیره آنی در دستگاه)
+                  </span>
+                </>
+              )}
+              {lastSavedTime && (
+                <span className="hidden md:inline text-slate-500">
+                  (آخرین ثبت: {lastSavedTime})
+                </span>
+              )}
+            </div>
 
-          <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={handleQuickExcelExport}
-              title="خروجی سریع اکسل از کلیه رکوردهای پایگاه book"
-              className="text-[#1F4E79] hover:underline font-bold inline-flex items-center gap-1 text-[11px] cursor-pointer"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>خروجی اکسل book</span>
-            </button>
-            <span className="text-[#8C7A6B]">·</span>
-            <button
-              type="button"
-              onClick={() => setShowExitConfirmModal(true)}
-              className="text-[#8C3B2B] hover:underline font-bold inline-flex items-center gap-1 text-[11px] cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>خروج با تأیید</span>
-            </button>
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleQuickExcelExport}
+                title="خروجی سریع اکسل از کلیه رکوردهای پایگاه book"
+                className="text-[#1F4E79] hover:underline font-bold inline-flex items-center gap-1 text-[11px] cursor-pointer"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>خروجی اکسل book</span>
+              </button>
+              <span className="text-[#8C7A6B]">·</span>
+              <button
+                type="button"
+                onClick={() => setShowExitConfirmModal(true)}
+                className="text-[#8C3B2B] hover:underline font-bold inline-flex items-center gap-1 text-[11px] cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>خروج با تأیید</span>
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Toast Notification */}
       {toast && (

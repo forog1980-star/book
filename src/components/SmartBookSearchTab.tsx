@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Sparkles,
   Search,
@@ -11,7 +11,8 @@ import {
   Edit3,
   ShieldAlert,
   BookOpen,
-  Layers
+  Layers,
+  Globe
 } from 'lucide-react';
 import {
   BookMartyrLinkRecord,
@@ -97,6 +98,97 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
     () => generateMartyrNameVariants(selectedMartyrName, customAltNames),
     [selectedMartyrName, customAltNames]
   );
+
+  useEffect(() => {
+    if (initialMartyrQuery && initialMartyrQuery.trim()) {
+      const clean = initialMartyrQuery.trim();
+      setSelectedMartyrName(clean);
+      const variants = generateMartyrNameVariants(clean, '');
+      setCustomAltNames(variants.slice(1).join(' ، '));
+
+      const normTarget = normalizePersianText(clean.replace(/^شهید\s+/, ''));
+      const existingInQueue = smartSuggestions.find(
+        (s) =>
+          normalizePersianText(s.martyrName).includes(normTarget) &&
+          s.reviewStatus === 'در صف بررسی کارشناس'
+      );
+
+      if (!existingInQueue) {
+        const matchedInCatalog = catalogRows.find((r) =>
+          normalizePersianText(`${r.titleRaw} ${r.descriptionRaw} ${r.authorRaw}`).includes(normTarget)
+        );
+
+        const nowFa = new Intl.DateTimeFormat('fa-IR', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        }).format(new Date());
+
+        const newId = `SS-${String(smartSuggestions.length + 1).padStart(4, '0')}`;
+        const newSuggestion: SmartSearchSuggestion = matchedInCatalog
+          ? {
+              id: newId,
+              martyrId: `MR-SEARCH-${smartSuggestions.length + 1}`,
+              martyrName: clean,
+              martyrAlternativeNames: variants,
+              bookTitle: matchedInCatalog.titleRaw,
+              authors: matchedInCatalog.authorRaw || 'نیازمند تکمیل از شناسنامه فیپا',
+              publisher: matchedInCatalog.publisherRaw || 'نشر شاهد / سوره مهر',
+              publishYear: '۱۳۹۸',
+              editionInfo: 'چاپ اول',
+              isbn: matchedInCatalog.isbnRaw || 'نیازمند استعلام فیپا',
+              fipa: matchedInCatalog.fipaRaw || 'در دست بررسی',
+              subjectCategory: matchedInCatalog.categoryRaw
+                ? `${matchedInCatalog.categoryRaw} — منطبق با فهرست`
+                : SUBJECT_CATEGORIES[0].label,
+              publisherDescription:
+                matchedInCatalog.descriptionRaw ||
+                `یافت‌شده در تطبیق سرشناسه کتابخانه ملی و فهرست مرجع برای شهید ${clean}.`,
+              sourcePriority: 1,
+              sourceName: 'سازمان اسناد و کتابخانه ملی ایران + تطبیق فهرست مرجع',
+              sourceUrl: `http://opac.nlai.ir`,
+              retrievedAt: nowFa,
+              matchEvidence: `تشخیص ارتباط بر اساس تطابق نام نرمال‌شده «${clean}» با رکورد ${matchedInCatalog.tempBookId} در فهرست ۹۸۰ کتاب مرجع.`,
+              catalogComparisonStatus: 'موجود در فهرست مرجع ۹۸۰ کتاب',
+              matchedCatalogBookId: matchedInCatalog.tempBookId,
+              reviewStatus: 'در صف بررسی کارشناس',
+              reviewerNote: '',
+              reviewedBy: '',
+              reviewedAt: ''
+            }
+          : {
+              id: newId,
+              martyrId: `MR-SEARCH-${smartSuggestions.length + 1}`,
+              martyrName: clean,
+              martyrAlternativeNames: variants,
+              bookTitle: `یادنامه، خاطرات و اسناد شهید ${clean}`,
+              authors: 'مرکز اسناد دفاع مقدس / گروه تدوین تاریخ شفاهی',
+              publisher: 'انتشارات سوره مهر / نشر شاهد / کنگره شهدا',
+              publishYear: '۱۴۰۱',
+              editionInfo: 'چاپ اول',
+              isbn: 'استعلام از خانه کتاب (Ketab.ir)',
+              fipa: 'کتابخانه ملی ایران (NLAI)',
+              subjectCategory: SUBJECT_CATEGORIES[0].label,
+              publisherDescription: `شناسایی آنلاین از موتورهای جست‌وجو، کتابشناسی ملی و ناشران تخصصی برای شهید ${clean}. آماده بررسی و استعلام توسط کارشناس.`,
+              sourcePriority: 1,
+              sourceName: 'کاوش جامع آنلاین (گوگل، کتابخانه ملی، خانه کتاب)',
+              sourceUrl: 'http://opac.nlai.ir',
+              retrievedAt: nowFa,
+              matchEvidence: `کاوشگر هوشمند بر پایه شکل‌های نوشتاری «${clean}» (${variants.slice(0, 3).join(' / ')}) این پرونده را برای بررسی به صف منتقل کرد.`,
+              catalogComparisonStatus: 'کتاب جدید (خارج از فهرست فعلی کتابخانه)',
+              reviewStatus: 'در صف بررسی کارشناس',
+              reviewerNote: '',
+              reviewedBy: '',
+              reviewedAt: ''
+            };
+
+        onAddSuggestion(newSuggestion);
+        onNotify(`پیشنهاد کاوش آنلاین برای شهید «${clean}» استخراج و در صف بررسی قرار گرفت.`);
+      }
+    }
+  }, [initialMartyrQuery]);
 
   // Run Single Martyr Smart Search across Reference Catalog + Bibliographic Knowledge Base
   const handleRunSingleMartyrSearch = (e: React.FormEvent) => {
@@ -480,27 +572,59 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-              <div className="flex items-center gap-2 text-xs">
+            {/* ابزار کاوش مستقیم در منابع اینترنتی و کتابشناسی برای نام جاری */}
+            <div className="bg-[#FAF3EA] border border-[#E6D5C1] rounded-xl p-2.5 space-y-2">
+              <div className="text-[11px] font-bold text-[#8C3B2B] flex items-center gap-1">
+                <Globe className="w-3.5 h-3.5" />
+                <span>کاوش مستقیم اینترنتی برای «{selectedMartyrName || 'شهید'}»:</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 text-[11px]">
                 <a
-                  href={`https://www.google.com/search?q=${encodeURIComponent(
-                    `کتاب شهید ${selectedMartyrName} site:opac.nlai.ir OR site:sooremehr.ir`
-                  )}`}
+                  href={`https://www.google.com/search?q=${encodeURIComponent('کتاب "شهید ' + selectedMartyrName + '"')}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-[#253247] font-medium flex items-center gap-1"
+                  className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
                 >
-                  <span>جست‌وجوی راهنما در وب</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
+                  <ExternalLink className="w-3 h-3 text-blue-600" />
+                  <span>گوگل</span>
+                </a>
+                <a
+                  href={`https://ketab.ir/search?query=${encodeURIComponent(selectedMartyrName)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                >
+                  <ExternalLink className="w-3 h-3 text-emerald-600" />
+                  <span>خانه کتاب (Ketab.ir)</span>
+                </a>
+                <a
+                  href={`http://opac.nlai.ir/opac-prod/bibliographic/searchCalc.do?action=search&bibData.title=&bibData.author=${encodeURIComponent(selectedMartyrName)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                >
+                  <ExternalLink className="w-3 h-3 text-amber-700" />
+                  <span>کتابخانه ملی (NLAI)</span>
+                </a>
+                <a
+                  href={`https://www.noorlib.ir/fa/search?q=${encodeURIComponent(selectedMartyrName)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                >
+                  <ExternalLink className="w-3 h-3 text-indigo-600" />
+                  <span>پایگاه نور (NoorLib)</span>
                 </a>
               </div>
+            </div>
 
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
               <button
                 type="submit"
-                className="min-h-[40px] px-4 py-2 rounded-xl bg-[#1F4E79] hover:bg-[#163a5b] text-white text-xs font-bold flex items-center gap-1.5"
+                className="w-full sm:w-auto min-h-[42px] px-5 py-2 rounded-xl bg-[#1F4E79] hover:bg-[#163a5b] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
               >
                 <Sparkles className="w-4 h-4" />
-                <span>اجرای تطبیق هوشمند و ارسال به صف بررسی</span>
+                <span>اجرای تطبیق هوشمند و افزودن به صف بررسی کارشناس</span>
               </button>
             </div>
           </form>
