@@ -77,6 +77,7 @@ const CUSTOM_MARTYRS_STORAGE_KEY = 'book_custom_martyrs_v1';
 const LEGACY_CUSTOM_MARTYRS_KEY = 'shohada_markaz_asnad_custom_martyrs_v1';
 
 const SMART_SUGGESTIONS_STORAGE_KEY = 'book_smart_suggestions_v1';
+const LEGACY_SMART_KEY = 'shohada_markaz_asnad_smart_suggestions_v1';
 const GROUPS_STORAGE_KEY = 'book_groups16_v1';
 const EXTRACTED_STORAGE_KEY = 'book_extracted_items_v1';
 const AUDIT_LOG_STORAGE_KEY = 'book_audit_log_v1';
@@ -676,14 +677,14 @@ export default function App() {
         'طبقه': rec.level,
         'تعداد نسخه شمرده‌شده': rec.countedCopies,
         'وضعیت فیزیکی':
-          rec.status === 'verified'
+          rec.physical === 'verified'
             ? 'موجود و تأییدشده'
-            : rec.status === 'review'
+            : rec.physical === 'review'
             ? 'نیازمند بررسی'
             : 'پیدا نشد',
         'سلامت جلد': rec.physicalCondition || 'healthy',
         'کارشناس ثبت‌کننده': rec.checkedBy || 'کارشناس کتابخانه',
-        'تاریخ ثبت': rec.checkedDate || '',
+        'تاریخ ثبت': rec.updatedAt || '',
         'یادداشت میدانی': rec.notes || '',
         'پایگاه داده': 'book'
       }));
@@ -1384,6 +1385,41 @@ export default function App() {
                 'ثبت یا ویرایش پرونده شهید',
                 newMartyr.martyrId,
                 `ثبت پرونده شهید «${newMartyr.fullName}» در پایگاه book (قطعه: ${newMartyr.gravePiece || '—'}، ردیف: ${newMartyr.graveRow || '—'}، قبر: ${newMartyr.graveNumber || '—'})`
+              );
+            }}
+            onUpdateCustomMartyr={(updated) => {
+              setCustomMartyrs((prev) =>
+                prev.map((cm) => (cm.martyrId === updated.martyrId ? updated : cm))
+              );
+              setSessionEditsCount((prev) => prev + 1);
+              setLastSavedTime(
+                new Intl.DateTimeFormat('fa-IR', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit'
+                }).format(new Date())
+              );
+              appendAuditLog(
+                'ثبت یا ویرایش پرونده شهید',
+                updated.martyrId,
+                `به‌روزرسانی و صحت‌سنجی پرونده شهید «${updated.fullName}» (وضعیت هویت: ${updated.identityVerificationStatus}، مزار: ${updated.graveVerificationStatus})`
+              );
+            }}
+            onDeleteCustomMartyr={(martyrId) => {
+              const target = customMartyrs.find((cm) => cm.martyrId === martyrId);
+              setCustomMartyrs((prev) => prev.filter((cm) => cm.martyrId !== martyrId));
+              setSessionEditsCount((prev) => prev + 1);
+              setLastSavedTime(
+                new Intl.DateTimeFormat('fa-IR', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit'
+                }).format(new Date())
+              );
+              appendAuditLog(
+                'ثبت یا ویرایش پرونده شهید',
+                martyrId,
+                `حذف پرونده شهید مستقل «${target?.fullName || martyrId}» از پایگاه داده این دستگاه`
               );
             }}
             onLinkMartyrToBook={(newLink) => {

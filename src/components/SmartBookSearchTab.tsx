@@ -12,7 +12,11 @@ import {
   ShieldAlert,
   BookOpen,
   Layers,
-  Globe
+  Globe,
+  Building2,
+  Newspaper,
+  ArrowDown,
+  Info
 } from 'lucide-react';
 import {
   BookMartyrLinkRecord,
@@ -25,6 +29,152 @@ import {
   normalizePersianText,
   toPersianDigits
 } from '../data/markazAsnadData';
+
+export interface SpecializedPublisher {
+  id: string;
+  name: string;
+  affiliation: string;
+  domainUrl: string;
+  searchUrlPattern: (martyrName: string) => string;
+}
+
+export const SACRED_DEFENSE_PUBLISHERS: SpecializedPublisher[] = [
+  {
+    id: 'sooremehr',
+    name: 'انتشارات سوره مهر',
+    affiliation: 'حوزه هنری انقلاب اسلامی',
+    domainUrl: 'https://sooremehr.ir',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:sooremehr.ir "شهید ' + name + '"')}`
+  },
+  {
+    id: 'shahed',
+    name: 'نشر شاهد',
+    affiliation: 'بنیاد شهید و امور ایثارگران',
+    domainUrl: 'https://shahed.isaar.ir',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:shahed.isaar.ir OR site:isaar.ir "شهید ' + name + '"')}`
+  },
+  {
+    id: 'revayatfath',
+    name: 'انتشارات روایت فتح',
+    affiliation: 'مؤسسه فرهنگی هنری روایت فتح',
+    domainUrl: 'https://revayatfath.com',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:revayatfath.com "شهید ' + name + '"')}`
+  },
+  {
+    id: 'fatehan',
+    name: 'انتشارات فاتحان',
+    affiliation: 'سازمان حفظ آثار و نشر ارزش‌های دفاع مقدس بسیج',
+    domainUrl: 'https://fatehan.ir',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:fatehan.ir OR "انتشارات فاتحان" "شهید ' + name + '"')}`
+  },
+  {
+    id: 'yazahra',
+    name: 'انتشارات یا زهرا (س)',
+    affiliation: 'ناشر تخصصی زندگی‌نامه و وصایای شهدا',
+    domainUrl: 'https://yazahra.ir',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:yazahra.ir "شهید ' + name + '"')}`
+  },
+  {
+    id: '27besat',
+    name: 'نشر ۲۷ بعثت',
+    affiliation: 'سپاه حضرت محمد رسول‌الله (ص)',
+    domainUrl: 'https://27besat.com',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:27besat.com "شهید ' + name + '"')}`
+  },
+  {
+    id: 'ebrahimhadi',
+    name: 'انتشارات شهید ابراهیم هادی',
+    affiliation: 'گروه فرهنگی شهید ابراهیم هادی',
+    domainUrl: 'https://onlinehadi.com',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:onlinehadi.com "شهید ' + name + '"')}`
+  },
+  {
+    id: 'khattemoghadam',
+    name: 'انتشارات خط مقدم',
+    affiliation: 'ادبیات پایداری و مدافعان حرم',
+    domainUrl: 'https://khattemoghadam.com',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:khattemoghadam.com "شهید ' + name + '"')}`
+  },
+  {
+    id: 'sahba',
+    name: 'انتشارات صهبا',
+    affiliation: 'مؤسسه ایمان جهادی',
+    domainUrl: 'https://sahba.ir',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:sahba.ir OR site:jahadi.ir "شهید ' + name + '"')}`
+  },
+  {
+    id: 'sarv',
+    name: 'نشر سرو',
+    affiliation: 'موزه ملی انقلاب اسلامی و دفاع مقدس',
+    domainUrl: 'https://iranhm.ir',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:iranhm.ir OR "نشر سرو" "شهید ' + name + '"')}`
+  },
+  {
+    id: 'defamoghaddas',
+    name: 'مرکز اسناد و تحقیقات دفاع مقدس',
+    affiliation: 'سپاه پاسداران انقلاب اسلامی',
+    domainUrl: 'https://defamoghaddas.ir',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:defamoghaddas.ir "شهید ' + name + '"')}`
+  },
+  {
+    id: 'amirkabir',
+    name: 'مؤسسه انتشارات امیرکبیر',
+    affiliation: 'سازمان تبلیغات اسلامی',
+    domainUrl: 'https://amirkabir.net',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:amirkabir.net "شهید ' + name + '"')}`
+  },
+  {
+    id: 'ettelaat',
+    name: 'انتشارات اطلاعات',
+    affiliation: 'مؤسسه اطلاعات',
+    domainUrl: 'https://ettelaat.com',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:ettelaat.com "شهید ' + name + '"')}`
+  },
+  {
+    id: 'irdc',
+    name: 'مرکز اسناد انقلاب اسلامی',
+    affiliation: 'مؤسسه فرهنگی هنری مرکز اسناد انقلاب اسلامی',
+    domainUrl: 'https://irdc.ir',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:irdc.ir "شهید ' + name + '"')}`
+  },
+  {
+    id: 'orouj',
+    name: 'مؤسسه چاپ و نشر عروج',
+    affiliation: 'مؤسسه تنظیم و نشر آثار امام خمینی (ره)',
+    domainUrl: 'https://oroujpub.ir',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:oroujpub.ir "شهید ' + name + '"')}`
+  },
+  {
+    id: 'darkhoveyn',
+    name: 'انتشارات دارخوین',
+    affiliation: 'ناشر تخصصی ایثار و شهادت',
+    domainUrl: 'https://darkhoveyn.ir',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('site:darkhoveyn.ir "شهید ' + name + '"')}`
+  },
+  {
+    id: 'meraj',
+    name: 'انتشارات معراج اندیشه',
+    affiliation: 'فرهنگ ایثار و شهادت',
+    domainUrl: 'https://ketab.ir',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('"انتشارات معراج اندیشه" "شهید ' + name + '"')}`
+  },
+  {
+    id: 'niloofaraneh',
+    name: 'انتشارات نیلوفرانه',
+    affiliation: 'ادبیات دفاع مقدس و شهدای مدافع حرم',
+    domainUrl: 'https://ketab.ir',
+    searchUrlPattern: (name) => `https://www.google.com/search?q=${encodeURIComponent('"انتشارات نیلوفرانه" "شهید ' + name + '"')}`
+  }
+];
+
+export interface SearchFeedbackState {
+  targetName: string;
+  matchedInCatalog: ReferenceCatalogRow | null;
+  suggestionId: string;
+  status: 'matched_catalog' | 'created_new_candidate' | 'already_in_queue';
+  message: string;
+  timestamp: string;
+}
 
 interface SmartBookSearchTabProps {
   catalogRows: ReferenceCatalogRow[];
@@ -81,6 +231,11 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
   const [selectedSourceCode, setSelectedSourceCode] = useState<string>('ALL');
   const [queueFilter, setQueueFilter] = useState<'ALL' | SmartSuggestionReviewStatus>('ALL');
 
+  // Search Feedback & Review Queue Navigation State
+  const [lastSearchFeedback, setLastSearchFeedback] = useState<SearchFeedbackState | null>(null);
+  const [highlightedSuggestionId, setHighlightedSuggestionId] = useState<string | null>(null);
+  const [showPublishersModal, setShowPublishersModal] = useState<boolean>(false);
+
   // Batch Pilot 20 Martyrs State (Section 9: جست‌وجوی انبوه و پایلوت محدود ۲۰ پرونده)
   const [pilotStatus, setPilotStatus] = useState<'idle' | 'running' | 'paused' | 'completed'>('idle');
   const [pilotProcessedCount, setPilotProcessedCount] = useState<number>(6);
@@ -113,7 +268,17 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
           s.reviewStatus === 'در صف بررسی کارشناس'
       );
 
-      if (!existingInQueue) {
+      if (existingInQueue) {
+        setLastSearchFeedback({
+          targetName: clean,
+          matchedInCatalog: null,
+          suggestionId: existingInQueue.id,
+          status: 'already_in_queue',
+          message: `پیشنهاد جست‌وجو برای شهید «${clean}» قبلاً با شناسه ${existingInQueue.id} در صف بررسی ثبت شده است.`,
+          timestamp: existingInQueue.retrievedAt
+        });
+        setHighlightedSuggestionId(existingInQueue.id);
+      } else {
         const matchedInCatalog = catalogRows.find((r) =>
           normalizePersianText(`${r.titleRaw} ${r.descriptionRaw} ${r.authorRaw}`).includes(normTarget)
         );
@@ -185,6 +350,17 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
             };
 
         onAddSuggestion(newSuggestion);
+        setLastSearchFeedback({
+          targetName: clean,
+          matchedInCatalog: matchedInCatalog || null,
+          suggestionId: newId,
+          status: matchedInCatalog ? 'matched_catalog' : 'created_new_candidate',
+          message: matchedInCatalog
+            ? `تطبیق موفق در فهرست داخلی کتابخانه: عنوان «${matchedInCatalog.titleRaw}» (${matchedInCatalog.tempBookId}) در قفسه شناسایی و به صف بررسی منتقل گردید.`
+            : `در فهرست ۹۸۰ کتاب داخلی کتابخانه یافت نشد. عنوان پیشنهادی بر اساس سرشناسه‌های ملی و پایگاه‌های بیرونی به صف بررسی اضافه شد.`,
+          timestamp: nowFa
+        });
+        setHighlightedSuggestionId(newId);
         onNotify(`پیشنهاد کاوش آنلاین برای شهید «${clean}» استخراج و در صف بررسی قرار گرفت.`);
       }
     }
@@ -207,8 +383,17 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
         s.reviewStatus === 'در صف بررسی کارشناس'
     );
     if (existingInQueue) {
+      setLastSearchFeedback({
+        targetName,
+        matchedInCatalog: null,
+        suggestionId: existingInQueue.id,
+        status: 'already_in_queue',
+        message: `برای شهید «${targetName}» قبلاً پیشنهاد فعال (${existingInQueue.id}) در صف بررسی کارشناس ثبت شده است؛ از تکرار بی‌دلیل جست‌وجو جلوگیری شد.`,
+        timestamp: existingInQueue.retrievedAt
+      });
+      setHighlightedSuggestionId(existingInQueue.id);
       onNotify(
-        `برای شهید «${targetName}» قبلاً پیشنهاد فعال (${existingInQueue.id}) در صف بررسی کارشناس ثبت شده است؛ از تکرار بی‌دلیل جست‌وجو جلوگیری شد.`,
+        `برای شهید «${targetName}» قبلاً پیشنهاد فعال (${existingInQueue.id}) در صف بررسی کارشناس ثبت شده است.`,
         'warning'
       );
       return;
@@ -290,8 +475,21 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
         };
 
     onAddSuggestion(newSuggestion);
+    setLastSearchFeedback({
+      targetName,
+      matchedInCatalog: matchedInCatalog || null,
+      suggestionId: newId,
+      status: matchedInCatalog ? 'matched_catalog' : 'created_new_candidate',
+      message: matchedInCatalog
+        ? `تطبیق موفق در فهرست کتابخانه: عنوان «${matchedInCatalog.titleRaw}» (${matchedInCatalog.tempBookId}) در فهرست داخلی شناسایی شد و به صف بررسی منتقل گردید.`
+        : `در فهرست ۹۸۰ کتاب داخلی کتابخانه عنوانی یافت نشد؛ عنوان پیشنهادی بر اساس سرشناسه‌های ملی به عنوان کتاب جدید احتمالی به صف بررسی کارشناس اضافه شد.`,
+      timestamp: nowFa
+    });
+    setHighlightedSuggestionId(newId);
     onNotify(
-      `نتیجه جست‌وجوی هوشمند برای «${targetName}» استخراج و به صف بررسی کارشناس منتقل شد (بدون ثبت قطعی خودکار).`
+      matchedInCatalog
+        ? `تطبیق در فهرست ۹۸۰ کتاب پیدا شد و پیشنهاد ${newId} در صف بررسی قرار گرفت.`
+        : `پیشنهاد کتاب برای «${targetName}» با شناسه ${newId} به صف بررسی کارشناس منتقل شد.`
     );
   };
 
@@ -572,56 +770,125 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
               </div>
             </div>
 
-            {/* ابزار کاوش مستقیم در منابع اینترنتی و کتابشناسی برای نام جاری */}
-            <div className="bg-[#FAF3EA] border border-[#E6D5C1] rounded-xl p-2.5 space-y-2">
-              <div className="text-[11px] font-bold text-[#8C3B2B] flex items-center gap-1">
-                <Globe className="w-3.5 h-3.5" />
-                <span>کاوش مستقیم اینترنتی برای «{selectedMartyrName || 'شهید'}»:</span>
+            {/* راهنمای مرجع پایگاه‌های کتاب و مقالات مطابق درخواست مستقیم کاربر */}
+            <div className="bg-[#F0F5FA] border border-[#1F4E79]/20 rounded-xl p-3 space-y-1.5 text-xs text-[#1F4E79]">
+              <div className="flex items-center gap-1.5 font-bold text-xs text-[#1F4E79]">
+                <Info className="w-4 h-4 text-[#1F4E79] shrink-0" />
+                <span>راهنمای استعلام و منابع معتبر کتاب و مقالات:</span>
               </div>
-              <div className="flex flex-wrap gap-1.5 text-[11px]">
-                <a
-                  href={`https://www.google.com/search?q=${encodeURIComponent('کتاب "شهید ' + selectedMartyrName + '"')}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+              <p className="text-[#334155] leading-relaxed text-[11px]">
+                «برای جستجوی کتاب‌های چاپ شده در مورد یک فرد، می‌توانید از پایگاه اطلاعاتی سازمان اسناد و کتابخانه ملی یا سایت خانه کتاب و ادبیات ایران استفاده کنید. برای مقاله‌ها، سامانه‌های معتبری مثل مگیران، نورمگز و سیویلیکا منابع خوبی هستند.»
+              </p>
+            </div>
+
+            {/* ابزار کاوش مستقیم در منابع اینترنتی، کتابشناسی، مقالات و ناشران تخصصی دفاع مقدس */}
+            <div className="bg-[#FAF3EA] border border-[#E6D5C1] rounded-xl p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-bold text-[#8C3B2B] flex items-center gap-1.5">
+                  <Globe className="w-4 h-4 text-[#8C3B2B]" />
+                  <span>کاوش مستقیم اینترنتی برای «{selectedMartyrName || 'شهید'}»:</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPublishersModal(true)}
+                  className="px-2.5 py-1 bg-[#8C3B2B] hover:bg-[#702D20] text-white text-[11px] font-bold rounded-lg inline-flex items-center gap-1 cursor-pointer transition-colors shadow-xs"
                 >
-                  <ExternalLink className="w-3 h-3 text-blue-600" />
-                  <span>گوگل</span>
-                </a>
-                <a
-                  href={`https://ketab.ir/search?query=${encodeURIComponent(selectedMartyrName)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
-                >
-                  <ExternalLink className="w-3 h-3 text-emerald-600" />
-                  <span>خانه کتاب (Ketab.ir)</span>
-                </a>
-                <a
-                  href={`http://opac.nlai.ir/opac-prod/bibliographic/searchCalc.do?action=search&bibData.title=&bibData.author=${encodeURIComponent(selectedMartyrName)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
-                >
-                  <ExternalLink className="w-3 h-3 text-amber-700" />
-                  <span>کتابخانه ملی (NLAI)</span>
-                </a>
-                <a
-                  href={`https://www.noorlib.ir/fa/search?q=${encodeURIComponent(selectedMartyrName)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
-                >
-                  <ExternalLink className="w-3 h-3 text-indigo-600" />
-                  <span>پایگاه نور (NoorLib)</span>
-                </a>
+                  <Building2 className="w-3.5 h-3.5" />
+                  <span>۱۸ انتشارات تخصصی دفاع مقدس</span>
+                </button>
+              </div>
+
+              {/* بخش ۱: کتاب‌ها و اسناد کتابشناسی */}
+              <div className="space-y-1">
+                <div className="text-[10px] font-bold text-slate-600 flex items-center gap-1">
+                  <BookOpen className="w-3 h-3 text-[#1F4E79]" />
+                  <span>پایگاه‌های کتابشناسی و اسناد:</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 text-[11px]">
+                  <a
+                    href={`https://www.google.com/search?q=${encodeURIComponent('کتاب "شهید ' + selectedMartyrName + '"')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                  >
+                    <ExternalLink className="w-3 h-3 text-blue-600" />
+                    <span>گوگل</span>
+                  </a>
+                  <a
+                    href={`https://ketab.ir/search?query=${encodeURIComponent(selectedMartyrName)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                  >
+                    <ExternalLink className="w-3 h-3 text-emerald-600" />
+                    <span>خانه کتاب (Ketab.ir)</span>
+                  </a>
+                  <a
+                    href={`http://opac.nlai.ir/opac-prod/bibliographic/searchCalc.do?action=search&bibData.title=&bibData.author=${encodeURIComponent(selectedMartyrName)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                  >
+                    <ExternalLink className="w-3 h-3 text-amber-700" />
+                    <span>کتابخانه ملی (NLAI)</span>
+                  </a>
+                  <a
+                    href={`https://www.noorlib.ir/fa/search?q=${encodeURIComponent(selectedMartyrName)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                  >
+                    <ExternalLink className="w-3 h-3 text-indigo-600" />
+                    <span>پایگاه نور (NoorLib)</span>
+                  </a>
+                </div>
+              </div>
+
+              {/* بخش ۲: مقاله‌ها و نشریات پژوهشی (مگیران، نورمگز، سیویلیکا) */}
+              <div className="space-y-1 pt-1 border-t border-[#E6D5C1]/60">
+                <div className="text-[10px] font-bold text-slate-600 flex items-center gap-1">
+                  <Newspaper className="w-3 h-3 text-[#2E7D5B]" />
+                  <span>پایگاه‌های معتبر مقالات و نشریات:</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 text-[11px]">
+                  <a
+                    href={`https://www.magiran.com/search?q=${encodeURIComponent('شهید ' + selectedMartyrName)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="پایگاه اطلاعات نشریات کشور (مگیران)"
+                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                  >
+                    <ExternalLink className="w-3 h-3 text-teal-600" />
+                    <span>مگیران (Magiran)</span>
+                  </a>
+                  <a
+                    href={`https://www.noormags.ir/view/fa/search?q=${encodeURIComponent('شهید ' + selectedMartyrName)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="پایگاه مجلات تخصصی نور (نورمگز)"
+                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                  >
+                    <ExternalLink className="w-3 h-3 text-cyan-600" />
+                    <span>نورمگز (NoorMags)</span>
+                  </a>
+                  <a
+                    href={`https://civilica.com/search/paper/k-${encodeURIComponent('شهید ' + selectedMartyrName)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="مرجع مقالات و همایش‌های علمی (سیویلیکا)"
+                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                  >
+                    <ExternalLink className="w-3 h-3 text-orange-600" />
+                    <span>سیویلیکا (Civilica)</span>
+                  </a>
+                </div>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
               <button
                 type="submit"
-                className="w-full sm:w-auto min-h-[42px] px-5 py-2 rounded-xl bg-[#1F4E79] hover:bg-[#163a5b] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                className="w-full sm:w-auto min-h-[42px] px-5 py-2 rounded-xl bg-[#1F4E79] hover:bg-[#163a5b] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors"
               >
                 <Sparkles className="w-4 h-4" />
                 <span>اجرای تطبیق هوشمند و افزودن به صف بررسی کارشناس</span>
@@ -733,6 +1000,69 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
         </div>
       </section>
 
+      {/* نتیجه تعاملی و بازخورد شفاف کاوش هوشمند برای کاربر */}
+      {lastSearchFeedback && (
+        <div
+          className={`rounded-2xl p-4 sm:p-5 border transition-all shadow-xs ${
+            lastSearchFeedback.status === 'matched_catalog'
+              ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950'
+              : lastSearchFeedback.status === 'already_in_queue'
+              ? 'bg-amber-50/90 border-amber-300 text-amber-950'
+              : 'bg-sky-50/90 border-sky-300 text-sky-950'
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                {lastSearchFeedback.status === 'matched_catalog' ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                ) : lastSearchFeedback.status === 'already_in_queue' ? (
+                  <Info className="w-5 h-5 text-amber-600 shrink-0" />
+                ) : (
+                  <Sparkles className="w-5 h-5 text-sky-600 shrink-0" />
+                )}
+                <h3 className="font-bold text-sm sm:text-base">
+                  {lastSearchFeedback.status === 'matched_catalog'
+                    ? `تطبیق در فهرست ۹۸۰ کتاب داخلی کتابخانه: کتاب منطبق شناسایی شد`
+                    : lastSearchFeedback.status === 'already_in_queue'
+                    ? `پرونده در صف بررسی کارشناس از قبل موجود است`
+                    : `کاوش بیرونی: کتاب خارج از فهرست فعلی به صف بررسی اضافه گردید`}
+                </h3>
+              </div>
+              <p className="text-xs sm:text-sm leading-relaxed pr-7">
+                {lastSearchFeedback.message}
+              </p>
+              <div className="text-[11px] text-slate-500 pr-7 pt-0.5">
+                شناسه در صف بررسی: <strong className="font-mono text-slate-700" dir="ltr">{lastSearchFeedback.suggestionId}</strong> · زمان بررسی: {lastSearchFeedback.timestamp}
+              </div>
+            </div>
+
+            <div className="shrink-0 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const targetEl = document.getElementById(`suggestion-${lastSearchFeedback.suggestionId}`);
+                  if (targetEl) {
+                    targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    setHighlightedSuggestionId(lastSearchFeedback.suggestionId);
+                  }
+                }}
+                className={`px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors ${
+                  lastSearchFeedback.status === 'matched_catalog'
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                    : lastSearchFeedback.status === 'already_in_queue'
+                    ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                    : 'bg-[#1F4E79] hover:bg-[#163a5b] text-white'
+                }`}
+              >
+                <ArrowDown className="w-4 h-4" />
+                <span>مشاهده در صف بررسی کارشناس ⬇️</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Human Specialist Review Queue (صف بررسی کارشناس) */}
       <section className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
@@ -775,11 +1105,18 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
         </div>
 
         <div className="space-y-4">
-          {filteredSuggestions.map((sug) => (
-            <div
-              key={sug.id}
-              className="border border-slate-200 rounded-2xl p-4 bg-[#F5F7FA]/60 space-y-3"
-            >
+          {filteredSuggestions.map((sug) => {
+            const isHighlighted = highlightedSuggestionId === sug.id;
+            return (
+              <div
+                id={`suggestion-${sug.id}`}
+                key={sug.id}
+                className={`border rounded-2xl p-4 space-y-3 transition-all duration-300 ${
+                  isHighlighted
+                    ? 'border-[#1F4E79] ring-4 ring-[#1F4E79]/20 bg-amber-50/50 shadow-md'
+                    : 'border-slate-200 bg-[#F5F7FA]/60'
+                }`}
+              >
               {/* Top Metadata Line (Unboxed clean metadata per Zero-Pill rule) */}
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                 <div className="flex flex-wrap items-center gap-2 text-[#697586]">
@@ -999,9 +1336,100 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </section>
+
+      {/* مودال ۱۸ انتشارات تخصصی دفاع مقدس */}
+      {showPublishersModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 space-y-4 shadow-2xl border border-slate-200 my-6">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-[#8C3B2B]/10 flex items-center justify-center text-[#8C3B2B]">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-[#253247]">
+                    ۱۸ انتشارات تخصصی دفاع مقدس و ادبیات پایداری
+                  </h3>
+                  <p className="text-xs text-[#697586]">
+                    کاوش مستقیم نام «{selectedMartyrName || 'شهید'}» در کاتالوگ و پایگاه‌های رسمی ناشران برگزیده
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPublishersModal(false)}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-semibold cursor-pointer"
+              >
+                بستن
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-[65vh] overflow-y-auto p-1 text-xs">
+              {SACRED_DEFENSE_PUBLISHERS.map((pub, idx) => {
+                const searchLink = pub.searchUrlPattern(selectedMartyrName || 'شهید');
+                return (
+                  <div
+                    key={pub.id}
+                    className="bg-[#F8FAFC] border border-slate-200 hover:border-[#8C3B2B]/40 rounded-xl p-3 flex flex-col justify-between gap-2.5 transition-all shadow-2xs"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className="font-mono text-[10px] text-slate-400 font-bold">
+                          #{toPersianDigits(idx + 1)}
+                        </span>
+                        <span className="text-[10px] bg-amber-50 text-amber-800 font-semibold px-2 py-0.5 rounded">
+                          تخصصی ایثار
+                        </span>
+                      </div>
+                      <h4 className="font-bold text-xs text-[#253247]">{pub.name}</h4>
+                      <p className="text-[11px] text-[#697586] mt-0.5 leading-snug">
+                        {pub.affiliation}
+                      </p>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-200 flex items-center justify-between gap-2">
+                      <a
+                        href={pub.domainUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-slate-500 hover:text-[#1F4E79] truncate"
+                      >
+                        {pub.domainUrl.replace(/^https?:\/\//, '')}
+                      </a>
+                      <a
+                        href={searchLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2.5 py-1 bg-[#1F4E79] hover:bg-[#163a5b] text-white rounded-lg font-bold text-[11px] inline-flex items-center gap-1 shrink-0 shadow-2xs transition-colors"
+                      >
+                        <span>کاوش نام شهید</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+              <span className="text-[#697586] text-[11px]">
+                نکته: با کلیک روی هر ناشر، صفحه جست‌وجوی هدفمند در یک تب جدید باز می‌شود.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowPublishersModal(false)}
+                className="px-4 py-2 bg-[#8C3B2B] text-white hover:bg-[#702D20] font-bold rounded-xl cursor-pointer"
+              >
+                تأیید و بازگشت به سامانه
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -228,7 +228,7 @@ export interface CustomMartyrRecord {
   fullName: string;
   alternativeNames: string[]; // نام‌های جایگزین و اشکال مختلف نوشتاری
   externalSystemId: string; // شناسه معتبر سامانه‌های دیگر در صورت تأیید
-  identityVerificationStatus: 'تأییدشده' | 'نیازمند بررسی' | 'بررسی‌نشده';
+  identityVerificationStatus: 'تأییدشده' | 'نیازمند بررسی' | 'بررسی‌نشده' | 'ردشده / غیرمعتبر';
   informationSource: string;
   description: string;
   gravePiece: string; // با حفظ صفر ابتدایی و حروف
