@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import {
   BookMartyrLinkRecord,
+  CustomMartyrRecord,
   OFFICIAL_SEARCH_SOURCES,
   ReferenceCatalogRow,
   SmartSearchSuggestion,
@@ -182,6 +183,7 @@ export interface SearchFeedbackState {
 interface SmartBookSearchTabProps {
   catalogRows: ReferenceCatalogRow[];
   workbookMartyrs: WorkbookGolzarMartyr[];
+  customMartyrs?: CustomMartyrRecord[];
   smartSuggestions: SmartSearchSuggestion[];
   initialMartyrQuery?: string;
   onAddSuggestion: (newSug: SmartSearchSuggestion) => void;
@@ -223,6 +225,7 @@ function generateMartyrNameVariants(fullName: string, extraAlt: string): string[
 export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
   catalogRows,
   workbookMartyrs,
+  customMartyrs = [],
   smartSuggestions,
   initialMartyrQuery = '',
   onAddSuggestion,
@@ -268,6 +271,56 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
     [selectedMartyrName, customAltNames]
   );
 
+  const isMartyrOrphanOrTest = (martyrName: string, martyrId?: string): boolean => {
+    const cleanLower = (martyrName || '').toLowerCase().trim();
+    const norm = normalizePersianText(martyrName.replace(/^شهید\s+/, ''));
+    if (cleanLower.includes('test') || cleanLower.includes('تست')) return true;
+    if (!norm) return true;
+
+    const inCustom = customMartyrs.some(
+      (cm) =>
+        (martyrId && cm.martyrId === martyrId) ||
+        normalizePersianText(cm.fullName.replace(/^شهید\s+/, '')).includes(norm) ||
+        norm.includes(normalizePersianText(cm.fullName.replace(/^شهید\s+/, '')))
+    );
+    if (inCustom) return false;
+
+    const inWorkbook = workbookMartyrs.some(
+      (wm) =>
+        (martyrId && wm.tempPersonId === martyrId) ||
+        normalizePersianText(wm.fullNameSearch.replace(/^شهید\s+/, '')).includes(norm) ||
+        norm.includes(normalizePersianText(wm.fullNameSearch.replace(/^شهید\s+/, '')))
+    );
+    if (inWorkbook) return false;
+
+    return true;
+  };
+
+  const handleSyncAndPurgeOrphans = () => {
+    if (!onDeleteSuggestion) return;
+    let purgedCount = 0;
+    smartSuggestions.forEach((s) => {
+      if (isMartyrOrphanOrTest(s.martyrName, s.martyrId)) {
+        onDeleteSuggestion(s.id);
+        purgedCount++;
+      }
+    });
+
+    if (lastSearchFeedback && isMartyrOrphanOrTest(lastSearchFeedback.targetName)) {
+      setLastSearchFeedback(null);
+      setHighlightedSuggestionId(null);
+    }
+
+    if (purgedCount > 0) {
+      onNotify(
+        `همگام‌سازی انجام شد: تعداد ${toPersianDigits(purgedCount)} سابقه تستی یا مربوط به پرونده‌های حذف‌شده از صف پاک گردید.`,
+        'success'
+      );
+    } else {
+      onNotify('همه سوابق صف بررسی با پرونده‌های موجود در سیستم همگام هستند.');
+    }
+  };
+
   useEffect(() => {
     if (initialMartyrQuery && initialMartyrQuery.trim()) {
       const clean = initialMartyrQuery.trim();
@@ -291,6 +344,21 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
       }).format(new Date());
 
       if (existingInQueue) {
+        // اگر این پیشنهاد مربوط به شهید حذف‌شده یا رکورد تستی است، فوراً خودکار پاکسازی شود
+        if (isMartyrOrphanOrTest(existingInQueue.martyrName, existingInQueue.martyrId)) {
+          onDeleteSuggestion?.(existingInQueue.id);
+          setLastSearchFeedback({
+            targetName: clean,
+            matchedInCatalog: null,
+            suggestionId: '',
+            status: 'not_found',
+            message: `پرونده شهید «${clean}» قبلاً از سیستم حذف شده است؛ پیشنهاد باقیمانده (${existingInQueue.id}) نیز به طور خودکار از صف پاک گردید.`,
+            timestamp: nowFa
+          });
+          setHighlightedSuggestionId(null);
+          return;
+        }
+
         setLastSearchFeedback({
           targetName: clean,
           matchedInCatalog: null,
@@ -394,6 +462,22 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
         s.reviewStatus === 'در صف بررسی کارشناس'
     );
     if (existingInQueue) {
+      // اگر رکورد تستی یا شهید حذف‌شده است، خودکار پاکسازی شود
+      if (isMartyrOrphanOrTest(existingInQueue.martyrName, existingInQueue.martyrId)) {
+        onDeleteSuggestion?.(existingInQueue.id);
+        setLastSearchFeedback({
+          targetName,
+          matchedInCatalog: null,
+          suggestionId: '',
+          status: 'not_found',
+          message: `پرونده شهید «${targetName}» در پایگاه وجود ندارد (حذف شده است)؛ سابقه تستی قدیمی (${existingInQueue.id}) نیز به طور خودکار از صف پاک گردید.`,
+          timestamp: nowFa
+        });
+        setHighlightedSuggestionId(null);
+        onNotify(`سابقه تستی ${existingInQueue.id} به طور خودکار پاک شد.`, 'warning');
+        return;
+      }
+
       setLastSearchFeedback({
         targetName,
         matchedInCatalog: null,
@@ -651,7 +735,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
       reviewStatus: 'تأییدشده و افزوده‌شده به پرونده',
       reviewedBy: 'کارشناس بازبین مرکز اسناد',
       reviewedAt: nowFa,
-      reviewerNote: sug.reviewerNote || 'تأیید انسانی مشخصات کتاب‌شناختی و ارتباط با شهید'
+      reviewerNote: sug.reviewerNote || 'تأیید کارشناس مشخصات کتاب‌شناختی و ارتباط با شهید'
     };
 
     const newLink: BookMartyrLinkRecord = {
@@ -723,7 +807,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-3.5 py-2 text-xs text-[#253247] flex items-center gap-2">
             <ShieldAlert className="w-4 h-4 text-[#C58A2B] shrink-0" />
             <span>
-              <strong>قاعده کنترل کیفیت:</strong> هیچ نتیجه اینترنتی یا پیشنهادی بدون تأیید انسانی وارد پرونده قطعی کتاب یا شهید نمی‌شود.
+              <strong>قاعده کنترل کیفیت:</strong> هیچ نتیجه اینترنتی یا پیشنهادی بدون تأیید کارشناس وارد پرونده قطعی کتاب یا شهید نمی‌شود.
             </span>
           </div>
         </div>
@@ -1113,26 +1197,45 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                   <span>ثبت دستی کتاب جدید (در صورت کشف)</span>
                 </button>
               ) : lastSearchFeedback.suggestionId ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const targetEl = document.getElementById(`suggestion-${lastSearchFeedback.suggestionId}`);
-                    if (targetEl) {
-                      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                      setHighlightedSuggestionId(lastSearchFeedback.suggestionId);
-                    }
-                  }}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors ${
-                    lastSearchFeedback.status === 'matched_catalog'
-                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                      : lastSearchFeedback.status === 'already_in_queue'
-                      ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                      : 'bg-[#1F4E79] hover:bg-[#163a5b] text-white'
-                  }`}
-                >
-                  <ArrowDown className="w-4 h-4" />
-                  <span>مشاهده در صف بررسی کارشناس ⬇️</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetEl = document.getElementById(`suggestion-${lastSearchFeedback.suggestionId}`);
+                      if (targetEl) {
+                        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        setHighlightedSuggestionId(lastSearchFeedback.suggestionId);
+                      }
+                    }}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors ${
+                      lastSearchFeedback.status === 'matched_catalog'
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        : lastSearchFeedback.status === 'already_in_queue'
+                        ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                        : 'bg-[#1F4E79] hover:bg-[#163a5b] text-white'
+                    }`}
+                  >
+                    <ArrowDown className="w-4 h-4" />
+                    <span>مشاهده در صف بررسی کارشناس ⬇️</span>
+                  </button>
+
+                  {lastSearchFeedback.status === 'already_in_queue' && onDeleteSuggestion && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onDeleteSuggestion(lastSearchFeedback.suggestionId);
+                        setLastSearchFeedback(null);
+                        setHighlightedSuggestionId(null);
+                        onNotify(`پیشنهاد ${lastSearchFeedback.suggestionId} از صف بررسی حذف شد.`);
+                      }}
+                      className="px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white inline-flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                      title="حذف فوری این پیشنهاد از صف بررسی و پاک‌سازی سابقه"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>حذف از صف 🗑️</span>
+                    </button>
+                  )}
+                </div>
               ) : null}
             </div>
           </div>
@@ -1152,6 +1255,16 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-xs">
+            <button
+              type="button"
+              onClick={handleSyncAndPurgeOrphans}
+              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-[#253247] border border-slate-300 rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+              title="همگام‌سازی صف و حذف خودکار سوابق تستی یا شهیدان حذف‌شده"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-[#8C3B2B]" />
+              <span>همگام‌سازی و پاک‌سازی سوابق باطل</span>
+            </button>
+
             <button
               type="button"
               onClick={() => {
@@ -1426,7 +1539,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                       className="min-h-[36px] px-3.5 py-1.5 rounded-xl bg-[#2E7D5B] hover:bg-[#246348] text-white text-xs font-bold flex items-center gap-1"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>تأیید انسانی و انتقال به پرونده شهید</span>
+                      <span>تأیید کارشناس و انتقال به پرونده شهید</span>
                     </button>
                   )}
 

@@ -430,7 +430,7 @@ export interface WorkbookGolzarMartyr {
   sourceRow: string;
 }
 
-// کاربرگ بازبینی انسانی ۱۶ گروه شیت «چند شهید» (G001 تا G016)
+// کاربرگ بازبینی کارشناس ۱۶ گروه شیت «چند شهید» (G001 تا G016)
 export interface MultiMartyrGroupAudit {
   groupCode: string;
   startExcelRow: number;
@@ -442,7 +442,12 @@ export interface MultiMartyrGroupAudit {
   initialFlag: string;
   boundaryApproved: 'نامشخص' | 'بله' | 'خیر';
   allMartyrsLinked: 'نامشخص' | 'بله' | 'خیر';
-  decisionStatus: 'در انتظار بازبینی انسانی' | 'تأیید' | 'رد' | 'نیازمند پیگیری';
+  decisionStatus:
+    | 'در انتظار بازبینی کارشناس'
+    | 'در انتظار بازبینی انسانی'
+    | 'تأیید'
+    | 'رد'
+    | 'نیازمند پیگیری';
   reviewerName: string;
   reviewDate: string;
   reviewNote: string;
@@ -934,22 +939,22 @@ export const INITIAL_BOOK_MARTYR_LINKS: BookMartyrLinkRecord[] = [
 ];
 
 export const INITIAL_MULTI_MARTYR_GROUPS: MultiMartyrGroupAudit[] = [
-  { groupCode: 'G001', startExcelRow: 2, sourceRowA: 1, registeredTitle: 'آخرین نامه', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 7, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' },
-  { groupCode: 'G002', startExcelRow: 9, sourceRowA: 2, registeredTitle: 'پنجاه سال عبادت', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 15, incompleteGraveRows: 'ردیف 11 (سید اسدالله لاجوردی)', initialFlag: 'بررسی مکان مزار ناقص', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' },
-  { groupCode: 'G003', startExcelRow: 24, sourceRowA: 3, registeredTitle: 'راهیان علقمه', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 9, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' },
-  { groupCode: 'G004', startExcelRow: 33, sourceRowA: 4, registeredTitle: 'شناسایی', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 11, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' },
-  { groupCode: 'G005', startExcelRow: 44, sourceRowA: 5, registeredTitle: 'فدائیان ولایت', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 3, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' },
-  { groupCode: 'G006', startExcelRow: 47, sourceRowA: 6, registeredTitle: 'کبوتران حرم', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 5, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' },
-  { groupCode: 'G007', startExcelRow: 52, sourceRowA: 7, registeredTitle: 'مدافعان حرم', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 5, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' },
-  { groupCode: 'G008', startExcelRow: 57, sourceRowA: 8, registeredTitle: 'مهر مادر', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 10, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' },
-  { groupCode: 'G009', startExcelRow: 67, sourceRowA: 9, registeredTitle: 'چند قدم تا وصال / در آرزوی دیدار', registeredPublisher: 'ایرانا', martyrRowsCount: 65, incompleteGraveRows: 'ردیف 97 (عباس تیماجی)', initialFlag: 'بررسی مکان مزار ناقص', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' },
-  { groupCode: 'G010', startExcelRow: 132, sourceRowA: 10, registeredTitle: 'طلایه داران دو کوهه', registeredPublisher: 'حفظ و نشر / ارزش های / دفاع مقدس', martyrRowsCount: 13, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' },
-  { groupCode: 'G011', startExcelRow: 145, sourceRowA: 11, registeredTitle: 'سرداران ولایت مدار', registeredPublisher: 'حلم', martyrRowsCount: 13, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' },
-  { groupCode: 'G012', startExcelRow: 158, sourceRowA: 12, registeredTitle: 'کی می رویم بهشت؟', registeredPublisher: 'رسول آفتاب', martyrRowsCount: 8, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' },
-  { groupCode: 'G013', startExcelRow: 166, sourceRowA: 13, registeredTitle: 'چلچراغ', registeredPublisher: 'ستارگان درخشان', martyrRowsCount: 3, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' },
-  { groupCode: 'G014', startExcelRow: 169, sourceRowA: 14, registeredTitle: 'دلدادگان عقیله / بنی هاشم', registeredPublisher: 'مدیریت ایثارگران / سپاه حفاظت / انصارالمهدی(عج)', martyrRowsCount: 1, incompleteGraveRows: 'ندارد', initialFlag: 'بررسی شود: گروه تک‌عضوی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' },
-  { groupCode: 'G015', startExcelRow: 170, sourceRowA: 15, registeredTitle: 'شکنجه', registeredPublisher: 'یا زهرا', martyrRowsCount: 4, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' },
-  { groupCode: 'G016', startExcelRow: 174, sourceRowA: 16, registeredTitle: 'مردان رستگار', registeredPublisher: 'یا زهرا', martyrRowsCount: 26, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی انسانی', reviewerName: '', reviewDate: '', reviewNote: '' }
+  { groupCode: 'G001', startExcelRow: 2, sourceRowA: 1, registeredTitle: 'آخرین نامه', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 7, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' },
+  { groupCode: 'G002', startExcelRow: 9, sourceRowA: 2, registeredTitle: 'پنجاه سال عبادت', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 15, incompleteGraveRows: 'ردیف 11 (سید اسدالله لاجوردی)', initialFlag: 'بررسی مکان مزار ناقص', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' },
+  { groupCode: 'G003', startExcelRow: 24, sourceRowA: 3, registeredTitle: 'راهیان علقمه', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 9, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' },
+  { groupCode: 'G004', startExcelRow: 33, sourceRowA: 4, registeredTitle: 'شناسایی', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 11, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' },
+  { groupCode: 'G005', startExcelRow: 44, sourceRowA: 5, registeredTitle: 'فدائیان ولایت', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 3, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' },
+  { groupCode: 'G006', startExcelRow: 47, sourceRowA: 6, registeredTitle: 'کبوتران حرم', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 5, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' },
+  { groupCode: 'G007', startExcelRow: 52, sourceRowA: 7, registeredTitle: 'مدافعان حرم', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 5, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' },
+  { groupCode: 'G008', startExcelRow: 57, sourceRowA: 8, registeredTitle: 'مهر مادر', registeredPublisher: 'ابراهیم هادی', martyrRowsCount: 10, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' },
+  { groupCode: 'G009', startExcelRow: 67, sourceRowA: 9, registeredTitle: 'چند قدم تا وصال / در آرزوی دیدار', registeredPublisher: 'ایرانا', martyrRowsCount: 65, incompleteGraveRows: 'ردیف 97 (عباس تیماجی)', initialFlag: 'بررسی مکان مزار ناقص', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' },
+  { groupCode: 'G010', startExcelRow: 132, sourceRowA: 10, registeredTitle: 'طلایه داران دو کوهه', registeredPublisher: 'حفظ و نشر / ارزش های / دفاع مقدس', martyrRowsCount: 13, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' },
+  { groupCode: 'G011', startExcelRow: 145, sourceRowA: 11, registeredTitle: 'سرداران ولایت مدار', registeredPublisher: 'حلم', martyrRowsCount: 13, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' },
+  { groupCode: 'G012', startExcelRow: 158, sourceRowA: 12, registeredTitle: 'کی می رویم بهشت؟', registeredPublisher: 'رسول آفتاب', martyrRowsCount: 8, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' },
+  { groupCode: 'G013', startExcelRow: 166, sourceRowA: 13, registeredTitle: 'چلچراغ', registeredPublisher: 'ستارگان درخشان', martyrRowsCount: 3, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' },
+  { groupCode: 'G014', startExcelRow: 169, sourceRowA: 14, registeredTitle: 'دلدادگان عقیله / بنی هاشم', registeredPublisher: 'مدیریت ایثارگران / سپاه حفاظت / انصارالمهدی(عج)', martyrRowsCount: 1, incompleteGraveRows: 'ندارد', initialFlag: 'بررسی شود: گروه تک‌عضوی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' },
+  { groupCode: 'G015', startExcelRow: 170, sourceRowA: 15, registeredTitle: 'شکنجه', registeredPublisher: 'یا زهرا', martyrRowsCount: 4, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' },
+  { groupCode: 'G016', startExcelRow: 174, sourceRowA: 16, registeredTitle: 'مردان رستگار', registeredPublisher: 'یا زهرا', martyrRowsCount: 26, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' }
 ];
 
 // تابع نرمال‌سازی استاندارد فارسی مطابق با کدهای مرکز اسناد
@@ -1193,9 +1198,9 @@ export const DECISION_LEDGER_ITEMS: DecisionLedgerItem[] = [
   {
     code: 'D-05',
     subject: 'تعیین مرز کتاب‌های چندشهیدی در شیت «چند شهید» (۱۹۹ ردیف در ۱۶ گروه G001 تا G016)',
-    optionsConsidered: 'تشخیص خودکار قطعی / تولید کاربرگ بازبینی انسانی ۱۶ گروه',
+    optionsConsidered: 'تشخیص خودکار قطعی / تولید کاربرگ بازبینی کارشناس ۱۶ گروه',
     recommendedOption:
-      'ردیف‌هایی که عنوان کتاب و ناشر دارند سرگروه (G001..G016) هستند و ردیف‌های بعدی که فقط نام شهید و قطعه دارند به همان کتاب تعلق می‌گیرند، اما تأیید نهایی مرز هر ۱۶ گروه در «کاربرگ بازبینی انسانی» انجام می‌شود.',
+      'ردیف‌هایی که عنوان کتاب و ناشر دارند سرگروه (G001..G016) هستند و ردیف‌های بعدی که فقط نام شهید و قطعه دارند به همان کتاب تعلق می‌گیرند، اما تأیید نهایی مرز هر ۱۶ گروه در «کاربرگ بازبینی کارشناس» انجام می‌شود.',
     status: 'تأییدشده در نسخه ۰.۱',
     impact: 'صفر شدن خطای انتساب اشتباه یک شهید به کتاب قبلی یا بعدی'
   },
@@ -1211,7 +1216,7 @@ export const DECISION_LEDGER_ITEMS: DecisionLedgerItem[] = [
   {
     code: 'D-07',
     subject: 'نحوه برخورد با ۱۱ عنوان مشابه یا مشکوک به تکرار در شیت‌های ناشران',
-    optionsConsidered: 'ادغام خودکار بر اساس شباهت نام / حفظ جداگانه تا بازبینی انسانی',
+    optionsConsidered: 'ادغام خودکار بر اساس شباهت نام / حفظ جداگانه تا بازبینی کارشناس',
     recommendedOption:
       'مواردی مانند «ضربت متقابل» و «ضربت متقابل(غ ر)»، «همپای صاعقه» و «همپای صاعقه(غ ر)»، یا «دلتنگ نباش» در دو ناشر مختلف، بدون ادغام خودکار حفظ و در شیت «موارد نیازمند بررسی» پرچم‌گذاری می‌شوند.',
     status: 'خط قرمز اجرایی',

@@ -379,12 +379,12 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'کاربرگ-بازبینی-انسانی-۱۶-گروه-چند-شهید.csv';
+    a.download = 'کاربرگ-بازبینی-کارشناس-۱۶-گروه-چند-شهید.csv';
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1500);
-    onNotify('فایل CSV کاربرگ بازبینی انسانی ۱۶ گروه چندشهیدی دانلود شد.');
+    onNotify('فایل CSV کاربرگ بازبینی کارشناس ۱۶ گروه چندشهیدی دانلود شد.');
   };
 
   return (
@@ -1353,7 +1353,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
           <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-1">
               <h3 className="text-sm sm:text-base font-bold text-slate-900">
-                کاربرگ بازبینی انسانی ۱۶ گروه شیت «چند شهید» (G001 تا G016 — ۱۹۸ ردیف داده)
+                کاربرگ بازبینی کارشناس ۱۶ گروه شیت «چند شهید» (G001 تا G016 — ۱۹۸ ردیف داده)
               </h3>
               <p className="text-xs text-slate-600">
                 قاعده «عنوان‌دار = آغازگر گروه، بی‌عنوان = ادامه گروه» تا زمان ثبت تصمیم بازبین یک فرضیه ساختاری است. مقادیر خالی مزار (مانند ردیف ۱۱ در G002 و ردیف ۹۷ در G009) نباید حدسی پر شوند.
@@ -1505,7 +1505,8 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                           }
                           className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl font-bold"
                         >
-                          <option value="در انتظار بازبینی انسانی">در انتظار بازبینی انسانی</option>
+                          <option value="در انتظار بازبینی کارشناس">در انتظار بازبینی کارشناس</option>
+                          <option value="در انتظار بازبینی انسانی">در انتظار بازبینی کارشناس (پیشین)</option>
                           <option value="تأیید">تأیید</option>
                           <option value="نیازمند پیگیری">نیازمند پیگیری</option>
                           <option value="رد">رد</option>

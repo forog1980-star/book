@@ -722,7 +722,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                   صف بررسی پیشنهادهای جست‌وجوی هوشمند بیرونی
                 </div>
                 <div className="text-[#697586] mt-0.5">
-                  کتاب‌های یافت‌شده در کتابخانه ملی، فیپا و سوره مهر که منتظر تأیید انسانی هستند
+                  کتاب‌های یافت‌شده در کتابخانه ملی، فیپا و سوره مهر که منتظر تأیید کارشناس هستند
                 </div>
               </div>
               <button
@@ -755,7 +755,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             <div className="py-2.5 flex items-center justify-between gap-3">
               <div>
                 <div className="font-bold text-[#253247]">
-                  کاربرگ بازبینی انسانی ۱۶ گروه کتاب چندشهیدی (G001 تا G016)
+                  کاربرگ بازبینی کارشناس ۱۶ گروه کتاب چندشهیدی (G001 تا G016)
                 </div>
                 <div className="text-[#697586] mt-0.5">
                   تأیید مرز ردیف‌های شیت «چند شهید» و تکمیل ۲ نقص شماره مزار (ردیف ۱۱ و ۹۷)

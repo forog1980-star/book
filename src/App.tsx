@@ -51,6 +51,7 @@ import {
   UserRoleCode,
   WorkbookGolzarMartyr,
   getAllocatedCategoryForSlot,
+  normalizePersianText,
   toPersianDigits
 } from './data/markazAsnadData';
 import { HomeDashboardTab } from './components/HomeDashboardTab';
@@ -1407,7 +1408,38 @@ export default function App() {
             }}
             onDeleteCustomMartyr={(martyrId) => {
               const target = customMartyrs.find((cm) => cm.martyrId === martyrId);
+              const targetName = target?.fullName || '';
+              const normTargetName = normalizePersianText(targetName.replace(/^شهید\s+/, ''));
+
               setCustomMartyrs((prev) => prev.filter((cm) => cm.martyrId !== martyrId));
+
+              // پاکسازی خودکار و رفرش صف جست‌وجوی هوشمند متصل به این شهید
+              setSmartSuggestions((prev) =>
+                prev.filter((s) => {
+                  if (s.martyrId === martyrId) return false;
+                  if (normTargetName) {
+                    const normS = normalizePersianText(s.martyrName.replace(/^شهید\s+/, ''));
+                    if (
+                      normS &&
+                      (normS === normTargetName ||
+                        normS.includes(normTargetName) ||
+                        normTargetName.includes(normS))
+                    ) {
+                      return false;
+                    }
+                  }
+                  return true;
+                })
+              );
+
+              // ریست کردن جست‌وجوی پیش‌انتخاب‌شده در صورت حذف شهید
+              setPreselectedSmartMartyrName((prev) => {
+                if (normTargetName && prev && normalizePersianText(prev).includes(normTargetName)) {
+                  return '';
+                }
+                return prev;
+              });
+
               setSessionEditsCount((prev) => prev + 1);
               setLastSavedTime(
                 new Intl.DateTimeFormat('fa-IR', {
@@ -1419,8 +1451,9 @@ export default function App() {
               appendAuditLog(
                 'ثبت یا ویرایش پرونده شهید',
                 martyrId,
-                `حذف پرونده شهید مستقل «${target?.fullName || martyrId}» از پایگاه داده این دستگاه`
+                `حذف پرونده شهید مستقل «${targetName || martyrId}» و پاک‌سازی خودکار سوابق جست‌وجوی هوشمند آن از پایگاه داده`
               );
+              showNotify(`پرونده شهید «${targetName || martyrId}» و سوابق جست‌وجوی هوشمند مرتبط حذف شد.`);
             }}
             onLinkMartyrToBook={(newLink) => {
               setLinks((prev) => [newLink, ...prev]);
@@ -1451,6 +1484,7 @@ export default function App() {
           <SmartBookSearchTab
             catalogRows={catalogRows}
             workbookMartyrs={workbookMartyrs}
+            customMartyrs={customMartyrs}
             smartSuggestions={smartSuggestions}
             initialMartyrQuery={preselectedSmartMartyrName}
             onAddSuggestion={(newSug: SmartSearchSuggestion) => {
