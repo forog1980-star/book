@@ -1,0 +1,37 @@
+name: Main application build check
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "vite.config.ts"
+      - ".github/workflows/main-app-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Build main application
+        run: npm run build
+      - name: Verify build output and embedded Persian font
+        run: |
+          test -s dist/index.html
+          test -s dist/manifest.webmanifest
+          grep -R -q "Vazirmatn" dist/assets/*.css
+          grep -R -q "پشتیبان و گزارش‌ها" dist/assets/*.js

@@ -1,0 +1,10 @@
+{
+  "name": "Remix نرم‌افزار کتابخانه و مرکز اسناد گلزار شهدای تهران",
+  "description": "سامانه جامع مدیریت مخزن کتب، میز امانت، آرشیو دست‌نوشته‌ها و کتاب‌شناسی قطعات گلزار شهدای بهشت زهرا (س) تهران",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

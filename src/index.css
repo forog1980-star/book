@@ -1,0 +1,214 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'B Titr';
+  src: local('B Titr'), local('BTitrBold'), local('Titr'),
+       url('https://cdn.fontcdn.ir/Font/Persian/BTitr/BTitrBold.woff') format('woff');
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --font-sans: 'Vazirmatn', system-ui, -apple-system, sans-serif;
+    --font-titr: 'B Titr', 'Lalezar', 'Vazirmatn', sans-serif;
+    --font-serif: 'B Titr', 'Lalezar', 'Amiri', Georgia, serif;
+    --font-mono: 'JetBrains Mono', 'Vazirmatn', monospace;
+  }
+
+  html,
+  body,
+  #root {
+    max-width: 100%;
+    overflow-x: hidden;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: 'Vazirmatn', var(--font-sans);
+    background-color: #FDF8F2;
+    color: #332218;
+    font-feature-settings: "kern" 1;
+  }
+
+  h1,
+  h2,
+  h3,
+  .font-titr,
+  .font-editorial {
+    font-family: 'B Titr', 'Lalezar', 'Vazirmatn', sans-serif;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1.45;
+  }
+}
+
+/* استایل کارت‌های ۵گانه صفحه خانه و بخش آمار تفصیلی با پالت رنگ گرم */
+.home-hero {
+  background: linear-gradient(135deg, #FFFFFF 0%, #FDF8F2 100%);
+  border: 1px solid #E6D5C1;
+}
+
+.home-section-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.65rem;
+  background-color: #FFFFFF;
+  border: 1px solid #E6D5C1;
+  border-radius: 1rem;
+  padding: 1rem;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(51, 34, 24, 0.04);
+}
+
+.home-section-card:hover {
+  background-color: #F5E6D3;
+  border-color: #8C3B2B;
+  transform: translateY(-2px);
+}
+
+.home-section-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  background-color: #F5E6D3;
+  color: #8C3B2B;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.home-section-title {
+  font-family: 'B Titr', 'Lalezar', 'Vazirmatn', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #332218;
+  display: block;
+}
+
+.home-section-note {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: #755C48;
+  display: block;
+}
+
+.home-section-open {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #8C3B2B;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.home-statistics {
+  background-color: #FFFFFF;
+  border: 1px solid #E6D5C1;
+  border-radius: 1rem;
+  padding: 0.75rem 1rem;
+  space-y: 1rem;
+}
+
+.home-statistics > summary {
+  cursor: pointer;
+  font-family: 'B Titr', 'Lalezar', 'Vazirmatn', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #8C3B2B;
+  padding: 0.35rem 0;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.home-statistics > summary::after {
+  content: '▼ نمایش / بستن';
+  font-family: 'Vazirmatn', sans-serif;
+  font-size: 0.72rem;
+  background-color: #F5E6D3;
+  color: #8C3B2B;
+  padding: 0.25rem 0.65rem;
+  border-radius: 0.5rem;
+}
+
+/* پالت رنگ گرم و اصیل برای کل نرم‌افزار (تبدیل یکپارچه طیف‌های سرد به طیف‌های گرم آجرنمای سنتی، کهربایی و کاغذ کاهی) */
+.bg-\[\#1F4E79\],
+.bg-\[\#1f4e79\] {
+  background-color: #8C3B2B !important;
+}
+
+.hover\:bg-\[\#173b5c\]:hover,
+.hover\:bg-\[\#163a5b\]:hover {
+  background-color: #702D20 !important;
+}
+
+.text-\[\#1F4E79\],
+.text-\[\#1f4e79\] {
+  color: #8C3B2B !important;
+}
+
+.border-\[\#1F4E79\],
+.border-\[\#1f4e79\] {
+  border-color: #8C3B2B !important;
+}
+
+.bg-\[\#F5F7FA\],
+.bg-slate-50,
+.bg-slate-100 {
+  background-color: #FDF8F2 !important;
+}
+
+.bg-\[\#EAF1F7\],
+.bg-\[\#EAF1F7\]\/60,
+.bg-\[\#EAF1F7\]\/70,
+.bg-\[\#edf4fa\],
+.bg-\[\#f2f7fb\] {
+  background-color: #F5E6D3 !important;
+}
+
+.text-\[\#253247\],
+.text-slate-900,
+.text-slate-800,
+.text-\[\#162b3b\] {
+  color: #332218 !important;
+}
+
+.text-\[\#697586\],
+.text-slate-600,
+.text-slate-500 {
+  color: #755C48 !important;
+}
+
+.border-slate-200,
+.border-slate-300,
+.border-\[\#b8d0e8\],
+.border-\[\#c9dced\] {
+  border-color: #E6D5C1 !important;
+}
+
+.bg-\[\#2E7D5B\] {
+  background-color: #9E5A24 !important;
+}
+
+.hover\:bg-\[\#246348\]:hover,
+.hover\:bg-\[\#236347\]:hover,
+.hover\:bg-\[\#236247\]:hover {
+  background-color: #7D4519 !important;
+}
+
+.text-\[\#2E7D5B\] {
+  color: #9E5A24 !important;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.balance-text {
+  text-wrap: balance;
+}

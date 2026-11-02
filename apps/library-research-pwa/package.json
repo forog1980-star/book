@@ -1,0 +1,19 @@
+{
+  "name": "markaz-asnad-library-research-pwa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first PWA for library inventory and research at Markaz Asnad",
+  "scripts": {
+    "expand:sources": "node scripts/expand-sources.mjs",
+    "build": "npm run expand:sources && tsc -p tsconfig.json && node scripts/compress-runtime.mjs",
+    "test": "npm run build && node --test tests/*.test.mjs && node scripts/smoke.mjs && node scripts/browser-smoke.mjs && npm run assemble:site && node scripts/static-smoke.mjs",
+    "serve": "node scripts/serve.mjs",
+    "assemble:site": "node scripts/assemble-static.mjs",
+    "build:site": "npm run build && npm run assemble:site"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3",
+    "playwright": "1.64.1"
+  }
+}

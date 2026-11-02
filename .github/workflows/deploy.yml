@@ -1,0 +1,70 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: ["main", "master"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build_and_deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js for the main application
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install main application dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build the existing main application
+        run: npm run build
+
+      - name: Setup Node.js for the independent library PWA
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build and validate the independent library PWA
+        working-directory: apps/library-research-pwa
+        run: |
+          npm install --no-audit --no-fund
+          npm run build:site
+          node scripts/static-smoke.mjs
+          mkdir -p ../../dist/library-research
+          cp -a site/. ../../dist/library-research/
+
+      - name: Verify both applications are present
+        run: |
+          test -s dist/index.html
+          test -s dist/library-quick-inventory.html
+          test -s dist/library-research/index.html
+          test -s dist/library-research/manifest.webmanifest
+          test -s dist/library-research/sw.js
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './dist'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

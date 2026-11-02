@@ -1,0 +1,34 @@
+{
+  "id": "./",
+  "name": "سامانه مدیریت کتابخانه و پژوهش مرکز اسناد گلزار شهدای تهران",
+  "short_name": "مرکز اسناد",
+  "description": "سامانه مدیریت کتابخانه تخصصی، نسخه‌های فیزیکی قفسه‌ها، پرونده شهدا، جست‌وجوی هوشمند و پژوهش مرکز اسناد گلزار شهدای تهران",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FBF8F3",
+  "theme_color": "#E8DBCF",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "./pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,1434 @@
+PS C:\Windows\System32> $path = "C:\مهدی\گلزار\مرکز اسناد"
+PS C:\Windows\System32> $targets = @(
+>>   "\نرم‌افزار کتابخانه\README.md",
+>>   "\نرم‌افزار کتابخانه\برچسب‌های قفسه و طبقه.md",
+>>   "\نرم‌افزار کتابخانه\گزارش تغییرات.md",
+>>   "\نرم‌افزار کتابخانه\index.html",
+>>   "\کتابخانه\گزارش‌ها\نقطه شروع برنامه‌نویسی ثبت سریع موجودی فیزیکی کتابخانه - نسخه 0.1.md",
+>>   "\کتابخانه\گزارش‌ها\گزارش فنی ابزار تطبیق فیزیکی کتابخانه - نسخه 0.1.md",
+>>   "\کتابخانه\گزارش‌ها\گزارش روزانه کتابخانه - 1405-08-03.md",
+>>   "\کتابخانه\گزارش‌ها\گزارش روزانه کتابخانه - 1405-08-04.md",
+>>   "\نرم‌افزار ثبت کتاب‌ها و شهدا\docs\طرح-اجرایی-نسخه-اول-برنامه-کتابخانه-نسخه-۰٫۱.md",
+>>   "\نرم‌افزار ثبت کتاب‌ها و شهدا\docs\طرح-کدگذاری-و-فیلدهای-فهرست-کتابخانه-نسخه-۰٫۱.md",
+>>   "\مستندات\پروتکل-تداوم-کار-و-تفکیک-مسیرهای-کتابخانه.md",
+>>   "\مستندات\ثبت تکمیلی دیدگاه‌های مدیریت و وضعیت کتابخانه - 1405-07-28.md"
+>> )
+PS C:\Windows\System32>
+PS C:\Windows\System32> foreach ($rel in $targets) {
+>>   $full = $path + $rel
+>>   if (Test-Path $full) {
+>>     Write-Host "`r`n================ FILE: $rel ================" -ForegroundColor Yellow
+>>     Get-Content $full -Encoding UTF8 -ErrorAction SilentlyContinue
+>>   }
+>> }
+
+================ FILE: \نرم‌افزار کتابخانه\README.md ================
+# نرم‌افزار کتابخانه — ابزار موقت تطبیق فیزیکی
+
+## هدف
+ابزار وب مستقل و موقت برای استفاده با یک گوشی اندرویدی و یک ثبت‌کننده. در این مرحله فقط اطلاعات پایه کتاب، موضوع کلی، محل فیزیکی و توضیح کوتاه ثبت می‌شود. ارتباط کتاب‌ها با اسامی شهدا در مرحله بعد طراحی خواهد شد.
+
+## اجرای سریع
+1. فایل `index.html` را در مرورگر باز کنید؛ برای استفاده از گوشی، نسخه میزبانی‌شده باید از طریق HTTPS در دسترس باشد.
+2. فایل `کتابخانه/فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx` را از مخزن دریافت و در گوشی انتخاب کنید.
+3. شیت حاوی عنوان کتاب را انتخاب کنید؛ شیت «فهرست کتاب‌ها» یا «عنوان کتاب‌ها» را مطابق نام واقعی فایل انتخاب کنید.
+4. ستون عنوان را اجباری و ستون‌های نویسنده، ناشر و سال چاپ را در صورت وجود تعیین کنید.
+5. عنوان را جست‌وجو کنید، نتیجه درست را انتخاب کنید، موضوع، قفسه، طبقه، وضعیت مشاهده و توضیح را وارد و ذخیره کنید.
+6. پایان هر نوبت کاری «پشتیبان JSON» و «خروجی CSV» بگیرید و فایل‌ها را در محل امن نگه دارید.
+
+## شناسه محل فیزیکی مورد توافق
+چهار قفسه عملیاتی:
+- `SH-01`
+- `SH-02`
+- `SH-03`
+- `SH-04`
+
+هر قفسه شش طبقه دارد که از بالا به پایین با `T01` تا `T06` مشخص می‌شوند. قالب نشانی کامل محل:
+- `SH-01-T01`
+- `SH-03-T04`
+
+قفسه‌های `SH-01` و `SH-02` برای گروه R (روایت و خاطرات) در نظر گرفته شده‌اند. گروه‌های A، H، P، K و M در `SH-03` و `SH-04` قرار می‌گیرند؛ جانمایی نهایی این گروه‌ها در طبقات هنوز باید در محل تثبیت شود. قفسه پنجم فعلاً خارج از نقشه عملیاتی این ابزار است.
+
+## اطلاعات ثبت‌شده
+عنوان، نویسنده، ناشر، سال چاپ، موضوع، قفسه، طبقه، کد محل، وضعیت مشاهده، توضیح کوتاه و زمان آخرین ثبت.
+
+## حفاظت از داده
+- فایل اکسل در مرورگر پردازش می‌شود و به سرور ارسال نمی‌شود.
+- اطلاعات ثبت‌شده در حافظه مرورگر همان دستگاه نگهداری می‌شود؛ داده مرورگر را پاک نکنید.
+- هر نوبت کاری از JSON پشتیبان و CSV خروجی بگیرید.
+- برای بازگرداندن ثبت‌ها از بخش «بازیابی/ادغام پشتیبان JSON» استفاده کنید؛ کلیدهای تکراری عمداً بازنویسی نمی‌شوند.
+- از «خروجی تغییرات برای بررسی Excel» برای تهیه فهرست تغییرات پیشنهادی استفاده کنید. این خروجی فقط پیشنهاد است و فایل Excel را تغییر نمی‌دهد.
+- این ابزار به Supabase یا نرم‌افزار اصلی متصل نیست و هیچ داده‌ای در آن‌ها تغییر نمی‌دهد.
+- قبل از استفاده انبوه، با ۲۰ کتاب واقعی آزمایش کنید.
+- این ابزار شناسه پایدار نهایی کتاب تولید نمی‌کند؛ کلیدهای ثبت موقت صرفاً برای پیگیری‌اند و ارتباط شهید–کتاب را فعلاً ثبت نمی‌کند.
+
+## وضعیت نسخه ۰٫۲ — ۱۴۰۵/۰۸/۰۴
+- افزوده شد: بازیابی/ادغام پشتیبان JSON با اعتبارسنجی ساختار و بدون بازنویسی کلیدهای موجود.
+- افزوده شد: خروجی مستقل «تغییرات پیشنهادی برای بررسی Excel»؛ فایل مرجع همچنان دست‌نخورده می‌ماند.
+- افزوده شد: کنترل اجباری انتخاب موضوع، قفسه و طبقه برای ثبت کتابی که وضعیت آن «دیده شد» است.
+- بررسی ایستای نحوی JavaScript انجام شد و موفق بود؛ آزمون واقعی گوشی، بازیابی در مرورگر واقعی و تطبیق با فایل Excel هنوز انجام نشده‌اند.
+
+## محدودیت مهم
+برای خواندن فایل Excel از کتابخانه JavaScript با CDN استفاده می‌شود؛ در نخستین بارگذاری اتصال اینترنت لازم است. فایل اصلی به هیچ‌وجه تغییر نمی‌کند. استقرار آنلاین و آزمون واقعی در گوشی هنوز تأیید نشده است.
+
+================ FILE: \نرم‌افزار کتابخانه\برچسب‌های قفسه و طبقه.md ================
+# برچسب‌های قفسه و طبقه — مرکز اسناد
+
+**عنوان بخش:** نرم‌افزار کتابخانه / سامان‌دهی فیزیکی کتابخانه
+**قاعده طبقه‌بندی:** قفسه‌ها با شناسه مستقل و طبقات از بالا به پایین شماره‌گذاری می‌شوند.
+
+## قفسه‌های عملیاتی
+- `SH-01`
+- `SH-02`
+- `SH-03`
+- `SH-04`
+
+## طبقات هر قفسه
+- `T01` — طبقه اول از بالا
+- `T02` — طبقه دوم از بالا
+- `T03` — طبقه سوم از بالا
+- `T04` — طبقه چهارم از بالا
+- `T05` — طبقه پنجم از بالا
+- `T06` — طبقه ششم از بالا
+
+## قالب نشانی کامل
+نمونه: **`SH-01-T01`**؛ یعنی قفسه SH-01، طبقه اول از بالا.
+
+## جانمایی گروه‌های موضوعی
+- قفسه‌های `SH-01` و `SH-02`: گروه R — روایت و خاطرات.
+- قفسه‌های `SH-03` و `SH-04`: گروه‌های A، H، P، K و M.
+
+جانمایی نهایی گروه‌های A، H، P، K و M در طبقات هنوز تأیید نشده و باید هنگام چیدمان فیزیکی مشخص شود. قفسه پنجم در حال حاضر خارج از نقشه عملیاتی این ابزار است.
+
+================ FILE: \نرم‌افزار کتابخانه\گزارش تغییرات.md ================
+# گزارش تغییرات — نرم‌افزار کتابخانه
+
+## ۱۴۰۵/۰۸/۰۳ — نسخه آزمایشی ۰٫۱
+- ایجاد ابزار مستقل برای تطبیق فیزیکی کتاب‌ها با یک گوشی اندرویدی و یک کاربر.
+- افزودن بارگذاری فایل Excel، انتخاب شیت و نگاشت ستون عنوان/نویسنده/ناشر/سال.
+- افزودن جست‌وجوی عنوان، ثبت موضوع، محل (قفسه و طبقه)، وضعیت مشاهده و توضیحات.
+- افزودن ثبت جداگانه کتاب‌های دیده‌شده‌ای که در فهرست مرجع پیدا نمی‌شوند.
+- افزودن خروجی CSV و پشتیبان JSON.
+- فایل مرجع و Supabase دست‌نخورده می‌مانند.
+- وضعیت: کد اولیه ثبت شده؛ آزمون واقعی در گوشی و میزبانی وب هنوز انجام نشده است.
+
+================ FILE: \نرم‌افزار کتابخانه\index.html ================
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1f4e79"><title>نرم‌افزار کتابخانه | مرکز اسناد</title>
+<style>
+:root{font-family:Tahoma,"Segoe UI",sans-serif;color:#162b3b;background:#f2f5f8}*{box-sizing:border-box}body{margin:0}header{background:#1f4e79;color:#fff;padding:17px 15px}h1{font-size:1.18rem;margin:0 0 6px}header p{margin:0;font-size:.84rem;line-height:1.8}main{max-width:860px;margin:auto;padding:12px;display:grid;gap:12px}.card{background:#fff;border:1px solid #dce4eb;border-radius:13px;padding:13px}h2{font-size:1rem;margin:0 0 10px}.hint{font-size:.8rem;line-height:1.8;color:#53697b}label{display:block;font-size:.82rem;font-weight:700;margin:9px 0 5px}input,select,textarea,button{width:100%;font:inherit;border:1px solid #c4d0db;border-radius:9px;padding:11px;background:white;color:#172b3a}textarea{min-height:62px}button{border:0;background:#1f4e79;color:white;font-weight:700;margin-top:8px;cursor:pointer}button.alt{background:#e8eef4;color:#1f4e79;border:1px solid #ccd8e2}button.warn{background:#8a3333}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.full{grid-column:1/-1}.status{background:#edf4fa;border-radius:9px;padding:10px;font-size:.82rem;line-height:1.8;margin-top:8px}.results{display:grid;gap:7px;margin-top:8px}.result{text-align:right;background:white;color:#183147;border:1px solid #ccd8e2;border-radius:9px;padding:10px;margin:0}.result strong,.result small{display:block;line-height:1.7}.result small{font-weight:400;color:#5a6d7c}.result.chosen{border:2px solid #1f4e79;background:#f2f7fb}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.stat{text-align:center;background:#edf3f7;border-radius:9px;padding:9px}.stat b{display:block;font-size:1.1rem}.stat span{font-size:.72rem;color:#526777}.hidden{display:none!important}.tag{display:inline-block;padding:3px 7px;border-radius:20px;background:#e9eff5;font-size:.74rem;margin:2px}.foot{font-size:.73rem;line-height:1.8;color:#617383}@media(min-width:700px){main{grid-template-columns:1fr 1fr}.full{grid-column:1/-1}}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+<header><h1>نرم‌افزار کتابخانه</h1><p>مرکز اسناد گلزار شهدای تهران · ابزار موقت تطبیق فیزیکی کتاب‌ها</p></header>
+<main>
+<section class="card full">
+<h2>۱. ورود فهرست اکسل</h2>
+<p class="hint">فایل اکسل از داخل همین گوشی انتخاب می‌شود و به سرور ارسال نمی‌شود. پس از انتخاب فایل، شیت مربوط به عنوان کتاب و ستون‌های موجود را مشخص کنید. فایل مرجع اصلی دست‌نخورده می‌ماند.</p>
+<label for="workbook">انتخاب فایل Excel</label><input id="workbook" type="file" accept=".xlsx,.xls,.csv">
+<div id="loadMsg" class="status">ابتدا فایل فهرست کاری کتابخانه را انتخاب کنید.</div>
+<div id="sheetArea" class="hidden"><label for="sheet">شیت مورد استفاده</label><select id="sheet"></select><button id="loadSheet">بارگذاری شیت انتخاب‌شده</button></div>
+<div id="mapArea" class="grid hidden">
+<div class="full"><label for="titleCol">ستون عنوان کتاب (ضروری)</label><select id="titleCol"></select></div>
+<div><label for="authorCol">نویسنده</label><select id="authorCol"></select></div>
+<div><label for="publisherCol">ناشر</label><select id="publisherCol"></select></div>
+<div><label for="yearCol">سال چاپ</label><select id="yearCol"></select></div>
+<button id="applyMap" class="full">تأیید ستون‌ها و شروع جست‌وجو</button></div>
+</section>
+<section class="card full"><h2>۲. جست‌وجوی عنوان کتاب</h2>
+<label for="search">عنوان یا بخشی از عنوان</label><input id="search" placeholder="چند واژه از عنوان کتاب را بنویسید" autocomplete="off">
+<div id="searchMsg" class="hint">پس از بارگذاری شیت، جست‌وجو فعال می‌شود.</div><div id="results" class="results"></div>
+</section>
+<section class="card"><h2>۳. ثبت کتاب انتخاب‌شده</h2>
+<div id="selectedInfo" class="status">یک کتاب را از نتایج جست‌وجو انتخاب کنید.</div>
+<label for="category">موضوع / گروه</label><select id="category"><option value="">انتخاب نشده</option><option>R ـ روایت و خاطرات</option><option>A ـ ادبیات و هنر</option><option>H ـ تاریخ و اسناد</option><option>P ـ پژوهش و تحلیل</option><option>K ـ کودک و نوجوان</option><option>M ـ متفرقه</option><option>نیازمند تعیین موضوع</option></select>
+<div class="grid"><div><label for="shelf">قفسه</label><select id="shelf"><option value="">انتخاب کنید</option><option>SH-01</option><option>SH-02</option><option>SH-03</option><option>SH-04</option></select></div>
+<div><label for="level">طبقه از بالا</label><select id="level"><option value="">انتخاب کنید</option><option value="T01">طبقه ۱</option><option value="T02">طبقه ۲</option><option value="T03">طبقه ۳</option><option value="T04">طبقه ۴</option><option value="T05">طبقه ۵</option><option value="T06">طبقه ۶</option></select></div></div>
+<label for="physical">وضعیت مشاهده</label><select id="physical"><option value="verified">کتاب دیده شد و ثبت شد</option><option value="review">نیازمند بررسی مشخصات</option><option value="not_found">در این نوبت پیدا نشد</option></select>
+<label for="notes">توضیحات کوتاه</label><textarea id="notes" placeholder="مثلاً موضوع دقیق، چاپ متفاوت، یادداشت کوتاه (اختیاری)"></textarea>
+<div class="grid"><button id="save">ذخیره ثبت</button><button id="clear" class="alt">کتاب بعدی / پاک‌کردن</button></div>
+</section>
+<section class="card"><h2>۴. کتابی که در اکسل پیدا نشد</h2><p class="hint">اگر کتاب را واقعاً در قفسه دیده‌اید اما در فهرست رکورد مناسبی ندارد، آن را اینجا جداگانه ثبت کنید؛ فهرست مرجع تغییر نمی‌کند.</p>
+<label for="outsideTitle">عنوان روی کتاب</label><input id="outsideTitle" placeholder="عنوان کتاب">
+<label for="outsideAuthor">نویسنده (اگر مشخص است)</label><input id="outsideAuthor" placeholder="اختیاری">
+<button id="addOutside" class="alt">ثبت کتاب خارج از فهرست</button></section>
+<section class="card full"><h2>۵. آمار، پشتیبان و خروجی</h2>
+<div class="stats"><div class="stat"><b id="countRows">۰</b><span>ردیف‌های شیت</span></div><div class="stat"><b id="countSaved">۰</b><span>ثبت‌ها</span></div><div class="stat"><b id="countVerified">۰</b><span>کتاب‌های دیده‌شده</span></div></div>
+<p class="hint">ثبت‌ها فقط در حافظه مرورگر همین گوشی ذخیره می‌شوند؛ پاک‌کردن داده‌های مرورگر می‌تواند آن‌ها را از بین ببرد. پایان هر نوبت کاری، پشتیبان JSON و خروجی CSV بگیرید.</p>
+<div class="grid"><button id="csv">خروجی CSV ثبت‌ها</button><button id="json" class="alt">پشتیبان JSON</button><button id="restore" class="alt">بازیابی/ادغام پشتیبان JSON</button><button id="delta" class="alt">خروجی تغییرات برای بررسی Excel</button><button id="combined" class="alt full">خروجی شیت + ثبت‌ها</button><input id="backupFile" type="file" accept=".json,application/json" class="hidden"></div>
+<div id="saveMsg" class="status">آمادهٔ ثبت پس از بارگذاری فهرست.</div>
+<p class="foot">نسخهٔ موقت و مستقل است: به Supabase، نرم‌افزار اصلی یا داده‌های آنلاین متصل نیست. این ابزار محل فیزیکی و مشخصات کتاب را ثبت می‌کند؛ ارتباط با اسامی شهدا در مرحله بعد و جداگانه انجام خواهد شد.</p>
+</section>
+</main>
+<script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id), STORE='shohada_markaz_asnad_library_audit_v1';
+let workbook=null,headers=[],rows=[],selected=null,records={},currentSheet='';
+const norm=s=>String(s??'').normalize('NFKC').replace(/ي/g,'ی').replace(/ك/g,'ک').replace(/[ۀة]/g,'ه').replace(/[\u064B-\u065F\u0670]/g,'').replace(/\u200c/g,' ').replace(/\s+/g,' ').trim().toLocaleLowerCase('fa');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const val=(row,id)=>{const i=Number($(id).value);return Number.isInteger(i)&&i>=0?String(row.values[i]??''):''};
+function loadRecords(){try{records=JSON.parse(localStorage.getItem(STORE)||'{}')||{}}catch{records={}}}
+function persist(){try{localStorage.setItem(STORE,JSON.stringify(records));$('saveMsg').textContent='ثبت در حافظه مرورگر ذخیره شد. برای اطمینان، پشتیبان JSON بگیرید.';return true}catch(e){$('saveMsg').textContent='ذخیره ناموفق بود؛ فوراً خروجی بگیرید و ادامه ندهید.';return false}}
+function metrics(){$('countRows').textContent=rows.length.toLocaleString('fa-IR');$('countSaved').textContent=Object.keys(records).length.toLocaleString('fa-IR');$('countVerified').textContent=Object.values(records).filter(r=>r.physical==='verified').length.toLocaleString('fa-IR')}
+function setOptions(id,blank){const el=$(id);el.innerHTML='';if(blank){const o=document.createElement('option');o.value='';o.textContent='ثبت نشده';el.appendChild(o)}headers.forEach((h,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=h||('ستون '+(i+1));el.appendChild(o)})}
+function infer(id,patterns){const idx=headers.findIndex(h=>patterns.some(p=>p.test(h)));if(idx>=0)$(id).value=String(idx)}
+function loadSheet(){currentSheet=$('sheet').value;const ws=workbook.Sheets[currentSheet];const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});if(!data.length){$('loadMsg').textContent='این شیت خالی است.';return}headers=data[0].map((h,i)=>String(h||'ستون '+(i+1)).trim());rows=data.slice(1).map((r,i)=>({id:'ROW-'+(i+2),values:headers.map((_,j)=>String(r[j]??''))})).filter(r=>r.values.some(v=>String(v).trim()));['titleCol','authorCol','publisherCol','yearCol'].forEach(id=>setOptions(id,true));infer('titleCol',[/عنوان/,/نام کتاب/,/^کتاب$/]);infer('authorCol',[/نویسنده/,/مولف/,/مؤلف/]);infer('publisherCol',[/ناشر/,/انتشارات/]);infer('yearCol',[/سال چاپ/,/سال انتشار/,/^سال$/,/چاپ/]);$('mapArea').classList.remove('hidden');$('loadMsg').textContent='شیت «'+currentSheet+'» خوانده شد؛ '+rows.length.toLocaleString('fa-IR')+' ردیف داده. ستون‌ها را بررسی کنید.';metrics();render()}
+function key(row){return currentSheet+'::'+row.id}
+function render(){const box=$('results'),q=norm($('search').value);box.innerHTML='';if(!headers.length){$('searchMsg').textContent='ابتدا فایل و شیت را انتخاب کنید.';return}if(q.length<2){$('searchMsg').textContent='حداقل دو حرف از عنوان وارد کنید.';return}const found=rows.filter(r=>norm(val(r,'titleCol')).includes(q)).slice(0,35);$('searchMsg').textContent=found.length.toLocaleString('fa-IR')+' نتیجهٔ اول نمایش داده می‌شود.';if(!found.length){box.innerHTML='<div class="status">عنوانی پیدا نشد. اگر کتاب را در قفسه می‌بینید، از بخش «کتاب خارج از فهرست» استفاده کنید.</div>';return}found.forEach(r=>{const b=document.createElement('button');b.className='result'+(selected&&selected.id===r.id?' chosen':'');b.innerHTML='<strong>'+esc(val(r,'titleCol')||'(بدون عنوان)')+'</strong><small>'+esc([val(r,'authorCol'),val(r,'publisherCol'),val(r,'yearCol')].filter(Boolean).join(' · '))+'</small><small>'+(records[key(r)]?'ثبت قبلی موجود است':'هنوز ثبت نشده')+'</small>';b.onclick=()=>choose(r);box.appendChild(b)})}
+function choose(r){selected=r;const rec=records[key(r)]||{};$('selectedInfo').innerHTML='<strong>'+esc(val(r,'titleCol'))+'</strong><br><span class="hint">'+esc([val(r,'authorCol'),val(r,'publisherCol'),val(r,'yearCol')].filter(Boolean).join(' · ')||'اطلاعات تکمیلی در شیت خالی است')+'</span>'; $('category').value=rec.category||'';$('shelf').value=rec.shelf||'';$('level').value=rec.level||'';$('physical').value=rec.physical||'verified';$('notes').value=rec.notes||'';render()}
+function recordBase(title,author,publisher,year,k,source){return {key:k,source,sheet:currentSheet,title,author,publisher,year,category:$('category').value,shelf:$('shelf').value,level:$('level').value,location:$('shelf').value&&$('level').value?$('shelf').value+'-'+$('level').value:'',physical:$('physical').value,notes:$('notes').value.trim(),updatedAt:new Date().toISOString()}}
+function save(){if(!selected){alert('ابتدا کتابی از نتایج جست‌وجو انتخاب کنید.');return}if($('physical').value==='verified'&&(!$('shelf').value||!$('level').value)){alert('برای کتابی که دیده شده، قفسه و طبقه واقعی را انتخاب کنید.');return}if(!$('category').value){alert('گروه موضوعی را انتخاب کنید؛ اگر نامشخص است «نیازمند تعیین موضوع» را بزنید.');return}records[key(selected)]=recordBase(val(selected,'titleCol'),val(selected,'authorCol'),val(selected,'publisherCol'),val(selected,'yearCol'),key(selected),'catalog');if(persist()){metrics();render();$('saveMsg').textContent='ثبت ذخیره شد: '+val(selected,'titleCol')}}
+function clearForm(){selected=null;$('selectedInfo').textContent='یک کتاب را از نتایج جست‌وجو انتخاب کنید.';$('category').value='';$('shelf').value='';$('level').value='';$('physical').value='verified';$('notes').value='';$('search').value='';render()}
+function outside(){const title=$('outsideTitle').value.trim();if(!title){alert('عنوان کتاب را وارد کنید.');return}if(!$('category').value){alert('گروه موضوعی را انتخاب کنید؛ اگر نامشخص است «نیازمند تعیین موضوع» را بزنید.');return}if(!$('shelf').value||!$('level').value){alert('برای کتابی که دیده شده، قفسه و طبقه واقعی را انتخاب کنید.');return}const k='OUT-'+Date.now()+'-'+Math.random().toString(36).slice(2,7);const r=recordBase(title,$('outsideAuthor').value.trim(),'','',k,'outside-list');r.physical='verified';records[k]=r;if(persist()){metrics();$('outsideTitle').value='';$('outsideAuthor').value='';$('saveMsg').textContent='کتاب خارج از فهرست ذخیره شد؛ اکسل مرجع تغییر نکرد.'}}
+const fields=[['key','کلید ثبت'],['source','منبع رکورد'],['sheet','شیت مرجع'],['title','عنوان کتاب'],['author','نویسنده'],['publisher','ناشر'],['year','سال چاپ'],['category','موضوع'],['shelf','قفسه'],['level','طبقه'],['location','کد محل'],['physical','وضعیت مشاهده'],['notes','توضیحات'],['updatedAt','زمان ثبت']];
+const cell=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
+function download(name,body,type){const a=document.createElement('a'),url=URL.createObjectURL(new Blob(['\uFEFF',body],{type:type||'text/plain;charset=utf-8'}));a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)}
+function exportCsv(){download('ثبت-فیزیکی-کتابخانه.csv',[fields.map(f=>cell(f[1])).join(','),...Object.values(records).map(r=>fields.map(f=>cell(r[f[0]])).join(','))].join('\r\n'),'text/csv;charset=utf-8')}
+function exportJson(){download('پشتیبان-نرم‌افزار-کتابخانه.json',JSON.stringify({app:'markaz-asnad-library-audit',version:1,exportedAt:new Date().toISOString(),records},null,2),'application/json;charset=utf-8')}
+function importJsonFile(file){if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const data=JSON.parse(String(reader.result||''));if(!data||typeof data!=='object'||!data.records||typeof data.records!=='object'||Array.isArray(data.records)){throw new Error('ساختار پشتیبان معتبر نیست.')}const entries=Object.entries(data.records);if(!entries.length){alert('پشتیبان هیچ ثبتی ندارد.');return}if(!entries.every(([k,r])=>typeof k==='string'&&r&&typeof r==='object'&&typeof r.title==='string'&&r.title.trim())){throw new Error('برخی ثبت‌ها کلید یا عنوان معتبر ندارند.')}const conflicts=entries.filter(([k])=>Object.prototype.hasOwnProperty.call(records,k)).length;const msg='تعداد ثبت در فایل: '+entries.length+'\\nکلیدهای موجود که بازنویسی نمی‌شوند: '+conflicts+'\\nثبت‌های جدید اضافه شوند؟';if(!confirm(msg))return;let added=0;for(const [k,r] of entries){if(!Object.prototype.hasOwnProperty.call(records,k)){records[k]=r;added++}}if(persist()){metrics();render();$('saveMsg').textContent='بازیابی/ادغام انجام شد: '+added+' ثبت تازه افزوده شد؛ '+conflicts+' مورد تکراری بدون بازنویسی باقی ماند.'}}catch(err){alert('بازیابی انجام نشد: '+err.message)}finally{$('backupFile').value=''}};reader.readAsText(file,'utf-8')}
+function exportDelta(){const list=Object.values(records);if(!list.length){alert('هنوز ثبتی برای خروجی وجود ندارد.');return}const cols=[['key','کلید تطبیق/ردیف'],['source','نوع رکورد'],['sheet','شیت مرجع'],['title','عنوان کتاب'],['author','نویسنده'],['publisher','ناشر'],['year','سال چاپ'],['category','موضوع'],['shelf','قفسه'],['level','طبقه'],['location','کد محل'],['physical','وضعیت مشاهده'],['notes','توضیحات'],['updatedAt','زمان ثبت']];const lines=[cols.map(x=>cell(x[1])).join(','),...list.map(r=>cols.map(x=>cell(r[x[0]])).join(','))];download('پیشنهاد-تغییرات-برای-بررسی-اکسل.csv',lines.join('\r\n'),'text/csv;charset=utf-8')}
+function combined(){const head=[...headers,'گروه موضوعی','قفسه','طبقه','کد محل','وضعیت مشاهده','توضیحات','زمان ثبت'];const lines=[head.map(cell).join(',')];rows.forEach(r=>{const x=records[key(r)]||{};lines.push([...r.values,x.category||'',x.shelf||'',x.level||'',x.location||'',x.physical||'',x.notes||'',x.updatedAt||''].map(cell).join(','))});download('فهرست-همراه-با-ثبت-فیزیکی.csv',lines.join('\r\n'),'text/csv;charset=utf-8')}
+$('workbook').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;if(!window.XLSX){$('loadMsg').textContent='کتابخانهٔ خواندن Excel بارگذاری نشد؛ اینترنت را بررسی و صفحه را دوباره باز کنید.';return}try{const data=await f.arrayBuffer();workbook=XLSX.read(data,{type:'array'});$('sheet').innerHTML='';workbook.SheetNames.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;$('sheet').appendChild(o)});const likely=workbook.SheetNames.find(n=>/عنوان.*کتاب|فهرست کتاب|کتاب‌ها/.test(n));if(likely)$('sheet').value=likely;$('sheetArea').classList.remove('hidden');$('loadMsg').textContent='فایل خوانده شد: '+f.name+'؛ '+workbook.SheetNames.length+' شیت. شیت درست را انتخاب کنید.'}catch(err){$('loadMsg').textContent='خواندن فایل ناموفق بود: '+err.message}});
+$('loadSheet').onclick=loadSheet;$('applyMap').onclick=()=>{if(!headers.length||$('titleCol').value===''||!headers[Number($('titleCol').value)]){alert('ستون عنوان را مشخص کنید.');return}render();metrics();$('loadMsg').textContent='آمادهٔ جست‌وجو. وجود فیزیکی فقط پس از مشاهده ثبت می‌شود.'};$('search').addEventListener('input',render);$('save').onclick=save;$('clear').onclick=clearForm;$('addOutside').onclick=outside;$('csv').onclick=exportCsv;$('json').onclick=exportJson;$('restore').onclick=()=>$('backupFile').click();$('backupFile').addEventListener('change',e=>importJsonFile(e.target.files[0]));$('delta').onclick=exportDelta;$('combined').onclick=combined;
+loadRecords();metrics();
+})();
+</script>
+</body></html>
+
+================ FILE: \کتابخانه\گزارش‌ها\نقطه شروع برنامه‌نویسی ثبت سریع موجودی فیزیکی کتابخانه - نسخه 0.1.md ================
+# نقطه شروع برنامه‌نویسی ثبت سریع موجودی فیزیکی کتابخانه
+**نسخه:** ۰٫۱
+**تاریخ:** ۱۴۰۵/۰۸/۰۴
+**مخزن رسمی:** `forog1980-star/markaz-asnad-shohada`
+**شاخه فعلی گزارش:** `feature/software-ketabkhane-physical-audit-20261025`
+**وضعیت:** تعریف نقطه شروع؛ هنوز کدنویسی نسخه جدید انجام نشده است.
+
+## مأموریت
+ساخت یک ابزار کوچک و سریع برای ثبت فیزیکی کتاب‌های موجود در کتابخانه با یک گوشی اندرویدی و یک کاربر. هدف فوری، فهرست‌برداری از کتاب‌های واقعاً موجود، ثبت یا تطبیق عنوان و اطلاعات پایه، تعیین گروه موضوعی و محل واقعی، ایجاد شناسه قابل ردیابی در صورت نیاز، و آماده‌سازی خروجی برای به‌روزرسانی کنترل‌شده فایل Excel است.
+
+این کار از سامانه جامع «ثبت کتاب‌ها و شهدا» جدا نگه داشته می‌شود. در نسخه نخست، ارتباط کتاب و شهید، هوش مصنوعی، داشبورد مدیریتی، ورود چندکاربره و اتصال به پایگاه داده آنلاین لازم نیستند.
+
+## محیط و محدودیت‌های شناخته‌شده
+- دستگاه هدف: گوشی اندرویدی؛ کاربر واحد.
+- زبان و رابط: فارسی، راست‌به‌چپ، مناسب لمس.
+- اینترنت: ممکن است برای بارگذاری اولیه لازم باشد، اما نباید ثبت‌های ذخیره‌شده را وابسته به اتصال دائمی فرض کرد.
+- رایانه کاربر ویندوز است و برای کارهای پشتیبان از PowerShell استفاده می‌شود.
+- فایل مرجع: `کتابخانه/فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx`.
+- مسیر ابزار آزمایشی موجود: `نرم‌افزار کتابخانه/index.html`.
+- ابزار قبلی در مرورگر از `localStorage` استفاده می‌کند و خروجی CSV/JSON دارد؛ بازیابی JSON هنوز تأیید نشده است.
+- تغییرات ابزار قبلی در شاخه `feature/software-ketabkhane-physical-audit-20261025` و PR پیش‌نویس #3 قرار دارند. `main` را بدون بازبینی و تصمیم جداگانه تغییر نده.
+- فایل Excel مرجع و Supabase در تغییرات قبلی دست‌نخورده باقی مانده‌اند.
+
+## نقشه فیزیکی مورد توافق
+چهار قفسه عملیاتی، هرکدام با شش طبقه از بالا به پایین:
+- `SH-01-T01` تا `SH-01-T06`
+- `SH-02-T01` تا `SH-02-T06`
+- `SH-03-T01` تا `SH-03-T06`
+- `SH-04-T01` تا `SH-04-T06`
+
+جانمایی موضوعی:
+- `SH-01` و `SH-02`: گروه R — روایت و خاطرات.
+- `SH-03-T01`: H — تاریخ و اسناد.
+- `SH-03-T02`: A — ادبیات و هنر.
+- `SH-03-T03` و `SH-03-T04`: P — پژوهش و تحلیل.
+- `SH-03-T05` و `SH-03-T06`: M — متفرقه.
+- `SH-04-T01`: K — کودک و نوجوان.
+- `SH-04-T02` تا `SH-04-T06`: آزاد برای توسعه یا جابه‌جایی آینده.
+
+گروه‌ها: R، A، H، P، K، M. شناسه کتاب و کد محل دو مقدار مستقل‌اند؛ جابه‌جایی کتاب فقط محل را تغییر می‌دهد.
+
+## جریان کاری موردنظر نسخه اول
+1. کاربر کتاب فیزیکی را در دست دارد.
+2. برنامه جست‌وجوی سریع در فهرست مرجعِ انتخاب‌شده را فراهم می‌کند.
+3. اگر رکورد منطبق پیدا شد، کاربر آن را تأیید می‌کند و داده‌های میدانی را ثبت می‌کند.
+4. اگر کتاب پیدا نشد، یک رکورد جدید با وضعیت «نیازمند تطبیق با Excel» ساخته می‌شود؛ برنامه نباید رکورد مشابه را خودکار حذف یا ادغام کند.
+5. اطلاعات پایه تا حد ممکن ثبت می‌شود: عنوان (برای ثبت تازه لازم)، نویسنده، ناشر، سال چاپ، گروه موضوعی، محل، وضعیت تطبیق و یادداشت کوتاه. فیلدهای نامعلوم به‌صورت خالی/نامشخص نگهداری می‌شوند، نه اینکه حدس زده شوند.
+6. داده‌ها محلی ذخیره می‌شوند و کاربر می‌تواند پشتیبان بگیرد.
+7. خروجی برای بازبینی و اعمال کنترل‌شده در Excel تولید می‌شود؛ فایل مرجع نباید بی‌صدا بازنویسی شود.
+
+## سیاست شناسه‌گذاری
+نمونه‌های قبلی `GS-R-01`، `GS-A-01` و مانند آن صرفاً پیشنهاد بوده‌اند؛ تخصیص سراسری شناسه دائمی هنوز تأیید نشده است. در شروع برنامه‌نویسی:
+- شناسه موجود در فایل مرجع، اگر وجود داشته باشد، حفظ شود.
+- شناسه کتاب با محل فیزیکی یکی نشود.
+- برای کتاب تازه، تا زمان تأیید قاعده دائمی، از شناسه موقت/ردیف قابل پیگیری استفاده شود یا شناسه پیشنهادی با برچسب «موقت» ذخیره شود.
+- تولید شناسه تکراری، ادغام خودکار و بازنویسی شناسه‌های موجود ممنوع باشد.
+- قبل از ساخت شماره‌گذار دائمی، ستون‌های واقعی Excel و وجود/عدم وجود شناسه در آن بررسی شود.
+
+## حفاظت از Excel و داده‌ها
+کاربر اکنون اولویت به‌روزرسانی فهرست Excel را هم صریحاً مطرح کرده است. این به معنی مجوز بازنویسی مستقیم بدون پشتیبان نیست. راهکار امن نسخه اول:
+- خواندن فایل مرجع بدون تغییر.
+- ذخیره ثبت‌های میدانی در فایل داده مستقل.
+- تولید خروجی پیشنهادی تغییرات و گزارش رکوردهای جدید/تطبیق‌یافته/مبهم.
+- پیش از هر مرحله اعمال روی Excel، ساخت نسخه پشتیبان با نام تاریخ‌دار.
+- حفظ رکوردهای تکراری یا مشکوک برای بازبینی انسانی.
+- عدم اتصال و عدم تغییر Supabase در این مرحله.
+
+## تعریف موفقیت نسخه اول
+- استفاده‌پذیری روی گوشی اندرویدی واقعی.
+- ثبت یک کتاب با حداقل لمس و بدون نیاز به تکمیل فیلدهای غیرضروری.
+- جست‌وجوی عنوان با رفتار قابل پیش‌بینی.
+- ثبت محل فقط از فهرست معتبر کدهای `SH-xx-Txx`.
+- ذخیره و بازیابی قابل آزمون یا حداقل خروجی پشتیبان قابل اعتبارسنجی.
+- خروجی قابل بازکردن و تطبیق در Excel، بدون تغییر ناخواسته فایل اصلی.
+- آزمون عملی با ۱۰ تا ۲۰ کتاب واقعی و ثبت نتایج.
+- مستندکردن محدودیت‌ها؛ عدم ادعای استقرار یا آزمون تا زمان انجام واقعی.
+
+## دستورالعمل آغاز در گفت‌وگوی جدید
+1. این سند و گزارش روزانه `گزارش روزانه کتابخانه - 1405-08-04.md` را بخوان.
+2. از GitHub وضعیت فعلی شاخه و PR #3 را دوباره بررسی کن؛ این گزارش وضعیت فعلی زمان ثبت را منعکس می‌کند و ممکن است شاخه بعداً تغییر کرده باشد.
+3. فایل `نرم‌افزار کتابخانه/index.html` و `README.md` را بخوان و قابلیت‌های واقعی را از قابلیت‌های صرفاً توصیف‌شده تفکیک کن.
+4. ساختار واقعی فایل Excel مرجع را با نام شیت‌ها و سرستون‌ها بررسی کن؛ چیزی را حدس نزن.
+5. پیش از کدنویسی تصمیم بگیر نسخه جدید به‌صورت ابزار مستقل ساخته شود یا از ابزار موجود در شاخه کاری جداگانه استفاده کند؛ انتخاب باید بر اساس بررسی کد و اولویت «سرعت فهرست‌برداری» باشد.
+6. در یک شاخه کاری جدید/مناسب کار کن، تغییرات را کوچک و قابل بازبینی نگه دار و به `main` مستقیم commit نکن.
+7. ابتدا نمونه حداقلی ثبت/جست‌وجو/ذخیره/خروجی بساز؛ سپس با داده آزمایشی تست کن.
+8. هیچ فایل یا داده‌ای را بدون نسخه پشتیبان حذف یا بازنویسی نکن.
+9. پس از هر مرحله، گزارش فنی و روزانه را به‌روز کن و وضعیت آزمون را دقیقاً «انجام‌شده» یا «انجام‌نشده» ثبت کن.
+
+## پیوندهای اصلی
+- مخزن: https://github.com/forog1980-star/markaz-asnad-shohada
+- شاخه فعلی ابزار: https://github.com/forog1980-star/markaz-asnad-shohada/tree/feature/software-ketabkhane-physical-audit-20261025
+- PR #3: https://github.com/forog1980-star/markaz-asnad-shohada/pull/3
+- ابزار موجود: `نرم‌افزار کتابخانه/index.html`
+- راهنمای ابزار: `نرم‌افزار کتابخانه/README.md`
+- گزارش فنی قبلی: `کتابخانه/گزارش‌ها/گزارش فنی ابزار تطبیق فیزیکی کتابخانه - نسخه 0.1.md`
+
+**نقطه پایان این سند:** در آغاز گفت‌وگوی جدید، کار را از بررسی وضعیت واقعی مخزن و Excel شروع کن و سپس مستقیماً وارد ساخت نسخه حداقلی ابزار ثبت سریع شو؛ از کاربر نخواه تصمیم‌ها و نقشه قفسه‌ها را دوباره توضیح دهد.
+
+================ FILE: \کتابخانه\گزارش‌ها\گزارش فنی ابزار تطبیق فیزیکی کتابخانه - نسخه 0.1.md ================
+# گزارش فنی ابزار موقت تطبیق فیزیکی کتابخانه مرکز اسناد
+**نسخه سند:** ۰٫۱
+**تاریخ تنظیم و وضعیت ثبت:** ۱۴۰۵/۰۸/۰۳
+**مخزن رسمی:** `forog1980-star/markaz-asnad-shohada`
+**شاخه کاری:** `feature/software-ketabkhane-physical-audit-20261025`
+**وضعیت:** گزارش فنی جاری؛ ابزار آزمایشی و هنوز تأییدنشده برای استفاده انبوه
+**دامنه:** رویدادها و تصمیم‌های ثبت‌شده در گفت‌وگوهای اخیر درباره سامان‌دهی فیزیکی، برچسب‌ها و ابزار موقت کتابخانه
+
+---
+
+## ۱. خلاصه مدیریتی و فنی
+
+برای کمک به تطبیق کتاب‌های فیزیکی کتابخانه با فهرست کاری موجود، ابزار وب مستقلی در مسیر `نرم‌افزار کتابخانه/` آماده شده است. هدف ابزار این است که یک کاربر با یک گوشی اندرویدی بتواند عنوان را در فایل Excel جست‌وجو کند، کتاب را با نسخه فیزیکی موجود تطبیق دهد و موضوع، قفسه، طبقه، وضعیت مشاهده و توضیح لازم را ثبت کند. در صورت پیدا نشدن کتاب در فهرست، ثبت جداگانه‌ای نیز پیش‌بینی شده است.
+
+در ادامه کار، نقشه قفسه‌ها و کدهای محل بازبینی شد. کدهای قدیمی موجود در منوی برنامه با نقشه عملیاتی تأییدشده در گفت‌وگو جایگزین شدند و راهنمای برنامه و مستند برچسب‌ها نیز هماهنگ شدند. فایل Word برچسب‌ها در رایانه کاربر ساخته و از نظر کادرها و صفحه‌بندی بازبینی شده است.
+
+**مرز مهم وضعیت:** تغییرات کد و مستندات روی شاخه کاری ثبت شده‌اند؛ `main` تغییر نکرده و PR شماره ۳ هنوز پیش‌نویس است. اجرای موفق روی گوشی واقعی، آزمون با ۲۰ کتاب، بازیابی پشتیبان JSON و استقرار HTTPS هنوز تأیید نشده‌اند. فایل مرجع Excel و Supabase نیز تغییر داده نشده‌اند.
+
+## ۲. هدف، کاربران و محدوده ابزار
+
+### هدف عملیاتی
+- کوتاه‌کردن زمان تطبیق نسخه‌های فیزیکی با فهرست کاری.
+- ثبت محل واقعی کتاب و موضوع آن، بدون تغییر دادن فایل مرجع.
+- مشخص‌کردن کتاب‌های مشاهده‌شده، پیدا‌نشده یا خارج از فهرست.
+- فراهم‌کردن خروجی قابل نگهداری برای بررسی و انتقال بعدی.
+
+### فرض‌های طراحی فعلی
+- یک کاربر و یک گوشی اندرویدی.
+- اینترنت نسبتاً پایدار برای بارگذاری اولیه صفحه و کتابخانه JavaScript مربوط به Excel.
+- استفاده موقت و کم‌ریسک؛ نه سامانه نهایی کتابخانه.
+- نگهداری ثبت‌ها در مرورگر همان دستگاه و تهیه خروجی پشتیبان در پایان کار.
+
+### موارد خارج از دامنه این ابزار
+- ویرایش مستقیم فایل Excel مرجع.
+- اتصال به Supabase یا تغییر پایگاه داده.
+- تأیید نهایی شناسه دائمی تمام کتاب‌ها.
+- پیاده‌سازی کامل رابطه کتاب و شهید.
+- انتشار عمومی اطلاعات یا جایگزینی نرم‌افزار جامع ثبت کتاب‌ها و شهدا.
+
+## ۳. قواعد فیزیکی تثبیت‌شده
+
+### ۳.۱. نقشه قفسه‌ها و طبقات
+چهار قفسه در نقشه عملیاتی فعلی قرار دارند:
+
+| شناسه قفسه | کاربرد گروهی فعلی |
+|---|---|
+| `SH-01` | R — روایت و خاطرات |
+| `SH-02` | R — روایت و خاطرات |
+| `SH-03` | A، H، P، K و M |
+| `SH-04` | A، H، P، K و M |
+
+هر قفسه شش طبقه دارد. کدها از بالا به پایین عبارت‌اند از `T01`، `T02`، `T03`، `T04`، `T05` و `T06`.
+
+الگوی نشانی کامل محل:
+
+- `SH-01-T01`
+- `SH-02-T06`
+- `SH-03-T04`
+- `SH-04-T02`
+
+قفسه پنجم در نقشه عملیاتی فعلی ابزار قرار ندارد. جهت دقیق حرکت بین قفسه‌ها و جانمایی نهایی گروه‌های A، H، P، K و M باید با مشاهده محل واقعی تثبیت شود؛ نمونه‌های چاپی برای این گروه‌ها به معنی تأیید جانمایی نهایی نیستند.
+
+### ۳.۲. گروه‌های موضوعی
+- **R:** روایت و خاطرات
+- **A:** ادبیات و هنر
+- **H:** تاریخ و اسناد
+- **P:** پژوهش و تحلیل
+- **K:** کودک و نوجوان
+- **M:** متفرقه
+
+برآوردهای کاری مطرح‌شده برای تقسیم فیزیکی عبارت‌اند از حدود ۵۸۰ عنوان در R و مجموع حدود ۳۶۲ عنوان برای A/H/P/K/M. این اعداد تا انجام ممیزی نهایی، آمار قطعی و تأییدشده موجودی محسوب نمی‌شوند.
+
+### ۳.۳. شناسه کتاب و محل فیزیکی
+شناسه کتاب و محل فیزیکی دو مفهوم مستقل‌اند. نمونه‌های پیشنهادی شناسه گروهی عبارت‌اند از `GS-R-01`، `GS-A-01`، `GS-H-01`، `GS-P-01`، `GS-K-01` و `GS-M-01`. این نمونه‌ها به معنی اختصاص شناسه پایدار به همه کتاب‌ها نیستند.
+
+اگر کتاب جابه‌جا شود، محل آن تغییر می‌کند؛ شناسه کتاب نباید صرفاً به علت جابه‌جایی تغییر کند.
+
+## ۴. سابقه تغییر کدهای محل و اصلاح ناسازگاری
+
+در نسخه قبلی ابزار و مستندات، قالب قدیمی `SHSF-01-Q01` تا `SHSF-01-Q06` دیده می‌شد. این قالب با نقشه جدید چهار قفسه `SH-01` تا `SH-04` و شش طبقه برای هر قفسه سازگار نبود.
+
+در تاریخ ۱۴۰۵/۰۸/۰۳ تغییرات زیر در شاخه کاری ثبت شدند:
+
+| فایل | اقدام | شناسه commit |
+|---|---|---|
+| `نرم‌افزار کتابخانه/index.html` | جایگزینی منوی قفسه‌های قدیمی با `SH-01` تا `SH-04` | `6dc3826b8f3dab7aa232e3265d78a057c6dd3d05` |
+| `نرم‌افزار کتابخانه/README.md` | هماهنگ‌سازی راهنما با نقشه و کدهای جدید | `50d4fefb60d3983b0bfd1317294f1dd3db738903` |
+| `نرم‌افزار کتابخانه/برچسب‌های قفسه و طبقه.md` | اصلاح مستند کدگذاری محل و ثبت بازبودن جانمایی گروه‌های غیر R | `80818ed7ba9ee07f6c9382d6cb9905698c184aa5` |
+
+در رابط فعلی، قفسه و طبقه جدا انتخاب می‌شوند و محل با الگوی `SH-xx-Txx` نمایش داده می‌شود.
+
+**ریسک سازگاری باز:** این تغییر رابط به‌خودی‌خود داده‌های قدیمی احتمالی ذخیره‌شده در `localStorage` با کدهای `SHSF-01-Qxx` را مهاجرت نمی‌دهد. پیش از استفاده میدانی باید این وضعیت بررسی و راهکار حفظ داده تعیین شود. هیچ داده قدیمی نباید بدون نسخه پشتیبان یا تصمیم روشن بازنویسی یا حذف شود.
+
+## ۵. قابلیت‌های فعلی ثبت‌شده در کد ابزار
+
+بر پایه بررسی اولیه کد و مستندات، قابلیت‌های موجود یا پیش‌بینی‌شده در نسخه فعلی عبارت‌اند از:
+
+1. انتخاب فایل Excel محلی.
+2. انتخاب شیت موردنظر.
+3. نگاشت ستون عنوان و در صورت وجود، نویسنده، ناشر و سال چاپ.
+4. جست‌وجوی عنوان و انتخاب رکورد.
+5. ثبت موضوع، قفسه، طبقه، وضعیت مشاهده و توضیح کوتاه.
+6. ثبت جداگانه کتابی که در فهرست مناسب پیدا نشده است.
+7. نگهداری ثبت‌ها در حافظه محلی مرورگر همان دستگاه.
+8. تولید خروجی CSV و فایل پشتیبان JSON.
+
+وجود قابلیت در کد یا راهنما به‌تنهایی به معنی آزمون موفق آن در شرایط واقعی نیست. مواردی مانند صحت نگاشت فایل مرجع، رفتار در ورودی‌های ناقص، بازیابی پشتیبان و پایداری در گوشی باید جداگانه آزموده شوند.
+
+## ۶. برچسب‌های چاپی و اجرای محلی
+
+فایل Word زیر روی رایانه کاربر با PowerShell و Microsoft Word COM تولید شد:
+
+`C:\Users\Mahdi\Desktop\برچسب‌های کتابخانه مرکز اسناد.docx`
+
+محتوای فایل:
+- ۶ برچسب نمونه کتاب با ساختار کادربندی‌شده سه‌ردیفه.
+- ۲۴ برچسب محل برای چهار قفسه و شش طبقه هر قفسه.
+
+اسکریپت اولیه به‌علت تنظیم نامعتبر ویژگی `ParagraphFormat.ReadingOrder` خطا داد. در نسخه اصلاح‌شده، آن تنظیم حذف شد و کاربر اجرای موفق را تأیید کرد. کاربر فایل را در Word بازبینی کرد و کادرها، ساختار و صفحه‌بندی را درست دانست. جای علامت دونقطه در برخی عبارت‌های فارسی نیازمند اصلاح دستی بود؛ جایگزینی آن با خط تیره به‌عنوان راه‌حل ساده پیشنهاد شد.
+
+این فایل فقط در رایانه کاربر ایجاد شده و طبق وضعیت فعلی در GitHub ثبت نشده است. محل‌های درج‌شده برای گروه‌های A/H/P/K/M نمونه‌ای و غیرنهایی هستند.
+
+## ۷. مرجع داده و حفاظت از اطلاعات
+
+- مرجع جاری کتابخانه طبق تصمیم قبلی کاربر: `کتابخانه/فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx`.
+- ابزار موقت نباید فایل مرجع را بازنویسی کند؛ فایل فقط برای خواندن و جست‌وجو استفاده می‌شود.
+- داده‌های ثبت‌شده در مرورگر همان دستگاه ذخیره می‌شوند؛ پاک‌کردن داده‌های مرورگر یا تغییر دستگاه می‌تواند خطر از دست‌رفتن ثبت‌ها را ایجاد کند.
+- خروجی JSON در حال حاضر به‌عنوان پشتیبان قابل دریافت است؛ قابلیت واردکردن/بازیابی آن هنوز پیاده‌سازی و آزمون نشده است.
+- ابزار به Supabase متصل نیست و هیچ جدول، رکورد یا تنظیمی در Supabase تغییر نکرده است.
+- ارتباط کتاب و شهید و تأیید اعتبار این ارتباط‌ها خارج از دامنه مرحله فعلی است.
+- ثبت یک نام یا ارتباط در فایل‌های دیگر به‌تنهایی اثبات وجود فیزیکی کتاب نیست.
+- خروجی‌های قدیمی استخراج‌شده از فایل‌های اولیه در بایگانی تاریخی قرار دارند و نباید بدون ممیزی تازه جایگزین فایل مرجع جاری شوند.
+
+## ۸. وضعیت شاخه، PR و استقرار
+
+- مخزن رسمی: `forog1980-star/markaz-asnad-shohada`
+- شاخه کاری: `feature/software-ketabkhane-physical-audit-20261025`
+- PR شماره ۳: [بررسی تغییرات ابزار تطبیق فیزیکی کتابخانه](https://github.com/forog1980-star/markaz-asnad-shohada/pull/3)
+- وضعیت PR: پیش‌نویس؛ ادغام نشده است.
+- شاخه `main`: برای این مجموعه تغییرات دست‌نخورده باقی مانده است.
+- میزبانی آنلاین: URL عملیاتی HTTPS تأیید نشده است. تلاش پیشین برای ایجاد پروژه Vercel با خطای 403 مواجه شده بود؛ علت رفع نشده و استقرار موفق ادعا نمی‌شود.
+- آزمون میدانی: اجرای واقعی در گوشی اندرویدی با فایل مرجع و حداقل ۲۰ کتاب هنوز انجام نشده است.
+
+## ۹. ماتریس وضعیت فنی
+
+| مورد | وضعیت فعلی | اقدام لازم |
+|---|---|---|
+| هماهنگی کد قفسه در رابط | تغییر کد ثبت شده | بازبینی در مرورگر |
+| هماهنگی README و مستند برچسب‌ها | تغییر مستندات ثبت شده | بازبینی نهایی |
+| فایل Word برچسب‌ها | تولید و توسط کاربر بازبینی شده | اصلاح دستی نشانه‌گذاری در صورت نیاز |
+| سازگاری داده‌های قدیمی مرورگر | نامشخص؛ مهاجرت انجام نشده | بررسی و حفاظت از داده |
+| پشتیبان JSON | خروجی موجود | ساخت واردکردن/بازیابی امن |
+| اعتبارسنجی قفسه و طبقه | نیازمند تکمیل یا آزمون | جلوگیری از ثبت محل ناقص/نامعتبر |
+| آزمون با ۲۰ کتاب واقعی | انجام نشده | اجرای سناریوهای میدانی |
+| آزمون اندروید و ماندگاری داده | انجام نشده | آزمون بستن/بازکردن مرورگر و خروجی |
+| میزبانی HTTPS | تأیید نشده | رفع مجوز و بررسی گزینه استقرار |
+| ادغام PR | انجام نشده | بازبینی پس از آزمون |
+| تغییر فایل Excel مرجع | انجام نشده | حفظ وضعیت فقط‌خواندنی |
+| تغییر Supabase | انجام نشده | اتصال در این مرحله ممنوع/خارج از دامنه |
+
+## ۱۰. برنامه فنی مرحله بعد
+
+### اولویت ۱ — حفاظت از داده‌های قبلی
+1. بررسی ساختار فعلی ذخیره‌سازی مرورگر و شناسایی کدهای قدیمی احتمالی.
+2. قبل از هر مهاجرت، ایجاد خروجی پشتیبان و نمایش تعداد رکوردهای تحت تأثیر.
+3. تعریف تبدیل کد قدیمی فقط در صورت وجود نگاشت روشن؛ موارد مبهم باید برای بررسی انسانی علامت‌گذاری شوند.
+4. ممنوعیت پاک‌سازی یا جایگزینی خودکار داده‌های ناشناخته.
+
+### اولویت ۲ — بازیابی امن JSON
+1. بررسی ساختار فایل JSON ورودی و نسخه/نوع داده.
+2. پیش‌نمایش تعداد رکوردها و موارد ناسازگار پیش از اعمال.
+3. ارائه گزینه روشن برای لغو عملیات.
+4. جلوگیری از ادغام یا جایگزینی خاموش؛ سیاست برخورد با رکورد تکراری باید مشخص باشد.
+5. آزمون خروجی‌گیری، پاک‌کردن فقط داده آزمایشی و بازیابی از نسخه پشتیبان.
+
+### اولویت ۳ — اعتبارسنجی و آزمون میدانی
+1. الزام انتخاب قفسه و طبقه معتبر برای ثبت مکانی که کتاب در آن مشاهده شده است.
+2. آزمون کتاب موجود در فهرست، کتاب پیدا‌نشده، عنوان مشابه، فیلد ناقص، رکورد تکراری و توضیح فارسی.
+3. آزمون با ۲۰ کتاب واقعی در گوشی اندرویدی.
+4. کنترل CSV و JSON خروجی و تطبیق تعداد رکوردهای ثبت‌شده با تعداد رکوردهای خروجی.
+5. بررسی رفتار با قطع اینترنت پس از بارگذاری اولیه و روشن‌کردن مجدد مرورگر؛ این رفتار باید آزموده شود و نباید از پیش تضمین‌شده فرض شود.
+
+### اولویت ۴ — بازبینی و انتشار
+1. ثبت نتیجه آزمون‌ها در `نرم‌افزار کتابخانه/گزارش تغییرات.md` و این گزارش.
+2. بازبینی diff و PR شماره ۳.
+3. تصمیم جداگانه درباره ادغام؛ تا پیش از آن `main` تغییر نکند.
+4. حل مسئله میزبانی HTTPS و آزمون نشانی عملیاتی پیش از استفاده روی گوشی از راه دور.
+
+## ۱۱. معیار پذیرش نسخه آزمایشی
+
+نسخه آزمایشی زمانی برای اجرای محدود میدانی آماده تلقی می‌شود که:
+- کد محل در همه قسمت‌های برنامه و مستندات با نقشه فعلی یکسان باشد.
+- داده‌های قدیمی احتمالی شناسایی و بدون از دست‌رفتن اطلاعات مدیریت شده باشند.
+- خروجی JSON قابل بازیابی و قابل راستی‌آزمایی باشد.
+- ثبت محل نامعتبر یا ناقص به‌طور کنترل‌شده رد یا علامت‌گذاری شود.
+- آزمون حداقل ۲۰ کتاب و بررسی خروجی‌ها مستند شده باشد.
+- محدودیت‌های اتصال، ذخیره محلی و میزبانی برای کاربر روشن باشد.
+
+تا پیش از تحقق معیارهای فوق، ابزار باید «نسخه آزمایشی» باقی بماند و برای ثبت انبوه یا جایگزینی فهرست مرجع تأییدشده تلقی نشود.
+
+## ۱۲. اسناد مرتبط
+
+- [گزارش روزانه کتابخانه — ۱۴۰۵/۰۸/۰۳](گزارش%20روزانه%20کتابخانه%20-%201405-08-03.md)
+- [گزارش هفتگی کتابخانه — ۱۴۰۵/۰۸/۰۳](گزارش%20هفتگی%20کتابخانه%20-%201405-08-03.md)
+- [راهنمای ابزار](../../نرم‌افزار%20کتابخانه/README.md)
+- [کد برنامه](../../نرم‌افزار%20کتابخانه/index.html)
+- [مستند برچسب‌های قفسه و طبقه](../../نرم‌افزار%20کتابخانه/برچسب‌های%20قفسه%20و%20طبقه.md)
+- [گزارش تغییرات برنامه](../../نرم‌افزار%20کتابخانه/گزارش%20تغییرات.md)
+- [PR شماره ۳](https://github.com/forog1980-star/markaz-asnad-shohada/pull/3)
+
+---
+
+## ۱۳. جمع‌بندی نهایی
+
+در این مرحله، نقشه عملیاتی قفسه‌ها و طبقات مشخص شده، برچسب‌های چاپی نمونه تولید و توسط کاربر بازبینی شده، و کدهای محل در ابزار و مستندات شاخه کاری هماهنگ شده‌اند. گزارش‌های روزانه و هفتگی نیز ثبت شده‌اند. بااین‌حال، آزمون واقعی، بازیابی JSON، مدیریت داده‌های قدیمی مرورگر و استقرار عملیاتی هنوز باز هستند. اولویت ادامه کار، حفاظت از داده و آزمون محدود و قابل بازگشت است؛ نه ادغام سریع یا اتصال به سامانه‌های عملیاتی.
+
+
+---
+
+## الحاقیه فنی — نسخه حداقلی ۰٫۲ و کنترل بازگشت (۱۴۰۵/۰۸/۰۴)
+
+### مبنای تغییر
+نسخه مبنا در شاخه `feature/software-ketabkhane-physical-audit-20261025` و commit `09c8e08bef2b58dc63952bcc2731e45d82ed83d8` باقی مانده است. تغییر جدید روی شاخه مستقل `feature/library-quick-inventory-v02-20261026` انجام شد؛ این شاخه از همان commit مبنا ساخته شد. `main` و PR شماره ۳ مستقیماً تغییر نکردند.
+
+### تغییرات کد
+فایل `نرم‌افزار کتابخانه/index.html` از ۱۵٬۲۵۳ به ۱۸٬۰۸۲ نویسه رسید. blob پیشین `c0d39576ff61b8bc05792ad225ce7b7264c30df0` و blob جدید `049beb48dbec6e42183a363f0b43fc198e538c50` است؛ commit تغییر `567f727d9a3586ddef425e99a222c7a3965a966a`.
+
+- بازیابی/ادغام JSON: ساختار پشتیبان بررسی می‌شود، رکوردهای بدون عنوان معتبر رد می‌شوند و کلیدهایی که از قبل در حافظه وجود دارند بازنویسی نمی‌شوند.
+- خروجی «تغییرات پیشنهادی برای بررسی Excel»: داده‌های ثبت‌شده را به CSV مستقل تبدیل می‌کند؛ خروجی، فایل مرجع را تغییر نمی‌دهد.
+- برای ذخیره رکوردی که «کتاب دیده شد» است، انتخاب قفسه و طبقه الزامی شد؛ انتخاب گروه موضوعی نیز برای ذخیره الزامی است.
+- برای ثبت کتاب خارج از فهرست، عنوان، موضوع و محل فیزیکی واقعی الزامی‌اند؛ رکورد همچنان جدا از فهرست مرجع می‌ماند.
+
+### نتیجه آزمون‌های انجام‌شده
+- کامپایل ایستای کد JavaScript بدون خطای نحوی: موفق.
+- بررسی وجود کنترل‌های جدید در HTML و قواعد اعتبارسنجی در کد: موفق.
+
+### آزمون‌های انجام‌نشده
+- اجرای واقعی در Chrome اندروید.
+- انتخاب و نگاشت شیت/ستون‌های فایل مرجع واقعی.
+- ذخیره و بازیابی JSON در مرورگر واقعی.
+- ثبت میدانی ۱۰ تا ۲۰ کتاب.
+- بازکردن CSV در Excel و تطبیق با رکوردهای مرجع.
+- آزمون پایداری `localStorage` پس از بستن/بازکردن مرورگر.
+
+### ملاحظه مرجع Excel
+فایل مرجع با مسیر `کتابخانه/فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx` و commit ثبت اولیه `b93eaca408c3d921a8596dfdaf5f8c992bbf4bc` شناسایی شد. محتوای باینری از طریق ابزار موجود به‌صورت ساختاری بازخوانی نشد؛ بنابراین نام شیت، سرستون‌ها، شمار ردیف‌ها و شناسه‌های واقعی هنوز راستی‌آزمایی نشده‌اند. تا تکمیل این بررسی، هیچ تغییر Excel اعمال نمی‌شود.
+
+================ FILE: \کتابخانه\گزارش‌ها\گزارش روزانه کتابخانه - 1405-08-03.md ================
+# گزارش روزانه کتابخانه مرکز اسناد
+**تاریخ:** ۱۴۰۵/۰۸/۰۳
+**مخزن رسمی:** `forog1980-star/markaz-asnad-shohada`
+**شاخه کاری:** `feature/software-ketabkhane-physical-audit-20261025`
+**موضوع:** تکمیل ابزار موقت تطبیق فیزیکی کتابخانه، برچسب‌های چاپی و هماهنگ‌سازی شناسه مکان
+
+## ۱. خلاصه اجرایی
+در ادامه کارهای سامان‌دهی فیزیکی کتابخانه، برچسب‌های نمونه کتاب و برچسب‌های مکان با PowerShell و Microsoft Word تولید شدند. سپس کد ابزار وب کتابخانه و مستندات همان شاخه در GitHub بررسی شد. مشخص شد برنامه هنوز از شناسه‌های قدیمی قفسه استفاده می‌کند؛ این شناسه‌ها در ابزار و مستندات با نقشه عملیاتی جدید هماهنگ شدند. تغییرات فقط روی شاخه کاری انجام شده و به `main` ادغام نشده‌اند.
+
+## ۲. تصمیم‌ها و قواعد عملیاتی تثبیت‌شده
+- چهار قفسه عملیاتی: `SH-01`، `SH-02`، `SH-03` و `SH-04`.
+- هر قفسه شش طبقه دارد؛ از بالا به پایین: `T01` تا `T06`.
+- قالب نشانی کامل محل: `SH-01-T01`، `SH-03-T04` و مانند آن.
+- قفسه‌های `SH-01` و `SH-02` برای گروه R (روایت و خاطرات) در نظر گرفته شده‌اند؛ برآورد فعلی حدود ۵۸۰ عنوان است.
+- قفسه‌های `SH-03` و `SH-04` برای گروه‌های A، H، P، K و M در نظر گرفته شده‌اند؛ برآورد فعلی مجموع این گروه‌ها حدود ۳۶۲ عنوان است.
+- قفسه پنجم در حال حاضر خارج از نقشه عملیاتی این ابزار است.
+- شناسه کتاب و نشانی فیزیکی دو فیلد مستقل‌اند. جابه‌جایی کتاب باید محل را تغییر دهد، نه شناسه کتاب را.
+- نمونه شناسه‌های گروهی پیشنهادی: `GS-R-01`، `GS-A-01`، `GS-H-01`، `GS-P-01`، `GS-K-01` و `GS-M-01`. این نمونه‌ها به‌تنهایی به معنی ثبت شناسه پایدار برای همه کتاب‌ها نیستند.
+- جانمایی دقیق گروه‌های A، H، P، K و M در طبقات هنوز نهایی نشده است؛ محل‌های درج‌شده در نمونه‌های چاپی برای این گروه‌ها صرفاً نمایشی هستند.
+
+## ۳. کارهای انجام‌شده امروز
+### ۳.۱. فایل برچسب Word
+- اسکریپت PowerShell با Microsoft Word COM اجرا شد.
+- فایل خروجی با موفقیت ذخیره شد:
+  `C:\Users\Mahdi\Desktop\برچسب‌های کتابخانه مرکز اسناد.docx`
+- فایل شامل ۶ برچسب نمونه کتاب و ۲۴ برچسب مکان برای چهار قفسه و شش طبقه هر قفسه است.
+- کاربر فایل را در Word بررسی کرد و تأیید کرد ساختار، کادرها و صفحه‌بندی درست است.
+- جای علامت دونقطه در بعضی عبارت‌های فارسی نیازمند اصلاح دستی بود؛ پیشنهاد استفاده از خط تیره به‌جای دونقطه مطرح شد.
+- فایل Word روی رایانه کاربر ساخته شده است؛ فایل در مخزن GitHub بارگذاری نشده است.
+
+### ۳.۲. بررسی و اصلاح ابزار وب در GitHub
+فایل `نرم‌افزار کتابخانه/index.html` در شاخه کاری بررسی شد. منوی قفسه‌ها هنوز از شناسه‌های قدیمی `SHSF-01-Q01` تا `SHSF-01-Q06` استفاده می‌کرد. منوی انتخاب قفسه با چهار گزینه `SH-01` تا `SH-04` جایگزین شد. با انتخاب قفسه و طبقه، کد مکان به قالب `SH-xx-Txx` ساخته می‌شود.
+
+همچنین این مستندات هماهنگ شدند:
+- `نرم‌افزار کتابخانه/README.md`
+- `نرم‌افزار کتابخانه/برچسب‌های قفسه و طبقه.md`
+
+سه تغییر در شاخه کاری ثبت شده‌اند:
+- اصلاح برنامه: commit `6dc3826b8f3dab7aa232e3265d78a057c6dd3d05`
+- اصلاح راهنما: commit `50d4fefb60d3983b0bfd1317294f1dd3db738903`
+- اصلاح مستند برچسب‌ها: commit `80818ed7ba9ee07f6c9382d6cb9905698c184aa5`
+
+## ۴. وضعیت ابزار موقت
+قابلیت‌های موجود در کد اولیه:
+- انتخاب فایل Excel و انتخاب شیت.
+- نگاشت ستون عنوان، نویسنده، ناشر و سال چاپ.
+- جست‌وجوی عنوان و انتخاب رکورد.
+- ثبت موضوع، محل فیزیکی، وضعیت مشاهده و توضیح کوتاه.
+- ثبت جداگانه کتابی که در فهرست پیدا نشده است.
+- نگهداری ثبت‌ها در حافظه مرورگر همان دستگاه.
+- خروجی CSV و پشتیبان JSON.
+
+## ۵. محدودیت‌ها و کارهای انجام‌نشده
+- برنامه هنوز روی گوشی واقعی با فایل مرجع و حداقل ۲۰ کتاب آزمایش نشده است.
+- استقرار آنلاین/HTTPS عملیاتی تأیید نشده است؛ تلاش پیشین برای ایجاد پروژه Vercel با خطای 403 مواجه شده بود.
+- بازیابی یا واردکردن پشتیبان JSON هنوز پیاده‌سازی و آزمون نشده است.
+- اعتبارسنجی اجباری محل فیزیکی برای ثبت کتاب دیده‌شده هنوز نیازمند بررسی/تکمیل است.
+- پس از تغییر کدهای قفسه، سازگاری ثبت‌های احتمالی قدیمی در حافظه مرورگر که با کدهای `SHSF-01-Qxx` ذخیره شده‌اند، باید بررسی شود؛ مهاجرت خودکار انجام نشده است.
+- ارتباط کتاب و شهید و تولید شناسه پایدار برای همه کتاب‌ها در این مرحله خارج از محدوده است.
+- فایل مرجع Excel و Supabase تغییر داده نشده‌اند.
+
+## ۶. گام بعدی پیشنهادی
+۱. بررسی سازگاری باقیمانده کدهای قدیمی و تعیین روش امن برای ثبت‌های موجود در مرورگر.
+۲. افزودن بازیابی پشتیبان JSON با کنترل نسخه و جلوگیری از جایگزینی ناخواسته داده‌ها.
+۳. اعتبارسنجی ثبت فیزیکی و کنترل انتخاب قفسه/طبقه.
+۴. آزمایش آفلاین/آنلاین در گوشی اندرویدی با ۲۰ کتاب واقعی، همراه با آزمون خروجی و بازیابی.
+۵. پس از آزمون موفق، بازبینی PR شماره ۳ و تصمیم جداگانه درباره ادغام و استقرار.
+
+## ۷. پیوندها
+- شاخه کاری: `feature/software-ketabkhane-physical-audit-20261025`
+- PR پیش‌نویس شماره ۳: https://github.com/forog1980-star/markaz-asnad-shohada/pull/3
+- ابزار: `نرم‌افزار کتابخانه/index.html`
+
+**وضعیت پایان روز:** تولید برچسب Word موفق؛ شناسه‌های مکان در کد و مستندات شاخه کاری هماهنگ شدند؛ آزمون واقعی و استقرار هنوز انجام نشده‌اند.
+
+================ FILE: \کتابخانه\گزارش‌ها\گزارش روزانه کتابخانه - 1405-08-04.md ================
+# گزارش روزانه کتابخانه مرکز اسناد
+**تاریخ گزارش:** ۱۴۰۵/۰۸/۰۴ (۲۶ اکتبر ۲۰۲۶)
+**مخزن رسمی:** `forog1980-star/markaz-asnad-shohada`
+**شاخه کاری مورد استفاده:** `feature/software-ketabkhane-physical-audit-20261025`
+**موضوع:** تثبیت جانمایی و برچسب‌های کتابخانه؛ تغییر اولویت به ثبت سریع موجودی فیزیکی با گوشی
+
+## ۱. خلاصه اجرایی
+در ادامه سامان‌دهی فیزیکی کتابخانه مرکز اسناد، نقشه چهار قفسه و شش طبقه هر قفسه تثبیت شد. نسخه Word برچسب‌ها با PowerShell و Microsoft Word روی رایانه کاربر تولید شد و کاربر بازشدن فایل و درست‌بودن کلی چیدمان را تأیید کرد. اکنون اولویت اصلی، ساخت یک ابزار کوچک و سریع برای گوشی اندرویدی جهت فهرست‌برداری موجودی واقعی کتاب‌ها، ثبت/تعیین شناسه و موضوع، ثبت محل فیزیکی و آماده‌سازی اطلاعات برای به‌روزرسانی کنترل‌شده فهرست Excel است.
+
+این گزارش برای ادامه در گفت‌وگوی جدید نوشته شده تا وضعیت، تصمیم‌ها، محدودیت‌ها و گام آغاز برنامه‌نویسی بدون نیاز به بازگویی از سوی کاربر در دسترس باشد.
+
+## ۲. تصمیم‌های فیزیکی قطعی
+
+### ۲.۱ نقشه قفسه‌ها
+- چهار قفسه عملیاتی: `SH-01`، `SH-02`، `SH-03` و `SH-04`.
+- هر قفسه شش طبقه دارد؛ شماره‌گذاری از بالا به پایین: `T01` تا `T06`.
+- کد محل کامل از ترکیب قفسه و طبقه ساخته می‌شود؛ نمونه: `SH-01-T01`.
+- قفسه پنجم در نقشه جاری این مرحله وارد نشده است.
+- شناسه کتاب با کد محل فیزیکی یکی نیست. جابه‌جایی کتاب باید محل را تغییر دهد، نه شناسه کتاب را.
+
+### ۲.۲ جانمایی گروه‌ها
+| محل | گروه | عنوان موضوع |
+|---|---|---|
+| `SH-01`، همه طبقات | R | روایت و خاطرات |
+| `SH-02`، همه طبقات | R | روایت و خاطرات |
+| `SH-03-T01` | H | تاریخ و اسناد |
+| `SH-03-T02` | A | ادبیات و هنر |
+| `SH-03-T03` و `SH-03-T04` | P | پژوهش و تحلیل |
+| `SH-03-T05` و `SH-03-T06` | M | متفرقه |
+| `SH-04-T01` | K | کودک و نوجوان |
+| `SH-04-T02` تا `SH-04-T06` | آزاد | ظرفیت توسعه یا جابه‌جایی آتی |
+
+تقسیم بالا طبق تصمیم کاربر تثبیت شده است. تخصیص ظرفیت طبقه‌ای با نیاز تقریبی کتاب‌ها تنظیم شده و ممکن است بخشی از ظرفیت هر طبقه خالی بماند. این فضا عمداً برای نظم و امکان توسعه نگه داشته می‌شود.
+
+### ۲.۳ تعداد برچسب‌های نهایی
+- برچسب موضوعی R: دو عدد؛ یکی بالای `SH-01` و دیگری بالای `SH-02`.
+- برچسب موضوعی H، A و K: هرکدام یک عدد.
+- برچسب موضوعی P و M: هرکدام دو عدد، مطابق طبقات تخصیص‌یافته.
+- مجموع برچسب موضوعی: **۹ عدد**.
+- برچسب محل فیزیکی: **۲۴ عدد** برای چهار قفسه × شش طبقه.
+- نمونه برچسب کتاب در فایل: **۶ عدد**.
+- نسخه Word نهایی محلی شامل مجموعاً ۳۹ کادر برچسب در سه بخش است: ۶ نمونه کتاب، ۹ موضوعی و ۲۴ محل.
+
+## ۳. وضعیت فایل Word برچسب‌ها
+- اسکریپت PowerShell با Word COM اجرا شد.
+- فایل خروجی جدید: `C:\Users\Mahdi\Desktop\برچسب‌های کتابخانه مرکز اسناد - نسخه نهایی.docx`.
+- کاربر تأیید کرد فایل باز می‌شود و چیدمان کلی درست است.
+- فایل قبلی با نام متفاوت نگه داشته شده و خروجی جدید روی فایل قبلی نوشته نشده است.
+- خطای پایانی که هنگام اجرای جداگانه کلمه `finally` رخ داد، ناشی از واردکردن بلوک `finally` پس از پایان بلوک `try/catch` به‌صورت مستقل بود؛ فایل پیش از آن ذخیره شده بود و کاربر بازشدن آن را تأیید کرد.
+- هنوز چاپ آزمایشی کاغذی تأیید نشده است.
+- فایل Word روی رایانه کاربر ساخته شده و در مخزن GitHub ثبت نشده است؛ این کار عمدی است و نیازی به بارگذاری فایل محلی در مخزن نیست مگر اینکه کاربر بعداً بخواهد.
+
+## ۴. سابقه ابزار موقت تطبیق فیزیکی
+ابزار فعلی در مسیر `نرم‌افزار کتابخانه/index.html` یک صفحه وب مستقل و آزمایشی است. در نسخه موجود قابلیت‌هایی مانند انتخاب فایل Excel و شیت، نگاشت ستون عنوان/نویسنده/ناشر/سال، جست‌وجوی عنوان، ثبت موضوع و محل، وضعیت مشاهده، توضیح، ثبت کتاب پیدا‌نشده، ذخیره محلی در مرورگر و خروجی CSV/JSON وجود دارد یا در کد پیش‌بینی شده است. این قابلیت‌ها هنوز به‌طور کامل در گوشی واقعی آزمون نشده‌اند.
+
+در شاخه کاری، منوی مکان از قالب قدیمی `SHSF-01-Q01` به چهار قفسه `SH-01` تا `SH-04` و طبقات `T01` تا `T06` هماهنگ شده است. تغییرات مربوط در commits پیشین شاخه ثبت شده‌اند؛ `main` تغییر نکرده است.
+
+## ۵. وضعیت فنی و ریسک‌های ابزار قبلی
+- شاخه کاری: `feature/software-ketabkhane-physical-audit-20261025`.
+- PR پیش‌نویس شماره ۳: https://github.com/forog1980-star/markaz-asnad-shohada/pull/3
+- برنامه: `نرم‌افزار کتابخانه/index.html`.
+- راهنما: `نرم‌افزار کتابخانه/README.md`.
+- تغییرات کد و مستندات به `main` ادغام نشده‌اند.
+- اجرای واقعی در گوشی اندرویدی با فایل مرجع و ۲۰ کتاب هنوز مستند نشده است.
+- استقرار HTTPS عملیاتی تأیید نشده است؛ تلاش قبلی برای ایجاد پروژه Vercel با خطای 403 مواجه شد.
+- بازیابی/ورود JSON هنوز پیاده‌سازی و آزمون نشده است.
+- ذخیره محلی مرورگر می‌تواند با پاک‌شدن داده‌های مرورگر از دست برود.
+- داده‌های احتمالی قدیمی با کدهای `SHSF-01-Qxx` باید پیش از هر مهاجرت یا پاک‌سازی بررسی و پشتیبان‌گیری شوند.
+- فایل Excel مرجع و Supabase در تغییرات پیشین دست‌نخورده باقی مانده‌اند.
+
+## ۶. مرجع Excel و اصول داده
+فایل مرجع کاری فعلی:
+`کتابخانه/فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx`
+
+این فایل مرجع معتبر کاری است و داده‌های آن باید با احتیاط حفظ شوند. کاربر اکنون صریحاً اولویت را روی فهرست‌برداری موجودی فیزیکی، نام‌گذاری/شناسه‌گذاری کتاب‌ها و به‌روزرسانی فهرست Excel قرار داده است. بنابراین برنامه جدید باید برای ورود اطلاعات میدانی و تهیه خروجی به‌روزرسانی طراحی شود؛ اما تا زمانی که ساختار شیت‌ها و روش امن اعمال تغییرات روشن نشده، نباید بی‌اجازه فایل مرجع را بازنویسی کند. ابتدا نسخه پشتیبان جداگانه، تطبیق ستون‌ها، پیش‌نمایش تغییرات و خروجی قابل بازبینی در نظر گرفته شود.
+
+قواعد ثابت:
+- ثبت فیزیکی باید با خود کتاب روی قفسه تطبیق داده شود؛ صرف وجود عنوان در فهرست، وجود فیزیکی را ثابت نمی‌کند.
+- شناسه کتاب و نشانی محل مستقل‌اند.
+- رکوردهای ناقص، تکراری یا مشکوک نباید خودکار حذف یا ادغام شوند.
+- ارتباط کتاب و شهید فعلاً در اولویت این مرحله نیست و نباید باعث پیچیده‌شدن ابزار ثبت موجودی شود.
+- این ابزار موقت، به‌خودی‌خود مجوز تغییر Supabase یا انتشار عمومی داده‌ها ایجاد نمی‌کند.
+
+## ۷. اولویت جدید کاربر: برنامه کوچک ثبت کتاب با گوشی
+کاربر می‌خواهد در همان روز، کار برنامه‌نویسی ابزار کوچک ثبت فیزیکی کتاب‌ها را آغاز کند. هدف فوری، ساخت سامانه جامع یا قابلیت هوش مصنوعی نیست؛ هدف ابزار عملیاتی بسیار ساده برای یک نفر و یک گوشی اندرویدی است تا هنگام برداشتن کتاب بتواند سریع آن را پیدا/ثبت کند، عنوان و اطلاعات کتاب را ثبت یا تطبیق دهد، موضوع و محل را تعیین کند و در پایان داده‌ها را برای به‌روزرسانی Excel آماده کند.
+
+### نیازهای حداقلی که باید در شروع کدنویسی بررسی و تثبیت شوند
+1. رابط فارسی و راست‌به‌چپ، مناسب صفحه گوشی و ورودی لمسی.
+2. ثبت سریع عنوان کتاب و در صورت موجودبودن: نویسنده، ناشر، سال چاپ؛ فیلدهای اختیاری نباید ثبت اولیه را متوقف کنند.
+3. ثبت گروه موضوعی R/A/H/P/K/M.
+4. ثبت محل با کدهای معتبر `SH-xx-Txx` مطابق نقشه تثبیت‌شده.
+5. امکان ثبت کتابی که در Excel پیدا نمی‌شود، بدون ساختن رکورد جعلی یا حذف رکوردهای مشابه.
+6. شناسه موقت/پیشنهادی قابل ردیابی برای رکوردهای تازه، با جلوگیری از تکرار؛ قاعده نهایی شناسه دائمی باید پیش از اعمال انبوه مشخص شود.
+7. ذخیره پایدار محلی و امکان تهیه پشتیبان؛ راهکار نباید به اینترنت دائمی وابسته فرض شود.
+8. خروجی مناسب بررسی و به‌روزرسانی Excel، با کنترل تعداد رکوردها و نگهداری اطلاعات اصلی.
+9. کمترین تعداد لمس/صفحه برای ثبت یک کتاب؛ تمرکز بر سرعت فهرست‌برداری، نه داشبورد یا امکانات جانبی.
+10. آزمون با نمونه کوچک واقعی پیش از ثبت انبوه.
+
+### نکته تصمیم‌گیری فنی
+پیش از نوشتن کد جدید، در گفت‌وگوی بعدی باید وضعیت فعلی شاخه، فایل‌های موجود و کد ابزار قبلی دوباره بررسی شوند تا کار تکراری انجام نشود. سپس تصمیم گرفته شود ابزار فعلی در یک شاخه جدید و جداگانه ساده‌سازی/تکمیل شود یا یک صفحه مستقل جدید ساخته شود. تا قبل از بررسی، فرض نکنیم که ابزار قبلی قابل استفاده کامل است یا باید دور انداخته شود.
+
+## ۸. گام‌های آغازین در گفت‌وگوی جدید
+1. ابتدا همین گزارش و `نرم‌افزار کتابخانه/index.html`، `README.md` و گزارش فنی جاری را بخوان.
+2. وضعیت branch، آخرین commitها و PR شماره ۳ را از GitHub بررسی کن؛ تغییرات را روی `main` انجام نده.
+3. ساختار واقعی فایل Excel مرجع و شیت «فهرست کتاب‌ها» را بررسی کن؛ تا وقتی ساختار دقیق دیده نشده، نام ستون یا شماره ستون را حدس نزن.
+4. محدوده نسخه اول را به فرم ثبت سریع و خروجی قابل بررسی محدود کن.
+5. داده‌ها را ابتدا در یک فایل/فضای کاری مستقل نگه دار؛ برای به‌روزرسانی Excel، ابتدا نسخه پشتیبان و گزارش تغییرات بساز.
+6. یک نمونه آزمایشی ۱۰ تا ۲۰ کتاب را ثبت و خروجی را با Excel تطبیق بده؛ پس از موفقیت، استفاده وسیع‌تر.
+7. همه تغییرات، آزمون‌های واقعی و موارد تأییدنشده را در گزارش روزانه و فنی ثبت کن.
+
+## ۹. نقطه ادامه
+**اولویت فعلی:** ساخت ابزار سریع ثبت موجودی فیزیکی کتابخانه با گوشی و آماده‌سازی داده برای به‌روزرسانی کنترل‌شده Excel.
+**اولویت‌های تعویق‌افتاده:** بازیابی JSON ابزار قبلی، مدیریت داده‌های قدیمی مرورگر، استقرار HTTPS و ادغام PR #3؛ این‌ها باید در صورت نیاز به ابزار قبلی بررسی شوند، اما نباید تمرکز کاربر را از فهرست‌برداری سریع کتاب‌ها منحرف کنند.
+**حفاظت از داده:** هیچ فایل مرجع، داده ذخیره‌شده یا رکوردی را بدون نسخه پشتیبان و بررسی حذف یا بازنویسی نکن.
+**وضعیت برچسب‌ها:** فایل Word محلی ساخته شده و کاربر چیدمان آن را تأیید کرده است؛ چاپ آزمایشی هنوز تأیید نشده.
+
+---
+
+**یادداشت وضعیت:** این گزارش تصمیم‌ها و وضعیت شناخته‌شده تا تاریخ فوق را ثبت می‌کند. آزمون‌هایی که هنوز اجرا نشده‌اند، موفق تلقی نمی‌شوند.
+
+---
+
+## الحاقیه اجرایی — نسخه حداقلی ۰٫۲ ابزار ثبت فیزیکی (۱۴۰۵/۰۸/۰۴)
+
+### بررسی پیش از تغییر
+- شاخه مبنای بررسی: `feature/software-ketabkhane-physical-audit-20261025`؛ commit مبنا `09c8e08bef2b58dc63952bcc2731e45d82ed83d8`.
+- PR شماره ۳ همچنان پیش‌نویس و ادغام‌نشده است؛ `main` تغییر داده نشد.
+- فایل ابزار موجود `نرم‌افزار کتابخانه/index.html` بررسی شد. قابلیت‌های قبلی شامل بارگذاری Excel، انتخاب شیت، نگاشت ستون‌ها، جست‌وجو، ثبت میدانی، ذخیره `localStorage` و خروجی CSV/JSON بود؛ بازیابی JSON در نسخه پیشین وجود نداشت.
+- فایل مرجع در مخزن `main` با مسیر `کتابخانه/فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx` و commit مرجع `b93eaca408c3d921a8596dfdaf5f8c992bbf4bc` شناسایی شد. محتوای باینری فایل از طریق ابزار بررسی GitHub به‌صورت ساختاری بازخوانی نشد؛ بنابراین نام شیت‌ها و ستون‌های واقعی در این مرحله هنوز راستی‌آزمایی نشده‌اند و به‌روزرسانی Excel انجام نشده است.
+
+### نقطه بازگشت و تغییر
+- شاخه جدید و جداگانه: `feature/library-quick-inventory-v02-20261026`، ساخته‌شده از commit مبنای بالا؛ شاخه `main` و فایل مرجع تغییر نکردند.
+- فایل تغییرکرده: `نرم‌افزار کتابخانه/index.html`؛ نسخه قبل ۱۵٬۲۵۳ نویسه و blob `c0d39576ff61b8bc05792ad225ce7b7264c30df0`؛ نسخه پس از تغییر ۱۸٬۰۸۲ نویسه و blob `049beb48dbec6e42183a363f0b43fc198e538c50`.
+- commit تغییر کد: `567f727d9a3586ddef425e99a222c7a3965a966a`.
+- قابلیت‌های افزوده‌شده: ادغام امن پشتیبان JSON بدون بازنویسی کلیدهای موجود، خروجی CSV تغییرات پیشنهادی برای بررسی Excel، الزام ثبت گروه موضوعی و الزام محل واقعی برای ثبت کتاب دیده‌شده، و کلید تصادفی‌تر برای ثبت خارج از فهرست.
+
+### آزمون و محدودیت
+- بررسی نحوی JavaScript با کامپایل ایستا انجام شد: موفق.
+- کنترل حضور دکمه‌ها و کنترل‌های جدید و قواعد اعتبارسنجی در فایل انجام شد: موفق.
+- آزمون واقعی در مرورگر/گوشی اندرویدی، بازیابی JSON واقعی، آزمون با ۱۰ تا ۲۰ کتاب، و بازکردن خروجی در Excel هنوز انجام نشده‌اند.
+- فایل Excel مرجع، Supabase و `main` تغییر نکردند.
+
+### گام بعدی
+۱. بررسی ساختار واقعی شیت و سرستون‌های Excel با نسخه محلی/دریافت‌شده و ثبت تعداد ردیف‌ها.
+۲. اجرای آزمایش مرورگر با فایل نمونه و پشتیبان آزمایشی.
+۳. آزمون میدانی ۱۰ تا ۲۰ کتاب و گرفتن پشتیبان در پایان.
+۴. بازبینی CSV تغییرات و تهیه روش اعمال تغییرات روی یک کپی تاریخ‌دار از Excel؛ هرگز روی فایل مرجع بدون پشتیبان اعمال نشود.
+۵. ثبت نتایج واقعی و سپس تصمیم درباره PR و استقرار HTTPS.
+
+================ FILE: \نرم‌افزار ثبت کتاب‌ها و شهدا\docs\طرح-اجرایی-نسخه-اول-برنامه-کتابخانه-نسخه-۰٫۱.md ================
+# طرح اجرایی نسخه اول برنامه کتابخانه مرکز اسناد گلزار شهدای تهران
+
+**نسخه پیشنهادی ۰٫۱ — مبنای شروع پیاده‌سازی**
+
+با توجه به تصمیمی که گرفتیم، پیشنهاد می‌کنم نسخه اول را به‌عنوان یک سامانه سبک مدیریت کتاب‌ها و منابع مرتبط با شهدا بسازیم؛ نه یک نرم‌افزار کتابخانه عمومی و نه هنوز سامانه جامع مرکز اسناد.
+
+هدف این است که چند نفر بتوانند از چند رایانه اطلاعات را ثبت و جست‌وجو کنند، مطالب مرتبط با شهدا را مستند کنند و گزارش بگیرند؛ درحالی‌که شماره‌گذاری کتاب‌ها و دسته‌بندی فیزیکی هنوز در حال انجام است.
+
+یک نکته فنی مهم: چون برنامه باید از چند رایانه استفاده شود، نسخه اصلی را نباید به‌صورت چند فایل پایگاه داده جداگانه روی هر رایانه بسازیم. پیشنهاد من برنامه تحت وب داخلی با پایگاه داده مرکزی است که در شبکه محل کار اجرا شود و در صورت نیاز، بعداً برای دسترسی کنترل‌شده از راه دور توسعه پیدا کند.
+
+## ۱. معماری پیشنهادی
+
+- **رایانه کاربران:** ثبت کتاب، جست‌وجو، استخراج مطالب و گزارش‌ها.
+- **برنامه مرکزی در شبکه داخلی:** رابط فارسی و راست‌چین، قواعد اعتبارسنجی، کاربران و سطح دسترسی.
+- **پایگاه داده مشترک:** کتاب‌ها، شهدا، ارتباط‌ها، مطالب استخراج‌شده، تاریخچه و وضعیت بررسی.
+- **ورود اولیه از Excel:** واردسازی کنترل‌شده همراه با گزارش مبدأ و خطاها.
+- **خروجی و پشتیبان:** خروجی گزارش‌ها و نسخه پشتیبان قابل بازیابی.
+
+برای شروع، گزینه فنی مناسب می‌تواند Python + رابط وب سبک + PostgreSQL باشد. PostgreSQL برای استفاده هم‌زمان چند کاربر مناسب‌تر از این است که فایل SQLite را بین چند رایانه به اشتراک بگذاریم.
+
+این انتخاب هنوز قطعی نیست؛ ابتدا باید مشخص شود شبکه داخلی و رایانه‌ای که قرار است برنامه روی آن اجرا شود، چه امکاناتی دارند. همچنین در این مرحله نیازی به GitHub، Vercel یا اینترنت عمومی نداریم.
+
+## ۲. امکانات نسخه اول
+
+نسخه اول را به شش بخش محدود می‌کنیم تا در زمان کوتاه قابل ساخت و آزمون باشد.
+
+### الف) مدیریت کتاب‌ها
+
+- ثبت عنوان، ناشر، نویسنده و توضیحات
+- شناسه داخلی ثابت برای هر رکورد
+- ثبت وضعیت بررسی فیزیکی و محل فعلی
+- نگهداری دسته‌بندی موضوعی و امکان تغییر آن
+- علامت‌گذاری عنوان‌های مشابه برای بررسی، بدون حذف خودکار
+
+### ب) پرونده شهدا و ارتباط‌ها
+
+- ثبت نام و نام خانوادگی شهید
+- اتصال یک کتاب به یک یا چند شهید
+- اتصال یک شهید به چند کتاب
+- ثبت قطعه، ردیف و شماره مزار با وضعیت تأیید
+- نگهداری اطلاعات اولیه فایل‌ها حتی اگر هنوز تأیید نشده باشند
+
+### ج) ثبت مطالب استخراج‌شده
+
+- اتصال مطلب به کتاب و شهید مربوط
+- شماره صفحه یا بازه صفحات
+- متن استخراج‌شده یا خلاصه پژوهشگر
+- نوع مطلب: زندگی‌نامه، خاطره، وصیت‌نامه، سند، اشاره کوتاه و مانند آن
+- وضعیت بررسی و تأیید علمی، همراه با نام ثبت‌کننده
+
+### د) جست‌وجوی سریع
+
+- جست‌وجو بر اساس عنوان، ناشر، شهید، دسته‌بندی یا شناسه
+- نمایش همه کتاب‌های مرتبط با یک شهید
+- نمایش صفحات و مطالب استخراج‌شده برای هر شهید
+- فیلتر اطلاعات ناقص، بررسی‌نشده و تأییدشده
+
+### هـ) گزارش‌گیری
+
+- تعداد رکوردهای کتاب و تعداد کتاب‌های دارای موجودی تأییدشده
+- کتاب‌های مرتبط با شهدا
+- مطالب استخراج‌شده و مطالب تأییدشده
+- کتاب‌های فاقد دسته‌بندی یا محل مشخص
+- ارتباط‌های ناقص و عنوان‌های مشابه
+- خروجی Excel برای گزارش‌های مدیریتی
+
+### و) کاربران و حفاظت از داده
+
+- ورود با حساب کاربری
+- نقش‌های اولیه: مدیر سامانه، ثبت‌کننده و بازبین
+- ثبت زمان و کاربر ایجادکننده یا ویرایش‌کننده
+- پشتیبان‌گیری و امکان بازیابی آزمایشی
+- جلوگیری از حذف ناخواسته و ثبت تغییرات مهم
+
+## ۳. ساختار داده‌ها
+
+پیشنهاد می‌کنم اطلاعات در چند جدول مرتبط ذخیره شوند، نه یک جدول بزرگ که اطلاعات شهید و کتاب در آن تکرار شود.
+
+| جدول | اطلاعات اصلی |
+|---|---|
+| books | شناسه ثابت کتاب، عنوان، ناشر، نویسنده، توضیحات، دسته و وضعیت فیزیکی |
+| martyrs | شناسه داخلی شهید، نام و نام خانوادگی و وضعیت بررسی هویت |
+| book_martyr_links | ارتباط کتاب و شهید، نوع ارتباط و وضعیت تأیید |
+| extracted_items | متن یا خلاصه، صفحات، نوع مطلب، کتاب و شهید مرتبط |
+| locations | محل فیزیکی فعلی کتاب و تاریخ آخرین بررسی |
+| grave_locations | قطعه، ردیف و شماره مزار، منبع داده و وضعیت تأیید |
+| categories | دسته‌بندی شش‌گانه و تغییرات بعدی آن |
+| users | حساب کاربری، نقش و وضعیت دسترسی |
+| audit_log | تغییرات مهم و سابقه عملیات |
+| import_records | فایل مبدأ، شیت، ردیف اصلی و نتیجه ورود اطلاعات |
+
+### چند قاعده مهم در طراحی
+
+۱. شناسه داخلی کتاب از شماره نهایی کتابخانه جداست. می‌توانیم از روز اول شناسه‌ای مانند **BK-000001** بسازیم؛ این فقط شناسه سامانه است و به معنی شماره‌گذاری نهایی فیزیکی نیست.
+
+۲. هر کتاب می‌تواند به چند شهید متصل باشد. در شیت «چند شهید»، باید ردیف‌های ادامه‌دار به کتاب مربوط متصل شوند؛ نه اینکه هر ردیف به‌عنوان یک کتاب مستقل وارد شود.
+
+۳. عنوان مشابه مساوی کتاب تکراری نیست. تفاوت ناشر، نویسنده، چاپ و مشخصات نسخه باید بررسی شود.
+
+۴. موجودی واقعی از آمار خرید اولیه جدا می‌ماند. تعداد نسخه موجود فقط پس از بررسی فیزیکی تأیید می‌شود. مقدار اولیه ستون «تعداد» در صورت نیاز، صرفاً در اطلاعات خام واردشده از فایل حفظ می‌شود و مبنای گزارش موجودی فعلی نیست.
+
+۵. دسته‌بندی و محل کتاب قابل تغییرند. تغییر قفسه یا دسته‌بندی نباید شناسه و سابقه ارتباط‌های پژوهشی کتاب را از بین ببرد.
+
+۶. هر مطلب استخراج‌شده باید ردّ منبع داشته باشد. حداقل شناسه کتاب و صفحه، و در صورت ارتباط با شهید، شناسه شهید ثبت می‌شود. متن استخراج‌شده تا زمان تأیید بازبین، قطعی تلقی نمی‌شود.
+
+## ۴. روش ورود اطلاعات از سه فایل Excel
+
+ورود داده باید کنترل‌شده باشد. پیشنهاد نمی‌کنم فایل‌ها مستقیماً در جداول اصلی وارد شوند؛ ابتدا یک مرحله ورود موقت داشته باشیم.
+
+۱. از هر سه فایل یک نسخه اصلی و دست‌نخورده نگه می‌داریم.
+۲. برنامه، اطلاعات هر شیت را همراه با نام فایل، نام شیت و شماره ردیف مبدأ وارد مرحله بررسی می‌کند.
+۳. عنوان‌های مشابه، فیلدهای خالی، مقادیر غیرعادی و ردیف‌های ادامه‌دار علامت‌گذاری می‌شوند.
+۴. قواعد هر فایل جداگانه اعمال می‌شود؛ مخصوصاً ساختار «یک شهید» و «چند شهید» و شیت نشانی مزار.
+۵. رکوردهای قابل ورود ثبت می‌شوند و موارد مبهم برای بررسی دستی باقی می‌مانند.
+۶. گزارش ورود شامل تعداد ردیف‌های خوانده‌شده، واردشده، نیازمند بررسی و خطادار تهیه می‌شود.
+
+در این مرحله نباید صرفاً بر اساس نام شهید یا عنوان کتاب، دو رکورد را خودکار یکی کنیم. تطبیق خودکار می‌تواند پیشنهاد بدهد، اما ادغام نهایی باید قابل بررسی و برگشت باشد.
+
+همچنین چون تا اینجا فقط ساختار و بخشی از ردیف‌های فایل‌ها را مشاهده کرده‌ایم، تعداد نهایی رکوردهای قابل ورود را باید پس از خواندن کامل فایل‌ها اعلام کنیم.
+
+## ۵. مراحل پیاده‌سازی و زمان‌بندی
+
+### روز ۱ — مرحله صفر: بررسی محیط و تثبیت طرح
+
+بررسی رایانه میزبان، شبکه داخلی، نسخه Python و امکانات پشتیبان‌گیری؛ نهایی‌کردن ساختار داده و تهیه نسخه آزمایشی از سه فایل.
+
+### روز ۲–۳ — مرحله اول: پایگاه داده و ورود اولیه
+
+ساخت جداول، شناسه‌های داخلی، ابزار ورود Excel و گزارش خطاها و موارد مشکوک.
+
+### روز ۴–۶ — مرحله دوم: رابط کاربری
+
+صفحه کتاب‌ها، پرونده شهدا، ثبت ارتباط‌ها، فرم استخراج مطلب و جست‌وجوی فارسی.
+
+### روز ۷–۸ — مرحله سوم: گزارش و دسترسی چندکاربره
+
+داشبورد، خروجی Excel، نقش‌های کاربران، سابقه تغییرات و پشتیبان‌گیری.
+
+### روز ۹–۱۰ — مرحله چهارم: آزمون و اجرای آزمایشی
+
+بررسی صحت ورود اطلاعات، آزمون هم‌زمانی کاربران، بازیابی پشتیبان و اصلاح خطاها.
+
+این زمان‌بندی برای یک نسخه اولیه محدود، با فرض آماده‌بودن محیط و نبود مانع جدی، برآورد است. آماده‌سازی شبکه، ورود کامل داده‌ها یا اصلاح ساختارهای پیچیده Excel ممکن است زمان بیشتری بخواهد. بهتر است ابتدا روی نمونه داده آزمایش کنیم و سپس ورود کامل را انجام دهیم.
+
+## ۶. آزمون‌هایی که پیش از استفاده واقعی باید بگذرند
+
+| آزمون | معیار قبولی |
+|---|---|
+| ورود Excel | تعداد رکوردهای خوانده‌شده با گزارش ورود قابل تطبیق باشد؛ خطاها پنهان نشوند. |
+| عنوان‌های مشابه | هیچ رکوردی صرفاً به‌دلیل تشابه عنوان خودکار حذف نشود. |
+| ارتباط چندشهیدی | یک کتاب به چند شهید متصل شود و هر ارتباط جداگانه قابل مشاهده باشد. |
+| استخراج مطالب | صفحه، منبع و شهید مرتبط بدون اشتباه ثبت و بازیابی شوند. |
+| جست‌وجوی فارسی | جست‌وجو با «ی/ي»، «ک/ك» و فاصله‌های متداول نتایج قابل انتظار بدهد، بدون حذف تفاوت‌های واقعی نام‌ها. |
+| استفاده هم‌زمان | دو کاربر بتوانند اطلاعات متفاوت را ثبت کنند، بدون اینکه تغییرات یکدیگر را ناخواسته از بین ببرند. |
+| سطح دسترسی | کاربر ثبت‌کننده نتواند عملیات مخصوص مدیر را انجام دهد. |
+| پشتیبان و بازیابی | نسخه پشتیبان در محیط آزمایشی بازیابی و صحت داده‌ها کنترل شود. |
+| تغییر محل کتاب | محل جدید ثبت شود و شناسه کتاب و سابقه مطالب آن ثابت بماند. |
+| گزارش‌گیری | اعداد داشبورد با داده‌های واقعی پایگاه داده تطبیق داشته باشند. |
+
+## ۷. حفاظت از اطلاعات و امکان توسعه
+
+چون این سامانه قرار است به‌تدریج به مرکز اسناد متصل شود، از ابتدا این اصول را رعایت می‌کنیم:
+
+- نسخه اصلی داده‌ها روی یک میزبان مشخص و تحت مدیریت مرکز نگهداری شود.
+- دسترسی شبکه محدود و حساب‌های کاربری مجزا باشند.
+- پشتیبان‌گیری منظم و بازیابی آزمایش‌شده داشته باشیم.
+- اطلاعات خام ورودی، سوابق تغییرات و وضعیت تأیید پژوهشی حفظ شوند.
+- فعلاً هیچ انتشار عمومی، اتصال به چت‌بات یا انتشار متن کتاب‌ها در اینترنت انجام نشود.
+- ساختار داده طوری طراحی شود که بعداً منابعی مانند اسناد، عکس‌ها، فایل‌های صوتی و سایر مواد آرشیوی نیز قابل افزودن باشند.
+
+## ۸. برای شروع عملی، یک موضوع فنی باید مشخص شود
+
+پیش از نوشتن کد، لازم است بدانیم برنامه مرکزی کجا اجرا خواهد شد؛ چون انتخاب پایگاه داده، روش دسترسی کاربران و نحوه پشتیبان‌گیری به این تصمیم وابسته است.
+
+### ۱. کدام رایانه قرار است میزبان برنامه باشد؟
+
+- یکی از رایانه‌های موجود در محل کتابخانه
+- یک رایانه یا سرور اختصاصی که بعداً تهیه می‌شود
+- هنوز مشخص نیست؛ ابتدا محیط را بررسی کنیم
+
+### ۲. رایانه‌های کاربران چه وضعیتی دارند؟
+
+- به یک شبکه داخلی مشترک متصل‌اند
+- در محل‌های جدا هستند و شبکه مشترک ندارند
+- هنوز بررسی نکرده‌ام
+
+### ۳. محدودیت اینترنت چگونه است؟
+
+- باید کاملاً بدون اینترنت کار کند
+- اینترنت محدود است، ولی شبکه داخلی داریم
+- اینترنت و دسترسی شبکه در دسترس است
+
+**وضعیت تصمیم:** گزینه‌های بالا پرسش‌های بازِ زمان تدوین طرح‌اند. تصمیم معماری نهایی باید پس از بررسی محیط و تأیید صریح ثبت شود؛ تا آن زمان فناوری‌های پیشنهادی قطعی نیستند.
+
+## الحاقیه وضعیت جاری و حدود اعتبار طرح — ۱۴۰۵/۰۷/۲۸
+
+این سند طرح پیشنهادی نسخه اول است؛ به‌تنهایی تصویب فناوری یا اثبات اجرای فعالیت‌ها نیست. فایل مرجع جاری `کتابخانه/فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx` است و نگاشت ورود باید پس از بررسی سه شیت باقی‌مانده، در برابر همین فایل به‌روز شود. فرض‌های قدیمی درباره سه Excel اولیه فقط به‌عنوان تاریخچه حفظ شوند.
+
+قواعد فعلی: دسته‌بندی R/A/H/P/K/M حفظ شود؛ رابطه کتاب–شهید دوطرفه و قابل ردیابی باشد؛ شناسه نهایی و محل واقعی بدون تأیید ساخته نشود؛ نامزد الگوریتمی تأیید انسانی نیست؛ ورود آزمایشی باید گزارش قابل تطبیق بسازد.
+
+برای تصمیم‌های یگانه و پرسش‌های واقعی باز به [دفتر تصمیم‌ها](../../مستندات/دفتر%20تصمیم‌ها%20و%20ابهام‌های%20باز%20مرکز%20اسناد%20-%201405-07-28.md) مراجعه شود.
+
+================ FILE: \نرم‌افزار ثبت کتاب‌ها و شهدا\docs\طرح-کدگذاری-و-فیلدهای-فهرست-کتابخانه-نسخه-۰٫۱.md ================
+# طرح پیشنهادی کدگذاری و فیلدهای فهرست کتابخانه — نسخه ۰٫۱
+
+**پروژه:** نرم‌افزار ثبت کتاب‌ها و شهدا — مرکز اسناد گلزار شهدای تهران
+**وضعیت:** پیش‌نویس غیرنهایی؛ ابتدا بر پایه سه فایل Excel اولیه تدوین شده و باید در برابر فایل تلفیقی مبنای جاری بازبینی شود. هیچ شناسه یا کد فیزیکی با این سند به‌تنهایی مصوب نمی‌شود.
+**هدف:** جداکردن شناسه نرم‌افزار، اطلاعات کتاب‌شناختی، نسخه‌های فیزیکی، طبقه‌بندی موضوعی و محل نگهداری؛ به‌گونه‌ای که با تغییر قفسه یا دسته‌بندی، پیوندهای پژوهشی از بین نروند.
+
+## ۱. اصل طراحی
+
+سه مفهوم نباید با هم اشتباه شوند:
+
+1. **رکورد کتاب‌شناختی:** یک عنوان/اثر و مشخصات چاپی قابل شناسایی.
+2. **نسخه فیزیکی:** هر جلد واقعی که در کتابخانه وجود دارد؛ نسخه‌های متعدد یک کتاب، کد جدا دارند.
+3. **محل فیزیکی:** قفسه/طبقه/موقعیت فعلی هر نسخه؛ جابه‌جایی محل، شناسه کتاب یا نسخه را عوض نمی‌کند.
+
+ستون «تعداد» در Excel، شماره ردیف اکسل، نام شیت یا نام ناشر هیچ‌کدام نباید به‌عنوان شناسه پایدار نرم‌افزار یا کد قفسه استفاده شوند.
+
+## ۲. پیشنهاد کدگذاری
+
+### ۲.۱ شناسه‌های داخلی سامانه
+
+| موجودیت | پیشوند پیشنهادی | نمونه | کاربرد |
+|---|---|---|---|
+| رکورد کتاب‌شناختی | `BK` | `BK-000001` | شناسه ثابت یک اثر/رکورد کتاب |
+| نسخه فیزیکی | `CP` | `CP-000001` | شناسه مستقل هر جلد واقعی |
+| پرونده شهید | `MT` | `MT-000001` | شناسه ثابت پرونده شهید پس از ایجاد رکورد |
+| ارتباط کتاب و شهید | شناسه داخلی سامانه | خودکار | ثبت هر پیوند با منشأ و وضعیت بازبینی |
+| ارجاع/مطلب استخراج‌شده | شناسه داخلی سامانه | خودکار | ثبت مطلب، صفحه و منبع |
+
+این شناسه‌ها **معنادار نیستند و نباید شامل نام ناشر، دسته موضوعی، نام شهید یا قفسه باشند**. اگر کتاب از دسته R به H منتقل شود یا به قفسه دیگری برود، شناسه BK و CP ثابت می‌ماند. شماره‌های نمونه صرفاً نمونه قالب‌اند؛ نباید شناسه‌های واقعی از پیش رزرو شوند.
+
+### ۲.۲ کد دسته‌بندی موضوعی
+
+دسته‌های فعلی که در سوابق پروژه ثبت شده‌اند، تا زمان تصمیم رسمی جدید حفظ شوند:
+
+| کد | عنوان دسته |
+|---|---|
+| R | روایت و خاطرات |
+| A | ادبیات و هنر |
+| H | تاریخ و اسناد |
+| P | پژوهش و تحلیل |
+| K | کودک و نوجوان |
+| M | متفرقه |
+
+- این کد، **کد موضوعی** است؛ شناسه کتاب و کد قفسه نیست.
+- دسته‌بندی باید بر اساس محتوای کتاب انجام شود، نه ناشر.
+- برای نسخه اول می‌توان یک دسته اصلی و در صورت نیاز چند برچسب موضوعی داشت؛ دسته اصلی در ابتدا «نیازمند تعیین» باشد تا وقتی بازبین آن را انتخاب کند.
+- کدهای فعلی نباید بدون ثبت تصمیم و نگاشت، تغییر یا حذف شوند.
+
+### ۲.۳ کد محل فیزیکی
+
+قالب نهایی کد محل هنوز قابل تثبیت نیست، چون نقشه قفسه‌ها، تعداد طبقات و نحوه چیدمان فیزیکی باید مشاهده و تأیید شود. پیشنهاد اولیه برای بحث:
+
+`Z01-S003-L02`
+
+که به‌صورت پیشنهادی به معنی «ناحیه/فضا ۰۱، قفسه ۰۰۳، طبقه ۰۲» است. اگر موقعیت دقیق روی طبقه لازم شد، می‌توان جزء جایگاه را افزود. این فقط نمونه قالب است، نه کد واقعی قفسه‌های مرکز.
+
+- کد مکان از دسته موضوعی مستقل است.
+- محل فعلی باید روی هر **نسخه فیزیکی** ثبت شود.
+- تاریخچه جابه‌جایی در صورت نیاز حفظ شود.
+- تا پیش از بررسی قفسه‌های واقعی، برچسب چاپی با این قالب تولید نشود.
+
+## ۳. فیلدهای پیشنهادی رکورد کتاب‌شناختی
+
+نام فنی فیلدها پیشنهادی است؛ برچسب رابط کاربری فارسی خواهد بود.
+
+| فیلد فنی | برچسب فارسی | الزام در نسخه اول | منبع/روش ثبت | قاعده |
+|---|---|---|---|---|
+| `book_id` | شناسه کتاب | اجباری، خودکار | سامانه | ثابت؛ مانند BK-000001 |
+| `title_raw` | عنوان خام منبع | اجباری برای ورود | ستون «عنوان کتاب» | عین مقدار منبع حفظ شود |
+| `title_display` | عنوان نمایشی | اجباری | ثبت/بازبینی | می‌تواند نسخه پاکیزه‌شده برای نمایش باشد؛ خام حذف نشود |
+| `publisher_raw` | ناشر خام منبع | اختیاری | ستون «انتشارات» | عین مقدار اکسل |
+| `publisher_id` | ناشر استاندارد | اختیاری در شروع | فرهنگ ناشران پس از بازبینی | نگاشت ناشرها دستی/کنترل‌شده؛ ادغام خودکار ممنوع |
+| `description_raw` | توضیحات خام منبع | اختیاری | ستون «توضیحات» | عین متن؛ الزاماً نویسنده نیست |
+| `author_display` | نویسنده/پدیدآورنده | اختیاری | ثبت دستی از منبع معتبر | از توضیحات به‌طور خودکار استخراج نشود |
+| `edition_statement` | مشخصات چاپ/ویرایش | اختیاری | کتاب یا منبع معتبر | فقط در صورت تأیید |
+| `publication_year` | سال انتشار | اختیاری | کتاب یا منبع معتبر | مقدار خام و تقویم سال باید روشن باشد |
+| `isbn` | شابک | اختیاری | کتاب یا منبع معتبر | در صورت نبود خالی بماند؛ ساخته نشود |
+| `category_id` | دسته موضوعی اصلی | قابل تعیین پس از بررسی | دسته‌های R/A/H/P/K/M | در ابتدا می‌تواند «نیازمند تعیین» باشد |
+| `keywords` | کلیدواژه‌ها | اختیاری | بازبین | برای جست‌وجو؛ جای دسته اصلی را نمی‌گیرد |
+| `source_quantity_raw` | تعداد ثبت‌شده در Excel | اختیاری | ستون «تعداد» | مقدار منبع؛ به‌تنهایی موجودی قطعی نیست |
+| `catalog_status` | وضعیت فهرست‌نویسی | اجباری | سامانه/بازبین | پیش‌نویس، نیازمند بررسی، تأییدشده، ردشده با دلیل |
+| `source_note` | یادداشت ثبت‌کننده | اختیاری | ثبت‌کننده | جدا از توضیحات خام منبع |
+| `created_at/by` | زمان/ثبت‌کننده | خودکار | سامانه | برای ردگیری |
+| `updated_at/by` | زمان/آخرین ویرایشگر | خودکار | سامانه | برای ردگیری |
+
+**نکته:** برای ورود اولیه، عنوان و ناشر و توضیحات خام مهم‌اند؛ نویسنده، شابک، سال چاپ و ویرایش را فقط وقتی ثبت می‌کنیم که واقعاً از منبع معتبر معلوم باشند. از ستون «توضیحات» نمی‌توان به‌طور قطعی نویسنده را استنباط کرد.
+
+## ۴. فیلدهای نسخه فیزیکی کتاب
+
+هر جلدی که واقعاً مشاهده و تأیید شده، یک رکورد نسخه دارد. در ورود اولیه از Excel، بدون شمارش فیزیکی نسخه‌ها را به‌صورت خودکار نسازید.
+
+| فیلد فنی | برچسب فارسی | قاعده |
+|---|---|---|
+| `copy_id` | کد نسخه فیزیکی | خودکار و ثابت؛ مانند CP-000001 |
+| `book_id` | شناسه کتاب | ارتباط با رکورد کتاب‌شناختی |
+| `copy_status` | وضعیت نسخه | نامشخص، موجودِ تأییدشده، مفقود، امانت، در انتظار بررسی، خارج از مجموعه |
+| `location_id` | محل فعلی | ارجاع به فرهنگ مکان؛ تا تأیید محل می‌تواند خالی باشد |
+| `physical_condition` | وضعیت ظاهری | اختیاری؛ سالم، نیازمند ترمیم، آسیب‌دیده، بررسی‌نشده |
+| `inventory_checked_at` | تاریخ شمارش/بازبینی | فقط پس از مشاهده فیزیکی |
+| `inventory_checked_by` | شمارش‌کننده | کاربر سامانه |
+| `copy_note` | توضیح نسخه | اختیاری |
+| `created_at/by` | ثبت‌کننده/زمان | خودکار |
+
+فیلد `source_quantity_raw` در رکورد کتاب باقی می‌ماند؛ تعداد نسخه‌های تأییدشده از شمارش واقعی نسخه‌های دارای `copy_id` محاسبه می‌شود. اختلاف این دو باید در گزارش مغایرت دیده شود.
+
+## ۵. فیلدهای پرونده شهید و پیوندها
+
+### پرونده شهید
+
+- `martyr_id`: شناسه داخلی ثابت، مانند MT-000001.
+- `full_name_raw`: نام عین منبع.
+- `full_name_display`: نام نمایشی پس از بازبینی.
+- `identity_review_status`: بررسی‌نشده، نیازمند بررسی، تأییدشده، احتمالاً تکراری.
+- `source_file`, `source_sheet`, `source_row`: منشأ رکورد.
+
+نام مشابه یا املای متفاوت به‌تنهایی اثبات نمی‌کند که دو ردیف متعلق به یک شخص هستند. نرمال‌سازی برای جست‌وجو مجاز است، ولی مقدار خام باید باقی بماند.
+
+### پیوند کتاب و شهید
+
+- `book_martyr_link_id`: شناسه پیوند.
+- `book_id`, `martyr_id`: دو طرف ارتباط.
+- `relationship_note`: شرح ارتباط، اگر معلوم باشد.
+- `source_description_raw`: توضیح مرتبط در فایل.
+- `source_file`, `source_sheet`, `source_row`: منشأ اجباری.
+- `review_status`: خام، نیازمند بررسی، تأییدشده، ردشده با دلیل.
+- `review_note`, `reviewed_by`, `reviewed_at`: بازبینی.
+
+در شیت «چند شهید»، هر ردیف شهیدِ ادامه به همان کتاب آغازگر وصل می‌شود. در فایل مرتبط، مقادیر `*` یا عبارت‌های کلی مثل «اشاره به چند شهید غیر تهرانی» نباید پرونده شهید جعلی بسازند؛ آن‌ها باید در لایه خام باقی بمانند تا نوع ارتباط بعداً تعیین شود.
+
+## ۶. فیلدهای اطلاعات مزار
+
+اطلاعات مزار را از رکورد کتاب جدا نگه دارید؛ یک شهید ممکن است چند منبع یا چند مقدار متفاوت برای مکان مزار داشته باشد.
+
+| فیلد | برچسب فارسی | نکته |
+|---|---|---|
+| `grave_location_id` | شناسه رکورد مزار | خودکار |
+| `martyr_id` | شهید | فقط پس از تطبیق هویت |
+| `section_raw` | قطعه خام | متن، نه عدد اجباری |
+| `grave_row_raw` | ردیف مزار خام | متن؛ با شماره ردیف اکسل اشتباه نشود |
+| `grave_number_raw` | شماره مزار خام | متن؛ مقادیر مکرر/حرفی را حفظ کند |
+| `source_file/sheet/row` | منشأ | اجباری |
+| `review_status` | وضعیت بررسی | بررسی‌نشده، نیازمند بررسی، تأییدشده، متعارض |
+| `review_note` | یادداشت | اختیاری |
+
+عنوان «ردیف» در اکسل هم برای شماره ترتیبی رکورد و هم برای ردیف مزار آمده است؛ در پایگاه داده باید نام‌های متفاوت داشته باشند تا اشتباه رخ ندهد.
+
+## ۷. مطالب استخراج‌شده و شماره صفحه
+
+برای مرحله‌ای که مطالب داخل کتاب‌ها ثبت می‌شوند، جدول مستقل لازم است:
+
+- `item_id`: شناسه مطلب.
+- `book_id`: کتاب منبع.
+- `martyr_id`: شهید مرتبط، در صورت وجود و تأیید.
+- `page_reference_raw`: ارجاع صفحه عین منبع، مانند «173تا184» یا متن غیرعددی.
+- `page_start`, `page_end`: اختیاری؛ فقط وقتی الگو بدون ابهام قابل تجزیه باشد.
+- `content_type`: زندگی‌نامه، خاطره، وصیت‌نامه، سند، اشاره کوتاه، سایر/نیازمند تعیین.
+- `content_text` یا `research_summary`: متن یا خلاصه ثبت‌شده.
+- `review_status`, `reviewed_by`, `reviewed_at`: وضعیت بررسی.
+- `source_file/sheet/row`: منشأ ردیف اولیه، در صورت ارتباط با Excel.
+
+ارجاع خام صفحه هرگز با مقدار عددی استخراج‌شده جایگزین نشود. مجوز ثبت داخلی و مجوز انتشار عمومی دو موضوع جدا هستند.
+
+## ۸. جداول پشتیبان نرم‌افزار
+
+نسخه اول به این موجودیت‌ها نیاز دارد یا ممکن است به آن‌ها نیاز پیدا کند:
+
+- `books`: رکورد کتاب‌شناختی.
+- `book_copies`: نسخه‌های فیزیکی و محل هر نسخه.
+- `publishers`: فرهنگ ناشران استاندارد و نام‌های خام/جایگزین.
+- `categories`: فرهنگ دسته‌بندی و کدهای R/A/H/P/K/M.
+- `martyrs`: پرونده شهدا.
+- `book_martyr_links`: ارتباط چندبه‌چند کتاب و شهید.
+- `grave_locations`: اطلاعات مزار و منشأ آن.
+- `extracted_items`: مطالب پژوهشی و ارجاعات صفحه.
+- `import_batches` و `import_rows`: اجرای ورود و نتیجه هر ردیف.
+- `users` و `audit_log`: نقش‌ها و سابقه تغییرات.
+- `locations`: فرهنگ مکان فیزیکی و تاریخچه جابه‌جایی، اگر نیاز تأیید شود.
+
+این فهرست مدل مفهومی نسخه اول است؛ نوع دقیق پایگاه داده و جزئیات پیاده‌سازی تا بررسی محیط و تأیید معماری قطعی نیست.
+
+## ۹. نگاشت سه فایل به مدل
+
+| منبع | فیلدهای مقصد اولیه | مواردی که نباید خودکار قطعی شوند |
+|---|---|---|
+| `لیست کتاب ها.xlsx` | عنوان خام، ناشر خام، توضیحات خام، تعداد خام، منشأ فایل/شیت/ردیف | نویسنده، نسخه چاپ، موجودی فیزیکی، دسته موضوعی |
+| `قطعات شهدا.xlsx` / «یک شهید» | عنوان، ناشر، توضیحات، پیوند کتاب-شهید، قطعه/ردیف/شماره مزار خام، منشأ | یکتایی کتاب و شهید، تأیید آدرس |
+| `قطعات شهدا.xlsx` / «چند شهید» | کتاب آغازگر و چند پیوند شهید، اطلاعات خام هر ردیف | تبدیل هر ردیف به یک کتاب جدید |
+| `قطعات شهدا.xlsx` / «آدرس مزار» | نام خام شهید و محل مزار خام | تطبیق خودکار هویت بر اساس نام |
+| `لیست کتابهای و شهدای مرتبط.xlsx` | عنوان/ناشر/توضیحات خام، پیوندهای احتمالی، قطعه/مزار خام، ارجاع صفحه خام | `*` به‌عنوان شهید، صفحه به‌عنوان عدد قطعی، عبارت‌های کلی به‌عنوان پرونده شخص |
+
+## ۱۰. وضعیت‌های استاندارد پیشنهادی
+
+برای اینکه داده خام، تصمیم بازبین و انتشار با هم اشتباه نشوند:
+
+- **خام:** همان مقدار منبع وارد شده است.
+- **نیازمند بررسی:** مقدار مبهم یا ناسازگار است.
+- **تأییدشده:** مسئول مجاز آن را بررسی کرده است.
+- **ردشده با دلیل:** برای کاربرد موردنظر معتبر نیست، اما در تاریخچه/داده خام قابل پیگیری می‌ماند.
+- **متعارض:** دو منبع اطلاعات متفاوت دارند و نیازمند تصمیم است.
+
+ثبت کتاب در سامانه، تأیید محتوای پژوهشی و مجوز انتشار عمومی، سه وضعیت جدا هستند.
+
+## ۱۱. تصمیم‌های باز پیش از نهایی‌سازی
+
+1. آیا برای هر جلد فیزیکی برچسب `CP` نصب شود یا در مرحله اول فقط رکورد کتاب‌شناختی `BK` ثبت شود؟
+2. **حل‌شده:** دسته‌بندی شش‌گانه R/A/H/P/K/M حفظ می‌شود و برای آن کد داخلی استفاده می‌شود؛ این تصمیم در پاسخ مدیریتی/کاربر ثبت شده است. تغییر این دسته‌ها بدون تصمیم صریح انجام نشود.
+3. چه کسی دسته‌بندی موضوعی و رکوردهای مبهم را تأیید می‌کند؟
+4. ساختار واقعی قفسه‌ها چیست و کد مکان باید تا چه سطحی (قفسه، طبقه، جایگاه) دقیق باشد؟
+5. آیا در مرحله اول فیلدهای نویسنده، سال چاپ و شابک در فرم نمایش داده شوند، هرچند در اکسل‌های فعلی به‌طور قابل اعتماد موجود نیستند؟
+6. آیا اطلاعات مزار در نسخه اول فقط به‌عنوان داده مرتبط و قابل جست‌وجو نگهداری شود یا گردش‌کار مستقل بازبینی هم لازم است؟
+
+## ۱۲. پیشنهاد اجرایی
+
+1. این طرح را به‌عنوان پیش‌نویس نگه داریم؛ فعلاً برچسب فیزیکی یا کد نهایی چاپ نکنیم.
+2. پس از تأیید قواعد کدگذاری، فرهنگ فیلدهای فارسی/فنی و نگاشت ستون‌های سه فایل را در قالب ماشین‌خوان نیز ثبت کنیم.
+3. سپس یک ورود آزمایشی محدود اجرا شود و گزارش دهد: چند ردیف خوانده شد، چند کتاب نامزد ایجاد شد، چند پیوند ساخته شد، چه ردیف‌هایی نیازمند بررسی‌اند و هیچ داده‌ای خودکار ادغام نشده است.
+4. فقط پس از بررسی گزارش آزمون، طراحی جداول و فرم‌های اجرایی تثبیت شود.
+
+
+---
+
+## تغییر مرجع داده — ۱۴۰۵/۰۷/۲۸
+
+کاربر فایل `فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx` را مبنای جاری تعیین کرده و فایل در commit `b93eaca408c3d921a8596dfdafd5f8c992bbf4bc` به مسیر `کتابخانه/فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx` در شاخه `main` ثبت شده است. این طرح هنوز نگاشت نهایی فایل جاری نیست. مفاهیم کلیِ جداسازی رکورد کتاب‌شناختی، نسخه فیزیکی، محل و ارتباط کتاب-شهید به‌عنوان پیشنهاد طراحی قابل بازبینی باقی می‌مانند؛ اما نگاشت ستون‌ها، قواعد ورود و هرگونه شناسه نهایی باید پس از خواندن و ممیزی فایل تلفیقی ثبت‌شده بازبینی شود. فایل‌های مشتق‌شده از سه Excel اولیه در `بایگانی/` هستند و منبع جاری ورود نیستند.
+
+## یادداشت وضعیت جاری مدل کدگذاری — ۱۴۰۵/۰۷/۲۸
+
+دسته‌بندی R/A/H/P/K/M تصمیم ثبت‌شده است و دوباره پرسیده نشود. در مقابل، قالب شناسه نهایی اثر، شناسه یکتای هر نسخه فیزیکی، کد محل و روش اتصال به شناسه شهید هنوز تأیید نهایی نشده‌اند. نمونه‌هایی مانند `BK-000001` پیشنهاد طراحی‌اند و مجوز چاپ برچسب یا شناسه‌گذاری انبوه نیستند.
+
+فایل مرجع جاری، فایل تلفیقی ثبت‌شده در `کتابخانه/فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx` است؛ نگاشت قدیمی سه Excel اولیه باید در برابر چهار شیت این فایل بازبینی شود. مرجع یگانه موارد باز: [دفتر تصمیم‌ها و ابهام‌های باز](../../مستندات/دفتر%20تصمیم‌ها%20و%20ابهام‌های%20باز%20مرکز%20اسناد%20-%201405-07-28.md).
+
+================ FILE: \مستندات\پروتکل-تداوم-کار-و-تفکیک-مسیرهای-کتابخانه.md ================
+# پروتکل تداوم کار و تفکیک مسیرهای کتابخانه
+
+**تاریخ ثبت:** ۱۴۰۵/۰۷/۲۳ (۲۰۲۶-۱۰-۱۵)
+**وضعیت:** قاعده جاری کار؛ قابل بازنگری با ثبت تصمیم جدید
+
+## هدف
+هر چت تازه باید از سوابق معتبر مخزن ادامه دهد؛ کاربر نباید برای توضیح دوباره اطلاعات ثبت‌شده وقت صرف کند.
+
+## شروع هر چت جدید
+۱. گزارش فنی زنده را بخوان.
+۲. آخرین گزارش روزانه را بخوان.
+۳. سند جامع و اسناد تخصصی مرتبط را فقط در حد نیاز مرور کن.
+۴. برای کار نرم‌افزار، README، گزارش تغییرات، مشخصات داده و نگاشت Excel را بخوان.
+۵. تاریخچه GitHub و خروجی‌های ثبت‌شده را بررسی کن.
+۶. فقط خلأ واقعی را مشخص کن؛ از کاربر اطلاعات ثبت‌شده را دوباره نخواه.
+
+## پایان هر نوبت کاری معنادار
+- گزارش روزانه: کار انجام‌شده، خروجی واقعی، فایل‌های تغییرکرده، خطاها/موانع و اقدام بعدی.
+- گزارش فنی: وضعیت فنی پایدار، تصمیم‌ها، ساختار داده، منبع/نسخه، نتیجه آزمون، مسائل باز و دلیل تغییر.
+- گزارش جامع: فقط در نقطه عطف، تغییر دامنه یا تصمیم مهم؛ با حفظ نسخه‌های قبلی.
+- سند تخصصی مربوط: جزئیات لازم برای ادامه بدون اتکا به حافظه چت.
+
+## تفکیک دو پروژه/مسیر
+### الف) عملیات و سازمان‌دهی کتابخانه
+ثبت و شناسایی فیزیکی کتاب‌ها، فهرست‌نویسی، دسته‌بندی، کدگذاری و برچسب‌گذاری، تعیین محل قفسه، کنترل موجودی و روش اجرایی کار. این مسیر در چت مستقل پیش می‌رود.
+
+### ب) نرم‌افزار کتابخانه
+نیازمندی‌ها، مدل داده، طراحی پایگاه داده، ورود کنترل‌شده Excel، فرم‌ها، جست‌وجو، گزارش‌ها، نقش‌های کاربری، کدنویسی و آزمون. این مسیر در چت مستقل پیش می‌رود.
+
+ارتباط این دو فقط با نیازمندی و قرارداد داده ثبت‌شده انجام می‌شود. تصمیم‌های یک مسیر نباید بی‌ثبت به مسیر دیگر تعمیم داده شوند.
+
+## ثبت‌های فعلی درباره سه فایل Excel
+مسیر: کتابخانه/فهرست کتاب‌های مرکز اسناد/
+
+- «لیست کتاب ها.xlsx»: طبق مستند پیشین، هر شیت به یک ناشر اختصاص دارد. نام همه شیت‌ها و ستون‌ها هنوز در سند نگاشت فعلی ثبت نشده است.
+- «قطعات شهدا.xlsx»: شیت‌های گزارش‌شده «یک شهید»، «چند شهید»، «آدرس مزار» هستند. نمونه کاربر: انتشارات ابراهیم هادی کتاب «با مرام» را منتشر کرده که زندگی‌نامه و خاطرات شهید احمد بیابانی را دارد.
+- «لیست کتابهای و شهدای  مرتبط.xlsx»: منبع پژوهشی کتاب‌ها و شهدای مرتبط و ارجاع صفحه؛ نگاشت دقیق ستون‌ها هنوز ثبت نشده است.
+- «تجمیعی کامل (2).xlsx»: خارج از دامنه ورود اولیه نرم‌افزار، مگر با تصمیم مستند جدید.
+
+این اطلاعات، سوابق مستندشده‌اند و نباید دوباره از کاربر پرسیده شوند. با این حال، نبودن نگاشت کامل ستون‌ها به معنای آن است که نباید وانمود کنیم ممیزی کامل انجام شده است. ابتدا سوابق و خروجی‌های قبلی بررسی شوند؛ فقط بخش‌های واقعاً نامعلوم تکمیل شوند.
+
+## قاعده ثبت نگاشت Excel
+برای هر فایل ثبت شود: نام دقیق، اثرانگشت/نسخه، شیت‌ها و ترتیب آن‌ها، سطر عنوان، نام دقیق ستون‌ها، معنی و مقصد هر ستون، ساختار ردیف‌های ادامه، شمارش‌ها، فرمول/ادغام سلول‌ها، نمونه غیرحساس، ابهام‌ها، تصمیم‌های تأییدشده و تاریخ ممیزی. سند نگاشت باید تنها مرجع قابل اتکا برای چت‌های آینده باشد و در هر بررسی جدید تکمیل شود.
+
+## حفاظت و صحت
+- فایل‌های اصلی دست‌نخورده بمانند.
+- هیچ تطبیق نام یا عنوان مشابه به‌طور خودکار به ادغام منجر نشود.
+- موجودی فیزیکی تأییدشده از شمار خرید اولیه نتیجه‌گیری نشود.
+- هر نتیجه باید وضعیت «مشاهده‌شده»، «گزارش‌شده توسط کاربر»، «پیشنهادی» یا «تأییدنشده» داشته باشد.
+- اجرای ابزار یا ممیزی موفق فقط پس از اجرای واقعی اعلام شود.
+
+## نقطه ادامه فعلی
+اسکریپت محلی ممیزی Excel در مخزن ثبت شده، اما طبق آخرین وضعیت ثبت‌شده هنوز خروجی اجرای آن در دسترس نیست. در چت بعدی ابتدا هرگونه خروجی/یافته قبلی را بررسی کن؛ اگر کاربر خروجی PowerShell را ارائه کرد، همان را بخوان و سند نگاشت، گزارش روزانه و گزارش فنی را با یافته‌های واقعی به‌روزرسانی کن. از درخواست اجرای دوباره کل کار خودداری کن مگر آنکه خروجی ناقص یا نامعتبر باشد.
+
+
+---
+
+## وضعیت جاری که در شروع هر چت باید رعایت شود — ۱۴۰۵/۰۷/۲۸
+
+- مرجع کار جاری `کتابخانه/فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx` است و در commit `b93eaca408c3d921a8596dfdafd5f8c992bbf4bc` به همین مسیر در شاخه `main` ثبت شده است. پیش از ورود عملیاتی باید ساختار workbook و نگاشت ستون‌ها بازبینی شود.
+- JSONهای استخراج‌شده، نسخه‌های کاری XML، خروجی‌های CSV ممیزی/تطبیق و گزارش‌های مخصوص سه Excel اولیه به [بایگانی](../بایگانی/README.md) منتقل شده‌اند و مبنای جاری نیستند.
+- سه فایل Excel اولیه در پوشه اصلی منابع حفظ شده‌اند و تغییر نکرده‌اند؛ آن‌ها با فایل تلفیقی مبنا یکی نیستند.
+- فقط در مخزن `forog1980-star/markaz-asnad-shohada` کار پروژه را ادامه بده.
+- هر بار پس از یک نوبت کاری معنادار، گزارش روزانه و سند فنی به‌روزرسانی و در نقطه عطف گزارش جامع نیز هماهنگ شود؛ ثبت موفقیت پس از خواندن دوباره فایل از GitHub تأیید گردد.
+
+
+## اصلاح وضعیت مرجع — ۱۴۰۵/۰۷/۲۸
+
+فایل مرجع جاری کتابخانه در commit `b93eaca408c3d921a8596dfdafd5f8c992bbf4bc` به مسیر `کتابخانه/فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx` در شاخه `main` افزوده شد. اندازه ثبت‌شده: ۲۵۹٬۲۷۶ بایت؛ SHA-256 فایل محلی تأییدشده: `0B34D6A013D11D2273EF306CEBAFAE92F024E52811E5BC43F6509ADE7AB19C16`. پیوند commit: https://github.com/forog1980-star/markaz-asnad-shohada/commit/b93eaca408c3d921a8596dfdafd5f8c992bbf4bc . این ثبت فقط شامل فایل مرجع بود؛ تغییرات ثبت‌نشده مخزن محلی اصلی وارد این commit نشده‌اند. نسخه‌های JSON/XML/CSV مشتق از سه فایل Excel اولیه در `بایگانی/` باقی می‌مانند و همچنان منبع عملیاتی جاری نیستند. گام بعدی، ممیزی ساختاری نسخه ثبت‌شده (شیت‌ها، ستون‌ها، شمارش ردیف‌ها، فرمول‌ها و خلأها) و بازبینی نگاشت ورود در برابر همین فایل است؛ تا اتمام بازبینی، ورود خودکار داده انجام نشود.
+
+## به‌روزرسانی پروتکل تداوم — ۱۴۰۵/۰۷/۲۸
+
+در شروع هر نوبت جدید، [گزارش جامع وضعیت](./گزارش%20جامع%20وضعیت%20و%20جمع‌بندی%20گفت‌وگوها%20-%201405-07-28.md) و [دفتر تصمیم‌ها و ابهام‌های باز](./دفتر%20تصمیم‌ها%20و%20ابهام‌های%20باز%20مرکز%20اسناد%20-%201405-07-28.md) خوانده شوند. اولی نقطه شروع جاری و دومی مرجع یگانه پاسخ‌های مدیریتی، تصمیم‌ها و پرسش‌های باز است؛ گزارش‌های تخصصی از کپی‌کردن فهرست‌های تکراری خودداری کنند.
+
+فایل‌های `اسناد بالا دستی/پرسشنامه شناخت وضع موجود و دیدگاه مدیریت.docx`، `اسناد بالا دستی/پاسخ پرسش نامه دوم.docx`، طرح جامع و طرح اجرایی در GitHub موجودند. پیش از پرسیدن سؤال مدیریتی، متن و سوابق همین مخزن بررسی شود؛ پرسش‌هایی که پاسخ صریح دارند دوباره مطرح نشوند.
+
+وضعیت کار جاری: فایل مرجع تلفیقی در `main` ثبت شده؛ شیت نخست مرور شده و سه شیت باقی است. دو پوشه ممیزی اخیر با ۶۷ فایل در بایگانی GitHub ثبت شده‌اند. فایل‌های مبدأ محلی حذف نشده‌اند و تغییرات محلی را با `git add .` به‌صورت یکجا ثبت نکنید.
+
+================ FILE: \مستندات\ثبت تکمیلی دیدگاه‌های مدیریت و وضعیت کتابخانه - 1405-07-28.md ================
+# ثبت تکمیلی: دیدگاه‌های مدیریت و وضعیت واقعی سامان‌دهی کتابخانه
+
+تاریخ ثبت: ۱۴۰۵/۰۷/۲۸
+
+## وضعیت و نحوه استفاده
+این سند مکمل سه مرجع پروژه است: گزارش جامع، سند فنی زنده و گزارش روزانه. عبارت پیشین این سند درباره ارائه جمع‌بندی برای تأیید نهایی، با توضیح صریح کاربر در ۱۴۰۵/۰۷/۲۸ اصلاح می‌شود: پاسخ‌های ثبت‌شده مدیر در پرسش‌نامه‌ها، همراه با خروجی «خلاصه برداشت از پرسش‌ها و پاسخ‌های مدیر»، مبنای موافقت اصولی مدیریت با چارچوب و جهت‌گیری کلی پروژه‌اند؛ بنابراین موافقت اصولی نباید دوباره درخواست شود یا به‌عنوان ابهام باز باقی بماند. این وضعیت، جزئیات فنی و اجرایی‌ای را که صریحاً به جلسه یا بررسی بعدی موکول شده‌اند، خودبه‌خود قطعی نمی‌کند. این ثبت، هیچ فایل Excel یا داده سامانه‌ای را تغییر نمی‌دهد.
+
+## ۱. مأموریت و انتظارات مدیریت
+مأموریت مرکز، ایجاد بانک اطلاعاتی و اسنادی منسجم، معتبر و قابل استناد درباره شهدای بهشت زهرا (س)، تاریخچه گلزار شهدای تهران و یگان‌های مرتبط برای پشتیبانی از فعالیت‌های علمی، پژوهشی، فرهنگی، هنری، رسانه‌ای و گویاسازی گلزار است.
+
+اولویت آغازین، شهدای تهرانی، لشکر ۱۰، لشکر ۲۷ و منابع مرتبط است؛ با تأکید بر شناسایی و سامان‌دهی کتاب‌ها، مقالات، نشریات و اسناد مکتوب و تکمیل مجموعه کتاب‌های موردنیاز. خروجی‌های مورد انتظار عبارت‌اند از سامان‌دهی فیزیکی و موضوعی، مستندسازی اطلاعات و منشأ آن‌ها، مشخص‌بودن اعتبار و وضعیت تأیید، نگهداشت موارد اختلافی و فراهم‌شدن جست‌وجوی ساده و سریع.
+
+جهت‌گیری دیجیتال، توسعه مرحله‌ای چت‌باتی مستقل برای استفاده در وب‌سایت گلزار است که از منابع مجاز سایت و منابع سامان‌دهی‌شده مرکز استفاده کند، پاسخ‌های مستند همراه با ارجاع/پیوند بدهد، اسناد را هوشمندانه جست‌وجو کند و به کارکنان در یافتن اطلاعات و آماده‌سازی محتوای فرهنگی و رسانه‌ای کمک کند. فناوری، زیرساخت و هزینه پس از بررسی کارشناسی برای تصمیم مدیریت ارائه می‌شود.
+
+امکانات گزارش‌شده شامل یک رایانه، تجهیزات اداری و فضای دارای میز، صندلی، کمد و قفسه است. در پرسش‌نامه، حدود ۵۰۰ جلد تهیه‌شده و حدود ۴۰۰ جلد دیگر در حال پیگیری ذکر شده است؛ ارقام باید با تحویل و ثبت واقعی تطبیق داده شوند و کتاب تحویل‌نشده موجودی دریافتی نیست. ظرفیت سه نفر در پرسش‌نامه مطرح شده، اما توافق فعلی آغاز کار با یک نفر است. بازه ۸ تا ۱۰ هفته پیشنهاد اولیه برای مرحله نخست است و تا تعیین دامنه و تأیید مدیریت برنامه مصوب محسوب نمی‌شود.
+
+برای تداوم مرکز، ضوابط مکتوب مأموریت، مسئولیت، ثبت و تأیید، سطح دسترسی، انتشار و نگهداری لازم است. مسئول سازمانی نگهداری سامانه باید مشخص شود و امکان استفاده از تخصص بیرونی پیش‌بینی گردد. انتشار عمومی تابع بررسی، تأیید و مجوزهای لازم است.
+
+## ۲. جمع‌بندی چهار فایل Excel
+- **لیست کتاب ها.xlsx:** فهرست کتاب‌های موجود با شیت‌های تفکیک‌شده بر اساس ناشر؛ تعداد اعلام‌شده تقریبی است و باید با خود فایل و شمارش فیزیکی تطبیق شود.
+- **قطعات شهدا.xlsx:** سه شیت درباره کتاب‌های مرتبط با یک شهید، کتاب‌های مرتبط با چند شهید، و نام‌ها و نشانی مزارها. وجود نام شهید اثبات موجودبودن کتاب نیست.
+- **لیست کتابهای و شهدای مرتبط.xlsx:** اطلاعات کتاب‌شناختی و ارتباط کتاب‌ها با شهدا، همراه با نشانی مزار و شماره صفحه در موارد ثبت‌شده؛ برخی ارتباط‌ها ناقص یا مربوط به شهدای غیرتهرانی‌اند.
+- **تجمیعی کامل (2).xlsx:** کتاب‌های مورد انتظار برای تحویل آینده و شیت‌های قطعات و یادمان‌ها. تا تحویل فیزیکی و ثبت نهایی، این کتاب‌ها موجودی دریافت‌شده محسوب نمی‌شوند.
+
+این فایل‌ها از نظر هدف و وضعیت یکسان نیستند و نباید بدون نگاشت و بررسی به‌صورت خودکار ادغام، تأیید یا حذف شوند. منشأ داده باید حفظ شود.
+
+## ۳. واقعیت اجرایی فعلی کتابخانه
+کاربر تصریح کرده است که **کار فیزیکی انجام‌شده تا این مرحله فقط تقسیم کتاب‌ها در شش موضوع و چیدن آن‌ها در قفسه‌هاست**:
+- R — روایت و خاطرات: ۵۸۰
+- A — ادبیات و هنر: ۷۶
+- H — تاریخ و اسناد: ۶۰
+- P — پژوهش و تحلیل: ۶۹
+- K — کودک و نوجوان: ۳۶
+- M — متفرقه و متنوع: ۱۲۱
+- جمع شمارش فیزیکی اعلام‌شده: ۹۴۲
+
+شیت «فهرست کتاب‌ها» در فایل تلفیقی ۹۸۰ رکورد دارد. اختلاف محاسباتی ۳۸ موردی باز است؛ احتمال شمارش‌نشدن تعدادی کتاب فقط فرضیه است، نه علت قطعی. عدد ۹۸۰ تعداد رکوردهای فهرست و ۹۴۲ شمارش فیزیکی اعلام‌شده است؛ تا تطبیق موردبه‌مورد، این اعداد قابل جایگزینی با یکدیگر نیستند و نباید اختلاف به‌عنوان کسری قطعی ثبت شود.
+
+تقسیم‌بندی و چیدن قفسه‌ها به‌تنهایی به معنای تکمیل فهرست‌نویسی، شناسه‌گذاری نسخه فیزیکی، ثبت محل دقیق، تطبیق رکوردبه‌رکورد، تأیید ارتباط کتاب و شهید یا تکمیل نرم‌افزار نیست.
+
+## ۴. اقدامات باز
+۱. دریافت تأیید نهایی مدیریت و تعیین موارد نیازمند مجوز.
+۲. تطبیق چهار فایل منبع با فایل تلفیقی و مستندات تحویل بدون ادغام خودکار. 
+۳. شمارش و تطبیق کتاب‌ها و تعیین مستند اختلاف ۳۸ موردی.
+۴. تعریف شناسه نسخه فیزیکی و ثبت محل دقیق.
+۵. بررسی اعتبار ارتباط‌های کتاب و شهید، به‌ویژه ارتباط‌های ناقص یا مربوط به شهدای غیرتهرانی.
+۶. تعیین دامنه مرحله نخست و بررسی برنامه ۸ تا ۱۰ هفته‌ای و هزینه فناوری پس از تأیید مدیریت.
+
+## ۵. قاعده ثبت وضعیت
+کار فیزیکی انجام‌شده: تقسیم موضوعی و چیدن قفسه‌ها. سایر موارد فوق اقدام‌های باز یا پیشنهادی‌اند مگر بعداً با شواهد اجرا تأیید شوند. هیچ فایل Excel یا داده سامانه در این اقدام تغییر نکرده است.
+
+## ارجاع تداوم و وضعیت منابع مدیریت — ۱۴۰۵/۰۷/۲۸
+
+فایل‌های مبنای دیدگاه مدیریت در مخزن رسمی در مسیر `اسناد بالا دستی/` موجودند: پرسشنامه شناخت وضع موجود و دیدگاه مدیریت، پاسخ پرسش‌نامه دوم، طرح جامع مرکز اسناد و طرح اجرایی ایجاد و راه‌اندازی. این سند جمع‌بندی آن منابع است، نه جایگزین متن اصل آن‌ها.
+
+برای جلوگیری از تکرار، مرجع وضعیت فعلی و ادامه کار [گزارش جامع وضعیت](./گزارش%20جامع%20وضعیت%20و%20جمع‌بندی%20گفت‌وگوها%20-%201405-07-28.md) و مرجع یگانه تصمیم‌ها/ابهام‌ها [دفتر تصمیم‌ها](./دفتر%20تصمیم‌ها%20و%20ابهام‌های%20باز%20مرکز%20اسناد%20-%201405-07-28.md) است. از کاربر دوباره خواسته نشود فایل‌های موجود مدیریتی را ارسال کند.
+PS C:\Windows\System32>
+PS C:\Windows\System32> $jsonFile = "$path\نرم‌افزار کتابخانه\فهرست-کاری-کتابخانه-نسخه-0.1.json"
+PS C:\Windows\System32> if (Test-Path $jsonFile) {
+>>   Write-Host "`r`n================ SAMPLE JSON: فهرست-کاری-کتابخانه-نسخه-0.1.json ================" -ForegroundColor Cyan
+>>   Get-Content $jsonFile -TotalCount 80 -Encoding UTF8 -ErrorAction SilentlyContinue
+>> }
+
+================ SAMPLE JSON: فهرست-کاری-کتابخانه-نسخه-0.1.json ================
+{
+  "format": "markaz-asnad-library-workbook-json",
+  "schema_version": "1.0",
+  "source_file": "فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx",
+  "source_sha256": null,
+  "conversion_mode": "read-only; cell positions preserved; formulas preserved as formulas",
+  "sheet_count": 5,
+  "nonempty_row_count_total": 2591,
+  "sheets": [
+    {
+      "name": "فهرست کتاب‌ها",
+      "max_row": 981,
+      "max_column": 18,
+      "nonempty_row_count": 981,
+      "rows": [
+        [
+          "شناسه موقت کتاب",
+          "عنوان کتاب",
+          "ناشر",
+          "توضیحات ثبت‌شده در منبع",
+          "دسته",
+          "نویسنده/گردآورنده",
+          "شابک",
+          "فیپا",
+          "شماره ثبت کتابخانه",
+          "محل نگهداری/قفسه",
+          "تعداد نسخه‌های موجود پس از شمارش",
+          "وضعیت بررسی کتاب",
+          "یادداشت",
+          "شیت منبع (پشتیبان)",
+          "ردیف منبع (پشتیبان)",
+          null,
+          null,
+          null
+        ],
+        [
+          "BK-0001",
+          "101خاطره جنگی (سال 2009-سارایوو)",
+          "سوره مهر",
+          "ژنرال راسم دلیچ",
+          null,
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "بررسی‌نشده",
+          "",
+          "سوره مهر",
+          "2",
+          null,
+          null,
+          null
+        ],
+        [
+          "BK-0002",
+          "اردوگاه اطفال",
+          "سوره مهر",
+          "",
+          null,
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "بررسی‌نشده",
+          "",
+          "سوره مهر",
+          "3",
+          null,
+          null,
+          null
+        ],
+        [
+          "BK-0003",
+          "اردوگاه عنبر",
+          "سوره مهر",
+          "خاطرات آزادگان و اسرا",
+PS C:\Windows\System32>
