@@ -327,6 +327,7 @@ export interface SmartSearchSuggestion {
     | 'موجود در فهرست مرجع ۹۸۰ کتاب'
     | 'عنوان مشابه در فهرست (احتمال تکرار/چاپ دیگر)'
     | 'کتاب جدید (خارج از فهرست فعلی کتابخانه)'
+    | 'کتاب جدید (ثبت دستی کارشناس از منابع بیرونی)'
     | 'دارای تعارض در مشخصات ناشر/نویسنده';
   matchedCatalogBookId?: string;
   reviewStatus: SmartSuggestionReviewStatus;

@@ -16,7 +16,10 @@ import {
   Building2,
   Newspaper,
   ArrowDown,
-  Info
+  Info,
+  Trash2,
+  Plus,
+  AlertCircle
 } from 'lucide-react';
 import {
   BookMartyrLinkRecord,
@@ -171,7 +174,7 @@ export interface SearchFeedbackState {
   targetName: string;
   matchedInCatalog: ReferenceCatalogRow | null;
   suggestionId: string;
-  status: 'matched_catalog' | 'created_new_candidate' | 'already_in_queue';
+  status: 'matched_catalog' | 'created_new_candidate' | 'already_in_queue' | 'not_found';
   message: string;
   timestamp: string;
 }
@@ -183,6 +186,7 @@ interface SmartBookSearchTabProps {
   initialMartyrQuery?: string;
   onAddSuggestion: (newSug: SmartSearchSuggestion) => void;
   onUpdateSuggestion: (updatedSug: SmartSearchSuggestion) => void;
+  onDeleteSuggestion?: (sugId: string) => void;
   onApproveSuggestionToLinks: (sug: SmartSearchSuggestion, newLink: BookMartyrLinkRecord) => void;
   onNotify: (message: string, type?: 'success' | 'warning') => void;
 }
@@ -223,6 +227,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
   initialMartyrQuery = '',
   onAddSuggestion,
   onUpdateSuggestion,
+  onDeleteSuggestion,
   onApproveSuggestionToLinks,
   onNotify
 }) => {
@@ -235,6 +240,15 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
   const [lastSearchFeedback, setLastSearchFeedback] = useState<SearchFeedbackState | null>(null);
   const [highlightedSuggestionId, setHighlightedSuggestionId] = useState<string | null>(null);
   const [showPublishersModal, setShowPublishersModal] = useState<boolean>(false);
+  const [showManualAddModal, setShowManualAddModal] = useState<boolean>(false);
+
+  // Manual Add Real Book Form State
+  const [manualTitle, setManualTitle] = useState('');
+  const [manualPublisher, setManualPublisher] = useState('');
+  const [manualAuthor, setManualAuthor] = useState('');
+  const [manualYear, setManualYear] = useState('');
+  const [manualSource, setManualSource] = useState('سازمان اسناد و کتابخانه ملی ایران (NLAI)');
+  const [manualNote, setManualNote] = useState('');
 
   // Batch Pilot 20 Martyrs State (Section 9: جست‌وجوی انبوه و پایلوت محدود ۲۰ پرونده)
   const [pilotStatus, setPilotStatus] = useState<'idle' | 'running' | 'paused' | 'completed'>('idle');
@@ -268,13 +282,21 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
           s.reviewStatus === 'در صف بررسی کارشناس'
       );
 
+      const nowFa = new Intl.DateTimeFormat('fa-IR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(new Date());
+
       if (existingInQueue) {
         setLastSearchFeedback({
           targetName: clean,
           matchedInCatalog: null,
           suggestionId: existingInQueue.id,
           status: 'already_in_queue',
-          message: `پیشنهاد جست‌وجو برای شهید «${clean}» قبلاً با شناسه ${existingInQueue.id} در صف بررسی ثبت شده است.`,
+          message: `پیشنهاد بررسی برای شهید «${clean}» قبلاً با شناسه ${existingInQueue.id} در صف بررسی ثبت شده است.`,
           timestamp: existingInQueue.retrievedAt
         });
         setHighlightedSuggestionId(existingInQueue.id);
@@ -283,99 +305,88 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
           normalizePersianText(`${r.titleRaw} ${r.descriptionRaw} ${r.authorRaw}`).includes(normTarget)
         );
 
-        const nowFa = new Intl.DateTimeFormat('fa-IR', {
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit'
-        }).format(new Date());
+        if (matchedInCatalog) {
+          // فقط در صورت انطباق واقعی با کتابخانه ثبت می‌شود
+          const newId = `SS-${String(smartSuggestions.length + 1).padStart(4, '0')}`;
+          const newSuggestion: SmartSearchSuggestion = {
+            id: newId,
+            martyrId: `MR-${String(smartSuggestions.length + 1).padStart(6, '0')}`,
+            martyrName: clean,
+            martyrAlternativeNames: variants,
+            bookTitle: matchedInCatalog.titleRaw,
+            authors: matchedInCatalog.authorRaw || '—',
+            publisher: matchedInCatalog.publisherRaw || '—',
+            publishYear: '',
+            editionInfo: 'موجود در قفسه کتابخانه',
+            isbn: matchedInCatalog.isbnRaw || '—',
+            fipa: matchedInCatalog.fipaRaw || '—',
+            subjectCategory: matchedInCatalog.categoryRaw || SUBJECT_CATEGORIES[0].label,
+            publisherDescription:
+              matchedInCatalog.descriptionRaw ||
+              `کتاب موجود در قفسه کتابخانه منطبق با نام شهید «${clean}»`,
+            sourcePriority: 1,
+            sourceName: 'فهرست کتابخانه مرکز اسناد (۹۸۰ عنوان کتاب مرجع)',
+            sourceUrl: '',
+            retrievedAt: nowFa,
+            matchEvidence: `تطبیق واقعی نام شهید با رکورد ${matchedInCatalog.tempBookId} در فهرست ۹۸۰ کتاب مرجع کتابخانه.`,
+            catalogComparisonStatus: 'موجود در فهرست مرجع ۹۸۰ کتاب',
+            matchedCatalogBookId: matchedInCatalog.tempBookId,
+            reviewStatus: 'در صف بررسی کارشناس',
+            reviewerNote: '',
+            reviewedBy: '',
+            reviewedAt: ''
+          };
 
-        const newId = `SS-${String(smartSuggestions.length + 1).padStart(4, '0')}`;
-        const newSuggestion: SmartSearchSuggestion = matchedInCatalog
-          ? {
-              id: newId,
-              martyrId: `MR-SEARCH-${smartSuggestions.length + 1}`,
-              martyrName: clean,
-              martyrAlternativeNames: variants,
-              bookTitle: matchedInCatalog.titleRaw,
-              authors: matchedInCatalog.authorRaw || 'نیازمند تکمیل از شناسنامه فیپا',
-              publisher: matchedInCatalog.publisherRaw || 'نشر شاهد / سوره مهر',
-              publishYear: '۱۳۹۸',
-              editionInfo: 'چاپ اول',
-              isbn: matchedInCatalog.isbnRaw || 'نیازمند استعلام فیپا',
-              fipa: matchedInCatalog.fipaRaw || 'در دست بررسی',
-              subjectCategory: matchedInCatalog.categoryRaw
-                ? `${matchedInCatalog.categoryRaw} — منطبق با فهرست`
-                : SUBJECT_CATEGORIES[0].label,
-              publisherDescription:
-                matchedInCatalog.descriptionRaw ||
-                `یافت‌شده در تطبیق سرشناسه کتابخانه ملی و فهرست مرجع برای شهید ${clean}.`,
-              sourcePriority: 1,
-              sourceName: 'سازمان اسناد و کتابخانه ملی ایران + تطبیق فهرست مرجع',
-              sourceUrl: `http://opac.nlai.ir`,
-              retrievedAt: nowFa,
-              matchEvidence: `تشخیص ارتباط بر اساس تطابق نام نرمال‌شده «${clean}» با رکورد ${matchedInCatalog.tempBookId} در فهرست ۹۸۰ کتاب مرجع.`,
-              catalogComparisonStatus: 'موجود در فهرست مرجع ۹۸۰ کتاب',
-              matchedCatalogBookId: matchedInCatalog.tempBookId,
-              reviewStatus: 'در صف بررسی کارشناس',
-              reviewerNote: '',
-              reviewedBy: '',
-              reviewedAt: ''
-            }
-          : {
-              id: newId,
-              martyrId: `MR-SEARCH-${smartSuggestions.length + 1}`,
-              martyrName: clean,
-              martyrAlternativeNames: variants,
-              bookTitle: `یادنامه، خاطرات و اسناد شهید ${clean}`,
-              authors: 'مرکز اسناد دفاع مقدس / گروه تدوین تاریخ شفاهی',
-              publisher: 'انتشارات سوره مهر / نشر شاهد / کنگره شهدا',
-              publishYear: '۱۴۰۱',
-              editionInfo: 'چاپ اول',
-              isbn: 'استعلام از خانه کتاب (Ketab.ir)',
-              fipa: 'کتابخانه ملی ایران (NLAI)',
-              subjectCategory: SUBJECT_CATEGORIES[0].label,
-              publisherDescription: `شناسایی آنلاین از موتورهای جست‌وجو، کتابشناسی ملی و ناشران تخصصی برای شهید ${clean}. آماده بررسی و استعلام توسط کارشناس.`,
-              sourcePriority: 1,
-              sourceName: 'کاوش جامع آنلاین (گوگل، کتابخانه ملی، خانه کتاب)',
-              sourceUrl: 'http://opac.nlai.ir',
-              retrievedAt: nowFa,
-              matchEvidence: `کاوشگر هوشمند بر پایه شکل‌های نوشتاری «${clean}» (${variants.slice(0, 3).join(' / ')}) این پرونده را برای بررسی به صف منتقل کرد.`,
-              catalogComparisonStatus: 'کتاب جدید (خارج از فهرست فعلی کتابخانه)',
-              reviewStatus: 'در صف بررسی کارشناس',
-              reviewerNote: '',
-              reviewedBy: '',
-              reviewedAt: ''
-            };
-
-        onAddSuggestion(newSuggestion);
-        setLastSearchFeedback({
-          targetName: clean,
-          matchedInCatalog: matchedInCatalog || null,
-          suggestionId: newId,
-          status: matchedInCatalog ? 'matched_catalog' : 'created_new_candidate',
-          message: matchedInCatalog
-            ? `تطبیق موفق در فهرست داخلی کتابخانه: عنوان «${matchedInCatalog.titleRaw}» (${matchedInCatalog.tempBookId}) در قفسه شناسایی و به صف بررسی منتقل گردید.`
-            : `در فهرست ۹۸۰ کتاب داخلی کتابخانه یافت نشد. عنوان پیشنهادی بر اساس سرشناسه‌های ملی و پایگاه‌های بیرونی به صف بررسی اضافه شد.`,
-          timestamp: nowFa
-        });
-        setHighlightedSuggestionId(newId);
-        onNotify(`پیشنهاد کاوش آنلاین برای شهید «${clean}» استخراج و در صف بررسی قرار گرفت.`);
+          onAddSuggestion(newSuggestion);
+          setLastSearchFeedback({
+            targetName: clean,
+            matchedInCatalog,
+            suggestionId: newId,
+            status: 'matched_catalog',
+            message: `تطبیق واقعی در فهرست کتابخانه: عنوان «${matchedInCatalog.titleRaw}» (${matchedInCatalog.tempBookId}) در قفسه کتابخانه شناسایی و به صف بررسی منتقل گردید.`,
+            timestamp: nowFa
+          });
+          setHighlightedSuggestionId(newId);
+          onNotify(`کتاب واقعی «${matchedInCatalog.titleRaw}» در فهرست کتابخانه یافت شد و در صف بررسی قرار گرفت.`, 'success');
+        } else {
+          // هیچ کتاب فرضی ساخته نمی‌شود! گزارش دقیق و صادقانه
+          setLastSearchFeedback({
+            targetName: clean,
+            matchedInCatalog: null,
+            suggestionId: '',
+            status: 'not_found',
+            message: `هیچ کتابی برای شهید «${clean}» در فهرست ۹۸۰ کتابخانه یافت نشد (۰ رکورد). هیچ رکورد یا ناشر فرضی ساخته نشد.`,
+            timestamp: nowFa
+          });
+          setHighlightedSuggestionId(null);
+        }
       }
     }
   }, [initialMartyrQuery]);
 
-  // Run Single Martyr Smart Search across Reference Catalog + Bibliographic Knowledge Base
+  // Run Single Martyr Smart Search across Reference Catalog ONLY (No fake generation!)
   const handleRunSingleMartyrSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const targetName = selectedMartyrName.trim();
     if (!targetName) {
-      onNotify('لطفاً نام شهید را برای جست‌وجوی هوشمند وارد یا انتخاب کنید.', 'warning');
+      onNotify('لطفاً نام شهید را برای تطبیق وارد کنید.', 'warning');
       return;
     }
 
     const normTarget = normalizePersianText(targetName.replace(/^شهید\s+/, ''));
+    if (!normTarget) {
+      onNotify('لطفاً یک نام معتبر وارد کنید.', 'warning');
+      return;
+    }
+
+    const nowFa = new Intl.DateTimeFormat('fa-IR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(new Date());
+
     // Check if already in queue to avoid duplicate search
     const existingInQueue = smartSuggestions.find(
       (s) =>
@@ -388,109 +399,85 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
         matchedInCatalog: null,
         suggestionId: existingInQueue.id,
         status: 'already_in_queue',
-        message: `برای شهید «${targetName}» قبلاً پیشنهاد فعال (${existingInQueue.id}) در صف بررسی کارشناس ثبت شده است؛ از تکرار بی‌دلیل جست‌وجو جلوگیری شد.`,
+        message: `برای «${targetName}» قبلاً پیشنهاد فعال با شناسه ${existingInQueue.id} در صف بررسی کارشناس ثبت شده است.`,
         timestamp: existingInQueue.retrievedAt
       });
       setHighlightedSuggestionId(existingInQueue.id);
       onNotify(
-        `برای شهید «${targetName}» قبلاً پیشنهاد فعال (${existingInQueue.id}) در صف بررسی کارشناس ثبت شده است.`,
+        `برای «${targetName}» قبلاً پیشنهاد فعال (${existingInQueue.id}) در صف بررسی ثبت شده است.`,
         'warning'
       );
       return;
     }
 
-    // Compare against the 980 books in catalogRows
-    const matchedInCatalog = catalogRows.find((r) =>
+    // Compare against the REAL 980 books in catalogRows
+    const matchedBooks = catalogRows.filter((r) =>
       normalizePersianText(`${r.titleRaw} ${r.descriptionRaw} ${r.authorRaw}`).includes(normTarget)
     );
 
-    const nowFa = new Intl.DateTimeFormat('fa-IR', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(new Date());
+    if (matchedBooks.length > 0) {
+      // کتاب واقعی در کتابخانه پیدا شد
+      const matched = matchedBooks[0];
+      const newId = `SS-${String(smartSuggestions.length + 1).padStart(4, '0')}`;
+      const newSuggestion: SmartSearchSuggestion = {
+        id: newId,
+        martyrId: `MR-${String(smartSuggestions.length + 1).padStart(6, '0')}`,
+        martyrName: targetName,
+        martyrAlternativeNames: computedVariants,
+        bookTitle: matched.titleRaw,
+        authors: matched.authorRaw || '—',
+        publisher: matched.publisherRaw || '—',
+        publishYear: '',
+        editionInfo: 'موجود در قفسه کتابخانه',
+        isbn: matched.isbnRaw || '—',
+        fipa: matched.fipaRaw || '—',
+        subjectCategory: matched.categoryRaw || SUBJECT_CATEGORIES[0].label,
+        publisherDescription:
+          matched.descriptionRaw ||
+          `کتاب موجود در کتابخانه منطبق با شهید «${targetName}»`,
+        sourcePriority: 1,
+        sourceName: 'فهرست کتابخانه مرکز اسناد (۹۸۰ عنوان کتاب مرجع)',
+        sourceUrl: '',
+        retrievedAt: nowFa,
+        matchEvidence: `تطابق نام شهید با عنوان/توضیحات رکورد ${matched.tempBookId} در قفسه ${matched.locationRaw || 'کتابخانه'}.`,
+        catalogComparisonStatus: 'موجود در فهرست مرجع ۹۸۰ کتاب',
+        matchedCatalogBookId: matched.tempBookId,
+        reviewStatus: 'در صف بررسی کارشناس',
+        reviewerNote: '',
+        reviewedBy: '',
+        reviewedAt: ''
+      };
 
-    const newId = `SS-${String(smartSuggestions.length + 1).padStart(4, '0')}`;
-    const newSuggestion: SmartSearchSuggestion = matchedInCatalog
-      ? {
-          id: newId,
-          martyrId: `MR-SEARCH-${smartSuggestions.length + 1}`,
-          martyrName: targetName,
-          martyrAlternativeNames: computedVariants,
-          bookTitle: matchedInCatalog.titleRaw,
-          authors: matchedInCatalog.authorRaw || 'نیازمند تکمیل از شناسنامه فیپا',
-          publisher: matchedInCatalog.publisherRaw || 'نشر شاهد / سوره مهر',
-          publishYear: '۱۳۹۸',
-          editionInfo: 'چاپ اول',
-          isbn: matchedInCatalog.isbnRaw || 'نیازمند استعلام فیپا',
-          fipa: matchedInCatalog.fipaRaw || 'در دست بررسی',
-          subjectCategory: matchedInCatalog.categoryRaw
-            ? `${matchedInCatalog.categoryRaw} — منطبق با فهرست`
-            : SUBJECT_CATEGORIES[0].label,
-          publisherDescription:
-            matchedInCatalog.descriptionRaw ||
-            `یافت‌شده در تطبیق سرشناسه کتابخانه ملی و فهرست مرجع برای شهید ${targetName}.`,
-          sourcePriority: 1,
-          sourceName: 'سازمان اسناد و کتابخانه ملی ایران + تطبیق فهرست مرجع',
-          sourceUrl: `http://opac.nlai.ir`,
-          retrievedAt: nowFa,
-          matchEvidence: `تشخیص ارتباط بر اساس تطابق نام نرمال‌شده «${targetName}» و اشکال نوشتاری (${computedVariants
-            .slice(0, 3)
-            .join(' / ')}) با رکورد ${matchedInCatalog.tempBookId} در فهرست ۹۸۰ کتاب مرجع.`,
-          catalogComparisonStatus: 'موجود در فهرست مرجع ۹۸۰ کتاب',
-          matchedCatalogBookId: matchedInCatalog.tempBookId,
-          reviewStatus: 'در صف بررسی کارشناس',
-          reviewerNote: '',
-          reviewedBy: '',
-          reviewedAt: ''
-        }
-      : {
-          id: newId,
-          martyrId: `MR-SEARCH-${smartSuggestions.length + 1}`,
-          martyrName: targetName,
-          martyrAlternativeNames: computedVariants,
-          bookTitle: `کارنامه و خاطرات مستند شهید ${targetName}`,
-          authors: 'گروه پژوهش و تاریخ شفاهی دفاع مقدس',
-          publisher: 'انتشارات سوره مهر / نشر شاهد',
-          publishYear: '۱۴۰۰',
-          editionInfo: 'چاپ دوم',
-          isbn: 'بررسی از صفحه فیپا',
-          fipa: 'نیازمند تأیید کارشناس',
-          subjectCategory: SUBJECT_CATEGORIES[0].label,
-          publisherDescription: `پیشنهاد استخراج‌شده بر پایه سرشناسه موضوعی «${computedVariants[0] || targetName}» جهت بررسی در فهرستگان کتابخانه ملی و ناشران تخصصی.`,
-          sourcePriority: 1,
-          sourceName: 'راهنمای جست‌وجوی کتابخانه ملی ایران (OPAC) و فیپا',
-          sourceUrl: 'http://opac.nlai.ir',
-          retrievedAt: nowFa,
-          matchEvidence: `پیشنهاد هوش مصنوعی بر پایه شکل‌های نوشتاری نام شهید (${computedVariants.join(
-            ' ، '
-          )})؛ در فهرست ۹۸۰ کتاب فعلی عنوانی با این نام دقیق یافت نشد و به‌عنوان «کتاب جدید احتمالی» به صف بررسی انسانی منتقل گردید.`,
-          catalogComparisonStatus: 'کتاب جدید (خارج از فهرست فعلی کتابخانه)',
-          reviewStatus: 'در صف بررسی کارشناس',
-          reviewerNote: '',
-          reviewedBy: '',
-          reviewedAt: ''
-        };
-
-    onAddSuggestion(newSuggestion);
-    setLastSearchFeedback({
-      targetName,
-      matchedInCatalog: matchedInCatalog || null,
-      suggestionId: newId,
-      status: matchedInCatalog ? 'matched_catalog' : 'created_new_candidate',
-      message: matchedInCatalog
-        ? `تطبیق موفق در فهرست کتابخانه: عنوان «${matchedInCatalog.titleRaw}» (${matchedInCatalog.tempBookId}) در فهرست داخلی شناسایی شد و به صف بررسی منتقل گردید.`
-        : `در فهرست ۹۸۰ کتاب داخلی کتابخانه عنوانی یافت نشد؛ عنوان پیشنهادی بر اساس سرشناسه‌های ملی به عنوان کتاب جدید احتمالی به صف بررسی کارشناس اضافه شد.`,
-      timestamp: nowFa
-    });
-    setHighlightedSuggestionId(newId);
-    onNotify(
-      matchedInCatalog
-        ? `تطبیق در فهرست ۹۸۰ کتاب پیدا شد و پیشنهاد ${newId} در صف بررسی قرار گرفت.`
-        : `پیشنهاد کتاب برای «${targetName}» با شناسه ${newId} به صف بررسی کارشناس منتقل شد.`
-    );
+      onAddSuggestion(newSuggestion);
+      setLastSearchFeedback({
+        targetName,
+        matchedInCatalog: matched,
+        suggestionId: newId,
+        status: 'matched_catalog',
+        message: `تطبیق موفق در فهرست داخلی کتابخانه: عنوان «${matched.titleRaw}» (${matched.tempBookId}) در قفسه شناسایی و به صف بررسی منتقل گردید.`,
+        timestamp: nowFa
+      });
+      setHighlightedSuggestionId(newId);
+      onNotify(
+        `کتاب واقعی «${matched.titleRaw}» در فهرست کتابخانه یافت شد و پیشنهاد ${newId} در صف بررسی قرار گرفت.`,
+        'success'
+      );
+    } else {
+      // هیچ کتابی در کتابخانه نیست - از تولید هرگونه اطلاعات ساختگی و جعلی کاملاً جلوگیری می‌شود!
+      setLastSearchFeedback({
+        targetName,
+        matchedInCatalog: null,
+        suggestionId: '',
+        status: 'not_found',
+        message: `هیچ کتاب یا سابقه‌ای برای «${targetName}» در فهرست ۹۸۰ کتاب مرجع کتابخانه یافت نشد (نتیجه: ۰ مورد). هیچ رکورد یا ناشر ساختگی در صف بررسی ایجاد نگردید.`,
+        timestamp: nowFa
+      });
+      setHighlightedSuggestionId(null);
+      onNotify(
+        `هیچ کتابی برای «${targetName}» در فهرست ۹۸۰ کتاب کتابخانه یافت نشد (۰ مورد). رکوردی اضافه نشد.`,
+        'warning'
+      );
+    }
   };
 
   // Run Next Batch in 20-Martyr Pilot
@@ -527,8 +514,21 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
     }
 
     const catalogHit = catalogRows.find((c) =>
-      normalizePersianText(`${c.titleRaw} ${c.descriptionRaw}`).includes(normM)
+      normalizePersianText(`${c.titleRaw} ${c.descriptionRaw} ${c.authorRaw}`).includes(normM)
     );
+
+    if (!catalogHit) {
+      const nextCount = Math.min(20, pilotProcessedCount + 1);
+      setPilotProcessedCount(nextCount);
+      if (nextCount >= 20) {
+        setPilotStatus('completed');
+      }
+      onNotify(
+        `پرونده «${targetMartyr.fullNameSearch}» بررسی شد؛ در فهرست ۹۸۰ کتاب داخلی یافت نشد و هیچ رکورد ساختگی ایجاد نگردید.`,
+        'warning'
+      );
+      return;
+    }
 
     const nowFa = new Intl.DateTimeFormat('fa-IR', {
       year: 'numeric',
@@ -543,28 +543,24 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
       martyrId: targetMartyr.tempPersonId,
       martyrName: targetMartyr.fullNameSearch,
       martyrAlternativeNames: generateMartyrNameVariants(targetMartyr.fullNameSearch, ''),
-      bookTitle: catalogHit
-        ? catalogHit.titleRaw
-        : `یادنامه و زندگینامه شهید ${targetMartyr.fullNameSearch}`,
-      authors: catalogHit?.authorRaw || 'گروه تدوین تاریخ دفاع مقدس',
-      publisher: catalogHit?.publisherRaw || 'نشر شاهد',
-      publishYear: '۱۳۹۹',
-      editionInfo: 'چاپ اول',
-      isbn: catalogHit?.isbnRaw || 'نیازمند استعلام فیپا',
-      fipa: catalogHit?.fipaRaw || '—',
-      subjectCategory: SUBJECT_CATEGORIES[0].label,
-      publisherDescription: catalogHit?.descriptionRaw || `پرونده پایلوت ۲۰ شهید — قطعه ${targetMartyr.piece}`,
+      bookTitle: catalogHit.titleRaw,
+      authors: catalogHit.authorRaw || '—',
+      publisher: catalogHit.publisherRaw || '—',
+      publishYear: '',
+      editionInfo: 'موجود در قفسه کتابخانه',
+      isbn: catalogHit.isbnRaw || '—',
+      fipa: catalogHit.fipaRaw || '—',
+      subjectCategory: catalogHit.categoryRaw || SUBJECT_CATEGORIES[0].label,
+      publisherDescription:
+        catalogHit.descriptionRaw ||
+        `پرونده پایلوت ۲۰ شهید — منطبق با قطعه ${targetMartyr.piece}`,
       sourcePriority: 1,
-      sourceName: 'پایلوت ۲۰ شهید (تطبیق فهرستگان ملی و اکسل مرجع)',
-      sourceUrl: 'http://opac.nlai.ir',
+      sourceName: 'فهرست کتابخانه مرکز اسناد (۹۸۰ عنوان کتاب مرجع)',
+      sourceUrl: '',
       retrievedAt: nowFa,
-      matchEvidence: catalogHit
-        ? `تطابق نام شهید «${targetMartyr.fullNameSearch}» (قطعه ${targetMartyr.piece}) با رکورد ${catalogHit.tempBookId} در فهرست ۹۸۰ کتاب مرجع.`
-        : `بررسی پایلوت ۲۰ پرونده شهید برای «${targetMartyr.fullNameSearch}» (قطعه ${targetMartyr.piece})؛ نیازمند بازبینی انسانی در فهرستگان کتابخانه ملی.`,
-      catalogComparisonStatus: catalogHit
-        ? 'موجود در فهرست مرجع ۹۸۰ کتاب'
-        : 'کتاب جدید (خارج از فهرست فعلی کتابخانه)',
-      matchedCatalogBookId: catalogHit?.tempBookId,
+      matchEvidence: `تطابق نام شهید «${targetMartyr.fullNameSearch}» با رکورد ${catalogHit.tempBookId} در قفسه ${catalogHit.locationRaw || 'کتابخانه'}.`,
+      catalogComparisonStatus: 'موجود در فهرست مرجع ۹۸۰ کتاب',
+      matchedCatalogBookId: catalogHit.tempBookId,
       reviewStatus: 'در صف بررسی کارشناس',
       reviewerNote: '',
       reviewedBy: '',
@@ -572,15 +568,69 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
     };
 
     onAddSuggestion(newSug);
-    const nextCount = Math.min(20, pilotProcessedCount + 2);
+    const nextCount = Math.min(20, pilotProcessedCount + 1);
     setPilotProcessedCount(nextCount);
     setPilotFoundCount((prev) => prev + 1);
     if (nextCount >= 20) {
       setPilotStatus('completed');
     }
     onNotify(
-      `گام پایلوت اجرا شد (${toPersianDigits(nextCount)} از ۲۰ پرونده شهید)؛ پیشنهاد جدید به صف بررسی کارشناس اضافه گردید.`
+      `گام پایلوت اجرا شد؛ کتاب واقعی «${catalogHit.titleRaw}» به صف بررسی کارشناس اضافه گردید.`,
+      'success'
     );
+  };
+
+  const handleManualAddSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualTitle.trim() || !manualPublisher.trim()) {
+      onNotify('عنوان کتاب و نام ناشر الزامی است.', 'warning');
+      return;
+    }
+
+    const nowFa = new Intl.DateTimeFormat('fa-IR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(new Date());
+
+    const newId = `SS-${String(smartSuggestions.length + 1).padStart(4, '0')}`;
+    const newSug: SmartSearchSuggestion = {
+      id: newId,
+      martyrId: `MR-${String(smartSuggestions.length + 1).padStart(6, '0')}`,
+      martyrName: selectedMartyrName.trim() || 'شهید',
+      martyrAlternativeNames: computedVariants,
+      bookTitle: manualTitle.trim(),
+      authors: manualAuthor.trim() || '—',
+      publisher: manualPublisher.trim(),
+      publishYear: manualYear.trim() || '',
+      editionInfo: 'ثبت دستی مستقیم کارشناس',
+      isbn: 'استعلام کارشناس',
+      fipa: '—',
+      subjectCategory: SUBJECT_CATEGORIES[0].label,
+      publisherDescription: manualNote.trim() || `کتاب واقعی شناسایی‌شده توسط پژوهشگر از ${manualSource}`,
+      sourcePriority: 1,
+      sourceName: manualSource,
+      sourceUrl: '',
+      retrievedAt: nowFa,
+      matchEvidence: `ثبت دستی مشخصات واقعی توسط پژوهشگر با استناد به پایگاه ${manualSource}.`,
+      catalogComparisonStatus: 'کتاب جدید (ثبت دستی کارشناس از منابع بیرونی)',
+      reviewStatus: 'در صف بررسی کارشناس',
+      reviewerNote: manualNote.trim(),
+      reviewedBy: 'پژوهشگر مرکز اسناد',
+      reviewedAt: nowFa
+    };
+
+    onAddSuggestion(newSug);
+    setShowManualAddModal(false);
+    setManualTitle('');
+    setManualPublisher('');
+    setManualAuthor('');
+    setManualYear('');
+    setManualNote('');
+    setHighlightedSuggestionId(newId);
+    onNotify(`کتاب واقعی «${newSug.bookTitle}» با شناسه ${newId} در صف بررسی ثبت شد.`, 'success');
   };
 
   const filteredSuggestions = useMemo(() => {
@@ -1008,6 +1058,8 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
               ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950'
               : lastSearchFeedback.status === 'already_in_queue'
               ? 'bg-amber-50/90 border-amber-300 text-amber-950'
+              : lastSearchFeedback.status === 'not_found'
+              ? 'bg-rose-50/90 border-rose-200 text-rose-950'
               : 'bg-sky-50/90 border-sky-300 text-sky-950'
           }`}
         >
@@ -1018,6 +1070,8 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                   <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                 ) : lastSearchFeedback.status === 'already_in_queue' ? (
                   <Info className="w-5 h-5 text-amber-600 shrink-0" />
+                ) : lastSearchFeedback.status === 'not_found' ? (
+                  <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
                 ) : (
                   <Sparkles className="w-5 h-5 text-sky-600 shrink-0" />
                 )}
@@ -1026,38 +1080,60 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     ? `تطبیق در فهرست ۹۸۰ کتاب داخلی کتابخانه: کتاب منطبق شناسایی شد`
                     : lastSearchFeedback.status === 'already_in_queue'
                     ? `پرونده در صف بررسی کارشناس از قبل موجود است`
-                    : `کاوش بیرونی: کتاب خارج از فهرست فعلی به صف بررسی اضافه گردید`}
+                    : lastSearchFeedback.status === 'not_found'
+                    ? `نتیجه تطبیق: کتابی در فهرست ۹۸۰ عنوان کتابخانه یافت نشد (۰ رکورد)`
+                    : `کاوش بیرونی: رکورد به صف بررسی اضافه گردید`}
                 </h3>
               </div>
               <p className="text-xs sm:text-sm leading-relaxed pr-7">
                 {lastSearchFeedback.message}
               </p>
-              <div className="text-[11px] text-slate-500 pr-7 pt-0.5">
-                شناسه در صف بررسی: <strong className="font-mono text-slate-700" dir="ltr">{lastSearchFeedback.suggestionId}</strong> · زمان بررسی: {lastSearchFeedback.timestamp}
-              </div>
+              {lastSearchFeedback.suggestionId && (
+                <div className="text-[11px] text-slate-500 pr-7 pt-0.5">
+                  شناسه در صف بررسی: <strong className="font-mono text-slate-700" dir="ltr">{lastSearchFeedback.suggestionId}</strong> · زمان بررسی: {lastSearchFeedback.timestamp}
+                </div>
+              )}
             </div>
 
             <div className="shrink-0 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const targetEl = document.getElementById(`suggestion-${lastSearchFeedback.suggestionId}`);
-                  if (targetEl) {
-                    targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    setHighlightedSuggestionId(lastSearchFeedback.suggestionId);
-                  }
-                }}
-                className={`px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors ${
-                  lastSearchFeedback.status === 'matched_catalog'
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                    : lastSearchFeedback.status === 'already_in_queue'
-                    ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                    : 'bg-[#1F4E79] hover:bg-[#163a5b] text-white'
-                }`}
-              >
-                <ArrowDown className="w-4 h-4" />
-                <span>مشاهده در صف بررسی کارشناس ⬇️</span>
-              </button>
+              {lastSearchFeedback.status === 'not_found' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManualTitle('');
+                    setManualPublisher('');
+                    setManualAuthor('');
+                    setManualYear('');
+                    setManualNote(`کشف‌شده در بررسی بیرونی برای شهید ${lastSearchFeedback.targetName}`);
+                    setShowManualAddModal(true);
+                  }}
+                  className="px-4 py-2 bg-[#1F4E79] hover:bg-[#163a5b] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>ثبت دستی کتاب جدید (در صورت کشف)</span>
+                </button>
+              ) : lastSearchFeedback.suggestionId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetEl = document.getElementById(`suggestion-${lastSearchFeedback.suggestionId}`);
+                    if (targetEl) {
+                      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      setHighlightedSuggestionId(lastSearchFeedback.suggestionId);
+                    }
+                  }}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors ${
+                    lastSearchFeedback.status === 'matched_catalog'
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                      : lastSearchFeedback.status === 'already_in_queue'
+                      ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                      : 'bg-[#1F4E79] hover:bg-[#163a5b] text-white'
+                  }`}
+                >
+                  <ArrowDown className="w-4 h-4" />
+                  <span>مشاهده در صف بررسی کارشناس ⬇️</span>
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -1071,11 +1147,27 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
               صف بررسی کارشناس ({toPersianDigits(filteredSuggestions.length)} پیشنهاد)
             </h2>
             <p className="text-xs text-[#697586] mt-0.5">
-              مقایسه پیشنهادهای بیرونی با فهرست ۹۸۰ کتاب مرجع، مشاهده شواهد تشخیص ارتباط، ویرایش مشخصات و تأیید یا رد مستند
+              مقایسه پیشنهادهای بیرونی با فهرست ۹۸۰ کتاب مرجع، مشاهده شواهد تشخیص ارتباط، ویرایش مشخصات، حذف یا تأیید مستند
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => {
+                setManualTitle('');
+                setManualPublisher('');
+                setManualAuthor('');
+                setManualYear('');
+                setManualNote('');
+                setShowManualAddModal(true);
+              }}
+              className="px-3 py-2 bg-[#1F4E79] hover:bg-[#163a5b] text-white rounded-xl font-bold inline-flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+            >
+              <Plus className="w-4 h-4" />
+              <span>ثبت دستی کتاب جدید</span>
+            </button>
+
             <select
               value={queueFilter}
               onChange={(e) =>
@@ -1300,6 +1392,21 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                 </a>
 
                 <div className="flex flex-wrap items-center gap-2">
+                  {onDeleteSuggestion && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onDeleteSuggestion(sug.id);
+                        onNotify(`پیشنهاد ${sug.id} از صف بررسی حذف شد.`);
+                      }}
+                      className="min-h-[36px] px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                      title="حذف دائمی این پیشنهاد از صف بررسی (مثلاً رکوردهای تست یا نامعتبر)"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>حذف از صف</span>
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => {
@@ -1427,6 +1534,134 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                 تأیید و بازگشت به سامانه
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* مودال ثبت دستی کتاب جدید واقعی برای شهید */}
+      {showManualAddModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-4 sm:p-6 space-y-4 shadow-2xl border border-slate-200 my-6">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-[#2E7D5B]/10 flex items-center justify-center text-[#2E7D5B]">
+                  <Plus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-[#253247]">
+                    ثبت دستی کتاب جدید کشف‌شده برای شهید
+                  </h3>
+                  <p className="text-xs text-[#697586]">
+                    شهید مرتبط: <strong className="text-[#1F4E79]">{selectedMartyrName || 'شهید'}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowManualAddModal(false)}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-semibold cursor-pointer"
+              >
+                بستن
+              </button>
+            </div>
+
+            <form onSubmit={handleManualAddSubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-[#253247] mb-1">
+                  عنوان دقیق کتاب <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={manualTitle}
+                  onChange={(e) => setManualTitle(e.target.value)}
+                  placeholder="مثال: پرواز تا بی‌نهایت"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#1F4E79] outline-hidden"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-[#253247] mb-1">
+                    ناشر رسمی <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={manualPublisher}
+                    onChange={(e) => setManualPublisher(e.target.value)}
+                    placeholder="مثال: نشر شاهد یا سوره مهر"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#1F4E79] outline-hidden"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-[#253247] mb-1">نویسنده / پدیدآور</label>
+                  <input
+                    type="text"
+                    value={manualAuthor}
+                    onChange={(e) => setManualAuthor(e.target.value)}
+                    placeholder="مثال: علی‌اکبر مزدآبادی"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#1F4E79] outline-hidden"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-[#253247] mb-1">سال انتشار</label>
+                  <input
+                    type="text"
+                    value={manualYear}
+                    onChange={(e) => setManualYear(e.target.value)}
+                    placeholder="مثال: ۱۴۰۱ یا ۱۳۹۵"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#1F4E79] outline-hidden"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-[#253247] mb-1">پایگاه یا منبع استعلام</label>
+                  <select
+                    value={manualSource}
+                    onChange={(e) => setManualSource(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#1F4E79] outline-hidden bg-white"
+                  >
+                    <option value="سازمان اسناد و کتابخانه ملی ایران (NLAI)">سازمان اسناد و کتابخانه ملی ایران (NLAI)</option>
+                    <option value="خانه کتاب و ادبیات ایران (Ketab.ir)">خانه کتاب و ادبیات ایران (Ketab.ir)</option>
+                    <option value="پایگاه مرکز اسناد ایثارگران">پایگاه مرکز اسناد ایثارگران</option>
+                    <option value="پایگاه جامع شهدای دفاع مقدس">پایگاه جامع شهدای دفاع مقدس</option>
+                    <option value="ناشران تخصصی دفاع مقدس">ناشران تخصصی دفاع مقدس</option>
+                    <option value="مشاهده عینی و بررسی میدانی">مشاهده عینی و بررسی میدانی</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#253247] mb-1">یادداشت کارشناس و شماره صفحه/سند</label>
+                <textarea
+                  rows={2}
+                  value={manualNote}
+                  onChange={(e) => setManualNote(e.target.value)}
+                  placeholder="توضیحات تکمیلی یا ارجاع دقیق به سند یا فصل مربوط به شهید..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#1F4E79] outline-hidden resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowManualAddModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer"
+                >
+                  انصراف
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-[#2E7D5B] hover:bg-[#246348] text-white font-bold rounded-xl cursor-pointer shadow-md flex items-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>ثبت در صف بررسی کارشناس</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

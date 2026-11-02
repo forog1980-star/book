@@ -1471,6 +1471,15 @@ export default function App() {
                 `تغییر وضعیت پیشنهاد هوشمند «${updated.bookTitle}» برای «${updated.martyrName}» به «${updated.reviewStatus}»`
               );
             }}
+            onDeleteSuggestion={(sugId: string) => {
+              setSmartSuggestions((prev) => prev.filter((s) => s.id !== sugId));
+              setSessionEditsCount((prev) => prev + 1);
+              appendAuditLog(
+                'بررسی پیشنهاد جست‌وجوی هوشمند',
+                sugId,
+                `حذف رکورد پیشنهاد ${sugId} از صف بررسی کارشناس`
+              );
+            }}
             onApproveSuggestionToLinks={(sug: SmartSearchSuggestion, newLink: BookMartyrLinkRecord) => {
               setSmartSuggestions((prev) =>
                 prev.map((s) => (s.id === sug.id ? sug : s))
