@@ -346,9 +346,19 @@ export default function App() {
   const [smartSuggestions, setSmartSuggestions] = useState<SmartSearchSuggestion[]>(() => {
     try {
       const raw = localStorage.getItem(SMART_SUGGESTIONS_STORAGE_KEY) || localStorage.getItem(LEGACY_SMART_KEY);
-      return raw ? JSON.parse(raw) : INITIAL_SMART_SEARCH_SUGGESTIONS;
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        // Filter out legacy mock suggestions SS-0001 through SS-0007
+        const clean = parsed.filter(
+          (s: SmartSearchSuggestion) =>
+            !['SS-0001', 'SS-0002', 'SS-0003', 'SS-0004', 'SS-0005', 'SS-0006', 'SS-0007'].includes(s.id)
+        );
+        return clean;
+      }
+      return [];
     } catch {
-      return INITIAL_SMART_SEARCH_SUGGESTIONS;
+      return [];
     }
   });
 
@@ -1512,6 +1522,15 @@ export default function App() {
                 'بررسی پیشنهاد جست‌وجوی هوشمند',
                 sugId,
                 `حذف رکورد پیشنهاد ${sugId} از صف بررسی کارشناس`
+              );
+            }}
+            onClearAllSuggestions={() => {
+              setSmartSuggestions([]);
+              setSessionEditsCount((prev) => prev + 1);
+              appendAuditLog(
+                'بررسی پیشنهاد جست‌وجوی هوشمند',
+                'ALL',
+                'پاک‌سازی کامل صف بررسی کارشناس و صفر کردن همه رکوردهای جست‌وجو'
               );
             }}
             onApproveSuggestionToLinks={(sug: SmartSearchSuggestion, newLink: BookMartyrLinkRecord) => {

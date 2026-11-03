@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import {
   Sparkles,
   Search,
@@ -19,7 +20,9 @@ import {
   Info,
   Trash2,
   Plus,
-  AlertCircle
+  AlertCircle,
+  Upload,
+  FileSpreadsheet
 } from 'lucide-react';
 import {
   BookMartyrLinkRecord,
@@ -189,6 +192,7 @@ interface SmartBookSearchTabProps {
   onAddSuggestion: (newSug: SmartSearchSuggestion) => void;
   onUpdateSuggestion: (updatedSug: SmartSearchSuggestion) => void;
   onDeleteSuggestion?: (sugId: string) => void;
+  onClearAllSuggestions?: () => void;
   onApproveSuggestionToLinks: (sug: SmartSearchSuggestion, newLink: BookMartyrLinkRecord) => void;
   onNotify: (message: string, type?: 'success' | 'warning') => void;
 }
@@ -231,11 +235,12 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
   onAddSuggestion,
   onUpdateSuggestion,
   onDeleteSuggestion,
+  onClearAllSuggestions,
   onApproveSuggestionToLinks,
   onNotify
 }) => {
-  const [selectedMartyrName, setSelectedMartyrName] = useState(initialMartyrQuery || 'عباس دوران');
-  const [customAltNames, setCustomAltNames] = useState('سرلشکر خلبان عباس دوران، دوران، عباس');
+  const [selectedMartyrName, setSelectedMartyrName] = useState(initialMartyrQuery || '');
+  const [customAltNames, setCustomAltNames] = useState('');
   const [selectedSourceCode, setSelectedSourceCode] = useState<string>('ALL');
   const [queueFilter, setQueueFilter] = useState<'ALL' | SmartSuggestionReviewStatus>('ALL');
 
@@ -253,11 +258,15 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
   const [manualSource, setManualSource] = useState('سازمان اسناد و کتابخانه ملی ایران (NLAI)');
   const [manualNote, setManualNote] = useState('');
 
-  // Batch Pilot 20 Martyrs State (Section 9: جست‌وجوی انبوه و پایلوت محدود ۲۰ پرونده)
+  // Bulk Martyr Search & Batch Match State (Section 2)
+  const [bulkInputMode, setBulkInputMode] = useState<'excel' | 'text' | 'system'>('excel');
+  const [bulkTextNames, setBulkTextNames] = useState('');
+  const [bulkLoadedNames, setBulkLoadedNames] = useState<string[]>([]);
+  const [bulkLoadedFileName, setBulkLoadedFileName] = useState('');
   const [pilotStatus, setPilotStatus] = useState<'idle' | 'running' | 'paused' | 'completed'>('idle');
-  const [pilotProcessedCount, setPilotProcessedCount] = useState<number>(6);
-  const [pilotFoundCount, setPilotFoundCount] = useState<number>(6);
-  const [pilotDuplicatePrevented, setPilotDuplicatePrevented] = useState<number>(2);
+  const [pilotProcessedCount, setPilotProcessedCount] = useState<number>(0);
+  const [pilotFoundCount, setPilotFoundCount] = useState<number>(0);
+  const [pilotDuplicatePrevented, setPilotDuplicatePrevented] = useState<number>(0);
   const [pilotErrorCount] = useState<number>(0);
 
   // Editing / Rejecting state in Review Queue
@@ -564,103 +573,156 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
     }
   };
 
-  // Run Next Batch in 20-Martyr Pilot
-  const handleRunPilotStep = () => {
-    if (pilotProcessedCount >= 20) {
-      setPilotStatus('completed');
-      onNotify('پایلوت محدود ۲۰ پرونده شهید به طور کامل اجرا شد.');
+  // Handle Bulk Excel Upload for Martyr Names
+  const handleBulkExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: 'array' });
+      const firstSheet = wb.Sheets[wb.SheetNames[0]];
+      const rawMatrix: unknown[][] = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as unknown[][];
+      if (rawMatrix.length === 0) {
+        onNotify('فایل اکسل انتخابی خالی است.', 'warning');
+        return;
+      }
+
+      // Detect martyr name column
+      const headers = (rawMatrix[0] || []).map((h) => String(h || '').trim());
+      let nameColIdx = headers.findIndex((h) =>
+        /نام.*شهید|شهید|نام.*خانوادگی|نام/i.test(h)
+      );
+      if (nameColIdx < 0) nameColIdx = 0; // fallback to column 0
+
+      const extractedNames: string[] = [];
+      for (let i = 1; i < rawMatrix.length; i++) {
+        const row = rawMatrix[i];
+        if (!row) continue;
+        const rawVal = String(row[nameColIdx] || '').trim();
+        if (rawVal && rawVal !== 'نام شهید' && !rawVal.startsWith('---')) {
+          extractedNames.push(rawVal);
+        }
+      }
+
+      const uniqueNames = Array.from(new Set(extractedNames)).slice(0, 100);
+      setBulkLoadedNames(uniqueNames);
+      setBulkLoadedFileName(file.name);
+      onNotify(
+        `فایل «${file.name}» خوانده شد: تعداد ${toPersianDigits(uniqueNames.length)} نام شهید آماده تطبیق است.`
+      );
+    } catch (err) {
+      onNotify(
+        `خطا در خواندن فایل اکسل: ${err instanceof Error ? err.message : 'فرمت نامعتبر'}`,
+        'warning'
+      );
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  // Run Bulk Martyr Search across 980 Books (Zero Fake Data)
+  const handleRunBulkMartyrSearch = () => {
+    let namesToSearch: string[] = [];
+
+    if (bulkInputMode === 'excel') {
+      namesToSearch = bulkLoadedNames;
+    } else if (bulkInputMode === 'text') {
+      namesToSearch = bulkTextNames
+        .split(/[\n،,]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } else {
+      // ONLY search martyrs explicitly created in Tab 3 (zero hidden or phantom martyrs)
+      namesToSearch = customMartyrs.map((m) => m.fullName);
+    }
+
+    if (namesToSearch.length === 0) {
+      if (bulkInputMode === 'system') {
+        onNotify(
+          'هیچ پرونده‌ای در برگه ۳ (پرونده شهدا) ثبت نشده است (۰ پرونده). لطفاً ابتدا در برگه ۳ پرونده شهدا را ثبت نمایید یا از گزینه‌های ورود متنی یا بارگذاری اکسل استفاده فرمایید.',
+          'warning'
+        );
+      } else {
+        onNotify(
+          'هیچ نام شهیدی مشخص نشده است. لطفاً فایل اکسل را بارگذاری کرده یا اسامی را در کادر وارد نمایید.',
+          'warning'
+        );
+      }
       return;
     }
 
     setPilotStatus('running');
-    const candidateMartyrs = workbookMartyrs.slice(0, 20);
-    const nextIdx = pilotProcessedCount;
-    const targetMartyr = candidateMartyrs[nextIdx] || {
-      tempPersonId: `SH-00${nextIdx + 1}`,
-      fullNameSearch: 'مصطفی چمران',
-      piece: '24',
-      graveRow: '1',
-      graveNumber: '1'
-    };
+    let processed = 0;
+    let found = 0;
+    let duplicates = 0;
+    const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
 
-    const normM = normalizePersianText(targetMartyr.fullNameSearch);
-    const alreadyExists = smartSuggestions.some((s) =>
-      normalizePersianText(s.martyrName).includes(normM)
-    );
+    namesToSearch.forEach((rawName) => {
+      const cleanName = rawName.replace(/^شهید\s+/, '').trim();
+      const normName = normalizePersianText(cleanName);
+      if (!normName) return;
 
-    if (alreadyExists) {
-      setPilotDuplicatePrevented((prev) => prev + 1);
-      setPilotProcessedCount((prev) => Math.min(20, prev + 2));
-      onNotify(
-        `پرونده «${targetMartyr.fullNameSearch}» قبلاً بررسی شده بود؛ از اجرای جست‌وجوی تکراری جلوگیری شد.`
+      processed++;
+
+      // Check if already in suggestions queue
+      const alreadyInQueue = smartSuggestions.some((s) =>
+        normalizePersianText(s.martyrName).includes(normName)
       );
-      return;
-    }
 
-    const catalogHit = catalogRows.find((c) =>
-      normalizePersianText(`${c.titleRaw} ${c.descriptionRaw} ${c.authorRaw}`).includes(normM)
-    );
-
-    if (!catalogHit) {
-      const nextCount = Math.min(20, pilotProcessedCount + 1);
-      setPilotProcessedCount(nextCount);
-      if (nextCount >= 20) {
-        setPilotStatus('completed');
+      if (alreadyInQueue) {
+        duplicates++;
+        return;
       }
-      onNotify(
-        `پرونده «${targetMartyr.fullNameSearch}» بررسی شد؛ در فهرست ۹۸۰ کتاب داخلی یافت نشد و هیچ رکورد ساختگی ایجاد نگردید.`,
-        'warning'
+
+      // Search Reference Catalog (980 books)
+      const matched = catalogRows.find((r) =>
+        normalizePersianText(`${r.titleRaw} ${r.descriptionRaw} ${r.authorRaw}`).includes(normName)
       );
-      return;
-    }
 
-    const nowFa = new Intl.DateTimeFormat('fa-IR', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(new Date());
+      if (matched) {
+        found++;
+        const newId = `SS-${String(smartSuggestions.length + found).padStart(4, '0')}`;
+        const variants = generateMartyrNameVariants(rawName, '');
+        const newSug: SmartSearchSuggestion = {
+          id: newId,
+          martyrId: `MR-${String(smartSuggestions.length + found).padStart(6, '0')}`,
+          martyrName: rawName.startsWith('شهید') ? rawName : `شهید ${rawName}`,
+          martyrAlternativeNames: variants,
+          bookTitle: matched.titleRaw,
+          authors: matched.authorRaw || '—',
+          publisher: matched.publisherRaw || '—',
+          publishYear: '',
+          editionInfo: 'موجود در قفسه کتابخانه',
+          isbn: matched.isbnRaw || '—',
+          fipa: matched.fipaRaw || '—',
+          subjectCategory: matched.categoryRaw || SUBJECT_CATEGORIES[0].label,
+          publisherDescription:
+            matched.descriptionRaw ||
+            `کتاب موجود در قفسه کتابخانه منطبق با نام شهید «${rawName}»`,
+          sourcePriority: 1,
+          sourceName: 'فهرست کتابخانه مرکز اسناد (۹۸۰ عنوان کتاب مرجع)',
+          sourceUrl: '',
+          retrievedAt: nowFa,
+          matchEvidence: `تطبیق موفق در جست‌وجوی انبوه با رکورد ${matched.tempBookId} در فهرست ۹۸۰ کتاب مرجع کتابخانه.`,
+          catalogComparisonStatus: 'موجود در فهرست مرجع ۹۸۰ کتاب',
+          matchedCatalogBookId: matched.tempBookId,
+          reviewStatus: 'در صف بررسی کارشناس',
+          reviewerNote: '',
+          reviewedBy: '',
+          reviewedAt: ''
+        };
+        onAddSuggestion(newSug);
+      }
+    });
 
-    const newSug: SmartSearchSuggestion = {
-      id: `SS-${String(smartSuggestions.length + 1).padStart(4, '0')}`,
-      martyrId: targetMartyr.tempPersonId,
-      martyrName: targetMartyr.fullNameSearch,
-      martyrAlternativeNames: generateMartyrNameVariants(targetMartyr.fullNameSearch, ''),
-      bookTitle: catalogHit.titleRaw,
-      authors: catalogHit.authorRaw || '—',
-      publisher: catalogHit.publisherRaw || '—',
-      publishYear: '',
-      editionInfo: 'موجود در قفسه کتابخانه',
-      isbn: catalogHit.isbnRaw || '—',
-      fipa: catalogHit.fipaRaw || '—',
-      subjectCategory: catalogHit.categoryRaw || SUBJECT_CATEGORIES[0].label,
-      publisherDescription:
-        catalogHit.descriptionRaw ||
-        `پرونده پایلوت ۲۰ شهید — منطبق با قطعه ${targetMartyr.piece}`,
-      sourcePriority: 1,
-      sourceName: 'فهرست کتابخانه مرکز اسناد (۹۸۰ عنوان کتاب مرجع)',
-      sourceUrl: '',
-      retrievedAt: nowFa,
-      matchEvidence: `تطابق نام شهید «${targetMartyr.fullNameSearch}» با رکورد ${catalogHit.tempBookId} در قفسه ${catalogHit.locationRaw || 'کتابخانه'}.`,
-      catalogComparisonStatus: 'موجود در فهرست مرجع ۹۸۰ کتاب',
-      matchedCatalogBookId: catalogHit.tempBookId,
-      reviewStatus: 'در صف بررسی کارشناس',
-      reviewerNote: '',
-      reviewedBy: '',
-      reviewedAt: ''
-    };
+    setPilotProcessedCount(processed);
+    setPilotFoundCount(found);
+    setPilotDuplicatePrevented(duplicates);
+    setPilotStatus('completed');
 
-    onAddSuggestion(newSug);
-    const nextCount = Math.min(20, pilotProcessedCount + 1);
-    setPilotProcessedCount(nextCount);
-    setPilotFoundCount((prev) => prev + 1);
-    if (nextCount >= 20) {
-      setPilotStatus('completed');
-    }
     onNotify(
-      `گام پایلوت اجرا شد؛ کتاب واقعی «${catalogHit.titleRaw}» به صف بررسی کارشناس اضافه گردید.`,
-      'success'
+      `جست‌وجوی انبوه انجام شد: ${toPersianDigits(processed)} شهید بررسی شد، ${toPersianDigits(found)} کتاب واقعی تطبیق یافت و ${toPersianDigits(duplicates)} مورد تکراری مهار گردید.`,
+      found > 0 ? 'success' : undefined
     );
   };
 
@@ -792,58 +854,18 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Header & Golden Rule Banner */}
-      <section className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-base sm:text-lg font-bold text-[#253247] flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-[#C58A2B]" />
-              <span>جست‌وجوی هوشمند کتاب‌های مرتبط با شهدا و صف بررسی کارشناس</span>
-            </h1>
-            <p className="text-xs text-[#697586] mt-1">
-              شناسایی منابع مرتبط با شهدا در کتابخانه ملی ایران، فیپا، سوره مهر و ناشران تخصصی همراه با تشخیص شکل‌های نوشتاری و مقایسه خودکار با ۹۸۰ کتاب مرجع
-            </p>
-          </div>
+      {/* Header & Quality Control Rule Banner */}
+      <section className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <h1 className="text-base sm:text-lg font-bold text-[#253247] flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-[#C58A2B]" />
+            <span>جست‌وجوی هوشمند کتاب‌های مرتبط با شهدا و صف بررسی کارشناس</span>
+          </h1>
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-3.5 py-2 text-xs text-[#253247] flex items-center gap-2">
             <ShieldAlert className="w-4 h-4 text-[#C58A2B] shrink-0" />
             <span>
               <strong>قاعده کنترل کیفیت:</strong> هیچ نتیجه اینترنتی یا پیشنهادی بدون تأیید کارشناس وارد پرونده قطعی کتاب یا شهید نمی‌شود.
             </span>
-          </div>
-        </div>
-
-        {/* Official Search Sources Priority Table (Section 9) */}
-        <div className="bg-[#F5F7FA] border border-slate-200 rounded-xl p-3.5 space-y-2.5">
-          <div className="text-xs font-bold text-[#1F4E79] flex items-center gap-1.5">
-            <Layers className="w-4 h-4" />
-            <span>منابع مجاز جست‌وجو به ترتیب اولویت و روش دسترسی قانونی:</span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-2.5">
-            {OFFICIAL_SEARCH_SOURCES.map((src) => (
-              <div
-                key={src.code}
-                className="bg-white border border-slate-200 rounded-xl p-2.5 flex flex-col justify-between text-xs"
-              >
-                <div>
-                  <div className="flex items-center justify-between font-bold text-[#1F4E79]">
-                    <span>اولویت {toPersianDigits(src.priority)}</span>
-                    <a
-                      href={src.domainUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] hover:underline flex items-center gap-0.5"
-                    >
-                      <span>سایت منبع</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                  <div className="font-bold text-[#253247] mt-1">{src.name}</div>
-                </div>
-                <div className="mt-2 pt-1.5 border-t border-slate-100 text-[10px] text-[#697586]">
-                  <div>روش: {src.accessMethod}</div>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       </section>
@@ -861,35 +883,27 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-[#253247] mb-1">
-                  انتخاب از شهدای گلزار یا تایپ نام شهید:
+                  نام و نام خانوادگی شهید:
                 </label>
                 <input
                   type="text"
-                  list="martyrs-smart-list"
                   value={selectedMartyrName}
                   onChange={(e) => setSelectedMartyrName(e.target.value)}
-                  placeholder="مثلاً: محمد ابراهیم همت"
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-[#F5F7FA] focus:bg-white"
+                  placeholder="مثال: عباس دوران یا محمد ابراهیم همت"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:ring-1 focus:ring-[#1F4E79] focus:outline-none"
                 />
-                <datalist id="martyrs-smart-list">
-                  {workbookMartyrs.slice(0, 60).map((m) => (
-                    <option key={m.tempPersonId} value={m.fullNameSearch}>
-                      قطعه {m.piece}
-                    </option>
-                  ))}
-                </datalist>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-[#253247] mb-1">
-                  نام‌های جایگزین / شهرت (جداشده با ویرگول):
+                  نام‌های جایگزین / شهرت (اختیاری):
                 </label>
                 <input
                   type="text"
                   value={customAltNames}
                   onChange={(e) => setCustomAltNames(e.target.value)}
-                  placeholder="مثلاً: حاج ابراهیم همت، سردار همت"
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-[#F5F7FA] focus:bg-white"
+                  placeholder="مثال: حاج ابراهیم همت، سردار همت"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:ring-1 focus:ring-[#1F4E79] focus:outline-none"
                 />
               </div>
             </div>
@@ -1031,32 +1045,130 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
           </form>
         </div>
 
-        {/* Column 2: Controlled 20-Martyr Pilot Batch Engine */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-4 flex flex-col justify-between">
+        {/* Column 2: User-Driven Bulk Martyr Search Engine (Excel / Text List) */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3.5 flex flex-col justify-between">
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-[#253247]">
-                ۲. جست‌وجوی انبوه و پایلوت محدود (حداکثر ۲۰ پرونده شهید)
+              <h2 className="text-sm font-bold text-[#253247] flex items-center gap-2">
+                <FileSpreadsheet className="w-4 h-4 text-[#2E7D5B]" />
+                <span>۲. جست‌وجوی انبوه و تطبیق دسته‌ای نام شهدا</span>
               </h2>
               <span className="text-xs font-bold text-[#1F4E79] tabular-nums">
-                {toPersianDigits(pilotProcessedCount)} / ۲۰ پرونده
+                {pilotProcessedCount > 0
+                  ? `${toPersianDigits(pilotProcessedCount)} شهید بررسی‌شده`
+                  : 'آماده دریافت اسامی'}
               </span>
             </div>
 
-            <p className="text-xs text-[#697586]">
-              برای جلوگیری از فشار غیرضروری به سایت‌های بیرونی، جست‌وجوی گروهی در دسته‌های محدود انجام می‌شود، از جست‌وجوی تکراری جلوگیری می‌کند و همه نتایج را به صف بررسی کارشناس می‌فرستد.
-            </p>
-
-            {/* Progress Bar */}
-            <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-[#2E7D5B] transition-all"
-                style={{ width: `${Math.min(100, (pilotProcessedCount / 20) * 100)}%` }}
-              />
+            {/* Input Mode Selector */}
+            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setBulkInputMode('excel')}
+                className={`py-1.5 px-2 rounded-lg transition-colors ${
+                  bulkInputMode === 'excel'
+                    ? 'bg-white text-[#1F4E79] shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                بارگذاری اکسل
+              </button>
+              <button
+                type="button"
+                onClick={() => setBulkInputMode('text')}
+                className={`py-1.5 px-2 rounded-lg transition-colors ${
+                  bulkInputMode === 'text'
+                    ? 'bg-white text-[#1F4E79] shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                ورود متنی اسامی
+              </button>
+              <button
+                type="button"
+                onClick={() => setBulkInputMode('system')}
+                className={`py-1.5 px-2 rounded-lg transition-colors ${
+                  bulkInputMode === 'system'
+                    ? 'bg-white text-[#1F4E79] shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                پرونده‌های برگه شهدا ({toPersianDigits(customMartyrs.length)})
+              </button>
             </div>
 
-            {/* Pilot Metrics */}
-            <div className="grid grid-cols-4 gap-2 text-center bg-[#F5F7FA] p-2.5 rounded-xl text-xs">
+            {/* Mode 1: Excel File Upload */}
+            {bulkInputMode === 'excel' && (
+              <div className="space-y-2">
+                <label className="flex flex-col items-center justify-center p-3.5 border-2 border-dashed border-slate-300 hover:border-[#1F4E79] rounded-xl cursor-pointer bg-slate-50/70 hover:bg-blue-50/40 transition-colors">
+                  <Upload className="w-5 h-5 text-[#1F4E79] mb-1" />
+                  <span className="text-xs font-bold text-slate-800">
+                    انتخاب فایل اکسل حاوی نام شهدا (.xlsx, .xls, .csv)
+                  </span>
+                  <span className="text-[11px] text-slate-500 mt-0.5">
+                    ستون نام شهید به طور خودکار استخراج می‌شود (تا ۱۰۰ شهید)
+                  </span>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={handleBulkExcelUpload}
+                    className="hidden"
+                  />
+                </label>
+
+                {bulkLoadedFileName && (
+                  <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-center justify-between">
+                    <span className="font-semibold truncate">
+                      ✓ فایل: {bulkLoadedFileName}
+                    </span>
+                    <span className="font-bold font-mono">
+                      {toPersianDigits(bulkLoadedNames.length)} شهید آماده
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Mode 2: Textarea for custom martyr names */}
+            {bulkInputMode === 'text' && (
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  نام شهدا را وارد یا چسبانده (هر نام در یک خط یا با ویرگول):
+                </label>
+                <textarea
+                  rows={3}
+                  value={bulkTextNames}
+                  onChange={(e) => setBulkTextNames(e.target.value)}
+                  placeholder="مثال:&#10;محمد ابراهیم همت&#10;احمد بیابانی&#10;ابراهیم هادی&#10;حسن باقری"
+                  className="w-full p-2.5 text-xs bg-white border border-slate-300 rounded-xl focus:ring-1 focus:ring-[#1F4E79] focus:outline-none"
+                />
+              </div>
+            )}
+
+            {/* Mode 3: Custom Martyrs from Tab 3 (Zero Hidden Martyrs) */}
+            {bulkInputMode === 'system' && (
+              <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl text-xs text-blue-950 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold">پرونده‌های ثبت‌شده در برگه ۳ (پرونده شهدا):</span>
+                  <span className="font-mono px-2 py-0.5 bg-blue-100 text-blue-800 rounded-md font-bold text-[11px]">
+                    {toPersianDigits(customMartyrs.length)} پرونده
+                  </span>
+                </div>
+                {customMartyrs.length === 0 ? (
+                  <div className="text-[11px] text-amber-800 bg-amber-50/90 p-2.5 rounded-lg border border-amber-200 leading-relaxed">
+                    در حال حاضر هیچ پرونده‌ای در برگه ۳ (پرونده شهدا) ثبت نشده است (۰ پرونده). شما می‌توانید به برگه ۳ رفته و پرونده شهدا را ثبت نمایید، یا در همین‌جا از برگه‌های «ورود متنی اسامی» یا «انتخاب فایل اکسل» استفاده کنید.
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-slate-700 bg-white/80 p-2.5 rounded-lg border border-blue-100 max-h-24 overflow-y-auto leading-relaxed">
+                    <span className="font-semibold text-slate-900">فهرست اسامی آماده تطبیق: </span>
+                    {customMartyrs.map((m) => m.fullName).join(' · ')}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Live Metrics (Zero-based by default) */}
+            <div className="grid grid-cols-3 gap-2 text-center bg-[#F5F7FA] p-2.5 rounded-xl text-xs border border-slate-200">
               <div>
                 <div className="text-[#697586] text-[11px]">بررسی‌شده</div>
                 <div className="font-bold text-[#253247] tabular-nums">
@@ -1064,7 +1176,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                 </div>
               </div>
               <div>
-                <div className="text-[#697586] text-[11px]">پیشنهاد استخراجی</div>
+                <div className="text-[#697586] text-[11px]">کتاب منطبق</div>
                 <div className="font-bold text-[#2E7D5B] tabular-nums">
                   {toPersianDigits(pilotFoundCount)} کتاب
                 </div>
@@ -1075,57 +1187,38 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                   {toPersianDigits(pilotDuplicatePrevented)} مورد
                 </div>
               </div>
-              <div>
-                <div className="text-[#697586] text-[11px]">خطای شبکه</div>
-                <div className="font-bold text-[#253247] tabular-nums">
-                  {toPersianDigits(pilotErrorCount)}
-                </div>
-              </div>
             </div>
           </div>
 
-          {/* Start / Pause / Resume / Reset Controls */}
-          <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+          {/* Action Buttons */}
+          <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-100">
             <button
               type="button"
-              onClick={handleRunPilotStep}
-              disabled={pilotProcessedCount >= 20}
-              className="min-h-[40px] px-4 py-2 rounded-xl bg-[#2E7D5B] hover:bg-[#246348] disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5"
+              onClick={handleRunBulkMartyrSearch}
+              disabled={pilotStatus === 'running'}
+              className="min-h-[42px] px-4 py-2 rounded-xl bg-[#2E7D5B] hover:bg-[#246348] disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs"
             >
               <Play className="w-4 h-4" />
               <span>
-                {pilotStatus === 'idle'
-                  ? 'اجرای دسته بعدی پایلوت ۲۰ شهید'
-                  : pilotStatus === 'paused'
-                  ? 'ادامه و ازسرگیری پایلوت'
-                  : pilotProcessedCount >= 20
-                  ? 'پایلوت ۲۰ شهید تکمیل شد'
-                  : 'اجرای گام بعدی پایلوت'}
+                {pilotStatus === 'running'
+                  ? 'در حال تطبیق با ۹۸۰ کتاب...'
+                  : 'اجرای تطبیق انبوه با ۹۸۰ کتاب مرجع'}
               </span>
             </button>
-
-            {pilotStatus === 'running' && (
-              <button
-                type="button"
-                onClick={() => {
-                  setPilotStatus('paused');
-                  onNotify('اجرای پایلوت گروهی متوقف شد؛ در هر زمان قابل ادامه است.', 'warning');
-                }}
-                className="min-h-[40px] px-3 py-2 rounded-xl bg-amber-100 text-[#C58A2B] text-xs font-bold flex items-center gap-1"
-              >
-                <Pause className="w-4 h-4" />
-                <span>توقف موقت</span>
-              </button>
-            )}
 
             <button
               type="button"
               onClick={() => {
                 setPilotStatus('idle');
-                setPilotProcessedCount(6);
-                onNotify('شمارنده پایلوت به حالت اولیه بازنشانی شد.');
+                setPilotProcessedCount(0);
+                setPilotFoundCount(0);
+                setPilotDuplicatePrevented(0);
+                setBulkLoadedNames([]);
+                setBulkLoadedFileName('');
+                setBulkTextNames('');
+                onNotify('شمارنده‌ها و لیست جست‌وجوی انبوه پاک شدند.');
               }}
-              className="min-h-[40px] px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-[#253247] text-xs font-medium flex items-center gap-1"
+              className="min-h-[42px] px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-[#253247] text-xs font-medium flex items-center gap-1 transition-colors"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>بازنشانی</span>
@@ -1265,6 +1358,23 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
               <span>همگام‌سازی و پاک‌سازی سوابق باطل</span>
             </button>
 
+            {smartSuggestions.length > 0 && onClearAllSuggestions && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClearAllSuggestions();
+                  setLastSearchFeedback(null);
+                  setHighlightedSuggestionId(null);
+                  onNotify('صف بررسی کارشناس کاملاً پاک‌سازی و صفر گردید.');
+                }}
+                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+                title="پاک‌سازی کامل صف بررسی و صفر کردن همه رکوردهای جستجو"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span>پاک‌سازی کامل صف ({toPersianDigits(smartSuggestions.length)})</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => {
@@ -1309,8 +1419,19 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
           </div>
         </div>
 
-        <div className="space-y-4">
-          {filteredSuggestions.map((sug) => {
+        {filteredSuggestions.length === 0 ? (
+          <div className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-8 sm:p-12 text-center text-slate-500 space-y-2.5">
+            <CheckCircle2 className="w-9 h-9 text-slate-400 mx-auto" />
+            <div className="font-bold text-sm sm:text-base text-slate-800">
+              صف بررسی کارشناس در حال حاضر خالی است (۰ پیشنهاد)
+            </div>
+            <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+              با جست‌وجوی تکی نام شهید، بارگذاری فایل اکسل در بخش ۲، یا فشردن دکمه «ثبت دستی کتاب جدید»، عناوین جهت بازبینی و تأیید کارشناس در این جدول فهرست می‌شوند.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {filteredSuggestions.map((sug) => {
             const isHighlighted = highlightedSuggestionId === sug.id;
             return (
               <div
@@ -1558,7 +1679,8 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
             </div>
             );
           })}
-        </div>
+          </div>
+        )}
       </section>
 
       {/* مودال ۱۸ انتشارات تخصصی دفاع مقدس */}
