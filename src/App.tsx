@@ -1496,6 +1496,7 @@ export default function App() {
             workbookMartyrs={workbookMartyrs}
             customMartyrs={customMartyrs}
             smartSuggestions={smartSuggestions}
+            links={links}
             initialMartyrQuery={preselectedSmartMartyrName}
             onAddSuggestion={(newSug: SmartSearchSuggestion) => {
               setSmartSuggestions((prev) => [newSug, ...prev]);
@@ -1701,15 +1702,10 @@ export default function App() {
       </main>
 
       {/* Quiet Footer for Desktop */}
-      <footer className="hidden md:block max-w-6xl w-full mx-auto px-6 py-4 text-xs text-[#697586] border-t border-slate-200/80">
-        <div className="flex items-center justify-between gap-4">
-          <span>
-            مرکز اسناد گلزار شهدای تهران · سامانه جامع کتابخانه، ثبت موجودی فیزیکی، جست‌وجوی هوشمند و پژوهش شهدا
-          </span>
-          <span className="tabular-nums">
-            ۵ منوی اصلی · ذخیره‌سازی دوگانه IndexedDB + localStorage · پشتیبانی کامل آفلاین (PWA)
-          </span>
-        </div>
+      <footer className="hidden md:block max-w-6xl w-full mx-auto px-6 py-4 text-xs text-[#697586] border-t border-slate-200/80 text-center">
+        <span>
+          مرکز اسناد گلزار شهدای تهران · سامانه جامع کتابخانه، ثبت موجودی فیزیکی، جست‌وجوی هوشمند و پژوهش شهدا
+        </span>
       </footer>
 
       {/* Floating Circular Scroll-to-Top Button (Appears after 400px scroll on all pages) */}
