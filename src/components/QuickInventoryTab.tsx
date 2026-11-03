@@ -12,7 +12,10 @@ import {
   BookCheck,
   RotateCcw,
   FileSpreadsheet,
-  X
+  X,
+  ChevronDown,
+  ChevronUp,
+  ArrowDown
 } from 'lucide-react';
 import {
   BookCopyRecord,
@@ -642,45 +645,43 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     [allMatchingRows, visibleLimit]
   );
 
-  // Save Catalog Book Audit
-  const handleSaveCatalogBook = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedRow) {
-      onNotify('ابتدا یک کتاب را از فهرست بالا انتخاب کنید.', 'warning');
-      return;
-    }
+  // Core Save Catalog Book Record (reusable for both inline quick drawer and Section 3 form)
+  const handleSaveCatalogBookRecord = (
+    targetRow: ReferenceCatalogRow,
+    advanceToNextRow?: ReferenceCatalogRow
+  ): boolean => {
     if (!categoryValue) {
       onNotify(
         'گروه موضوعی (R/A/H/P/K/M) را انتخاب کنید؛ اگر نامشخص است «نیازمند تعیین موضوع» را بزنید.',
         'warning'
       );
-      return;
+      return false;
     }
     if (physicalStatus === 'verified' && (!shelfValue || !levelValue)) {
       onNotify(
         'برای کتابی که وضعیت آن «دیده شد و ثبت شد» است، انتخاب قفسه (SH-01..04) و طبقه (T01..06) الزامی است.',
         'warning'
       );
-      return;
+      return false;
     }
 
     const locationCode = shelfValue && levelValue ? `${shelfValue}-${levelValue}` : '';
-    const autoCopyId = copyIdValue.trim() || `CP-${String(selectedRow.rowIndex - 1).padStart(6, '0')}`;
+    const autoCopyId = copyIdValue.trim() || `CP-${String(targetRow.rowIndex - 1).padStart(6, '0')}`;
 
     const record: FieldAuditRecord = {
-      key: selectedRow.rowKey,
+      key: targetRow.rowKey,
       source: 'catalog',
       sheet: currentSheetName,
-      tempBookId: selectedRow.tempBookId,
+      tempBookId: targetRow.tempBookId,
       copyId: autoCopyId,
-      title: selectedRow.titleRaw,
-      author: authorOverride.trim() || selectedRow.authorRaw,
-      publisher: publisherOverride.trim() || selectedRow.publisherRaw,
+      title: targetRow.titleRaw,
+      author: authorOverride.trim() || targetRow.authorRaw,
+      publisher: publisherOverride.trim() || targetRow.publisherRaw,
       year: yearOverride.trim(),
-      isbn: isbnOverride.trim() || selectedRow.isbnRaw,
-      fipa: fipaOverride.trim() || selectedRow.fipaRaw,
-      registrationNo: regNoOverride.trim() || selectedRow.registrationNoRaw,
-      descriptionRaw: selectedRow.descriptionRaw,
+      isbn: isbnOverride.trim() || targetRow.isbnRaw,
+      fipa: fipaOverride.trim() || targetRow.fipaRaw,
+      registrationNo: regNoOverride.trim() || targetRow.registrationNoRaw,
+      descriptionRaw: targetRow.descriptionRaw,
       category: categoryValue,
       shelf: shelfValue,
       level: levelValue,
@@ -695,32 +696,57 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       physicalCondition,
       countedCopies: countedCopies.trim() || '1',
       notes: notesValue.trim(),
-      backupSourceSheet: selectedRow.backupSourceSheet,
-      backupSourceRow: selectedRow.backupSourceRow,
+      backupSourceSheet: targetRow.backupSourceSheet,
+      backupSourceRow: targetRow.backupSourceRow,
       updatedAt: new Date().toISOString()
     };
 
     onSaveAuditRecord(record);
-    onNotify(
-      `ثبت ذخیره شد: «${selectedRow.titleRaw}» (${autoCopyId}) در محل ${locationCode || 'بدون محل'} (${categoryValue})`
-    );
 
-    // Prepare for next book immediately
-    setSelectedRow(null);
-    setNotesValue('');
-    setAuthorOverride('');
-    setPublisherOverride('');
-    setYearOverride('');
-    setIsbnOverride('');
-    setFipaOverride('');
-    setRegNoOverride('');
-    setCopyIdValue('');
-    setCountedCopies('1');
-    if (!isShelfLocked) {
-      setCategoryValue('');
-      setShelfValue('');
-      setLevelValue('');
+    if (advanceToNextRow) {
+      onNotify(
+        `✓ کتاب «${targetRow.titleRaw}» (${autoCopyId}) با موفقیت ثبت شد. کتاب بعدی آماده شد.`
+      );
+      // Immediately open next book
+      handleSelectRow(advanceToNextRow);
+      // Smoothly bring next book into view
+      setTimeout(() => {
+        const nextElem = document.getElementById(`book-item-${advanceToNextRow.rowKey}`);
+        if (nextElem) {
+          nextElem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }, 70);
+    } else {
+      onNotify(
+        `ثبت ذخیره شد: «${targetRow.titleRaw}» (${autoCopyId}) در محل ${locationCode || 'بدون محل'} (${categoryValue})`
+      );
+      setSelectedRow(null);
+      setNotesValue('');
+      setAuthorOverride('');
+      setPublisherOverride('');
+      setYearOverride('');
+      setIsbnOverride('');
+      setFipaOverride('');
+      setRegNoOverride('');
+      setCopyIdValue('');
+      setCountedCopies('1');
+      if (!isShelfLocked) {
+        setCategoryValue('');
+        setShelfValue('');
+        setLevelValue('');
+      }
     }
+    return true;
+  };
+
+  // Save Catalog Book Audit (from Section 3 form submit)
+  const handleSaveCatalogBook = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRow) {
+      onNotify('ابتدا یک کتاب را از فهرست بالا انتخاب کنید.', 'warning');
+      return;
+    }
+    handleSaveCatalogBookRecord(selectedRow);
   };
 
   // Save Outside-List Book (کتابی که در قفسه دیده شده ولی در اکسل مرجع نیست)
@@ -1344,52 +1370,380 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                 </div>
               ) : (
                 <>
-                  {filteredRows.map((row) => {
+                  {filteredRows.map((row, idx) => {
                     const savedRec = auditRecords[row.rowKey];
                     const isChosen = selectedRow?.rowKey === row.rowKey;
+                    const nextRow = filteredRows[idx + 1];
 
                     return (
-                      <button
+                      <div
+                        id={`book-item-${row.rowKey}`}
                         key={row.rowKey}
-                        type="button"
-                        onClick={() => handleSelectRow(row)}
-                        className={`w-full text-right p-3.5 rounded-xl border transition-all block ${
+                        className={`w-full rounded-2xl border transition-all text-right overflow-hidden ${
                           isChosen
-                            ? 'border-2 border-[#1f4e79] bg-[#f2f7fb]'
+                            ? 'border-2 border-[#1f4e79] bg-white shadow-lg ring-4 ring-[#1f4e79]/10'
                             : savedRec
-                            ? 'border-emerald-300 bg-emerald-50/40 hover:bg-emerald-50'
+                            ? 'border-emerald-300 bg-emerald-50/40 hover:bg-emerald-50/70'
                             : 'border-slate-200 bg-white hover:bg-slate-50'
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 mb-1">
-                          <span className="font-mono tabular-nums font-semibold text-slate-700" dir="ltr">
-                            {row.tempBookId}
-                          </span>
-                          <span>
-                            {savedRec ? (
-                              <span className="text-emerald-700 font-semibold">
-                                ✓ ثبت‌شده در {savedRec.location || 'بدون کد محل'} ({savedRec.category.split(' ')[0]})
+                        {/* Clickable Card Header */}
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => {
+                            if (isChosen) {
+                              setSelectedRow(null);
+                            } else {
+                              handleSelectRow(row);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              if (isChosen) setSelectedRow(null);
+                              else handleSelectRow(row);
+                            }
+                          }}
+                          className="p-3.5 sm:p-4 cursor-pointer select-none transition-colors"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] mb-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className="font-mono tabular-nums font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200"
+                                dir="ltr"
+                              >
+                                {row.tempBookId}
                               </span>
-                            ) : (
-                              <span>ردیف اکسل {toPersianDigits(row.rowIndex)} · بررسی‌نشده</span>
+                              <span className="text-slate-400">·</span>
+                              <span className="text-slate-500 font-medium">
+                                ردیف {toPersianDigits(row.rowIndex)}
+                              </span>
+                            </div>
+
+                            <div>
+                              {savedRec ? (
+                                savedRec.physical === 'verified' ? (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-300">
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>
+                                      ثبت‌شده در {savedRec.location || 'بدون محل'} ({savedRec.category?.split(' ')[0] || '—'})
+                                    </span>
+                                  </span>
+                                ) : savedRec.physical === 'review' ? (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-300">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    <span>نیازمند بررسی {savedRec.location ? `(${savedRec.location})` : ''}</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-800 bg-rose-100 px-2 py-0.5 rounded-md border border-rose-300">
+                                    <X className="w-3.5 h-3.5" />
+                                    <span>پیدا نشد در قفسه</span>
+                                  </span>
+                                )
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                                  <span>بررسی‌نشده در قفسه</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="font-bold text-sm sm:text-base text-slate-900 leading-snug">
+                            {row.titleRaw || '(بدون عنوان)'}
+                          </div>
+
+                          <div className="text-xs text-slate-600 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            {row.authorRaw && (
+                              <span className="font-medium text-slate-700">
+                                نویسنده: <span className="text-slate-900 font-bold">{row.authorRaw}</span>
+                              </span>
                             )}
-                          </span>
+                            {row.publisherRaw && (
+                              <span>
+                                ناشر: <span className="text-slate-800 font-medium">{row.publisherRaw}</span>
+                              </span>
+                            )}
+                            {row.descriptionRaw && (
+                              <span className="text-slate-500 line-clamp-1">
+                                {row.descriptionRaw}
+                              </span>
+                            )}
+                          </div>
+
+                          {!isChosen && (
+                            <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-[#1f4e79]">
+                              <span className="flex items-center gap-1 font-semibold">
+                                <SlidersHorizontal className="w-3.5 h-3.5" />
+                                <span>کلیک برای ثبت سریع قفسه، طبقه و موضوع</span>
+                              </span>
+                              <span className="text-slate-400 text-[10.5px] flex items-center gap-0.5">
+                                <span>باز کردن فرم</span>
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              </span>
+                            </div>
+                          )}
                         </div>
 
-                        <div className="font-bold text-sm text-slate-900 leading-snug">
-                          {row.titleRaw || '(بدون عنوان)'}
-                        </div>
+                        {/* Inline Quick Inventory Accordion */}
+                        {isChosen && (
+                          <div className="border-t-2 border-[#1f4e79]/30 bg-blue-50/40 p-3.5 sm:p-4.5 space-y-3.5">
+                            {/* Drawer Subheader */}
+                            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-blue-200/70">
+                              <div className="flex items-center gap-2">
+                                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                                <span className="text-xs sm:text-sm font-bold text-[#1f4e79]">
+                                  ثبت سریع در قفسه — {row.tempBookId}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedRow(null)}
+                                className="text-xs text-slate-500 hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-white flex items-center gap-1 transition-colors"
+                              >
+                                <ChevronUp className="w-3.5 h-3.5" />
+                                <span>بستن پنل</span>
+                              </button>
+                            </div>
 
-                        <div className="text-xs text-slate-600 mt-1">
-                          {[
-                            row.publisherRaw && `ناشر: ${row.publisherRaw}`,
-                            row.descriptionRaw && `توضیح منبع: ${row.descriptionRaw}`,
-                            row.backupSourceSheet && `شیت منشأ: ${row.backupSourceSheet}`
-                          ]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </div>
-                      </button>
+                            {/* 1. Subject Category Pills */}
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between text-xs">
+                                <label className="font-bold text-slate-900">
+                                  ۱. گروه موضوعی (شش گروه کتابخانه):
+                                </label>
+                                <span className="text-[11px] text-[#1f4e79] font-bold">
+                                  {categoryValue || 'انتخاب نشده'}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                                {SUBJECT_CATEGORIES.map((cat) => {
+                                  const isCatActive = categoryValue === cat.label;
+                                  return (
+                                    <button
+                                      key={cat.code}
+                                      type="button"
+                                      onClick={() => handleCategoryTap(cat.label, cat.code)}
+                                      className={`p-2 rounded-xl text-right border transition-all text-xs flex flex-col justify-between min-h-[52px] ${
+                                        isCatActive
+                                          ? 'bg-[#1f4e79] text-white border-[#1f4e79] shadow-sm font-bold ring-2 ring-[#1f4e79]/30'
+                                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between w-full">
+                                        <span className="font-mono font-bold text-[11px]">{cat.code}</span>
+                                        {isCatActive && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />}
+                                      </div>
+                                      <div className="truncate text-[11px] mt-0.5">
+                                        {cat.fullTitle || cat.label}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* 2. Shelf & Level Selector */}
+                            <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <label className="text-xs font-bold text-slate-900">
+                                  ۲. جانمایی در قفسه و طبقه:
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-bold font-mono bg-blue-100 text-blue-900 px-2 py-0.5 rounded-md border border-blue-200">
+                                    محل: {shelfValue && levelValue ? `${shelfValue}-${levelValue}` : 'نامشخص'}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setIsShelfLocked((p) => !p)}
+                                    title="قفل این قفسه و طبقه برای کتاب‌های بعدی"
+                                    className={`px-2 py-1 rounded-md text-[11px] border flex items-center gap-1 transition-colors ${
+                                      isShelfLocked
+                                        ? 'bg-amber-100 text-amber-900 border-amber-300 font-bold'
+                                        : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                                    }`}
+                                  >
+                                    {isShelfLocked ? (
+                                      <Lock className="w-3 h-3 text-amber-700" />
+                                    ) : (
+                                      <Unlock className="w-3 h-3 text-slate-400" />
+                                    )}
+                                    <span>{isShelfLocked ? 'قفل محل فعال' : 'قفل این طبقه'}</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Shelf Buttons SH-01 to SH-04 */}
+                              <div className="grid grid-cols-4 gap-1.5">
+                                {SHELVES.map((sh) => {
+                                  const isShActive = shelfValue === sh.code;
+                                  return (
+                                    <button
+                                      key={sh.code}
+                                      type="button"
+                                      onClick={() => setShelfValue(sh.code)}
+                                      className={`py-2 px-1 rounded-xl text-center text-xs font-bold border transition-all ${
+                                        isShActive
+                                          ? 'bg-[#1f4e79] text-white border-[#1f4e79] shadow-sm'
+                                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                      }`}
+                                    >
+                                      <div>{sh.code}</div>
+                                      <div className="text-[9.5px] opacity-80 font-normal">
+                                        {sh.code === 'SH-01'
+                                          ? 'قفسه ۱'
+                                          : sh.code === 'SH-02'
+                                          ? 'قفسه ۲'
+                                          : sh.code === 'SH-03'
+                                          ? 'قفسه ۳'
+                                          : 'قفسه ۴'}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              {/* Level Buttons T01 to T06 */}
+                              <div className="grid grid-cols-6 gap-1">
+                                {LEVELS.map((lv) => {
+                                  const isLvActive = levelValue === lv.code;
+                                  return (
+                                    <button
+                                      key={lv.code}
+                                      type="button"
+                                      onClick={() => setLevelValue(lv.code)}
+                                      className={`py-2 px-0.5 rounded-lg text-center text-xs font-bold border transition-all ${
+                                        isLvActive
+                                          ? 'bg-teal-700 text-white border-teal-700 shadow-sm'
+                                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                      }`}
+                                    >
+                                      <div>{lv.code}</div>
+                                      <div className="text-[9px] opacity-80 font-normal">
+                                        طبقه {toPersianDigits(lv.number)}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* 3. Physical Presence Status */}
+                            <div className="space-y-1.5">
+                              <label className="text-xs font-bold text-slate-900 block">
+                                ۳. وضعیت مشاهده فیزیکی نسخه در قفسه:
+                              </label>
+                              <div className="grid grid-cols-3 gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setPhysicalStatus('verified')}
+                                  className={`py-2.5 px-1 rounded-xl text-xs font-bold border transition-all text-center ${
+                                    physicalStatus === 'verified'
+                                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  ✓ موجود و تأییدشده
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPhysicalStatus('review')}
+                                  className={`py-2.5 px-1 rounded-xl text-xs font-bold border transition-all text-center ${
+                                    physicalStatus === 'review'
+                                      ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  ⚠️ نیازمند بررسی
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPhysicalStatus('not_found')}
+                                  className={`py-2.5 px-1 rounded-xl text-xs font-bold border transition-all text-center ${
+                                    physicalStatus === 'not_found'
+                                      ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  ✕ پیدا نشد
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* 4. Optional Overrides (Author, Publisher, Notes) */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-blue-200/50 text-xs">
+                              <div>
+                                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                                  نویسنده / پدیدآور (در صورت مغایرت یا تکمیل):
+                                </label>
+                                <input
+                                  type="text"
+                                  value={authorOverride}
+                                  onChange={(e) => setAuthorOverride(e.target.value)}
+                                  placeholder={row.authorRaw || 'نام نویسنده...'}
+                                  className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#1f4e79]"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                                  ناشر (در صورت نیاز به تکمیل):
+                                </label>
+                                <input
+                                  type="text"
+                                  value={publisherOverride}
+                                  onChange={(e) => setPublisherOverride(e.target.value)}
+                                  placeholder={row.publisherRaw || 'نام ناشر...'}
+                                  className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#1f4e79]"
+                                />
+                              </div>
+                              <div className="sm:col-span-2">
+                                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                                  یادداشت مختصر ثبت‌کننده:
+                                </label>
+                                <input
+                                  type="text"
+                                  value={notesValue}
+                                  onChange={(e) => setNotesValue(e.target.value)}
+                                  placeholder="توضیح وضعیت فیزیکی جلد، عطف، یا شماره ردیف قفسه..."
+                                  className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#1f4e79]"
+                                />
+                              </div>
+                            </div>
+
+                            {/* 5. Mobile-Ready Action Buttons */}
+                            <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                              {/* Hero Action: Save and Advance */}
+                              <button
+                                type="button"
+                                onClick={() => handleSaveCatalogBookRecord(row, nextRow)}
+                                className="flex-1 min-h-[48px] px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md shadow-emerald-700/20 transition-all"
+                              >
+                                <span>ذخیره سریع و رفتن به کتاب بعدی</span>
+                                <ArrowDown className="w-4 h-4" />
+                              </button>
+
+                              {/* Secondary: Save This Book Only */}
+                              <button
+                                type="button"
+                                onClick={() => handleSaveCatalogBookRecord(row)}
+                                className="min-h-[44px] px-4 py-2 bg-[#1f4e79] hover:bg-[#163a5c] text-white rounded-xl font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span>ذخیره همین کتاب ✓</span>
+                              </button>
+
+                              {/* Close Drawer */}
+                              <button
+                                type="button"
+                                onClick={() => setSelectedRow(null)}
+                                className="min-h-[44px] px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium text-xs flex items-center justify-center gap-1 transition-colors"
+                              >
+                                <span>بستن ✕</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
 
