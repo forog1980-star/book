@@ -12,7 +12,9 @@ import {
   Smartphone,
   CheckCircle2,
   Clock,
-  Layers
+  Layers,
+  FileSpreadsheet,
+  Download
 } from 'lucide-react';
 import {
   AuditLogEntry,
@@ -564,6 +566,52 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             </div>
           </div>
         )}
+      </section>
+
+      {/* مرکز دپو و خروجی نهایی اسناد (کارت اختصاصی دسترسی سریع در صفحه اول خانه) */}
+      <section className="bg-gradient-to-r from-[#173a5a] via-[#1f4e79] to-[#253247] text-white rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[11px] font-bold">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>مرکز دپو و انبار جامع پیوندهای دوسویه کتاب–شهید</span>
+            </div>
+            <h3 className="text-base font-bold text-white">
+              خروجی‌های نهایی تعیین‌تکلیف‌شده (بر پایه نام شهید و بر پایه کتاب)
+            </h3>
+            <p className="text-xs text-slate-200 max-w-2xl leading-relaxed">
+              ارتباط دوطرفه کتاب‌ها و پرونده‌های شهدا با قابلیت دریافت بسته اکسل ۴ شیته جامع (.xlsx)، خروجی JSON و CSV جهت گزارش‌دهی به مدیران و وب‌سایت.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => onNavigateTab('research')}
+            className="min-h-[44px] px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl inline-flex items-center justify-center gap-2 shadow-md transition-all shrink-0 cursor-pointer"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>ورود به مرکز دپو و دریافت خروجی اکسل ←</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-white/10 text-xs">
+          <div className="bg-white/10 rounded-lg p-2 backdrop-blur-xs">
+            <span className="text-slate-300 text-[11px]">پیوندهای ثبت‌شده:</span>
+            <span className="font-bold tabular-nums block text-white text-sm mt-0.5">{toPersianDigits(links.length)} پیوند</span>
+          </div>
+          <div className="bg-white/10 rounded-lg p-2 backdrop-blur-xs">
+            <span className="text-slate-300 text-[11px]">موارد نیازمند بررسی:</span>
+            <span className="font-bold tabular-nums block text-amber-300 text-sm mt-0.5">{toPersianDigits(pendingReviews.length)} مورد</span>
+          </div>
+          <div className="bg-white/10 rounded-lg p-2 backdrop-blur-xs">
+            <span className="text-slate-300 text-[11px]">مطالب استخراج‌شده:</span>
+            <span className="font-bold tabular-nums block text-emerald-300 text-sm mt-0.5">{toPersianDigits(extractedItems.length)} قطعه</span>
+          </div>
+          <div className="bg-white/10 rounded-lg p-2 backdrop-blur-xs">
+            <span className="text-slate-300 text-[11px]">شهدای گلزار:</span>
+            <span className="font-bold tabular-nums block text-cyan-300 text-sm mt-0.5">{toPersianDigits(workbookMartyrs.length)} شهید</span>
+          </div>
+        </div>
       </section>
 
       <details className="home-statistics">

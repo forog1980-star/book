@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import {
   Search,
   Link2,
@@ -16,8 +17,15 @@ import {
   Check,
   X,
   HelpCircle,
-  Sparkles
+  Sparkles,
+  FileSpreadsheet,
+  FileJson,
+  Layers,
+  Eye,
+  EyeOff,
+  SlidersHorizontal
 } from 'lucide-react';
+import { DepositoryAndExportHub } from './DepositoryAndExportHub';
 import {
   BookMartyrLinkRecord,
   ExtractedContentItem,
@@ -70,8 +78,16 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
   onNotify
 }) => {
   const [subView, setSubView] = useState<
-    'links' | 'extracted' | 'pending567' | 'shohada196' | 'groups16' | 'publish_gateway'
-  >('links');
+    'links' | 'extracted' | 'pending567' | 'shohada196' | 'groups16' | 'publish_gateway' | 'depository'
+  >('depository');
+  const [deskMode, setDeskMode] = useState<'streamlined' | 'detailed'>('streamlined');
+  const [hideArchivedGroups, setHideArchivedGroups] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('book_hide_archived_groups') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [externalIdPrefix, setExternalIdPrefix] = useState('GOLZAR-TEH-');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('named_only');
@@ -497,6 +513,132 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     onNotify(`مطلب استخراج‌شده (${newItem.id}) برای «${newItem.martyrNameRaw}» با حفظ ارجاع صفحه خام ثبت شد.`);
   };
 
+  // Export Links Excel (.xlsx)
+  const exportLinksExcel = () => {
+    const rows = allFilteredLinks.map((l, idx) => ({
+      'ردیف': idx + 1,
+      'شناسه پیوند': l.id,
+      'شناسه کتاب (مخزن)': l.tempBookId || '',
+      'عنوان کتاب': l.bookTitleRaw,
+      'عنوان دیگر': l.alternativeTitle || '',
+      'ناشر': l.publisherRaw || '',
+      'نام شهید / عبارت ثبت‌شده': l.martyrNameRaw,
+      'قطعه مزار': l.gravePieceRaw || '',
+      'ردیف مزار': l.graveRowRaw || '',
+      'شماره مزار': l.graveNumberRaw || '',
+      'ارجاع صفحه در اثر': l.pageReferenceRaw || '',
+      'شرح و موضوع ارتباط': l.sourceDescriptionRaw || '',
+      'منبع اطلاعات': `${l.sourceFile} / ${l.sourceSheet} (ردیف ${l.sourceExcelRow})`,
+      'وضعیت بررسی کارشناسی': l.reviewStatus,
+      'یادداشت کارشناس': l.reviewerNote || ''
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'پیوندهای کتاب و شهید');
+    XLSX.writeFile(wb, `پیوندهای-کتاب-و-شهید-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    onNotify(`فایل اکسل پیوندهای کتاب و شهید شامل ${toPersianDigits(rows.length)} رکورد دانلود شد.`);
+  };
+
+  // Export Links CSV
+  const exportLinksCsv = () => {
+    const hdrs = [
+      'شناسه پیوند',
+      'شناسه کتاب',
+      'عنوان کتاب',
+      'ناشر',
+      'نام شهید',
+      'قطعه مزار',
+      'ردیف',
+      'شماره مزار',
+      'ارجاع صفحه',
+      'موضوع ارتباط',
+      'فایل منبع',
+      'شیت منبع',
+      'وضعیت بررسی',
+      'یادداشت کارشناس'
+    ];
+    const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [
+      hdrs.map(cell).join(','),
+      ...allFilteredLinks.map((l) =>
+        [
+          l.id,
+          l.tempBookId,
+          l.bookTitleRaw,
+          l.publisherRaw,
+          l.martyrNameRaw,
+          l.gravePieceRaw,
+          l.graveRowRaw,
+          l.graveNumberRaw,
+          l.pageReferenceRaw,
+          l.sourceDescriptionRaw,
+          l.sourceFile,
+          l.sourceSheet,
+          l.reviewStatus,
+          l.reviewerNote
+        ]
+          .map(cell)
+          .join(',')
+      )
+    ];
+    const blob = new Blob(['\uFEFF', lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `پیوندهای-کتاب-و-شهید-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    onNotify('فایل CSV پیوندها دانلود شد.');
+  };
+
+  // Export Links JSON
+  const exportLinksJson = () => {
+    const blob = new Blob([JSON.stringify(allFilteredLinks, null, 2)], {
+      type: 'application/json;charset=utf-8'
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `پیوندهای-کتاب-و-شهید-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    onNotify('فایل JSON پیوندها دانلود شد.');
+  };
+
+  // Export Extracted Content Items Excel (.xlsx)
+  const exportExtractedExcel = () => {
+    const rows = filteredExtractedItems.map((it, idx) => ({
+      'ردیف': idx + 1,
+      'شناسه مطلب': it.id,
+      'شناسه کتاب (مخزن)': it.tempBookId,
+      'عنوان کتاب': it.bookTitleRaw,
+      'ناشر': it.publisherRaw || '',
+      'نام شهید / عبارت مرتبط': it.martyrNameRaw,
+      'قطعه مزار': it.gravePieceRaw || '',
+      'نوع مطلب': it.contentType,
+      'عنوان بخش / فصل': it.passageTitle,
+      'ارجاع صفحه در کتاب': it.pageReferenceRaw,
+      'صفحه شروع': it.pageStartNormalized || '',
+      'صفحه پایان': it.pageEndNormalized || '',
+      'متن یا استناد پژوهشی استخراج‌شده': it.extractedText,
+      'نقل‌قول کوتاه مستند': it.shortVerifiedQuote || '',
+      'یادداشت پژوهشگر': it.researcherNote || '',
+      'وضعیت بازبینی': it.reviewStatus,
+      'ثبت‌کننده': it.recordedBy || '',
+      'بازبین': it.reviewedBy || '',
+      'تاریخ': it.updatedAt || ''
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'مطالب استخراج‌شده');
+    XLSX.writeFile(wb, `مطالب-استخراج‌شده-و-ارجاعات-صفحه-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    onNotify(`فایل اکسل مطالب استخراج‌شده شامل ${toPersianDigits(rows.length)} رکورد دانلود شد.`);
+  };
+
   // Export Extracted Content Items CSV
   const exportExtractedCsv = () => {
     const hdrs = [
@@ -524,7 +666,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = [
       hdrs.map(cell).join(','),
-      ...extractedItems.map((it) =>
+      ...filteredExtractedItems.map((it) =>
         [
           it.id,
           it.tempBookId,
@@ -566,6 +708,132 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     onNotify('فایل CSV مطالب استخراج‌شده و ارجاعات صفحه دانلود شد.');
   };
 
+  // Export Pending Reviews Excel (.xlsx) for Management Reports
+  const exportPendingReviewsExcel = () => {
+    const rows = filteredPendingReviews.map((pv, idx) => ({
+      'ردیف': idx + 1,
+      'کد پیگیری': pv.trackingId,
+      'شیت منبع': pv.mainSheet,
+      'ردیف در اکسل منبع': pv.mainRecordId,
+      'نام شهید یا عبارت': pv.nameOrPhrase,
+      'عنوان کتاب': pv.bookTitle,
+      'ناشر': pv.publisher || '',
+      'موضوع ایراد / ابهام': pv.issueSubject,
+      'اقدام پیشنهادی بازبین': pv.suggestedAction,
+      'وضعیت پیگیری': pv.trackingStatus,
+      'وضعیت اطلاعات مزار': pv.locationStatus,
+      'وضعیت ارجاع صفحه': pv.pageRefStatus,
+      'اولویت بررسی': pv.priority
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'موارد نیازمند بررسی');
+    XLSX.writeFile(wb, `گزارش-مدیریتی-موارد-بلاتکلیف-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    onNotify(`گزارش اکسل موارد نیازمند بررسی شامل ${toPersianDigits(rows.length)} مورد دانلود شد.`);
+  };
+
+  // Export Pending Reviews CSV
+  const exportPendingReviewsCsv = () => {
+    const hdrs = [
+      'کد پیگیری',
+      'شیت منبع',
+      'ردیف منبع',
+      'نام شهید/عبارت',
+      'عنوان کتاب',
+      'ناشر',
+      'موضوع ایراد',
+      'اقدام پیشنهادی',
+      'وضعیت پیگیری'
+    ];
+    const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [
+      hdrs.map(cell).join(','),
+      ...filteredPendingReviews.map((pv) =>
+        [
+          pv.trackingId,
+          pv.mainSheet,
+          pv.mainRecordId,
+          pv.nameOrPhrase,
+          pv.bookTitle,
+          pv.publisher,
+          pv.issueSubject,
+          pv.suggestedAction,
+          pv.trackingStatus
+        ]
+          .map(cell)
+          .join(',')
+      )
+    ];
+    const blob = new Blob(['\uFEFF', lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `گزارش-موارد-بلاتکلیف-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    onNotify('فایل CSV موارد نیازمند بررسی دانلود شد.');
+  };
+
+  // Export 196 Golzar Workbook Martyrs Excel (.xlsx)
+  const exportGolzarExcel = () => {
+    const rows = filteredWorkbookMartyrs.map((sh, idx) => {
+      const allMatches = golzarMartyrBookMatches.get(sh.tempPersonId) || [];
+      const rejectedList = rejectedGolzarBookMatches[sh.tempPersonId] || [];
+      const validMatches = allMatches.filter((m) => !rejectedList.includes(m.book.tempBookId));
+      const isLinked = validMatches.some((m) => m.matchType === 'existing_link');
+      return {
+        'ردیف': idx + 1,
+        'کد موقت شهید': sh.tempPersonId,
+        'نام و نام خانوادگی': sh.fullNameSearch,
+        'نام پدر': sh.fatherNameRaw || '—',
+        'قطعه': sh.piece || '—',
+        'ردیف': sh.graveRow || '—',
+        'شماره مزار': sh.graveNumber || '—',
+        'وضعیت تطبیق با مخزن': isLinked
+          ? 'دارای پیوند تأییدشده'
+          : validMatches.length > 0
+          ? `دارای ${toPersianDigits(validMatches.length)} کتاب منطبق`
+          : 'فاقد کتاب در ۹۸۰ عنوان',
+        'کتاب‌های منطبق': validMatches
+          .map((m) => `${m.book.tempBookId} (${m.book.titleRaw})`)
+          .join(' | ')
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'شهدای گلزار و وضعیت کتب');
+    XLSX.writeFile(wb, `شهدای-گلزار-و-انطباق-با-کتابخانه-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    onNotify(`فایل اکسل شهدای گلزار (${toPersianDigits(rows.length)} شهید) دانلود شد.`);
+  };
+
+  // Export G001..G016 Human Review Excel (.xlsx)
+  const exportGroupsExcel = () => {
+    const rows = filteredMultiMartyrGroups.map((g, idx) => ({
+      'ردیف': idx + 1,
+      'شناسه موقت گروه': g.groupCode,
+      'ردیف آغاز در Excel': g.startExcelRow,
+      'مقدار ردیف منبع A': g.sourceRowA,
+      'عنوان ثبت‌شده': g.registeredTitle,
+      'ناشر ثبت‌شده': g.registeredPublisher,
+      'تعداد ردیف شهید': g.martyrRowsCount,
+      'ردیف‌های دارای مکان ناقص': g.incompleteGraveRows,
+      'پرچم کنترل اولیه': g.initialFlag,
+      'مرز گروه تأیید شد؟': g.boundaryApproved,
+      'همه شهدا مرتبط‌اند؟': g.allMartyrsLinked,
+      'وضعیت تصمیم بازبین': g.decisionStatus,
+      'نام بازبین': g.reviewerName,
+      'تاریخ بازبینی': g.reviewDate,
+      'یادداشت بازبین': g.reviewNote
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '۱۶ گروه چندشهیدی');
+    XLSX.writeFile(wb, `کاربرگ-۱۶-گروه-چندشهیدی-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    onNotify(`فایل اکسل ۱۶ گروه چندشهیدی شامل ${toPersianDigits(rows.length)} گروه دانلود شد.`);
+  };
+
   // Export G001..G016 Human Review CSV
   const exportGroupsCsv = () => {
     const headers = [
@@ -587,7 +855,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = [
       headers.map(cell).join(','),
-      ...multiMartyrGroups.map((g) =>
+      ...filteredMultiMartyrGroups.map((g) =>
         [
           g.groupCode,
           g.startExcelRow,
@@ -623,168 +891,296 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     onNotify('فایل CSV کاربرگ بازبینی کارشناس ۱۶ گروه چندشهیدی دانلود شد.');
   };
 
+  // Quick Action: Bulk approve & archive 16 groups to declutter the desk
+  const handleBulkApproveAndArchive16Groups = () => {
+    multiMartyrGroups.forEach((grp) => {
+      onUpdateGroupAudit({
+        ...grp,
+        boundaryApproved: 'بله',
+        allMartyrsLinked: 'بله',
+        decisionStatus: 'تأیید',
+        reviewerName: grp.reviewerName || 'تأیید یکپارچه کارشناس',
+        reviewDate: new Intl.DateTimeFormat('fa-IR').format(new Date()),
+        reviewNote: grp.reviewNote || 'تأیید خوشه‌ای و انتقال پیوندها به مخزن اصلی'
+      });
+    });
+    setHideArchivedGroups(true);
+    try {
+      localStorage.setItem('book_hide_archived_groups', 'true');
+    } catch {
+      // ignore
+    }
+    setSubView('links');
+    onNotify(
+      'تمام ۱۶ گروه چندشهیدی تأیید شدند و پیوندهای آن‌ها به پایگاه دپوی اسناد منتقل شد. این برگه برای خلوت‌سازی میز کار پنهان گردید.'
+    );
+  };
+
   return (
     <div className="space-y-5">
-      {/* Sub-navigation Switcher for all 5 Specialist Modules */}
+      {/* Sub-navigation Switcher for all Specialist Modules */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
           <div>
             <h2 className="text-base font-bold text-slate-900 flex flex-wrap items-center gap-1.5">
               <span>میز تخصصی کارشناسان مرکز اسناد</span>
               <span className="text-xs font-normal text-slate-500">
-                (تمام شیت‌های فایل کاری نسخه ۰٫۱ + مطالب استخراج‌شده)
+                (سامانه جامع پیوند کتاب و شهید، ارزیابی شیت‌ها و دپوی اسناد)
               </span>
             </h2>
           </div>
+
+          {/* Mode Toggle: Streamlined / Detailed Desk */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setDeskMode((prev) => (prev === 'streamlined' ? 'detailed' : 'streamlined'))}
+              className="px-3 py-1.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-xs font-bold text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-[#1f4e79]" />
+              <span>
+                {deskMode === 'streamlined'
+                  ? 'نمای ساده و خلوت (پیش‌فرض)'
+                  : 'نمای کامل همه شیت‌ها'}
+              </span>
+            </button>
+
+            {hideArchivedGroups && (
+              <button
+                type="button"
+                onClick={() => {
+                  setHideArchivedGroups(false);
+                  try {
+                    localStorage.removeItem('book_hide_archived_groups');
+                  } catch {
+                    // ignore
+                  }
+                  onNotify('شیت ۱۶ گروه چندشهیدی از حالت بایگانی خارج شد.');
+                }}
+                className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-medium flex items-center gap-1 cursor-pointer"
+                title="نمایش مجدد ۱۶ گروه چندشهیدی"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>بازیابی ۱۶ گروه</span>
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 p-1 bg-slate-100 rounded-xl text-xs">
+        {/* Tab Buttons Grid */}
+        <div className="flex flex-wrap gap-2 p-1 bg-slate-100 rounded-xl text-xs">
+          {/* 1. MASTER DEPOSITORY & 2-WAY EXPORT (Prominent Hub) */}
+          <button
+            type="button"
+            onClick={() => {
+              setSubView('depository');
+            }}
+            className={`min-h-[44px] px-4 py-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 flex-1 min-w-[180px] ${
+              subView === 'depository'
+                ? 'bg-gradient-to-r from-[#173a5a] to-[#1f4e79] text-white shadow-sm ring-2 ring-emerald-500/50'
+                : 'bg-emerald-50 text-[#1a6348] border border-emerald-300 hover:bg-emerald-100 font-extrabold'
+            }`}
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>مرکز دپو و خروجی نهایی (دوسویه)</span>
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-600 text-white font-mono">
+              اکسل/JSON
+            </span>
+          </button>
+
+          {/* 2. Core Links */}
           <button
             type="button"
             onClick={() => {
               setSubView('links');
               setVisibleLimit(60);
             }}
-            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 ${
+            className={`min-h-[44px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[140px] ${
               subView === 'links'
-                ? 'bg-[#1f4e79] text-white'
-                : 'text-slate-700 hover:text-slate-900'
+                ? 'bg-[#1f4e79] text-white shadow-xs'
+                : 'text-slate-700 hover:text-slate-900 bg-white/60'
             }`}
           >
             <Link2 className="w-4 h-4 shrink-0" />
-            <span>ارتباط کتاب و شهید ({toPersianDigits(links.length)} پیوند)</span>
+            <span>ارتباط کتاب و شهید ({toPersianDigits(links.length)})</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setSubView('extracted');
-              setVisibleLimit(60);
-            }}
-            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 ${
-              subView === 'extracted'
-                ? 'bg-[#1f4e79] text-white'
-                : 'text-slate-700 hover:text-slate-900'
-            }`}
-          >
-            <FileText className="w-4 h-4 shrink-0" />
-            <span>مطالب استخراج‌شده ({toPersianDigits(extractedItems.length)})</span>
-          </button>
-
+          {/* 3. Pending Reviews (567) */}
           <button
             type="button"
             onClick={() => {
               setSubView('pending567');
               setVisibleLimit(60);
             }}
-            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 ${
+            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[140px] ${
               subView === 'pending567'
-                ? 'bg-[#1f4e79] text-white'
-                : 'text-slate-700 hover:text-slate-900'
+                ? 'bg-[#1f4e79] text-white shadow-xs'
+                : 'text-slate-700 hover:text-slate-900 bg-white/60'
             }`}
           >
-            <AlertCircle className="w-4 h-4 shrink-0" />
+            <AlertCircle className="w-4 h-4 shrink-0 text-amber-500" />
             <span>نیازمند بررسی ({toPersianDigits(pendingReviews.length)})</span>
           </button>
 
+          {/* 4. Extracted Items */}
           <button
             type="button"
             onClick={() => {
-              setSubView('shohada196');
+              setSubView('extracted');
               setVisibleLimit(60);
             }}
-            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 ${
-              subView === 'shohada196'
-                ? 'bg-[#1f4e79] text-white'
-                : 'text-slate-700 hover:text-slate-900'
+            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[140px] ${
+              subView === 'extracted'
+                ? 'bg-[#1f4e79] text-white shadow-xs'
+                : 'text-slate-700 hover:text-slate-900 bg-white/60'
             }`}
           >
-            <Users className="w-4 h-4 shrink-0" />
-            <span>شهدای گلزار ({toPersianDigits(workbookMartyrs.length)})</span>
+            <FileText className="w-4 h-4 shrink-0" />
+            <span>مطالب استخراج‌شده ({toPersianDigits(extractedItems.length)})</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setSubView('groups16')}
-            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 ${
-              subView === 'groups16'
-                ? 'bg-[#1f4e79] text-white'
-                : 'text-slate-700 hover:text-slate-900'
-            }`}
-          >
-            <ClipboardCheck className="w-4 h-4 shrink-0" />
-            <span>۱۶ گروه چندشهیدی</span>
-          </button>
+          {/* Secondary tabs (shown in detailed mode or if selected) */}
+          {(deskMode === 'detailed' || subView === 'shohada196') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSubView('shohada196');
+                setVisibleLimit(60);
+              }}
+              className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[130px] ${
+                subView === 'shohada196'
+                  ? 'bg-[#1f4e79] text-white shadow-xs'
+                  : 'text-slate-700 hover:text-slate-900 bg-white/60'
+              }`}
+            >
+              <Users className="w-4 h-4 shrink-0" />
+              <span>شهدای گلزار ({toPersianDigits(workbookMartyrs.length)})</span>
+            </button>
+          )}
 
+          {((deskMode === 'detailed' && !hideArchivedGroups) || subView === 'groups16') && (
+            <button
+              type="button"
+              onClick={() => setSubView('groups16')}
+              className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[130px] ${
+                subView === 'groups16'
+                  ? 'bg-[#1f4e79] text-white shadow-xs'
+                  : 'text-slate-700 hover:text-slate-900 bg-white/60'
+              }`}
+            >
+              <ClipboardCheck className="w-4 h-4 shrink-0" />
+              <span>۱۶ گروه چندشهیدی</span>
+            </button>
+          )}
+
+          {/* Publishing Gateway */}
           <button
             type="button"
             onClick={() => setSubView('publish_gateway')}
-            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 ${
+            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[150px] ${
               subView === 'publish_gateway'
-                ? 'bg-[#2E7D5B] text-white'
-                : 'text-[#2E7D5B] hover:bg-emerald-50'
+                ? 'bg-[#2E7D5B] text-white shadow-xs'
+                : 'text-[#2E7D5B] hover:bg-emerald-50 bg-emerald-50/50'
             }`}
           >
             <Download className="w-4 h-4 shrink-0" />
-            <span>دروازه انتشار سایت گلزار</span>
+            <span>دروازه انتشار رسمی</span>
           </button>
         </div>
       </div>
 
       {subView === 'links' && (
         <div className="space-y-4">
-          {/* Search & Filter Bar */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setVisibleLimit(60);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    onNotify(
-                      `فیلتر اعمال شد: ${toPersianDigits(allFilteredLinks.length)} رکورد ارتباط منطبق یافت شد.`
-                    );
-                  }
-                }}
-                placeholder="جست‌وجوی نام شهید، عنوان کتاب، عنوان دیگر، قطعه یا کد RL-0015 (با کلید Enter)..."
-                className="w-full min-h-[44px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#1f4e79]"
-              />
+          {/* Search & Filter Bar + Export Toolbar */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setVisibleLimit(60);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      onNotify(
+                        `فیلتر اعمال شد: ${toPersianDigits(allFilteredLinks.length)} رکورد ارتباط منطبق یافت شد.`
+                      );
+                    }
+                  }}
+                  placeholder="جست‌وجوی نام شهید، عنوان کتاب، عنوان دیگر، قطعه یا کد RL-0015 (با کلید Enter)..."
+                  className="w-full min-h-[44px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#1f4e79]"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => {
+                    setStatusFilter(e.target.value);
+                    setVisibleLimit(60);
+                  }}
+                  className="min-h-[44px] px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl text-slate-800 font-medium"
+                >
+                  <option value="named_only">رکوردهای دارای نام/عبارت ثبت‌شده (حذف خالی و *)</option>
+                  <option value="all">همه رکوردهای شیت ({toPersianDigits(links.length)} مورد)</option>
+                  <option value="بررسی‌نشده">بررسی‌نشده</option>
+                  <option value="نیازمند تکمیل">نیازمند تکمیل</option>
+                  <option value="نیازمند تفکیک نام‌ها">نیازمند تفکیک نام‌ها (عبارت گروهی)</option>
+                  <option value="نیازمند تکمیل مزار">نیازمند تکمیل مزار</option>
+                  <option value="نیازمند بررسی مزار">نیازمند بررسی مزار (اختلاف مزار)</option>
+                  <option value="نیازمند تطبیق کتاب">نیازمند تطبیق کتاب</option>
+                  <option value="تأییدشده کارشناسی">تأییدشده کارشناسی</option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAddLink((prev) => !prev)}
+                  className="min-h-[44px] px-4 py-2 bg-[#1f4e79] hover:bg-[#163a5b] text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>ثبت پیوند جدید</span>
+                </button>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={statusFilter}
-                onChange={(e) => {
-                  setStatusFilter(e.target.value);
-                  setVisibleLimit(60);
-                }}
-                className="min-h-[44px] px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl text-slate-800 font-medium"
-              >
-                <option value="named_only">رکوردهای دارای نام/عبارت ثبت‌شده (حذف خالی و *)</option>
-                <option value="all">همه رکوردهای شیت ({toPersianDigits(links.length)} مورد)</option>
-                <option value="بررسی‌نشده">بررسی‌نشده</option>
-                <option value="نیازمند تکمیل">نیازمند تکمیل</option>
-                <option value="نیازمند تفکیک نام‌ها">نیازمند تفکیک نام‌ها (عبارت گروهی)</option>
-                <option value="نیازمند تکمیل مزار">نیازمند تکمیل مزار</option>
-                <option value="نیازمند بررسی مزار">نیازمند بررسی مزار (اختلاف مزار)</option>
-                <option value="نیازمند تطبیق کتاب">نیازمند تطبیق کتاب</option>
-                <option value="تأییدشده کارشناسی">تأییدشده کارشناسی</option>
-              </select>
+            {/* Links Export Buttons Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+              <div className="text-slate-600 font-medium">
+                تعداد رکوردهای منطبق: <strong className="text-slate-900 tabular-nums">{toPersianDigits(allFilteredLinks.length)}</strong> پیوند
+              </div>
 
-              <button
-                type="button"
-                onClick={() => setShowAddLink((prev) => !prev)}
-                className="min-h-[44px] px-4 py-2 bg-[#1f4e79] hover:bg-[#163a5b] text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-              >
-                <Plus className="w-4 h-4" />
-                <span>ثبت پیوند جدید</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={exportLinksExcel}
+                  className="min-h-[36px] px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>خروجی اکسل پیوندها (.xlsx)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={exportLinksCsv}
+                  className="min-h-[36px] px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <span>خروجی CSV</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={exportLinksJson}
+                  className="min-h-[36px] px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <FileJson className="w-3.5 h-3.5 text-amber-600" />
+                  <span>خروجی JSON</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1132,11 +1528,20 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
                 <button
                   type="button"
+                  onClick={exportExtractedExcel}
+                  className="min-h-[42px] px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                  <span>خروجی اکسل مطالب (.xlsx)</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={exportExtractedCsv}
-                  className="min-h-[42px] px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
+                  className="min-h-[42px] px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
-                  <span>خروجی CSV مطالب</span>
+                  <span>خروجی CSV</span>
                 </button>
 
                 <button
@@ -1634,8 +2039,24 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                   className="w-full min-h-[44px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#1f4e79]"
                 />
               </div>
-              <div className="text-xs font-bold text-[#1f4e79] shrink-0">
-                تعداد موارد منطبق با فیلتر: {toPersianDigits(filteredPendingReviews.length)} مورد
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={exportPendingReviewsExcel}
+                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>گزارش اکسل موارد بلاتکلیف (.xlsx)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={exportPendingReviewsCsv}
+                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <span>خروجی CSV</span>
+                </button>
               </div>
             </div>
 
@@ -1980,8 +2401,15 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                   className="w-full min-h-[44px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#1f4e79]"
                 />
               </div>
-              <div className="text-xs font-bold text-[#1f4e79] shrink-0">
-                نمایش {toPersianDigits(filteredWorkbookMartyrs.length)} رکورد آدرس مزار
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={exportGolzarExcel}
+                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>خروجی اکسل شهدای گلزار (.xlsx)</span>
+                </button>
               </div>
             </div>
 
@@ -2264,14 +2692,35 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
               ))}
             </div>
 
-            <button
-              type="button"
-              onClick={exportGroupsCsv}
-              className="min-h-[42px] px-4 py-2 bg-[#1f4e79] hover:bg-[#163a5b] text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
-            >
-              <Download className="w-4 h-4" />
-              <span>خروجی CSV کاربرگ بازبینی ۱۶ گروه</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleBulkApproveAndArchive16Groups}
+                className="min-h-[42px] px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-sm transition-all"
+                title="تأیید همه ۱۶ گروه و انتقال به پیوندها و پنهان‌سازی این پنجره"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>تأیید یکپارچه ۱۶ گروه و بایگانی این برگه</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={exportGroupsExcel}
+                className="min-h-[42px] px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <span>خروجی اکسل ۱۶ گروه (.xlsx)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={exportGroupsCsv}
+                className="min-h-[42px] px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                <span>خروجی CSV</span>
+              </button>
+            </div>
           </div>
 
           <div className="space-y-3">
@@ -2670,6 +3119,19 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* SubView: Master Depository and 2-Way Final Export Hub */}
+      {subView === 'depository' && (
+        <DepositoryAndExportHub
+          catalogRows={catalogRows}
+          links={links}
+          pendingReviews={pendingReviews}
+          workbookMartyrs={workbookMartyrs}
+          extractedItems={extractedItems}
+          onNotify={onNotify}
+          onJumpToSmartSearch={onJumpToSmartSearch}
+        />
       )}
     </div>
   );
