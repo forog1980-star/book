@@ -1,4 +1,4 @@
-const CACHE_NAME = 'markaz-asnad-pwa-v5';
+const CACHE_NAME = 'markaz-asnad-pwa-v6';
 const PRECACHE_ASSETS = [
   './',
   './index.html',

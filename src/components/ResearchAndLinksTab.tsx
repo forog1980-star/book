@@ -43,7 +43,7 @@ interface ResearchAndLinksTabProps {
   catalogRows: ReferenceCatalogRow[];
   links: BookMartyrLinkRecord[];
   pendingReviews: PendingReviewItem[];
-  workbookMartyrs: WorkbookGolzarMartyr[];
+  workbookMartyrs?: WorkbookGolzarMartyr[];
   multiMartyrGroups: MultiMartyrGroupAudit[];
   extractedItems: ExtractedContentItem[];
   onAddLink: (newLink: BookMartyrLinkRecord) => void;
@@ -65,7 +65,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
   catalogRows,
   links,
   pendingReviews,
-  workbookMartyrs,
+  workbookMartyrs = [],
   multiMartyrGroups,
   extractedItems,
   onAddLink,
@@ -78,7 +78,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
   onNotify
 }) => {
   const [subView, setSubView] = useState<
-    'links' | 'extracted' | 'pending567' | 'shohada196' | 'groups16' | 'publish_gateway' | 'depository'
+    'links' | 'extracted' | 'pending567' | 'groups16' | 'publish_gateway' | 'depository'
   >('depository');
   const [deskMode, setDeskMode] = useState<'streamlined' | 'detailed'>('streamlined');
   const [hideArchivedGroups, setHideArchivedGroups] = useState<boolean>(() => {
@@ -147,102 +147,6 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
   const [rejectingExtractedId, setRejectingExtractedId] = useState<string | null>(null);
   const [extractedRejectReason, setExtractedRejectReason] = useState<string>('');
 
-  // Sub-filter & Cross-reference Matcher for 196 Golzar Martyrs
-  const [golzarFilter, setGolzarFilter] = useState<'all' | 'with_matched_book' | 'linked' | 'without_book'>('all');
-  const [rejectedGolzarBookMatches, setRejectedGolzarBookMatches] = useState<Record<string, string[]>>(() => {
-    try {
-      const raw = localStorage.getItem('book_golzar_rejected_matches');
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  });
-
-  const saveGolzarRejection = (martyrId: string, bookId: string) => {
-    setRejectedGolzarBookMatches((prev) => {
-      const next = { ...prev, [martyrId]: [...(prev[martyrId] || []), bookId] };
-      try {
-        localStorage.setItem('book_golzar_rejected_matches', JSON.stringify(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-    onNotify(`انطباق کتاب ${bookId} برای این شهید رد شد.`);
-  };
-
-  // Cross-reference calculation: Match 196 Golzar martyrs against 980 Reference Books
-  const golzarMartyrBookMatches = useMemo(() => {
-    const map = new Map<
-      string,
-      Array<{
-        book: ReferenceCatalogRow;
-        matchType: 'exact_title' | 'title_contains' | 'desc_contains' | 'existing_link';
-        linkId?: string;
-      }>
-    >();
-
-    const linksByMartyr = new Map<string, BookMartyrLinkRecord[]>();
-    links.forEach((l) => {
-      const n = normalizePersianText(l.martyrNameRaw || '');
-      if (n && n !== '*') {
-        const arr = linksByMartyr.get(n) || [];
-        arr.push(l);
-        linksByMartyr.set(n, arr);
-      }
-    });
-
-    workbookMartyrs.forEach((sh) => {
-      const rawName = sh.fullNameSearch || `${sh.firstNameRaw} ${sh.lastNameRaw}`.trim();
-      const norm = normalizePersianText(rawName.replace(/^شهید\s+/, ''));
-      if (!norm) {
-        map.set(sh.tempPersonId, []);
-        return;
-      }
-
-      const matches: Array<{
-        book: ReferenceCatalogRow;
-        matchType: 'exact_title' | 'title_contains' | 'desc_contains' | 'existing_link';
-        linkId?: string;
-      }> = [];
-      const seenBookIds = new Set<string>();
-
-      // 1. Existing links in Sheet 2
-      const existing = linksByMartyr.get(norm) || [];
-      existing.forEach((l) => {
-        const b = catalogRows.find(
-          (cr) => cr.tempBookId === l.tempBookId || cr.titleRaw === l.bookTitleRaw
-        );
-        if (b && !seenBookIds.has(b.tempBookId)) {
-          seenBookIds.add(b.tempBookId);
-          matches.push({ book: b, matchType: 'existing_link', linkId: l.id });
-        }
-      });
-
-      // 2. Search in 980 catalogRows
-      const tokens = norm.split(' ').filter((t) => t.length > 2);
-      catalogRows.forEach((b) => {
-        if (seenBookIds.has(b.tempBookId)) return;
-        const bTitle = normalizePersianText(b.titleRaw || '');
-        const bDesc = normalizePersianText(b.descriptionRaw || '');
-
-        if (bTitle.includes(norm)) {
-          seenBookIds.add(b.tempBookId);
-          matches.push({ book: b, matchType: 'title_contains' });
-        } else if (tokens.length >= 2 && tokens.every((t) => bTitle.includes(t))) {
-          seenBookIds.add(b.tempBookId);
-          matches.push({ book: b, matchType: 'title_contains' });
-        } else if (bDesc.includes(norm)) {
-          seenBookIds.add(b.tempBookId);
-          matches.push({ book: b, matchType: 'desc_contains' });
-        }
-      });
-
-      map.set(sh.tempPersonId, matches);
-    });
-
-    return map;
-  }, [workbookMartyrs, catalogRows, links]);
 
   // Open PV Review Form
   const handleOpenPvReview = (pv: PendingReviewItem) => {
@@ -393,26 +297,6 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     });
   }, [multiMartyrGroups, groupsStatusFilter]);
 
-  // Filtered 196 Workbook Martyrs
-  const filteredWorkbookMartyrs = useMemo(() => {
-    const q = normalizePersianText(searchQuery);
-    return workbookMartyrs.filter((sh) => {
-      const allMatches = golzarMartyrBookMatches.get(sh.tempPersonId) || [];
-      const rejectedList = rejectedGolzarBookMatches[sh.tempPersonId] || [];
-      const validMatches = allMatches.filter((m) => !rejectedList.includes(m.book.tempBookId));
-      const isLinked = validMatches.some((m) => m.matchType === 'existing_link');
-
-      if (golzarFilter === 'with_matched_book' && validMatches.length === 0) return false;
-      if (golzarFilter === 'linked' && !isLinked) return false;
-      if (golzarFilter === 'without_book' && validMatches.length > 0) return false;
-
-      if (!q) return true;
-      const hay = normalizePersianText(
-        `${sh.tempPersonId} ${sh.fullNameSearch} ${sh.piece} ${sh.graveRow} ${sh.graveNumber}`
-      );
-      return q.split(' ').every((w) => hay.includes(w));
-    });
-  }, [workbookMartyrs, searchQuery, golzarFilter, golzarMartyrBookMatches, rejectedGolzarBookMatches]);
 
   const handleCreateLink = (e: React.FormEvent) => {
     e.preventDefault();
@@ -776,37 +660,6 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     onNotify('فایل CSV موارد نیازمند بررسی دانلود شد.');
   };
 
-  // Export 196 Golzar Workbook Martyrs Excel (.xlsx)
-  const exportGolzarExcel = () => {
-    const rows = filteredWorkbookMartyrs.map((sh, idx) => {
-      const allMatches = golzarMartyrBookMatches.get(sh.tempPersonId) || [];
-      const rejectedList = rejectedGolzarBookMatches[sh.tempPersonId] || [];
-      const validMatches = allMatches.filter((m) => !rejectedList.includes(m.book.tempBookId));
-      const isLinked = validMatches.some((m) => m.matchType === 'existing_link');
-      return {
-        'ردیف': idx + 1,
-        'کد موقت شهید': sh.tempPersonId,
-        'نام و نام خانوادگی': sh.fullNameSearch,
-        'نام پدر': sh.fatherNameRaw || '—',
-        'قطعه': sh.piece || '—',
-        'ردیف': sh.graveRow || '—',
-        'شماره مزار': sh.graveNumber || '—',
-        'وضعیت تطبیق با مخزن': isLinked
-          ? 'دارای پیوند تأییدشده'
-          : validMatches.length > 0
-          ? `دارای ${toPersianDigits(validMatches.length)} کتاب منطبق`
-          : 'فاقد کتاب در ۹۸۰ عنوان',
-        'کتاب‌های منطبق': validMatches
-          .map((m) => `${m.book.tempBookId} (${m.book.titleRaw})`)
-          .join(' | ')
-      };
-    });
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'شهدای گلزار و وضعیت کتب');
-    XLSX.writeFile(wb, `شهدای-گلزار-و-انطباق-با-کتابخانه-${new Date().toISOString().slice(0, 10)}.xlsx`);
-    onNotify(`فایل اکسل شهدای گلزار (${toPersianDigits(rows.length)} شهید) دانلود شد.`);
-  };
 
   // Export G001..G016 Human Review Excel (.xlsx)
   const exportGroupsExcel = () => {
@@ -1039,24 +892,6 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
             <span>مطالب استخراج‌شده ({toPersianDigits(extractedItems.length)})</span>
           </button>
 
-          {/* Secondary tabs (shown in detailed mode or if selected) */}
-          {(deskMode === 'detailed' || subView === 'shohada196') && (
-            <button
-              type="button"
-              onClick={() => {
-                setSubView('shohada196');
-                setVisibleLimit(60);
-              }}
-              className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[130px] ${
-                subView === 'shohada196'
-                  ? 'bg-[#1f4e79] text-white shadow-xs'
-                  : 'text-slate-700 hover:text-slate-900 bg-white/60'
-              }`}
-            >
-              <Users className="w-4 h-4 shrink-0" />
-              <span>شهدای گلزار ({toPersianDigits(workbookMartyrs.length)})</span>
-            </button>
-          )}
 
           {((deskMode === 'detailed' && !hideArchivedGroups) || subView === 'groups16') && (
             <button
@@ -2375,265 +2210,6 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
         </div>
       )}
 
-      {/* SubView 3: Sheet 5 — 196 Workbook Golzar Martyrs (شهدای گلزار SH-0001..SH-0196) */}
-      {subView === 'shohada196' && (
-        <div className="space-y-4">
-          {/* راهنمای تطبیق شهدای گلزار با مخزن کتابخانه */}
-          <div className="bg-[#f0fbf7] border border-[#b2e5d4] rounded-2xl p-4 text-xs space-y-1.5">
-            <div className="font-bold text-[#1a6348] flex items-center gap-1.5 text-sm">
-              <Users className="w-4 h-4 shrink-0" />
-              <span>میز تطبیق شهدای گلزار (۱۹۶ سطر شیت ۵) با ۹۸۰ عنوان کتاب مرجع:</span>
-            </div>
-            <p className="text-slate-700 leading-relaxed">
-              سامانه به‌صورت خودکار اسامی شهدای گلزار را با عناوین و متون ۹۸۰ کتاب مرجع کتابخانه بررسی می‌کند. در صورت کشف انطباق، کتاب به شما پیشنهاد می‌شود تا بتوانید با یک کلیک پیوند آن را تأیید، رد، یا برای بررسی عمیق‌تر به برگه «جست‌وجوی هوشمند» انتقال دهید.
-            </p>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="جست‌وجو در ۱۹۶ رکورد شیت «شهدای گلزار» (نام شهید، قطعه، ردیف، شماره یا SH-0001)..."
-                  className="w-full min-h-[44px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#1f4e79]"
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={exportGolzarExcel}
-                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>خروجی اکسل شهدای گلزار (.xlsx)</span>
-                </button>
-              </div>
-            </div>
-
-            {/* فیلترهای وضعیت تطبیق کتاب برای شهدای گلزار */}
-            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs border-t border-slate-100">
-              <span className="text-slate-500 font-medium ml-1">فیلتر تطبیق با مخزن:</span>
-              {(
-                [
-                  { key: 'all', label: `همه (${toPersianDigits(workbookMartyrs.length)} شهید)` },
-                  {
-                    key: 'with_matched_book',
-                    label: `دارای کتاب منطبق در ۹۸۰ عنوان (${toPersianDigits(
-                      workbookMartyrs.filter((sh) => {
-                        const m = (golzarMartyrBookMatches.get(sh.tempPersonId) || []).filter(
-                          (x) => !(rejectedGolzarBookMatches[sh.tempPersonId] || []).includes(x.book.tempBookId)
-                        );
-                        return m.length > 0;
-                      }).length
-                    )})`
-                  },
-                  {
-                    key: 'linked',
-                    label: `تأییدشده و متصل به کتابخانه (${toPersianDigits(
-                      workbookMartyrs.filter((sh) => {
-                        const m = (golzarMartyrBookMatches.get(sh.tempPersonId) || []).filter(
-                          (x) => !(rejectedGolzarBookMatches[sh.tempPersonId] || []).includes(x.book.tempBookId)
-                        );
-                        return m.some((x) => x.matchType === 'existing_link');
-                      }).length
-                    )})`
-                  },
-                  {
-                    key: 'without_book',
-                    label: `فاقد کتاب منطبق در مخزن (${toPersianDigits(
-                      workbookMartyrs.filter((sh) => {
-                        const m = (golzarMartyrBookMatches.get(sh.tempPersonId) || []).filter(
-                          (x) => !(rejectedGolzarBookMatches[sh.tempPersonId] || []).includes(x.book.tempBookId)
-                        );
-                        return m.length === 0;
-                      }).length
-                    )})`
-                  }
-                ] as const
-              ).map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => setGolzarFilter(tab.key)}
-                  className={`px-3 py-1.5 rounded-xl font-bold transition-colors ${
-                    golzarFilter === tab.key
-                      ? 'bg-[#1f4e79] text-white shadow-xs'
-                      : 'bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-            {filteredWorkbookMartyrs.map((sh) => {
-              const allMatches = golzarMartyrBookMatches.get(sh.tempPersonId) || [];
-              const rejectedList = rejectedGolzarBookMatches[sh.tempPersonId] || [];
-              const validMatches = allMatches.filter((m) => !rejectedList.includes(m.book.tempBookId));
-              const isLinked = validMatches.some((m) => m.matchType === 'existing_link');
-
-              return (
-                <div
-                  key={sh.tempPersonId}
-                  className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3 text-xs hover:border-slate-300 transition-colors flex flex-col justify-between"
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-slate-500 border-b border-slate-100 pb-2">
-                      <span className="font-mono font-bold text-[#1f4e79]" dir="ltr">
-                        {sh.tempPersonId}
-                      </span>
-                      <span>
-                        ردیف {toPersianDigits(sh.sourceRow)} شیت «{sh.sourceSheet}»
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-base font-bold text-slate-900">{sh.fullNameSearch}</h4>
-                      {isLinked && (
-                        <span className="bg-emerald-100 text-emerald-800 text-[11px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" />
-                          <span>متصل به کتابخانه</span>
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 tabular-nums">
-                      قطعه: {toPersianDigits(sh.piece || '—')} · ردیف: {toPersianDigits(sh.graveRow || '—')} · شماره:{' '}
-                      {toPersianDigits(sh.graveNumber || '—')}
-                      {sh.graveStatus && <span className="text-slate-500 text-[11px] mr-2">({sh.graveStatus})</span>}
-                    </div>
-
-                    {/* بخش تطبیق با ۹۸۰ کتاب مرجع */}
-                    {validMatches.length > 0 ? (
-                      <div className="bg-[#f0f7ff] border border-[#c6def8] rounded-xl p-3 space-y-2">
-                        <div className="font-bold text-[#1f4e79] flex items-center justify-between">
-                          <span className="flex items-center gap-1">
-                            <BookOpen className="w-3.5 h-3.5" />
-                            <span>کتاب‌های منطبق در ۹۸۰ عنوان مخزن ({toPersianDigits(validMatches.length)} مورد):</span>
-                          </span>
-                        </div>
-
-                        <div className="space-y-2">
-                          {validMatches.map((match) => (
-                            <div
-                              key={match.book.tempBookId}
-                              className="bg-white border border-slate-200 rounded-lg p-2.5 space-y-1.5"
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div>
-                                  <div className="font-bold text-slate-900 text-xs">
-                                    {match.book.titleRaw}
-                                  </div>
-                                  <div className="text-[11px] text-slate-500">
-                                    کد: <span className="font-mono" dir="ltr">{match.book.tempBookId}</span>
-                                    {match.book.publisherRaw && ` · ناشر: ${match.book.publisherRaw}`}
-                                  </div>
-                                </div>
-                                <span
-                                  className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                                    match.matchType === 'existing_link'
-                                      ? 'bg-emerald-100 text-emerald-800'
-                                      : match.matchType === 'title_contains'
-                                      ? 'bg-blue-100 text-blue-800'
-                                      : 'bg-slate-100 text-slate-700'
-                                  }`}
-                                >
-                                  {match.matchType === 'existing_link'
-                                    ? 'پیوند تأییدشده'
-                                    : match.matchType === 'title_contains'
-                                    ? 'انطباق در عنوان'
-                                    : 'انطباق در شرح'}
-                                </span>
-                              </div>
-
-                              <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1 border-t border-slate-100">
-                                {match.matchType !== 'existing_link' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      onAddLink({
-                                        id: `RL-${String(links.length + 1).padStart(4, '0')}`,
-                                        tempBookId: match.book.tempBookId,
-                                        bookTitleRaw: match.book.titleRaw,
-                                        publisherRaw: match.book.publisherRaw,
-                                        martyrNameRaw: sh.fullNameSearch,
-                                        isGroupPhrase: false,
-                                        gravePieceRaw: sh.piece,
-                                        graveRowRaw: sh.graveRow,
-                                        graveNumberRaw: sh.graveNumber,
-                                        pageReferenceRaw: 'استخراج‌شده از شیت شهدای گلزار',
-                                        sourceDescriptionRaw: `تطبیق کارشناسی شهید گلزار (${sh.tempPersonId}) با کتاب ${match.book.tempBookId}`,
-                                        sourceFile: sh.sourceFile || 'فهرست کاری کتابخانه',
-                                        sourceSheet: sh.sourceSheet || 'شهدای گلزار',
-                                        sourceExcelRow: sh.sourceRow || '-',
-                                        reviewStatus: 'تأییدشده کارشناسی',
-                                        reviewerNote: 'تأیید پیوند شهید گلزار با مخزن کتابخانه'
-                                      });
-                                      onNotify(
-                                        `پیوند شهید «${sh.fullNameSearch}» با کتاب «${match.book.titleRaw}» با موفقیت تأیید و ثبت شد.`
-                                      );
-                                    }}
-                                    className="min-h-[28px] px-2.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <Check className="w-3 h-3" />
-                                    <span>تأیید پیوند با کتاب</span>
-                                  </button>
-                                )}
-
-                                <button
-                                  type="button"
-                                  onClick={() => saveGolzarRejection(sh.tempPersonId, match.book.tempBookId)}
-                                  className="min-h-[28px] px-2 py-0.5 bg-slate-100 hover:bg-red-50 hover:text-red-700 text-slate-600 rounded-md text-[11px] font-medium transition-colors"
-                                  title="رد این عنوان کتاب برای این شهید"
-                                >
-                                  رد انطباق
-                                </button>
-
-                                {onJumpToSmartSearch && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onJumpToSmartSearch(sh.fullNameSearch)}
-                                    className="min-h-[28px] px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-[#1f4e79] rounded-md text-[11px] font-bold inline-flex items-center gap-1"
-                                    title="جست‌وجوی پیشرفته مشخصات این کتاب در برگه ۴"
-                                  >
-                                    <Sparkles className="w-3 h-3" />
-                                    <span>بررسی در برگه ۴</span>
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <span className="text-slate-500 text-[11px]">
-                          فاقد عنوان منطبق در ۹۸۰ کتاب مخزن (نیازمند استخراج منبع جدید)
-                        </span>
-                        {onJumpToSmartSearch && (
-                          <button
-                            type="button"
-                            onClick={() => onJumpToSmartSearch(sh.fullNameSearch)}
-                            className="min-h-[30px] px-2.5 py-1 bg-white hover:bg-slate-100 text-[#1f4e79] border border-[#c9dced] rounded-lg text-[11px] font-bold inline-flex items-center gap-1 shrink-0"
-                          >
-                            <Search className="w-3 h-3" />
-                            <span>جست‌وجو در برگه ۴</span>
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* SubView 4: 16 Multi-Martyr Groups Human Review Sheet (G001..G016) */}
       {subView === 'groups16' && (

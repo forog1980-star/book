@@ -34,7 +34,7 @@ interface DepositoryAndExportHubProps {
   catalogRows: ReferenceCatalogRow[];
   links: BookMartyrLinkRecord[];
   pendingReviews: PendingReviewItem[];
-  workbookMartyrs: WorkbookGolzarMartyr[];
+  workbookMartyrs?: WorkbookGolzarMartyr[];
   extractedItems: ExtractedContentItem[];
   onNotify: (msg: string, type?: 'success' | 'warning') => void;
   onJumpToSmartSearch?: (martyrName: string) => void;
@@ -80,7 +80,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
   catalogRows,
   links,
   pendingReviews,
-  workbookMartyrs,
+  workbookMartyrs = [],
   extractedItems,
   onNotify,
   onJumpToSmartSearch

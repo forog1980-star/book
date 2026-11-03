@@ -608,8 +608,8 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             <span className="font-bold tabular-nums block text-emerald-300 text-sm mt-0.5">{toPersianDigits(extractedItems.length)} قطعه</span>
           </div>
           <div className="bg-white/10 rounded-lg p-2 backdrop-blur-xs">
-            <span className="text-slate-300 text-[11px]">شهدای گلزار:</span>
-            <span className="font-bold tabular-nums block text-cyan-300 text-sm mt-0.5">{toPersianDigits(workbookMartyrs.length)} شهید</span>
+            <span className="text-slate-300 text-[11px]">بانک رسمی شهدا:</span>
+            <span className="font-bold tabular-nums block text-cyan-300 text-sm mt-0.5">۲۸٬۳۶۸ شهید گلزار</span>
           </div>
         </div>
       </section>

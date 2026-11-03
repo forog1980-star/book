@@ -145,7 +145,7 @@ export const PilotTestAndReportTab: React.FC<PilotTestAndReportTabProps> = ({
         num: 10,
         title: 'شهدای دارای کتاب مرتبط',
         value: `${toPersianDigits(martyWithBookSet.size)} نام شهید یکتا در ${toPersianDigits(links.length)} رکورد ارتباط`,
-        detail: 'شامل ۱۹۶ شهید گلزار در فایل کاری + ارتباط‌های ثبت‌شده'
+        detail: 'شامل ارتباط‌های استخراج‌شده و پیوندهای ثبت‌شده در مرکز اسناد'
       },
       {
         num: 11,
@@ -225,7 +225,7 @@ export const PilotTestAndReportTab: React.FC<PilotTestAndReportTabProps> = ({
     return [
       {
         code: 'TEST-01',
-        title: 'واردسازی و نمایش کامل شیت‌های فایل اکسل مرجع (۹۸۰ کتاب، ۸۳۶ ارتباط، ۵۶۷ بررسی، ۱۹۶ شهید)',
+        title: 'واردسازی و نمایش کامل شیت‌های فایل اکسل مرجع و بانک رسمی شهدا (۹۸۰ کتاب، ۸۳۶ ارتباط، ۵۶۷ بررسی و ۲۸٬۳۶۸ شهید)',
         passed: catalogRows.length >= 980 && links.length >= 836,
         detail: `شیت فهرست کتاب‌ها (${toPersianDigits(catalogRows.length)} ردیف) و ارتباط کتاب و شهید (${toPersianDigits(links.length)} ردیف) کامل بارگذاری شده‌اند.`
       },
