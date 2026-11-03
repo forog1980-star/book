@@ -7,7 +7,16 @@ import {
   ClipboardCheck,
   AlertCircle,
   Users,
-  FileText
+  FileText,
+  CheckCircle2,
+  XCircle,
+  ExternalLink,
+  BookOpen,
+  ArrowRight,
+  Check,
+  X,
+  HelpCircle,
+  Sparkles
 } from 'lucide-react';
 import {
   BookMartyrLinkRecord,
@@ -40,6 +49,7 @@ interface ResearchAndLinksTabProps {
     reviewerName: string,
     researcherNote: string
   ) => void;
+  onJumpToSmartSearch?: (martyrName: string) => void;
   onNotify: (msg: string, type?: 'success' | 'warning') => void;
 }
 
@@ -56,6 +66,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
   onUpdateGroupAudit,
   onAddExtractedItem,
   onUpdateExtractedItemStatus,
+  onJumpToSmartSearch,
   onNotify
 }) => {
   const [subView, setSubView] = useState<
@@ -101,6 +112,193 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
   // Selected Group in G001..G016 for human review
   const [editingGroupCode, setEditingGroupCode] = useState<string | null>(null);
 
+  // Sub-filter for Pending Reviews 567
+  const [pendingStatusFilter, setPendingStatusFilter] = useState<'open' | 'reviewed' | 'needs_source' | 'all'>('open');
+  const [activeReviewPv, setActiveReviewPv] = useState<PendingReviewItem | null>(null);
+  const [pvMartyrName, setPvMartyrName] = useState('');
+  const [pvPageRef, setPvPageRef] = useState('');
+  const [pvGravePiece, setPvGravePiece] = useState('');
+  const [pvGraveRow, setPvGraveRow] = useState('');
+  const [pvGraveNumber, setPvGraveNumber] = useState('');
+  const [pvTargetStatus, setPvTargetStatus] = useState<string>('approved_to_links');
+  const [pvReviewerNote, setPvReviewerNote] = useState('');
+
+  // Sub-filter for 16 Groups
+  const [groupsStatusFilter, setGroupsStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+
+  // Sub-filter & Reject Modal for Extracted Items
+  const [extractedStatusFilter, setExtractedStatusFilter] = useState<string>('all');
+  const [rejectingExtractedId, setRejectingExtractedId] = useState<string | null>(null);
+  const [extractedRejectReason, setExtractedRejectReason] = useState<string>('');
+
+  // Sub-filter & Cross-reference Matcher for 196 Golzar Martyrs
+  const [golzarFilter, setGolzarFilter] = useState<'all' | 'with_matched_book' | 'linked' | 'without_book'>('all');
+  const [rejectedGolzarBookMatches, setRejectedGolzarBookMatches] = useState<Record<string, string[]>>(() => {
+    try {
+      const raw = localStorage.getItem('book_golzar_rejected_matches');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const saveGolzarRejection = (martyrId: string, bookId: string) => {
+    setRejectedGolzarBookMatches((prev) => {
+      const next = { ...prev, [martyrId]: [...(prev[martyrId] || []), bookId] };
+      try {
+        localStorage.setItem('book_golzar_rejected_matches', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+    onNotify(`انطباق کتاب ${bookId} برای این شهید رد شد.`);
+  };
+
+  // Cross-reference calculation: Match 196 Golzar martyrs against 980 Reference Books
+  const golzarMartyrBookMatches = useMemo(() => {
+    const map = new Map<
+      string,
+      Array<{
+        book: ReferenceCatalogRow;
+        matchType: 'exact_title' | 'title_contains' | 'desc_contains' | 'existing_link';
+        linkId?: string;
+      }>
+    >();
+
+    const linksByMartyr = new Map<string, BookMartyrLinkRecord[]>();
+    links.forEach((l) => {
+      const n = normalizePersianText(l.martyrNameRaw || '');
+      if (n && n !== '*') {
+        const arr = linksByMartyr.get(n) || [];
+        arr.push(l);
+        linksByMartyr.set(n, arr);
+      }
+    });
+
+    workbookMartyrs.forEach((sh) => {
+      const rawName = sh.fullNameSearch || `${sh.firstNameRaw} ${sh.lastNameRaw}`.trim();
+      const norm = normalizePersianText(rawName.replace(/^شهید\s+/, ''));
+      if (!norm) {
+        map.set(sh.tempPersonId, []);
+        return;
+      }
+
+      const matches: Array<{
+        book: ReferenceCatalogRow;
+        matchType: 'exact_title' | 'title_contains' | 'desc_contains' | 'existing_link';
+        linkId?: string;
+      }> = [];
+      const seenBookIds = new Set<string>();
+
+      // 1. Existing links in Sheet 2
+      const existing = linksByMartyr.get(norm) || [];
+      existing.forEach((l) => {
+        const b = catalogRows.find(
+          (cr) => cr.tempBookId === l.tempBookId || cr.titleRaw === l.bookTitleRaw
+        );
+        if (b && !seenBookIds.has(b.tempBookId)) {
+          seenBookIds.add(b.tempBookId);
+          matches.push({ book: b, matchType: 'existing_link', linkId: l.id });
+        }
+      });
+
+      // 2. Search in 980 catalogRows
+      const tokens = norm.split(' ').filter((t) => t.length > 2);
+      catalogRows.forEach((b) => {
+        if (seenBookIds.has(b.tempBookId)) return;
+        const bTitle = normalizePersianText(b.titleRaw || '');
+        const bDesc = normalizePersianText(b.descriptionRaw || '');
+
+        if (bTitle.includes(norm)) {
+          seenBookIds.add(b.tempBookId);
+          matches.push({ book: b, matchType: 'title_contains' });
+        } else if (tokens.length >= 2 && tokens.every((t) => bTitle.includes(t))) {
+          seenBookIds.add(b.tempBookId);
+          matches.push({ book: b, matchType: 'title_contains' });
+        } else if (bDesc.includes(norm)) {
+          seenBookIds.add(b.tempBookId);
+          matches.push({ book: b, matchType: 'desc_contains' });
+        }
+      });
+
+      map.set(sh.tempPersonId, matches);
+    });
+
+    return map;
+  }, [workbookMartyrs, catalogRows, links]);
+
+  // Open PV Review Form
+  const handleOpenPvReview = (pv: PendingReviewItem) => {
+    setActiveReviewPv(pv);
+    setPvMartyrName(pv.nameOrPhrase && pv.nameOrPhrase !== '*' ? pv.nameOrPhrase : '');
+    // Lookup if matching link exists
+    const matchingLink = links.find(
+      (l) => l.id === pv.mainRecordId || (l.bookTitleRaw === pv.bookTitle && l.martyrNameRaw === pv.nameOrPhrase)
+    );
+    setPvPageRef(matchingLink?.pageReferenceRaw || '');
+    setPvGravePiece(matchingLink?.gravePieceRaw || '');
+    setPvGraveRow(matchingLink?.graveRowRaw || '');
+    setPvGraveNumber(matchingLink?.graveNumberRaw || '');
+    setPvTargetStatus('approved_to_links');
+    setPvReviewerNote(matchingLink?.reviewerNote || '');
+  };
+
+  // Save PV Review
+  const handleSavePvReview = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeReviewPv) return;
+
+    let targetStatusName = 'بررسی‌شده';
+    if (pvTargetStatus === 'needs_source') targetStatusName = 'نیازمند منبع';
+    if (pvTargetStatus === 'rejected') targetStatusName = 'ردشده با دلیل';
+
+    onUpdatePendingReviewStatus(activeReviewPv.trackingId, targetStatusName);
+
+    // If approved, create or update matching link in links
+    if (pvTargetStatus === 'approved_to_links') {
+      const existing = links.find(
+        (l) => l.id === activeReviewPv.mainRecordId || (l.bookTitleRaw === activeReviewPv.bookTitle && l.martyrNameRaw === activeReviewPv.nameOrPhrase)
+      );
+      if (existing) {
+        onUpdateLinkStatus(
+          existing.id,
+          'تأییدشده کارشناسی',
+          pvReviewerNote.trim() || 'تکمیل و رفع اشکال از کاربرگ نیازمند بررسی'
+        );
+      } else {
+        const bookObj = catalogRows.find(
+          (b) => b.titleRaw === activeReviewPv.bookTitle || b.tempBookId === activeReviewPv.mainRecordId
+        );
+        onAddLink({
+          id: `RL-${String(links.length + 1).padStart(4, '0')}`,
+          tempBookId: bookObj?.tempBookId || '',
+          bookTitleRaw: activeReviewPv.bookTitle,
+          publisherRaw: activeReviewPv.publisher,
+          martyrNameRaw: pvMartyrName.trim() || activeReviewPv.nameOrPhrase,
+          isGroupPhrase: false,
+          gravePieceRaw: pvGravePiece.trim(),
+          graveRowRaw: pvGraveRow.trim(),
+          graveNumberRaw: pvGraveNumber.trim(),
+          pageReferenceRaw: pvPageRef.trim() || 'استخراج‌شده توسط کارشناس',
+          sourceDescriptionRaw: `رفع اشکال از ردیف ${activeReviewPv.trackingId} (${activeReviewPv.issueSubject})`,
+          sourceFile: 'کاربرگ موارد نیازمند بررسی',
+          sourceSheet: activeReviewPv.mainSheet,
+          sourceExcelRow: activeReviewPv.mainRecordId,
+          reviewStatus: 'تأییدشده کارشناسی',
+          reviewerNote: pvReviewerNote.trim() || 'تکمیل و تأیید در سامانه'
+        });
+      }
+      onNotify(
+        `مورد ${activeReviewPv.trackingId} با موفقیت بررسی و ثبت شد و به پیوندهای معتبر منتقل گردید.`
+      );
+    } else {
+      onNotify(`وضعیت مورد ${activeReviewPv.trackingId} به «${targetStatusName}» به‌روزرسانی شد.`);
+    }
+
+    setActiveReviewPv(null);
+  };
+
   // Filtered 836 Links
   const allFilteredLinks = useMemo(() => {
     const q = normalizePersianText(searchQuery);
@@ -130,37 +328,75 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
       if (contentTypeFilter !== 'all' && item.contentType !== contentTypeFilter) {
         return false;
       }
+      if (extractedStatusFilter !== 'all') {
+        if (extractedStatusFilter === 'تأییدشده کارشناسی' && item.reviewStatus !== 'تأییدشده کارشناسی') return false;
+        if (extractedStatusFilter === 'نیازمند بررسی' && item.reviewStatus !== 'نیازمند بررسی') return false;
+        if (extractedStatusFilter === 'ردشده با دلیل' && !item.reviewStatus.includes('رد')) return false;
+      }
       if (!q) return true;
       const hay = normalizePersianText(
         `${item.id} ${item.tempBookId} ${item.bookTitleRaw} ${item.publisherRaw} ${item.martyrNameRaw} ${item.gravePieceRaw} ${item.pageReferenceRaw} ${item.contentType} ${item.passageTitle} ${item.extractedText} ${item.researcherNote}`
       );
       return q.split(' ').every((w) => hay.includes(w));
     });
-  }, [extractedItems, searchQuery, contentTypeFilter]);
+  }, [extractedItems, searchQuery, contentTypeFilter, extractedStatusFilter]);
 
   // Filtered 567 Pending Reviews
   const filteredPendingReviews = useMemo(() => {
     const q = normalizePersianText(searchQuery);
     return pendingReviews.filter((pv) => {
+      if (pendingStatusFilter === 'open' && pv.trackingStatus !== 'باز') return false;
+      if (pendingStatusFilter === 'reviewed' && pv.trackingStatus !== 'بررسی‌شده') return false;
+      if (pendingStatusFilter === 'needs_source' && pv.trackingStatus !== 'نیازمند منبع') return false;
+
       if (!q) return true;
       const hay = normalizePersianText(
         `${pv.trackingId} ${pv.mainSheet} ${pv.mainRecordId} ${pv.nameOrPhrase} ${pv.bookTitle} ${pv.publisher} ${pv.issueSubject}`
       );
       return q.split(' ').every((w) => hay.includes(w));
     });
-  }, [pendingReviews, searchQuery]);
+  }, [pendingReviews, searchQuery, pendingStatusFilter]);
+
+  // Filtered 16 Multi-Martyr Groups
+  const filteredMultiMartyrGroups = useMemo(() => {
+    return multiMartyrGroups.filter((grp) => {
+      if (
+        groupsStatusFilter === 'pending' &&
+        grp.decisionStatus !== 'در انتظار بازبینی کارشناس' &&
+        grp.decisionStatus !== 'در انتظار بازبینی انسانی'
+      )
+        return false;
+      if (groupsStatusFilter === 'approved' && grp.decisionStatus !== 'تأیید') return false;
+      if (
+        groupsStatusFilter === 'rejected' &&
+        grp.decisionStatus !== 'رد' &&
+        grp.decisionStatus !== 'نیازمند پیگیری'
+      )
+        return false;
+      return true;
+    });
+  }, [multiMartyrGroups, groupsStatusFilter]);
 
   // Filtered 196 Workbook Martyrs
   const filteredWorkbookMartyrs = useMemo(() => {
     const q = normalizePersianText(searchQuery);
     return workbookMartyrs.filter((sh) => {
+      const allMatches = golzarMartyrBookMatches.get(sh.tempPersonId) || [];
+      const rejectedList = rejectedGolzarBookMatches[sh.tempPersonId] || [];
+      const validMatches = allMatches.filter((m) => !rejectedList.includes(m.book.tempBookId));
+      const isLinked = validMatches.some((m) => m.matchType === 'existing_link');
+
+      if (golzarFilter === 'with_matched_book' && validMatches.length === 0) return false;
+      if (golzarFilter === 'linked' && !isLinked) return false;
+      if (golzarFilter === 'without_book' && validMatches.length > 0) return false;
+
       if (!q) return true;
       const hay = normalizePersianText(
         `${sh.tempPersonId} ${sh.fullNameSearch} ${sh.piece} ${sh.graveRow} ${sh.graveNumber}`
       );
       return q.split(' ').every((w) => hay.includes(w));
     });
-  }, [workbookMartyrs, searchQuery]);
+  }, [workbookMartyrs, searchQuery, golzarFilter, golzarMartyrBookMatches, rejectedGolzarBookMatches]);
 
   const handleCreateLink = (e: React.FormEvent) => {
     e.preventDefault();
@@ -393,8 +629,11 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
       <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h2 className="text-base font-bold text-slate-900">
-              میز تخصصی کارشناسان مرکز اسناد (تمام شیت‌های فایل کاری نسخه ۰٫۱ + مطالب استخراج‌شده)
+            <h2 className="text-base font-bold text-slate-900 flex flex-wrap items-center gap-1.5">
+              <span>میز تخصصی کارشناسان مرکز اسناد</span>
+              <span className="text-xs font-normal text-slate-500">
+                (تمام شیت‌های فایل کاری نسخه ۰٫۱ + مطالب استخراج‌شده)
+              </span>
             </h2>
           </div>
         </div>
@@ -413,7 +652,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
             }`}
           >
             <Link2 className="w-4 h-4 shrink-0" />
-            <span>ارتباط کتاب و شهید ({toPersianDigits(links.length)})</span>
+            <span>ارتباط کتاب و شهید ({toPersianDigits(links.length)} پیوند)</span>
           </button>
 
           <button
@@ -690,10 +929,19 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
             </form>
           )}
 
-          <div className="text-xs text-slate-600 px-1">
-            نمایش {toPersianDigits(Math.min(visibleLimit, allFilteredLinks.length))} از{' '}
-            <strong className="text-slate-900">{toPersianDigits(allFilteredLinks.length)}</strong>{' '}
-            رکورد منطبق در شیت «ارتباط کتاب و شهید»
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 px-1 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <div>
+              نمایش <strong className="text-slate-900">{toPersianDigits(Math.min(visibleLimit, allFilteredLinks.length))}</strong> از{' '}
+              <strong className="text-slate-900">{toPersianDigits(allFilteredLinks.length)}</strong> رکورد فیلترشده{' '}
+              <span className="text-slate-500">
+                (از مجموع کل {toPersianDigits(links.length)} سطر شیت ارتباط کتاب و شهید)
+              </span>
+            </div>
+            {statusFilter === 'named_only' && (
+              <span className="text-[11px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                فیلتر پیش‌فرض: رکوردهای دارای نام مشخص ({toPersianDigits(allFilteredLinks.length)} مورد)
+              </span>
+            )}
           </div>
 
           {/* Links Cards List */}
@@ -841,51 +1089,106 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
       {/* SubView 1.5: Extracted Content & Page Passages (ثبت و جست‌وجوی مطالب استخراج‌شده — extracted_items) */}
       {subView === 'extracted' && (
         <div className="space-y-4">
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="جست‌وجو در مطالب استخراج‌شده (نام شهید، عنوان کتاب، متن خاطره/وصیت‌نامه، شماره صفحه یا EX-0001)..."
-                className="w-full min-h-[44px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#1f4e79]"
-              />
+          {/* راهنمای مفهومی مطالب استخراج‌شده */}
+          <div className="bg-[#f0f7ff] border border-[#bcd7f5] rounded-2xl p-4 text-xs space-y-1.5">
+            <div className="font-bold text-[#1f4e79] flex items-center gap-1.5 text-sm">
+              <FileText className="w-4 h-4 shrink-0" />
+              <span>مفهوم و کارکرد شیت «مطالب استخراج‌شده» (پژوهش عمقی و ارجاع صفحه):</span>
+            </div>
+            <p className="text-slate-700 leading-relaxed">
+              این بخش شامل گزیده‌های پژوهشی، خاطرات کوتاه، فرازهای وصیت‌نامه و زندگی‌نامه‌های مستند با ذکر شماره صفحات کتاب‌ها است (مانند کتاب <em>چند قدم تا وصال</em>، صفحه ۱۱۲).
+              رکوردهای تأییدشده در این بخش پس از بررسی کارشناس، مستقیماً وارد بسته انتشار وب‌سایت رسمی گلزار (golzarteh.ir) می‌شوند.
+            </p>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="جست‌وجو در مطالب استخراج‌شده (نام شهید، عنوان کتاب، متن خاطره/وصیت‌نامه، شماره صفحه یا EX-0001)..."
+                  className="w-full min-h-[44px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#1f4e79]"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={contentTypeFilter}
+                  onChange={(e) => setContentTypeFilter(e.target.value)}
+                  className="min-h-[42px] px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-800"
+                >
+                  <option value="all">همه انواع مطلب ({toPersianDigits(extractedItems.length)})</option>
+                  <option value="زندگی‌نامه">زندگی‌نامه</option>
+                  <option value="خاطره">خاطره</option>
+                  <option value="وصیت‌نامه">وصیت‌نامه</option>
+                  <option value="سند و دست‌نوشته">سند و دست‌نوشته</option>
+                  <option value="تحلیل و پژوهش">تحلیل و پژوهش</option>
+                  <option value="اشاره کوتاه / فهرست">اشاره کوتاه / فهرست</option>
+                  <option value="سایر">سایر</option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={exportExtractedCsv}
+                  className="min-h-[42px] px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>خروجی CSV مطالب</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAddExtracted((prev) => !prev)}
+                  className="min-h-[42px] px-4 py-2 bg-[#1f4e79] hover:bg-[#163a5b] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{showAddExtracted ? 'بستن فرم ثبت مطلب' : 'ثبت مطلب استخراج‌شده جدید'}</span>
+                </button>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={contentTypeFilter}
-                onChange={(e) => setContentTypeFilter(e.target.value)}
-                className="min-h-[42px] px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-800"
-              >
-                <option value="all">همه انواع مطلب ({toPersianDigits(extractedItems.length)})</option>
-                <option value="زندگی‌نامه">زندگی‌نامه</option>
-                <option value="خاطره">خاطره</option>
-                <option value="وصیت‌نامه">وصیت‌نامه</option>
-                <option value="سند و دست‌نوشته">سند و دست‌نوشته</option>
-                <option value="تحلیل و پژوهش">تحلیل و پژوهش</option>
-                <option value="اشاره کوتاه / فهرست">اشاره کوتاه / فهرست</option>
-                <option value="سایر">سایر</option>
-              </select>
-
-              <button
-                type="button"
-                onClick={exportExtractedCsv}
-                className="min-h-[42px] px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
-              >
-                <Download className="w-4 h-4" />
-                <span>خروجی CSV مطالب</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowAddExtracted((prev) => !prev)}
-                className="min-h-[42px] px-4 py-2 bg-[#1f4e79] hover:bg-[#163a5b] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
-              >
-                <Plus className="w-4 h-4" />
-                <span>{showAddExtracted ? 'بستن فرم ثبت مطلب' : 'ثبت مطلب استخراج‌شده جدید'}</span>
-              </button>
+            {/* نوار فیلتر وضعیت بازبینی مطالب */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs border-t border-slate-100">
+              <span className="text-slate-500 font-medium ml-1">فیلتر وضعیت بازبینی:</span>
+              {(
+                [
+                  { key: 'all', label: `همه مطالب (${toPersianDigits(extractedItems.length)})` },
+                  {
+                    key: 'تأییدشده کارشناسی',
+                    label: `تأییدشده کارشناسی (${toPersianDigits(
+                      extractedItems.filter((i) => i.reviewStatus === 'تأییدشده کارشناسی').length
+                    )})`
+                  },
+                  {
+                    key: 'نیازمند بررسی',
+                    label: `نیازمند بررسی (${toPersianDigits(
+                      extractedItems.filter((i) => i.reviewStatus === 'نیازمند بررسی').length
+                    )})`
+                  },
+                  {
+                    key: 'ردشده با دلیل',
+                    label: `ردشده با دلیل (${toPersianDigits(
+                      extractedItems.filter((i) => i.reviewStatus.includes('رد')).length
+                    )})`
+                  }
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setExtractedStatusFilter(tab.key)}
+                  className={`px-3 py-1.5 rounded-xl font-bold transition-colors ${
+                    extractedStatusFilter === tab.key
+                      ? 'bg-[#1f4e79] text-white shadow-xs'
+                      : 'bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -1137,8 +1440,41 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-500">وضعیت بازبینی:</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* دکمه‌های اقدام سریع کارشناسی */}
+                    {item.reviewStatus !== 'تأییدشده کارشناسی' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onUpdateExtractedItemStatus(
+                            item.id,
+                            'تأییدشده کارشناسی',
+                            'کارشناس بازبین',
+                            item.researcherNote
+                          );
+                          onNotify(`مطلب ${item.id} با موفقیت تأیید شد و آماده انتشار گردید.`);
+                        }}
+                        className="min-h-[30px] px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>تأیید کارشناسی</span>
+                      </button>
+                    )}
+
+                    {!item.reviewStatus.includes('رد') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRejectingExtractedId(item.id);
+                          setExtractedRejectReason('');
+                        }}
+                        className="min-h-[30px] px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-800 rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                        <span>رد با ذکر دلیل</span>
+                      </button>
+                    )}
+
                     <select
                       value={item.reviewStatus}
                       onChange={(e) =>
@@ -1154,6 +1490,8 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                           ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
                           : item.reviewStatus === 'نیازمند بررسی'
                           ? 'bg-amber-50 border-amber-300 text-amber-800'
+                          : item.reviewStatus.includes('رد')
+                          ? 'bg-red-50 border-red-300 text-red-800'
                           : 'bg-slate-50 border-slate-300 text-slate-700'
                       }`}
                     >
@@ -1164,6 +1502,52 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                     </select>
                   </div>
                 </div>
+
+                {/* فرم بازشونده ثبت دلیل رد */}
+                {rejectingExtractedId === item.id && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs space-y-2">
+                    <div className="font-bold text-red-900 flex items-center gap-1.5">
+                      <AlertCircle className="w-4 h-4 text-red-600" />
+                      <span>ثبت دلیل رد برای مطلب {item.id}:</span>
+                    </div>
+                    <input
+                      type="text"
+                      value={extractedRejectReason}
+                      onChange={(e) => setExtractedRejectReason(e.target.value)}
+                      placeholder="علت رد (مثلاً: عدم تطبیق صفحه با متن، تشابه اسمی اشتباه، نقض حق نشر)..."
+                      className="w-full min-h-[38px] px-3 py-1.5 bg-white border border-red-300 rounded-lg text-slate-900"
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRejectingExtractedId(null)}
+                        className="px-3 py-1 text-slate-600 hover:text-slate-900"
+                      >
+                        انصراف
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!extractedRejectReason.trim()) {
+                            onNotify('لطفاً دلیل رد را بنویسید.', 'warning');
+                            return;
+                          }
+                          onUpdateExtractedItemStatus(
+                            item.id,
+                            'ردشده با دلیل',
+                            'کارشناس بازبین',
+                            `دلیل رد: ${extractedRejectReason.trim()}`
+                          );
+                          setRejectingExtractedId(null);
+                          onNotify(`مطلب ${item.id} با ثبت دلیل رد شد.`);
+                        }}
+                        className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg"
+                      >
+                        ثبت قطعی رد مطلب
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
                   <div className="md:col-span-9 space-y-1.5">
@@ -1184,8 +1568,14 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                     </p>
 
                     {item.researcherNote && (
-                      <div className="text-xs text-[#1f4e79]">
-                        <strong>یادداشت کارشناسی: </strong>
+                      <div
+                        className={`text-xs p-2 rounded-lg ${
+                          item.reviewStatus.includes('رد')
+                            ? 'bg-red-50 text-red-800 border border-red-200'
+                            : 'text-[#1f4e79]'
+                        }`}
+                      >
+                        <strong>{item.reviewStatus.includes('رد') ? 'علت رد کارشناسی: ' : 'یادداشت کارشناسی: '}</strong>
                         {item.researcherNote}
                       </div>
                     )}
@@ -1218,76 +1608,338 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
       {/* SubView 2: Sheet 4 — 567 Pending Review Items (موارد نیازمند بررسی PV-0001..PV-0567) */}
       {subView === 'pending567' && (
         <div className="space-y-4">
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setVisibleLimit(60);
-                }}
-                placeholder="جست‌وجو در ۵۶۷ مورد نیازمند بررسی (کد PV-0001، عنوان کتاب، نام شهید، موضوع بررسی)..."
-                className="w-full min-h-[44px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#1f4e79]"
-              />
+          {/* راهنمای فرآیند بررسی و تکمیل */}
+          <div className="bg-[#fff8ea] border border-[#f5dfad] rounded-2xl p-4 text-xs space-y-1.5">
+            <div className="font-bold text-[#8c5208] flex items-center gap-1.5 text-sm">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>میز تخصصی رفع اشکال و تکمیل موارد نیازمند بررسی (۵۶۷ سطر شیت ۴):</span>
             </div>
-            <div className="text-xs font-bold text-[#1f4e79] shrink-0">
-              تعداد موارد منطبق: {toPersianDigits(filteredPendingReviews.length)} مورد
+            <p className="text-slate-700 leading-relaxed">
+              این موارد در ورود اولیه اطلاعات دارای نواقصی مانند عدم ثبت صفحه، نامشخص بودن قطعه مزار یا عبارات چندشهیدی بوده‌اند. با زدن دکمه <strong>«بررسی، تکمیل و ثبت اطلاعات»</strong>، اطلاعات مستند را وارد نموده و با ذخیره، این مورد به وضعیت «بررسی‌شده» منتقل شده و در صورت تأیید، مستقیماً به بخش پیوندهای معتبر «ارتباط کتاب و شهید» اضافه می‌شود.
+            </p>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setVisibleLimit(60);
+                  }}
+                  placeholder="جست‌وجو در ۵۶۷ مورد نیازمند بررسی (کد PV-0001، عنوان کتاب، نام شهید، موضوع بررسی)..."
+                  className="w-full min-h-[44px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#1f4e79]"
+                />
+              </div>
+              <div className="text-xs font-bold text-[#1f4e79] shrink-0">
+                تعداد موارد منطبق با فیلتر: {toPersianDigits(filteredPendingReviews.length)} مورد
+              </div>
+            </div>
+
+            {/* نوار فیلتر وضعیت پیگیری */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs border-t border-slate-100">
+              <span className="text-slate-500 font-medium ml-1">فیلتر وضعیت:</span>
+              {(
+                [
+                  {
+                    key: 'open',
+                    label: `در انتظار بررسی (باز) (${toPersianDigits(
+                      pendingReviews.filter((p) => p.trackingStatus === 'باز').length
+                    )})`
+                  },
+                  {
+                    key: 'reviewed',
+                    label: `تکمیل و بررسی‌شده (${toPersianDigits(
+                      pendingReviews.filter((p) => p.trackingStatus === 'بررسی‌شده').length
+                    )})`
+                  },
+                  {
+                    key: 'needs_source',
+                    label: `نیازمند منبع (${toPersianDigits(
+                      pendingReviews.filter((p) => p.trackingStatus === 'نیازمند منبع').length
+                    )})`
+                  },
+                  {
+                    key: 'all',
+                    label: `همه موارد (${toPersianDigits(pendingReviews.length)})`
+                  }
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => {
+                    setPendingStatusFilter(tab.key);
+                    setVisibleLimit(60);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl font-bold transition-colors ${
+                    pendingStatusFilter === tab.key
+                      ? 'bg-[#1f4e79] text-white shadow-xs'
+                      : 'bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className="space-y-2.5">
-            {filteredPendingReviews.slice(0, visibleLimit).map((pv) => (
-              <div
-                key={pv.trackingId}
-                className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs"
-              >
-                <div className="space-y-1.5 flex-1">
-                  <div className="flex flex-wrap items-center gap-2 text-slate-500">
-                    <span className="font-mono font-bold text-[#1f4e79]" dir="ltr">
-                      {pv.trackingId}
-                    </span>
-                    <span>·</span>
-                    <span>شیت اصلی: {pv.mainSheet}</span>
-                    <span>·</span>
-                    <span className="font-mono font-semibold text-slate-700" dir="ltr">
-                      رکورد: {pv.mainRecordId}
-                    </span>
+          {/* فرم مودال بررسی و تکمیل اطلاعات رکورد انتخابی */}
+          {activeReviewPv && (
+            <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+              <div className="bg-white rounded-2xl shadow-2xl border-2 border-[#1f4e79] w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden text-xs my-auto animate-in fade-in duration-200">
+                <div className="bg-[#1f4e79] text-white p-4 flex items-center justify-between shrink-0">
+                  <div className="space-y-0.5">
+                    <h3 className="text-sm font-bold flex items-center gap-2">
+                      <span>بررسی، رفع اشکال و تکمیل اطلاعات</span>
+                      <span className="font-mono bg-white/20 px-2 py-0.5 rounded text-xs" dir="ltr">
+                        {activeReviewPv.trackingId}
+                      </span>
+                    </h3>
+                    <p className="text-[11px] text-blue-100">
+                      شیت مبدأ: {activeReviewPv.mainSheet} · رکورد مرجع: {activeReviewPv.mainRecordId}
+                    </p>
                   </div>
-
-                  <div className="text-sm font-bold text-slate-900">
-                    {pv.bookTitle} <span className="font-normal text-slate-600">({pv.publisher})</span>
-                    {pv.nameOrPhrase && (
-                      <span className="text-[#1f4e79] mr-2">— {pv.nameOrPhrase}</span>
-                    )}
-                  </div>
-
-                  <div className="text-amber-900 font-medium">
-                    موضوع بررسی: {pv.issueSubject}
-                  </div>
-                  <div className="text-slate-600">
-                    اقدام پیشنهادی: {pv.suggestedAction}
-                  </div>
-                </div>
-
-                <div className="shrink-0 flex items-center gap-2">
-                  <select
-                    value={pv.trackingStatus}
-                    onChange={(e) => onUpdatePendingReviewStatus(pv.trackingId, e.target.value)}
-                    className={`min-h-[38px] px-3 py-1.5 rounded-xl border font-bold text-xs ${
-                      pv.trackingStatus === 'بررسی‌شده'
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                        : 'bg-amber-50 border-amber-300 text-amber-900'
-                    }`}
+                  <button
+                    type="button"
+                    onClick={() => setActiveReviewPv(null)}
+                    className="p-1 hover:bg-white/20 rounded-lg text-white"
                   >
-                    <option value="باز">وضعیت: باز</option>
-                    <option value="بررسی‌شده">وضعیت: بررسی‌شده</option>
-                    <option value="نیازمند منبع">نیازمند منبع</option>
-                  </select>
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
+
+                <form onSubmit={handleSavePvReview} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
+                  {/* اطلاعات شناسنامه‌ای منبع */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5">
+                    <div className="text-slate-800 font-bold text-sm">
+                      کتاب: {activeReviewPv.bookTitle}{' '}
+                      <span className="text-xs font-normal text-slate-500">
+                        ({activeReviewPv.publisher})
+                      </span>
+                    </div>
+                    {activeReviewPv.nameOrPhrase && (
+                      <div className="text-slate-700">
+                        عبارت ثبت‌شده در منبع: <strong className="text-[#1f4e79]">{activeReviewPv.nameOrPhrase}</strong>
+                      </div>
+                    )}
+                    <div className="text-amber-900 font-semibold pt-1 border-t border-slate-200">
+                      موضوع اشکال: {activeReviewPv.issueSubject}
+                    </div>
+                    <div className="text-slate-600">
+                      اقدام پیشنهادی کارشناس ارشد: {activeReviewPv.suggestedAction}
+                    </div>
+                  </div>
+
+                  {/* فیلدهای تکمیل اطلاعات */}
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block font-bold text-slate-800 mb-1">
+                        نام شهید مستند و اصلاح‌شده *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={pvMartyrName}
+                        onChange={(e) => setPvMartyrName(e.target.value)}
+                        placeholder="نام و نام خانوادگی شهید..."
+                        className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-slate-900"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold text-slate-800 mb-1">
+                          شماره صفحه در کتاب (ارجاع صفحه) *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={pvPageRef}
+                          onChange={(e) => setPvPageRef(e.target.value)}
+                          placeholder="مثال: صص ۱۴-۱۸ یا ص ۴۲"
+                          className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl tabular-nums"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-slate-800 mb-1">
+                          تصمیم نهایی کارشناس *
+                        </label>
+                        <select
+                          value={pvTargetStatus}
+                          onChange={(e) => setPvTargetStatus(e.target.value)}
+                          className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-[#1f4e79]"
+                        >
+                          <option value="approved_to_links">
+                            تکمیل و تأیید شد (انتقال به پیوندهای معتبر کتاب و شهید)
+                          </option>
+                          <option value="reviewed_no_change">بررسی شد - بدون نیاز به تغییر</option>
+                          <option value="needs_source">نیازمند منبع تکمیلی / استخراج مجدد</option>
+                          <option value="rejected">رد پیوند (فاقد ارتباط معتبر)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="block font-medium text-slate-700 mb-1">قطعه مزار</label>
+                        <input
+                          type="text"
+                          value={pvGravePiece}
+                          onChange={(e) => setPvGravePiece(e.target.value)}
+                          placeholder="مثال: 26"
+                          className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-medium text-slate-700 mb-1">ردیف مزار</label>
+                        <input
+                          type="text"
+                          value={pvGraveRow}
+                          onChange={(e) => setPvGraveRow(e.target.value)}
+                          placeholder="مثال: 12"
+                          className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-medium text-slate-700 mb-1">شماره قبر</label>
+                        <input
+                          type="text"
+                          value={pvGraveNumber}
+                          onChange={(e) => setPvGraveNumber(e.target.value)}
+                          placeholder="مثال: 5"
+                          className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block font-medium text-slate-700 mb-1">
+                        یادداشت و دلیل تصمیم کارشناسی:
+                      </label>
+                      <input
+                        type="text"
+                        value={pvReviewerNote}
+                        onChange={(e) => setPvReviewerNote(e.target.value)}
+                        placeholder="توضیح درباره صحت منبع، تطبیق با گلزار یا مستندات صفحه..."
+                        className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setActiveReviewPv(null)}
+                      className="min-h-[42px] px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold"
+                    >
+                      انصراف
+                    </button>
+                    <button
+                      type="submit"
+                      className="min-h-[42px] px-5 py-2 bg-[#1f4e79] hover:bg-[#163a5b] text-white rounded-xl font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <Check className="w-4 h-4" />
+                      <span>ثبت نهایی و ذخیره در پرونده</span>
+                    </button>
+                  </div>
+                </form>
               </div>
-            ))}
+            </div>
+          )}
+
+          {/* لیست رکوردهای ۵۶۷ مورد */}
+          <div className="space-y-2.5">
+            {filteredPendingReviews.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-500 space-y-2">
+                <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
+                <p className="font-bold text-slate-800">هیچ موردی با فیلتر انتخابی یافت نشد.</p>
+                <p className="text-xs">
+                  {pendingStatusFilter === 'open'
+                    ? 'همه موارد در این بخش بررسی و تکمیل شده‌اند یا با فیلتر دیگری در دسترس‌اند.'
+                    : 'برای مشاهده سایر رکوردها، فیلتر وضعیت را تغییر دهید.'}
+                </p>
+              </div>
+            ) : (
+              filteredPendingReviews.slice(0, visibleLimit).map((pv) => (
+                <div
+                  key={pv.trackingId}
+                  className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs hover:border-slate-300 transition-colors"
+                >
+                  <div className="space-y-1.5 flex-1">
+                    <div className="flex flex-wrap items-center gap-2 text-slate-500">
+                      <span className="font-mono font-bold text-[#1f4e79]" dir="ltr">
+                        {pv.trackingId}
+                      </span>
+                      <span>·</span>
+                      <span>شیت اصلی: {pv.mainSheet}</span>
+                      <span>·</span>
+                      <span className="font-mono font-semibold text-slate-700" dir="ltr">
+                        رکورد: {pv.mainRecordId}
+                      </span>
+                      <span className="mr-auto">
+                        <span
+                          className={`px-2 py-0.5 rounded-md font-bold text-[11px] ${
+                            pv.trackingStatus === 'بررسی‌شده'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : pv.trackingStatus === 'نیازمند منبع'
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-amber-100 text-amber-900'
+                          }`}
+                        >
+                          وضعیت: {pv.trackingStatus}
+                        </span>
+                      </span>
+                    </div>
+
+                    <div className="text-sm font-bold text-slate-900">
+                      {pv.bookTitle} <span className="font-normal text-slate-600">({pv.publisher})</span>
+                      {pv.nameOrPhrase && (
+                        <span className="text-[#1f4e79] mr-2">— {pv.nameOrPhrase}</span>
+                      )}
+                    </div>
+
+                    <div className="text-amber-900 font-medium">
+                      موضوع بررسی: {pv.issueSubject}
+                    </div>
+                    <div className="text-slate-600">
+                      اقدام پیشنهادی: {pv.suggestedAction}
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenPvReview(pv)}
+                      className="min-h-[40px] px-3.5 py-1.5 bg-[#1f4e79] hover:bg-[#163a5b] text-white rounded-xl font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <span>بررسی و تکمیل اطلاعات ✍️</span>
+                    </button>
+
+                    <select
+                      value={pv.trackingStatus}
+                      onChange={(e) => {
+                        onUpdatePendingReviewStatus(pv.trackingId, e.target.value);
+                        onNotify(`وضعیت مورد ${pv.trackingId} به «${e.target.value}» تغییر یافت.`);
+                      }}
+                      className={`min-h-[40px] px-3 py-1.5 rounded-xl border font-bold text-xs ${
+                        pv.trackingStatus === 'بررسی‌شده'
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                          : 'bg-amber-50 border-amber-300 text-amber-900'
+                      }`}
+                    >
+                      <option value="باز">باز</option>
+                      <option value="بررسی‌شده">بررسی‌شده</option>
+                      <option value="نیازمند منبع">نیازمند منبع</option>
+                    </select>
+                  </div>
+                </div>
+              ))
+            )}
 
             {filteredPendingReviews.length > visibleLimit && (
               <button
@@ -1305,44 +1957,252 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
       {/* SubView 3: Sheet 5 — 196 Workbook Golzar Martyrs (شهدای گلزار SH-0001..SH-0196) */}
       {subView === 'shohada196' && (
         <div className="space-y-4">
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="جست‌وجو در ۱۹۶ رکورد شیت «شهدای گلزار» (نام شهید، قطعه، ردیف، شماره یا SH-0001)..."
-                className="w-full min-h-[44px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#1f4e79]"
-              />
+          {/* راهنمای تطبیق شهدای گلزار با مخزن کتابخانه */}
+          <div className="bg-[#f0fbf7] border border-[#b2e5d4] rounded-2xl p-4 text-xs space-y-1.5">
+            <div className="font-bold text-[#1a6348] flex items-center gap-1.5 text-sm">
+              <Users className="w-4 h-4 shrink-0" />
+              <span>میز تطبیق شهدای گلزار (۱۹۶ سطر شیت ۵) با ۹۸۰ عنوان کتاب مرجع:</span>
             </div>
-            <div className="text-xs font-bold text-[#1f4e79] shrink-0">
-              نمایش {toPersianDigits(filteredWorkbookMartyrs.length)} رکورد آدرس مزار
+            <p className="text-slate-700 leading-relaxed">
+              سامانه به‌صورت خودکار اسامی شهدای گلزار را با عناوین و متون ۹۸۰ کتاب مرجع کتابخانه بررسی می‌کند. در صورت کشف انطباق، کتاب به شما پیشنهاد می‌شود تا بتوانید با یک کلیک پیوند آن را تأیید، رد، یا برای بررسی عمیق‌تر به برگه «جست‌وجوی هوشمند» انتقال دهید.
+            </p>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="جست‌وجو در ۱۹۶ رکورد شیت «شهدای گلزار» (نام شهید، قطعه، ردیف، شماره یا SH-0001)..."
+                  className="w-full min-h-[44px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#1f4e79]"
+                />
+              </div>
+              <div className="text-xs font-bold text-[#1f4e79] shrink-0">
+                نمایش {toPersianDigits(filteredWorkbookMartyrs.length)} رکورد آدرس مزار
+              </div>
+            </div>
+
+            {/* فیلترهای وضعیت تطبیق کتاب برای شهدای گلزار */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs border-t border-slate-100">
+              <span className="text-slate-500 font-medium ml-1">فیلتر تطبیق با مخزن:</span>
+              {(
+                [
+                  { key: 'all', label: `همه (${toPersianDigits(workbookMartyrs.length)} شهید)` },
+                  {
+                    key: 'with_matched_book',
+                    label: `دارای کتاب منطبق در ۹۸۰ عنوان (${toPersianDigits(
+                      workbookMartyrs.filter((sh) => {
+                        const m = (golzarMartyrBookMatches.get(sh.tempPersonId) || []).filter(
+                          (x) => !(rejectedGolzarBookMatches[sh.tempPersonId] || []).includes(x.book.tempBookId)
+                        );
+                        return m.length > 0;
+                      }).length
+                    )})`
+                  },
+                  {
+                    key: 'linked',
+                    label: `تأییدشده و متصل به کتابخانه (${toPersianDigits(
+                      workbookMartyrs.filter((sh) => {
+                        const m = (golzarMartyrBookMatches.get(sh.tempPersonId) || []).filter(
+                          (x) => !(rejectedGolzarBookMatches[sh.tempPersonId] || []).includes(x.book.tempBookId)
+                        );
+                        return m.some((x) => x.matchType === 'existing_link');
+                      }).length
+                    )})`
+                  },
+                  {
+                    key: 'without_book',
+                    label: `فاقد کتاب منطبق در مخزن (${toPersianDigits(
+                      workbookMartyrs.filter((sh) => {
+                        const m = (golzarMartyrBookMatches.get(sh.tempPersonId) || []).filter(
+                          (x) => !(rejectedGolzarBookMatches[sh.tempPersonId] || []).includes(x.book.tempBookId)
+                        );
+                        return m.length === 0;
+                      }).length
+                    )})`
+                  }
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setGolzarFilter(tab.key)}
+                  className={`px-3 py-1.5 rounded-xl font-bold transition-colors ${
+                    golzarFilter === tab.key
+                      ? 'bg-[#1f4e79] text-white shadow-xs'
+                      : 'bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {filteredWorkbookMartyrs.map((sh) => (
-              <div
-                key={sh.tempPersonId}
-                className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2 text-xs"
-              >
-                <div className="flex items-center justify-between text-slate-500">
-                  <span className="font-mono font-bold text-[#1f4e79]" dir="ltr">
-                    {sh.tempPersonId}
-                  </span>
-                  <span>
-                    {sh.sourceFile} · ردیف {toPersianDigits(sh.sourceRow)}
-                  </span>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            {filteredWorkbookMartyrs.map((sh) => {
+              const allMatches = golzarMartyrBookMatches.get(sh.tempPersonId) || [];
+              const rejectedList = rejectedGolzarBookMatches[sh.tempPersonId] || [];
+              const validMatches = allMatches.filter((m) => !rejectedList.includes(m.book.tempBookId));
+              const isLinked = validMatches.some((m) => m.matchType === 'existing_link');
+
+              return (
+                <div
+                  key={sh.tempPersonId}
+                  className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3 text-xs hover:border-slate-300 transition-colors flex flex-col justify-between"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-slate-500 border-b border-slate-100 pb-2">
+                      <span className="font-mono font-bold text-[#1f4e79]" dir="ltr">
+                        {sh.tempPersonId}
+                      </span>
+                      <span>
+                        ردیف {toPersianDigits(sh.sourceRow)} شیت «{sh.sourceSheet}»
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-base font-bold text-slate-900">{sh.fullNameSearch}</h4>
+                      {isLinked && (
+                        <span className="bg-emerald-100 text-emerald-800 text-[11px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>متصل به کتابخانه</span>
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 tabular-nums">
+                      قطعه: {toPersianDigits(sh.piece || '—')} · ردیف: {toPersianDigits(sh.graveRow || '—')} · شماره:{' '}
+                      {toPersianDigits(sh.graveNumber || '—')}
+                      {sh.graveStatus && <span className="text-slate-500 text-[11px] mr-2">({sh.graveStatus})</span>}
+                    </div>
+
+                    {/* بخش تطبیق با ۹۸۰ کتاب مرجع */}
+                    {validMatches.length > 0 ? (
+                      <div className="bg-[#f0f7ff] border border-[#c6def8] rounded-xl p-3 space-y-2">
+                        <div className="font-bold text-[#1f4e79] flex items-center justify-between">
+                          <span className="flex items-center gap-1">
+                            <BookOpen className="w-3.5 h-3.5" />
+                            <span>کتاب‌های منطبق در ۹۸۰ عنوان مخزن ({toPersianDigits(validMatches.length)} مورد):</span>
+                          </span>
+                        </div>
+
+                        <div className="space-y-2">
+                          {validMatches.map((match) => (
+                            <div
+                              key={match.book.tempBookId}
+                              className="bg-white border border-slate-200 rounded-lg p-2.5 space-y-1.5"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <div className="font-bold text-slate-900 text-xs">
+                                    {match.book.titleRaw}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500">
+                                    کد: <span className="font-mono" dir="ltr">{match.book.tempBookId}</span>
+                                    {match.book.publisherRaw && ` · ناشر: ${match.book.publisherRaw}`}
+                                  </div>
+                                </div>
+                                <span
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                    match.matchType === 'existing_link'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : match.matchType === 'title_contains'
+                                      ? 'bg-blue-100 text-blue-800'
+                                      : 'bg-slate-100 text-slate-700'
+                                  }`}
+                                >
+                                  {match.matchType === 'existing_link'
+                                    ? 'پیوند تأییدشده'
+                                    : match.matchType === 'title_contains'
+                                    ? 'انطباق در عنوان'
+                                    : 'انطباق در شرح'}
+                                </span>
+                              </div>
+
+                              <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1 border-t border-slate-100">
+                                {match.matchType !== 'existing_link' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      onAddLink({
+                                        id: `RL-${String(links.length + 1).padStart(4, '0')}`,
+                                        tempBookId: match.book.tempBookId,
+                                        bookTitleRaw: match.book.titleRaw,
+                                        publisherRaw: match.book.publisherRaw,
+                                        martyrNameRaw: sh.fullNameSearch,
+                                        isGroupPhrase: false,
+                                        gravePieceRaw: sh.piece,
+                                        graveRowRaw: sh.graveRow,
+                                        graveNumberRaw: sh.graveNumber,
+                                        pageReferenceRaw: 'استخراج‌شده از شیت شهدای گلزار',
+                                        sourceDescriptionRaw: `تطبیق کارشناسی شهید گلزار (${sh.tempPersonId}) با کتاب ${match.book.tempBookId}`,
+                                        sourceFile: sh.sourceFile || 'فهرست کاری کتابخانه',
+                                        sourceSheet: sh.sourceSheet || 'شهدای گلزار',
+                                        sourceExcelRow: sh.sourceRow || '-',
+                                        reviewStatus: 'تأییدشده کارشناسی',
+                                        reviewerNote: 'تأیید پیوند شهید گلزار با مخزن کتابخانه'
+                                      });
+                                      onNotify(
+                                        `پیوند شهید «${sh.fullNameSearch}» با کتاب «${match.book.titleRaw}» با موفقیت تأیید و ثبت شد.`
+                                      );
+                                    }}
+                                    className="min-h-[28px] px-2.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                    <span>تأیید پیوند با کتاب</span>
+                                  </button>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => saveGolzarRejection(sh.tempPersonId, match.book.tempBookId)}
+                                  className="min-h-[28px] px-2 py-0.5 bg-slate-100 hover:bg-red-50 hover:text-red-700 text-slate-600 rounded-md text-[11px] font-medium transition-colors"
+                                  title="رد این عنوان کتاب برای این شهید"
+                                >
+                                  رد انطباق
+                                </button>
+
+                                {onJumpToSmartSearch && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onJumpToSmartSearch(sh.fullNameSearch)}
+                                    className="min-h-[28px] px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-[#1f4e79] rounded-md text-[11px] font-bold inline-flex items-center gap-1"
+                                    title="جست‌وجوی پیشرفته مشخصات این کتاب در برگه ۴"
+                                  >
+                                    <Sparkles className="w-3 h-3" />
+                                    <span>بررسی در برگه ۴</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <span className="text-slate-500 text-[11px]">
+                          فاقد عنوان منطبق در ۹۸۰ کتاب مخزن (نیازمند استخراج منبع جدید)
+                        </span>
+                        {onJumpToSmartSearch && (
+                          <button
+                            type="button"
+                            onClick={() => onJumpToSmartSearch(sh.fullNameSearch)}
+                            className="min-h-[30px] px-2.5 py-1 bg-white hover:bg-slate-100 text-[#1f4e79] border border-[#c9dced] rounded-lg text-[11px] font-bold inline-flex items-center gap-1 shrink-0"
+                          >
+                            <Search className="w-3 h-3" />
+                            <span>جست‌وجو در برگه ۴</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="text-base font-bold text-slate-900">{sh.fullNameSearch}</div>
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 tabular-nums">
-                  قطعه: {toPersianDigits(sh.piece || '—')} · ردیف: {toPersianDigits(sh.graveRow || '—')} · شماره:{' '}
-                  {toPersianDigits(sh.graveNumber || '—')}
-                </div>
-                <div className="text-[11px] text-slate-500">{sh.graveStatus}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -1350,15 +2210,60 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
       {/* SubView 4: 16 Multi-Martyr Groups Human Review Sheet (G001..G016) */}
       {subView === 'groups16' && (
         <div className="space-y-4">
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="space-y-1">
-              <h3 className="text-sm sm:text-base font-bold text-slate-900">
-                کاربرگ بازبینی کارشناس ۱۶ گروه شیت «چند شهید» (G001 تا G016 — ۱۹۸ ردیف داده)
-              </h3>
-              <p className="text-xs text-slate-600">
-                قاعده «عنوان‌دار = آغازگر گروه، بی‌عنوان = ادامه گروه» تا زمان ثبت تصمیم بازبین یک فرضیه ساختاری است. مقادیر خالی مزار (مانند ردیف ۱۱ در G002 و ردیف ۹۷ در G009) نباید حدسی پر شوند.
-              </p>
+          {/* راهنمای مفهومی ۱۶ گروه چندشهیدی */}
+          <div className="bg-[#fff9f0] border border-[#f5dfad] rounded-2xl p-4 text-xs space-y-1.5">
+            <div className="font-bold text-[#8c5208] flex items-center gap-1.5 text-sm">
+              <ClipboardCheck className="w-4 h-4 shrink-0" />
+              <span>مفهوم و کارکرد ۱۶ گروه چندشهیدی (شیت ۳ اکسل مرجع):</span>
             </div>
+            <p className="text-slate-700 leading-relaxed">
+              در شیت «چند شهید» اکسل اولیه، <strong>۱۶ عنوان کتاب شاخص</strong> (مانند <em>مدافعان حرم</em>، <em>یادگاران</em>، <em>دیدار در فکه</em>) قرار دارند که هر کدام به‌جای یک شهید، اسامی چندین شهید را به‌صورت پیاپی در بر گرفته‌اند (مجموعاً ۱۹۸ ردیف داده شهید).
+              کارشناس در این بخش مشخص می‌کند: آیا تمام شهدای این گروه واقعاً متعلق به همین کتاب هستند؟ آیا مرز شروع و پایان کتاب در اکسل درست تفکیک شده؟ با ثبت تصمیم نهایی، این رکورد به وضعیت تأیید یا پیگیری در سامانه به‌روزرسانی می‌شود.
+            </p>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {/* نوار فیلتر ۱۶ گروه */}
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-slate-500 font-medium ml-1">فیلتر بازبینی گروه‌ها:</span>
+              {(
+                [
+                  { key: 'all', label: `همه (۱۶ گروه)` },
+                  {
+                    key: 'pending',
+                    label: `در انتظار بازبینی (${toPersianDigits(
+                      multiMartyrGroups.filter((g) => g.decisionStatus.includes('انتظار')).length
+                    )})`
+                  },
+                  {
+                    key: 'approved',
+                    label: `تأییدشده (${toPersianDigits(
+                      multiMartyrGroups.filter((g) => g.decisionStatus === 'تأیید').length
+                    )})`
+                  },
+                  {
+                    key: 'rejected',
+                    label: `نیازمند پیگیری / رد (${toPersianDigits(
+                      multiMartyrGroups.filter((g) => g.decisionStatus === 'رد' || g.decisionStatus === 'نیازمند پیگیری').length
+                    )})`
+                  }
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setGroupsStatusFilter(tab.key)}
+                  className={`px-3 py-1.5 rounded-xl font-bold transition-colors ${
+                    groupsStatusFilter === tab.key
+                      ? 'bg-[#1f4e79] text-white shadow-xs'
+                      : 'bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
             <button
               type="button"
               onClick={exportGroupsCsv}
@@ -1370,12 +2275,12 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
           </div>
 
           <div className="space-y-3">
-            {multiMartyrGroups.map((grp) => {
+            {filteredMultiMartyrGroups.map((grp) => {
               const isEditing = editingGroupCode === grp.groupCode;
               return (
                 <div
                   key={grp.groupCode}
-                  className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3"
+                  className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 hover:border-slate-300 transition-colors"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2.5">
@@ -1416,9 +2321,9 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                         onClick={() =>
                           setEditingGroupCode(isEditing ? null : grp.groupCode)
                         }
-                        className="min-h-[38px] px-3 py-1.5 text-xs font-semibold border border-slate-300 rounded-xl hover:bg-slate-50"
+                        className="min-h-[38px] px-3.5 py-1.5 text-xs font-bold border border-[#1f4e79] text-[#1f4e79] rounded-xl hover:bg-blue-50 cursor-pointer"
                       >
-                        {isEditing ? 'بستن فرم بازبینی' : 'ثبت نظر بازبین'}
+                        {isEditing ? 'بستن فرم بازبینی' : 'ثبت نظر بازبین ✍️'}
                       </button>
                     </div>
                   </div>
@@ -1449,7 +2354,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                   </div>
 
                   {isEditing && (
-                    <div className="pt-3 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs bg-slate-50 p-3.5 rounded-xl">
+                    <div className="pt-3 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs bg-slate-50 p-4 rounded-xl">
                       <div>
                         <label className="block font-semibold text-slate-700 mb-1">
                           مرز گروه تأیید می‌شود؟
@@ -1503,10 +2408,9 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                               reviewDate: new Intl.DateTimeFormat('fa-IR').format(new Date())
                             })
                           }
-                          className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl font-bold"
+                          className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl font-bold text-[#1f4e79]"
                         >
                           <option value="در انتظار بازبینی کارشناس">در انتظار بازبینی کارشناس</option>
-                          <option value="در انتظار بازبینی انسانی">در انتظار بازبینی کارشناس (پیشین)</option>
                           <option value="تأیید">تأیید</option>
                           <option value="نیازمند پیگیری">نیازمند پیگیری</option>
                           <option value="رد">رد</option>
@@ -1548,6 +2452,27 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                           placeholder="توضیح درباره مرز گروه، شکست خط عنوان یا وضعیت مزار ناقص..."
                           className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl"
                         />
+                      </div>
+
+                      <div className="sm:col-span-2 lg:col-span-4 flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                        <button
+                          type="button"
+                          onClick={() => setEditingGroupCode(null)}
+                          className="min-h-[38px] px-3.5 py-1.5 bg-white border border-slate-300 text-slate-700 rounded-xl font-medium"
+                        >
+                          بستن
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingGroupCode(null);
+                            onNotify(`تصمیم کارشناس برای گروه ${grp.groupCode} با موفقیت در سامانه ثبت شد.`);
+                          }}
+                          className="min-h-[38px] px-5 py-1.5 bg-[#1f4e79] hover:bg-[#163a5b] text-white rounded-xl font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                        >
+                          <Check className="w-4 h-4" />
+                          <span>ثبت و ذخیره نهایی تصمیم بازبین</span>
+                        </button>
                       </div>
                     </div>
                   )}

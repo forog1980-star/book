@@ -81,6 +81,8 @@ const SMART_SUGGESTIONS_STORAGE_KEY = 'book_smart_suggestions_v1';
 const LEGACY_SMART_KEY = 'shohada_markaz_asnad_smart_suggestions_v1';
 const GROUPS_STORAGE_KEY = 'book_groups16_v1';
 const EXTRACTED_STORAGE_KEY = 'book_extracted_items_v1';
+const LINKS_STORAGE_KEY = 'book_martyr_links_v1';
+const PENDING_REVIEWS_STORAGE_KEY = 'book_pending_reviews_v1';
 const AUDIT_LOG_STORAGE_KEY = 'book_audit_log_v1';
 const USER_ROLE_STORAGE_KEY = 'book_user_role_v1';
 
@@ -153,8 +155,22 @@ export default function App() {
   });
 
   // Specialist Sheets State (836 Links, 567 Pending Reviews, 196 Workbook Martyrs)
-  const [links, setLinks] = useState<BookMartyrLinkRecord[]>(INITIAL_BOOK_MARTYR_LINKS);
-  const [pendingReviews, setPendingReviews] = useState<PendingReviewItem[]>([]);
+  const [links, setLinks] = useState<BookMartyrLinkRecord[]>(() => {
+    try {
+      const raw = localStorage.getItem(LINKS_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : INITIAL_BOOK_MARTYR_LINKS;
+    } catch {
+      return INITIAL_BOOK_MARTYR_LINKS;
+    }
+  });
+  const [pendingReviews, setPendingReviews] = useState<PendingReviewItem[]>(() => {
+    try {
+      const raw = localStorage.getItem(PENDING_REVIEWS_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
   const [workbookMartyrs, setWorkbookMartyrs] = useState<WorkbookGolzarMartyr[]>([]);
 
   // Auto-load all 5 sheets of /data/library_books.json on startup
@@ -251,7 +267,21 @@ export default function App() {
                 isGroupPhrase: status.includes('تفکیک نام') || /چند شهید|اشاره به/.test(martyrOrPhrase)
               });
             }
-            setLinks(lRows);
+            const localLinksRaw = localStorage.getItem(LINKS_STORAGE_KEY);
+            if (localLinksRaw) {
+              try {
+                const parsedLocal = JSON.parse(localLinksRaw);
+                if (Array.isArray(parsedLocal) && parsedLocal.length > 0) {
+                  setLinks(parsedLocal);
+                } else {
+                  setLinks(lRows);
+                }
+              } catch {
+                setLinks(lRows);
+              }
+            } else {
+              setLinks(lRows);
+            }
           }
 
           // 3. Parse Sheet «موارد نیازمند بررسی» (567 rows)
@@ -277,7 +307,21 @@ export default function App() {
                 trackingStatus: r[8] || 'باز'
               });
             }
-            setPendingReviews(pRows);
+            const localPvRaw = localStorage.getItem(PENDING_REVIEWS_STORAGE_KEY);
+            if (localPvRaw) {
+              try {
+                const parsedLocal = JSON.parse(localPvRaw);
+                if (Array.isArray(parsedLocal) && parsedLocal.length > 0) {
+                  setPendingReviews(parsedLocal);
+                } else {
+                  setPendingReviews(pRows);
+                }
+              } catch {
+                setPendingReviews(pRows);
+              }
+            } else {
+              setPendingReviews(pRows);
+            }
           }
 
           // 4. Parse Sheet «شهدای گلزار» (196 rows)
@@ -547,6 +591,24 @@ export default function App() {
       // ignore
     }
   }, [extractedItems]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LINKS_STORAGE_KEY, JSON.stringify(links));
+      idbSetItem(LINKS_STORAGE_KEY, links);
+    } catch {
+      // ignore
+    }
+  }, [links]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PENDING_REVIEWS_STORAGE_KEY, JSON.stringify(pendingReviews));
+      idbSetItem(PENDING_REVIEWS_STORAGE_KEY, pendingReviews);
+    } catch {
+      // ignore
+    }
+  }, [pendingReviews]);
 
   useEffect(() => {
     try {
@@ -1626,6 +1688,10 @@ export default function App() {
                 id,
                 `تغییر وضعیت بازبینی مطلب استخراج‌شده ${id} به «${status}»`
               );
+            }}
+            onJumpToSmartSearch={(martyrName) => {
+              setPreselectedSmartMartyrName(martyrName);
+              setActiveTab('smart_search');
             }}
             onNotify={showNotify}
           />
