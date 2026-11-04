@@ -1,0 +1,17 @@
+{
+  "id": "./",
+  "name": "سامانه مدیریت کتابخانه و پژوهش مرکز اسناد گلزار شهدای تهران",
+  "short_name": "کتابخانه مرکز اسناد",
+  "description": "نسخه محلی و نصب‌پذیر برای ثبت کتاب‌ها، نسخه‌های فیزیکی و یادداشت‌های پژوهشی",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#FBF8F3",
+  "theme_color": "#E8DBCF",
+  "icons": [
+    { "src": "./public/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
