@@ -32,6 +32,9 @@ jobs:
       - name: Install main application dependencies
         run: npm install --legacy-peer-deps
 
+      - name: Run TypeScript typecheck (lint)
+        run: npm run lint
+
       - name: Build the existing main application
         run: npm run build
 

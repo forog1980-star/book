@@ -32,6 +32,7 @@ import {
   normalizePersianText,
   toPersianDigits
 } from '../data/markazAsnadData';
+import { generateUniqueCopyId, generateUniqueOutsideBookId } from '../utils/idGenerator';
 
 interface QuickInventoryTabProps {
   catalogRows: ReferenceCatalogRow[];
@@ -791,9 +792,9 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
 
     const randomSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
     const recordKey = `OUT-${Date.now()}-${randomSuffix}`;
-    const outsideIdx =
-      Object.values(auditRecords).filter((r) => r.source === 'outside-list').length + 1;
-    const tempId = `TMP-OUT-${outsideIdx}`;
+    const existingBookIds = Object.values(auditRecords).map((r) => r.tempBookId);
+    const tempId = generateUniqueOutsideBookId(existingBookIds);
+    const { copyId: generatedOutCopyId } = generateUniqueCopyId(bookCopies, tempId);
     const locationCode = `${shelfValue}-${levelValue}`;
 
     const record: FieldAuditRecord = {
@@ -801,7 +802,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       source: 'outside-list',
       sheet: currentSheetName || 'خارج از فهرست مرجع',
       tempBookId: tempId,
-      copyId: `CP-OUT-${String(outsideIdx).padStart(4, '0')}`,
+      copyId: generatedOutCopyId,
       title: cleanTitle,
       author: outsideAuthor.trim(),
       publisher: outsidePublisher.trim(),
@@ -1956,8 +1957,10 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                             <button
                               type="button"
                               onClick={() => {
-                                const nextNum = bookCopies.length + 1;
-                                const newCid = `CP-${String(nextNum).padStart(6, '0')}`;
+                                const { copyId: newCid, copyNumber } = generateUniqueCopyId(
+                                  bookCopies,
+                                  selectedRow.tempBookId
+                                );
                                 const sh = (shelfValue || 'SH-01') as ShelfCode;
                                 const lv = (levelValue || 'T01') as LevelCode;
                                 const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
@@ -1970,12 +1973,17 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                   level: lv,
                                   location: `${sh}-${lv}`,
                                   observedDate: nowFa,
-                                  physicalCondition: 'healthy',
+                                  physicalCondition: physicalCondition || 'healthy',
                                   loanOrMoveStatus: 'در قفسه مرکز اسناد',
-                                  expertNote: `ثبت نسخه فیزیکی جدید برای کتاب ${selectedRow.tempBookId}`,
+                                  expertNote: `نسخه فیزیکی مستقل شماره ${toPersianDigits(
+                                    copyNumber
+                                  )} برای کتاب ${selectedRow.tempBookId}`,
                                   lastReviewedAt: nowFa,
                                   locationHistory: []
                                 });
+                                onNotify(
+                                  `نسخه فیزیکی مستقل ${newCid} برای کتاب «${selectedRow.titleRaw}» در محل ${sh}-${lv} ثبت شد.`
+                                );
                               }}
                               className="px-2.5 py-1 rounded-lg bg-[#2E7D5B] hover:bg-[#236247] text-white font-bold text-[11px]"
                             >

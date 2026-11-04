@@ -21,8 +21,10 @@ import {
   BookmarkCheck
 } from 'lucide-react';
 import {
+  BookCopyRecord,
   BookMartyrLinkRecord,
   ExtractedContentItem,
+  FieldAuditRecord,
   PendingReviewItem,
   ReferenceCatalogRow,
   WorkbookGolzarMartyr,
@@ -30,8 +32,18 @@ import {
   toPersianDigits
 } from '../data/markazAsnadData';
 
+export type DepositoryStatusFilter =
+  | 'verified_only'
+  | 'researched_main'
+  | 'pending_review'
+  | 'rejected'
+  | 'with_pages_only'
+  | 'all';
+
 interface DepositoryAndExportHubProps {
   catalogRows: ReferenceCatalogRow[];
+  auditRecords?: Record<string, FieldAuditRecord>;
+  bookCopies?: BookCopyRecord[];
   links: BookMartyrLinkRecord[];
   pendingReviews: PendingReviewItem[];
   workbookMartyrs?: WorkbookGolzarMartyr[];
@@ -78,6 +90,8 @@ export interface ResolvedBookExportItem {
 
 export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
   catalogRows,
+  auditRecords = {},
+  bookCopies = [],
   links,
   pendingReviews,
   workbookMartyrs = [],
@@ -87,7 +101,8 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
 }) => {
   const [activeView, setActiveView] = useState<'martyr_centric' | 'book_centric'>('martyr_centric');
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'verified_only' | 'with_pages_only'>('all');
+  // طبق بند ۹ دستور جامع: خروجی رسمی به‌طور پیش‌فرض فقط رکوردهای تأییدشده را شامل می‌شود
+  const [statusFilter, setStatusFilter] = useState<DepositoryStatusFilter>('verified_only');
   const [exportScope, setExportScope] = useState<'filtered' | 'all'>('filtered');
 
   // Map of books for fast lookup
@@ -100,6 +115,25 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
     });
     return map;
   }, [catalogRows]);
+
+  // نگاشت واقعی اطلاعات ثبت‌شده قفسه و نسخه‌های فیزیکی به ازای هر شناسه کتاب (بند ۱۰ دستور جامع)
+  const bookAuditAndCopyMap = useMemo(() => {
+    const auditByBookId = new Map<string, FieldAuditRecord>();
+    Object.values(auditRecords).forEach((rec) => {
+      if (rec.tempBookId) {
+        auditByBookId.set(rec.tempBookId, rec);
+      }
+    });
+    const copiesByBookId = new Map<string, BookCopyRecord[]>();
+    bookCopies.forEach((cp) => {
+      if (cp.bookId) {
+        const list = copiesByBookId.get(cp.bookId) || [];
+        list.push(cp);
+        copiesByBookId.set(cp.bookId, list);
+      }
+    });
+    return { auditByBookId, copiesByBookId };
+  }, [auditRecords, bookCopies]);
 
   // Map of extracted passages count per martyr name and bookId
   const extractedMap = useMemo(() => {
@@ -179,23 +213,36 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
 
     bookToMartyrs.forEach((data, bookId) => {
       const bObj = catalogMap.get(bookId);
-      const title = bObj?.titleRaw || (allMartyrRows.find((m) => m.bookId === bookId)?.bookTitle ?? bookId);
-      const author = bObj?.authorRaw || '—';
-      const publisher = bObj?.publisherRaw || '—';
-      const year = bObj?.yearRaw || '—';
-      const category = bObj?.categoryRaw || 'ادبیات پایداری و دفاع مقدس';
-      const shelf = bObj?.shelf || 'SH-نامشخص';
-      const floor = bObj?.floor || 'T-نامشخص';
-      const locationCode = shelf && floor ? `${shelf}-${floor}` : 'ثبت در مخزن';
+      const auditRec =
+        bookAuditAndCopyMap.auditByBookId.get(bookId) ||
+        (bObj ? auditRecords[bObj.rowKey] : undefined);
+      const copies = bookAuditAndCopyMap.copiesByBookId.get(bookId) || [];
+      const firstCopy = copies[0];
+
+      const title =
+        auditRec?.title ||
+        bObj?.titleRaw ||
+        (allMartyrRows.find((m) => m.bookId === bookId)?.bookTitle ?? bookId);
+      const author = auditRec?.author || bObj?.authorRaw || 'ثبت نشده';
+      const publisher = auditRec?.publisher || bObj?.publisherRaw || 'ثبت نشده';
+      const year = auditRec?.year || 'ثبت نشده';
+      const category = auditRec?.category || bObj?.categoryRaw || 'ثبت نشده';
+      const shelf = auditRec?.shelf || firstCopy?.shelf || 'ثبت نشده';
+      const floor = auditRec?.level || firstCopy?.level || 'ثبت نشده';
+      const locationCode =
+        auditRec?.location ||
+        firstCopy?.location ||
+        (bObj?.locationRaw && bObj.locationRaw.trim() ? bObj.locationRaw.trim() : 'ثبت نشده');
 
       const martyrsListSummary = data.martyrs
         .slice(0, 15)
         .map((m) => `${m.name} (ق.${m.piece}${m.page && m.page !== 'ثبت کارشناسی' ? ` - ${m.page}` : ''})`)
         .join('؛ ');
 
-      const pageReferencesSummary = Array.from(
-        new Set(data.martyrs.map((m) => m.page).filter((p) => p && p !== 'ثبت کارشناسی'))
-      ).join('، ') || 'ارجاع کلی اثر';
+      const pageReferencesSummary =
+        Array.from(
+          new Set(data.martyrs.map((m) => m.page).filter((p) => p && p !== 'ثبت کارشناسی'))
+        ).join('، ') || 'ارجاع کلی اثر';
 
       const relatedPassages = extractedItems.filter((ex) => ex.tempBookId === bookId);
 
@@ -218,9 +265,11 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
         reviewStatus:
           data.verifiedCount === data.martyrs.length
             ? 'تکمیل و تأییدشده کامل'
-            : `دارای ${toPersianDigits(data.verifiedCount)} شهید تأییدشده از ${toPersianDigits(
+            : data.verifiedCount > 0
+            ? `دارای ${toPersianDigits(data.verifiedCount)} شهید تأییدشده از ${toPersianDigits(
                 data.martyrs.length
-              )}`,
+              )}`
+            : 'در انتظار بررسی کارشناسی',
         extractedPassagesCount: relatedPassages.length
       });
     });
@@ -229,15 +278,42 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
     rows.sort((a, b) => b.linkedMartyrsCount - a.linkedMartyrsCount);
 
     return rows;
-  }, [allMartyrRows, catalogMap, extractedItems]);
+  }, [allMartyrRows, catalogMap, bookAuditAndCopyMap, auditRecords, extractedItems]);
+
+  // طبقه‌بندی دقیق چهارگانه وضعیت رکوردها (بند ۹ دستور جامع)
+  const classifyMartyrRowStatus = (
+    r: ResolvedMartyrExportItem
+  ): 'verified' | 'researched_main' | 'pending' | 'rejected' => {
+    const st = r.reviewStatus || '';
+    if (st.includes('رد')) return 'rejected';
+    if (st === 'تأییدشده کارشناسی' || st === 'تأیید') return 'verified';
+    if (
+      st.includes('تأیید') ||
+      r.sourceFile.includes('سوره مهر') ||
+      r.sourceSheet.includes('پژوهش')
+    ) {
+      return 'researched_main';
+    }
+    return 'pending';
+  };
 
   // Filtered views based on search & filter
   const filteredMartyrRows = useMemo(() => {
     const q = normalizePersianText(searchQuery);
     return allMartyrRows.filter((r) => {
-      if (statusFilter === 'verified_only' && !r.reviewStatus.includes('تأیید')) return false;
-      if (statusFilter === 'with_pages_only' && (r.pageReference === 'ثبت کارشناسی' || !r.pageReference))
+      const cat = classifyMartyrRowStatus(r);
+      if (statusFilter === 'verified_only' && cat !== 'verified' && cat !== 'researched_main') {
         return false;
+      }
+      if (statusFilter === 'researched_main' && cat !== 'researched_main') return false;
+      if (statusFilter === 'pending_review' && cat !== 'pending') return false;
+      if (statusFilter === 'rejected' && cat !== 'rejected') return false;
+      if (
+        statusFilter === 'with_pages_only' &&
+        (r.pageReference === 'ثبت کارشناسی' || r.pageReference === 'ثبت‌نشده' || !r.pageReference)
+      ) {
+        return false;
+      }
 
       if (!q) return true;
       const hay = normalizePersianText(
@@ -250,7 +326,18 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
   const filteredBookRows = useMemo(() => {
     const q = normalizePersianText(searchQuery);
     return allBookRows.filter((b) => {
-      if (statusFilter === 'verified_only' && !b.reviewStatus.includes('تکمیل و تأییدشده')) return false;
+      if (
+        statusFilter === 'verified_only' &&
+        !b.reviewStatus.includes('تأییدشده')
+      ) {
+        return false;
+      }
+      if (
+        statusFilter === 'pending_review' &&
+        b.reviewStatus.includes('تکمیل و تأییدشده کامل')
+      ) {
+        return false;
+      }
 
       if (!q) return true;
       const hay = normalizePersianText(
@@ -260,10 +347,23 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
     });
   }, [allBookRows, searchQuery, statusFilter]);
 
-  // Overall Statistics
+  // Overall Statistics with explicit 4-status breakdown (Directive #9)
   const stats = useMemo(() => {
     const uniqueMartyrNames = new Set(allMartyrRows.map((r) => r.martyrName)).size;
-    const verifiedLinksCount = allMartyrRows.filter((r) => r.reviewStatus.includes('تأیید')).length;
+    let expertApprovedCount = 0;
+    let mainResearchVerifiedCount = 0;
+    let pendingCount = 0;
+    let rejectedCount = 0;
+
+    allMartyrRows.forEach((r) => {
+      const c = classifyMartyrRowStatus(r);
+      if (c === 'verified') expertApprovedCount += 1;
+      else if (c === 'researched_main') mainResearchVerifiedCount += 1;
+      else if (c === 'rejected') rejectedCount += 1;
+      else pendingCount += 1;
+    });
+
+    const verifiedLinksCount = expertApprovedCount + mainResearchVerifiedCount;
     const booksWithLinksCount = allBookRows.length;
     const approvedExtractsCount = extractedItems.filter((e) => e.reviewStatus === 'تأییدشده کارشناسی').length;
     const pendingReviewsCount = pendingReviews.filter((p) => p.trackingStatus === 'باز').length;
@@ -271,6 +371,10 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
     return {
       uniqueMartyrs: uniqueMartyrNames,
       verifiedLinks: verifiedLinksCount,
+      expertApprovedCount,
+      mainResearchVerifiedCount,
+      pendingLinksCount: pendingCount,
+      rejectedLinksCount: rejectedCount,
       totalLinks: allMartyrRows.length,
       booksWithLinks: booksWithLinksCount,
       approvedExtracts: approvedExtractsCount,
@@ -682,14 +786,27 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
           <div className="sm:col-span-3">
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
+              onChange={(e) => setStatusFilter(e.target.value as DepositoryStatusFilter)}
               className="w-full min-h-[40px] px-3 py-2 bg-white border border-slate-300 rounded-xl text-slate-700 font-medium"
             >
-              <option value="all">همه رکوردهای دپو</option>
-              <option value="verified_only">فقط تأییدشده‌های کارشناسی</option>
+              <option value="verified_only">
+                خروجی رسمی: تأییدشده‌ها ({toPersianDigits(stats.verifiedLinks)})
+              </option>
+              <option value="researched_main">
+                بررسی‌شده در پژوهش اصلی ({toPersianDigits(stats.mainResearchVerifiedCount)})
+              </option>
+              <option value="pending_review">
+                در انتظار بررسی ({toPersianDigits(stats.pendingLinksCount)})
+              </option>
+              <option value="rejected">
+                ردشده ({toPersianDigits(stats.rejectedLinksCount)})
+              </option>
               {activeView === 'martyr_centric' && (
                 <option value="with_pages_only">فقط دارای شماره صفحه دقیق</option>
               )}
+              <option value="all">
+                همه وضعیت‌ها - بررسی داخلی ({toPersianDigits(stats.totalLinks)})
+              </option>
             </select>
           </div>
 

@@ -36,6 +36,7 @@ import {
 } from '../data/markazAsnadData';
 import { parsePersianVoiceBookCommand } from '../utils/voiceCommandParser';
 import { usePWAInstall } from '../utils/usePWAInstall';
+import { generateUniqueCopyId, generateUniqueOutsideBookId } from '../utils/idGenerator';
 
 interface HomeDashboardTabProps {
   catalogRows: ReferenceCatalogRow[];
@@ -180,9 +181,9 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
     }
     const nowIso = new Date().toISOString();
     const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
-    const outIdx = Object.keys(auditRecords).length + 1;
-    const tempBookId = `BK-V${String(outIdx).padStart(4, '0')}`;
-    const copyId = `CP-${String(bookCopies.length + outIdx).padStart(6, '0')}`;
+    const existingIds = Object.values(auditRecords).map((r) => r.tempBookId);
+    const tempBookId = generateUniqueOutsideBookId(existingIds);
+    const { copyId } = generateUniqueCopyId(bookCopies, tempBookId);
     const loc = `${previewShelf}-${previewLevel}`;
 
     const newRec: FieldAuditRecord = {
@@ -237,9 +238,9 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
     }
     const nowIso = new Date().toISOString();
     const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
-    const outIdx = Object.keys(auditRecords).length + 1;
-    const tempBookId = `BK-Q${String(outIdx).padStart(4, '0')}`;
-    const copyId = `CP-${String(bookCopies.length + outIdx).padStart(6, '0')}`;
+    const existingIds = Object.values(auditRecords).map((r) => r.tempBookId);
+    const tempBookId = generateUniqueOutsideBookId(existingIds);
+    const { copyId } = generateUniqueCopyId(bookCopies, tempBookId);
     const loc = `${quickShelf}-${quickLevel}`;
 
     const newRec: FieldAuditRecord = {
@@ -532,6 +533,9 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                           <span className="text-[#697586] mr-2">
                             · قطعه {m.piece || '—'} ردیف {m.graveRow || '—'} شماره{' '}
                             {m.graveNumber || '—'}
+                          </span>
+                          <span className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mr-1.5">
+                            نمونه شیت اولیه (۱۹۶ شهید)
                           </span>
                         </div>
                         <button

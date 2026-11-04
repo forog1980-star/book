@@ -64,7 +64,17 @@ import { BackupAndExportTab } from './components/BackupAndExportTab';
 import { PilotTestAndReportTab } from './components/PilotTestAndReportTab';
 import { ComprehensiveDocViewer } from './components/ComprehensiveDocViewer';
 import { useOnlineStatus, usePWAInstall } from './utils/usePWAInstall';
-import { idbGetItem, idbSetItem } from './utils/indexedDbStorage';
+import {
+  hydrateOperationalKey,
+  OPERATIONAL_STORAGE_KEYS,
+  saveOperationalData
+} from './utils/indexedDbStorage';
+import { generateUniqueLogId } from './utils/idGenerator';
+import {
+  createFullSystemBackupEnvelope,
+  FullOperationalState,
+  RejectedSuggestionRecord
+} from './utils/backupService';
 import {
   buildSorehMehrExtractedItems,
   enrichLinksWithSorehMehrResearch
@@ -463,7 +473,19 @@ export default function App() {
     }
   });
 
+  const [rejectedSuggestionsArchive, setRejectedSuggestionsArchive] = useState<
+    RejectedSuggestionRecord[]
+  >(() => {
+    try {
+      const raw = localStorage.getItem(OPERATIONAL_STORAGE_KEYS.rejectedSuggestions);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
   // 5 User Roles (مدیر سامانه، ثبت‌کننده کتاب، پژوهشگر، بازبین اطلاعات، مسئول تأیید و انتشار)
+  // توجه: این نقش‌ها صرفاً جهت ثبت نام نقش در تاریخچه گردش کار است و احراز هویت امنیتی محسوب نمی‌شود.
   const [activeUserRole, setActiveUserRole] = useState<UserRoleCode>(() => {
     try {
       const raw = localStorage.getItem(USER_ROLE_STORAGE_KEY) as UserRoleCode | null;
@@ -473,54 +495,100 @@ export default function App() {
     }
   });
 
-  // وضعیت‌های رهگیری نشست کاری و حفاظت قبل از خروج (پایگاه داده book)
+  // وضعیت‌های رهگیری نشست کاری، سلامت ذخیره‌ساز و حفاظت قبل از خروج (پایگاه داده book)
   const [sessionEditsCount, setSessionEditsCount] = useState<number>(0);
   const [lastSavedTime, setLastSavedTime] = useState<string>('');
+  const [storageStatus, setStorageStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [storageErrorMsg, setStorageErrorMsg] = useState<string>('');
+  const [isStorageHydrated, setIsStorageHydrated] = useState<boolean>(false);
   const [showExitConfirmModal, setShowExitConfirmModal] = useState<boolean>(false);
   const [isShiftEnded, setIsShiftEnded] = useState<boolean>(false);
 
-  // ممانعت از خروج ناخواسته مرورگر در صورت وجود تغییرات در نشست کاری
+  const markSessionModification = () => {
+    setSessionEditsCount((prev) => prev + 1);
+    const nowFaTime = new Intl.DateTimeFormat('fa-IR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    }).format(new Date());
+    setLastSavedTime(nowFaTime);
+  };
+
+  // ممانعت از خروج ناخواسته مرورگر در صورت وجود تغییرات در نشست کاری یا خطای ذخیره‌سازی
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (sessionEditsCount > 0) {
+      if (sessionEditsCount > 0 || storageStatus === 'error') {
         e.preventDefault();
-        e.returnValue = 'آیا از خروج از سامانه کتابخانه مطمئن هستید؟ اطلاعات در پایگاه book در حافظه گوشی ذخیره شده است.';
+        e.returnValue =
+          'تغییرات نشست کاری شما ثبت شده است؛ پیشنهاد می‌شود پیش از بستن کامل مرورگر، از منوی پایان شیفت پشتیبان کامل JSON دریافت نمایید.';
         return e.returnValue;
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [sessionEditsCount]);
+  }, [sessionEditsCount, storageStatus]);
 
-  // Hydrate from IndexedDB if localStorage was cleared
+  // بازیابی کامل و زمان‌بندی‌شده هر ۱۰ مجموعه داده عملیاتی از IndexedDB در شروع برنامه (بند ۴ و ۵ دستور جامع)
   useEffect(() => {
-    async function hydrateFromIdb() {
-      const idbAudit =
-        (await idbGetItem<Record<string, FieldAuditRecord>>(AUDIT_STORAGE_KEY)) ||
-        (await idbGetItem<Record<string, FieldAuditRecord>>(LEGACY_AUDIT_KEY));
-      if (idbAudit && Object.keys(auditRecords).length === 0 && Object.keys(idbAudit).length > 0) {
-        setAuditRecords(idbAudit);
-      }
-      const idbCopies =
-        (await idbGetItem<BookCopyRecord[]>(COPIES_STORAGE_KEY)) ||
-        (await idbGetItem<BookCopyRecord[]>(LEGACY_COPIES_KEY));
-      if (idbCopies && idbCopies.length > bookCopies.length) {
-        setBookCopies(idbCopies);
-      }
-      const idbMartyrs =
-        (await idbGetItem<CustomMartyrRecord[]>(CUSTOM_MARTYRS_STORAGE_KEY)) ||
-        (await idbGetItem<CustomMartyrRecord[]>(LEGACY_CUSTOM_MARTYRS_KEY));
-      if (idbMartyrs && idbMartyrs.length > customMartyrs.length) {
-        setCustomMartyrs(idbMartyrs);
-      }
-      const idbSmart =
-        (await idbGetItem<SmartSearchSuggestion[]>(SMART_SUGGESTIONS_STORAGE_KEY)) ||
-        (await idbGetItem<SmartSearchSuggestion[]>(LEGACY_SMART_KEY));
-      if (idbSmart && idbSmart.length > smartSuggestions.length) {
-        setSmartSuggestions(idbSmart);
+    let cancelled = false;
+    async function hydrateAllFromIdb() {
+      try {
+        const [
+          hydAudit,
+          hydCopies,
+          hydMartyrs,
+          hydSmart,
+          hydGroups,
+          hydExtracted,
+          hydLinks,
+          hydPending,
+          hydLog,
+          hydRejected
+        ] = await Promise.all([
+          hydrateOperationalKey<Record<string, FieldAuditRecord>>(AUDIT_STORAGE_KEY, auditRecords),
+          hydrateOperationalKey<BookCopyRecord[]>(COPIES_STORAGE_KEY, bookCopies),
+          hydrateOperationalKey<CustomMartyrRecord[]>(CUSTOM_MARTYRS_STORAGE_KEY, customMartyrs),
+          hydrateOperationalKey<SmartSearchSuggestion[]>(
+            SMART_SUGGESTIONS_STORAGE_KEY,
+            smartSuggestions
+          ),
+          hydrateOperationalKey<MultiMartyrGroupAudit[]>(GROUPS_STORAGE_KEY, multiMartyrGroups),
+          hydrateOperationalKey<ExtractedContentItem[]>(EXTRACTED_STORAGE_KEY, extractedItems),
+          hydrateOperationalKey<BookMartyrLinkRecord[]>(LINKS_STORAGE_KEY, links),
+          hydrateOperationalKey<PendingReviewItem[]>(PENDING_REVIEWS_STORAGE_KEY, pendingReviews),
+          hydrateOperationalKey<AuditLogEntry[]>(AUDIT_LOG_STORAGE_KEY, auditLog),
+          hydrateOperationalKey<RejectedSuggestionRecord[]>(
+            OPERATIONAL_STORAGE_KEYS.rejectedSuggestions,
+            rejectedSuggestionsArchive
+          )
+        ]);
+
+        if (cancelled) return;
+
+        if (hydAudit.source === 'indexedDB') setAuditRecords(hydAudit.value);
+        if (hydCopies.source === 'indexedDB') setBookCopies(hydCopies.value);
+        if (hydMartyrs.source === 'indexedDB') setCustomMartyrs(hydMartyrs.value);
+        if (hydSmart.source === 'indexedDB') setSmartSuggestions(hydSmart.value);
+        if (hydGroups.source === 'indexedDB') setMultiMartyrGroups(hydGroups.value);
+        if (hydExtracted.source === 'indexedDB') {
+          setExtractedItems(buildSorehMehrExtractedItems(hydExtracted.value));
+        }
+        if (hydLinks.source === 'indexedDB') {
+          setLinks(enrichLinksWithSorehMehrResearch(hydLinks.value));
+        }
+        if (hydPending.source === 'indexedDB') setPendingReviews(hydPending.value);
+        if (hydLog.source === 'indexedDB') setAuditLog(hydLog.value);
+        if (hydRejected.source === 'indexedDB') setRejectedSuggestionsArchive(hydRejected.value);
+      } finally {
+        if (!cancelled) {
+          setIsStorageHydrated(true);
+        }
       }
     }
-    hydrateFromIdb();
+    hydrateAllFromIdb();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Toast Notification
@@ -555,7 +623,7 @@ export default function App() {
 
     setAuditLog((prev) => [
       {
-        id: `LOG-${String(prev.length + 1).padStart(4, '0')}`,
+        id: generateUniqueLogId(prev),
         timestamp: nowFa,
         actorName: getRoleDisplayName(activeUserRole),
         actorRole: activeUserRole,
@@ -563,91 +631,67 @@ export default function App() {
         targetId,
         summary
       },
-      ...prev.slice(0, 199)
+      ...prev.slice(0, 299)
     ]);
   };
 
-  // Sync to localStorage & IndexedDB
-  useEffect(() => {
-    try {
-      localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(auditRecords));
-      idbSetItem(AUDIT_STORAGE_KEY, auditRecords);
-    } catch {
-      showNotify('ذخیره در حافظه مرورگر با خطا مواجه شد؛ فوراً خروجی پشتیبان بگیرید.', 'warning');
+  const persistWithStatus = async <T,>(key: string, value: T) => {
+    if (!isStorageHydrated) return;
+    setStorageStatus('saving');
+    const res = await saveOperationalData(key, value);
+    if (!res.ok) {
+      setStorageStatus('error');
+      setStorageErrorMsg(res.error || 'خطا در ذخیره‌سازی محلی');
+      showNotify(
+        res.error || 'ذخیره در حافظه مرورگر با خطا مواجه شد؛ فوراً پشتیبان کامل JSON بگیرید.',
+        'warning'
+      );
+    } else {
+      setStorageStatus('saved');
+      setStorageErrorMsg('');
     }
-  }, [auditRecords]);
+  };
+
+  // Sync to localStorage & IndexedDB (فقط پس از تکمیل Hydration اولیه)
+  useEffect(() => {
+    void persistWithStatus(AUDIT_STORAGE_KEY, auditRecords);
+  }, [auditRecords, isStorageHydrated]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(COPIES_STORAGE_KEY, JSON.stringify(bookCopies));
-      idbSetItem(COPIES_STORAGE_KEY, bookCopies);
-    } catch {
-      // ignore
-    }
-  }, [bookCopies]);
+    void persistWithStatus(COPIES_STORAGE_KEY, bookCopies);
+  }, [bookCopies, isStorageHydrated]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(CUSTOM_MARTYRS_STORAGE_KEY, JSON.stringify(customMartyrs));
-      idbSetItem(CUSTOM_MARTYRS_STORAGE_KEY, customMartyrs);
-    } catch {
-      // ignore
-    }
-  }, [customMartyrs]);
+    void persistWithStatus(CUSTOM_MARTYRS_STORAGE_KEY, customMartyrs);
+  }, [customMartyrs, isStorageHydrated]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(SMART_SUGGESTIONS_STORAGE_KEY, JSON.stringify(smartSuggestions));
-      idbSetItem(SMART_SUGGESTIONS_STORAGE_KEY, smartSuggestions);
-    } catch {
-      // ignore
-    }
-  }, [smartSuggestions]);
+    void persistWithStatus(SMART_SUGGESTIONS_STORAGE_KEY, smartSuggestions);
+  }, [smartSuggestions, isStorageHydrated]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(multiMartyrGroups));
-      idbSetItem(GROUPS_STORAGE_KEY, multiMartyrGroups);
-    } catch {
-      // ignore
-    }
-  }, [multiMartyrGroups]);
+    void persistWithStatus(GROUPS_STORAGE_KEY, multiMartyrGroups);
+  }, [multiMartyrGroups, isStorageHydrated]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(EXTRACTED_STORAGE_KEY, JSON.stringify(extractedItems));
-      idbSetItem(EXTRACTED_STORAGE_KEY, extractedItems);
-    } catch {
-      // ignore
-    }
-  }, [extractedItems]);
+    void persistWithStatus(EXTRACTED_STORAGE_KEY, extractedItems);
+  }, [extractedItems, isStorageHydrated]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(LINKS_STORAGE_KEY, JSON.stringify(links));
-      idbSetItem(LINKS_STORAGE_KEY, links);
-    } catch {
-      // ignore
-    }
-  }, [links]);
+    void persistWithStatus(LINKS_STORAGE_KEY, links);
+  }, [links, isStorageHydrated]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(PENDING_REVIEWS_STORAGE_KEY, JSON.stringify(pendingReviews));
-      idbSetItem(PENDING_REVIEWS_STORAGE_KEY, pendingReviews);
-    } catch {
-      // ignore
-    }
-  }, [pendingReviews]);
+    void persistWithStatus(PENDING_REVIEWS_STORAGE_KEY, pendingReviews);
+  }, [pendingReviews, isStorageHydrated]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(AUDIT_LOG_STORAGE_KEY, JSON.stringify(auditLog));
-      idbSetItem(AUDIT_LOG_STORAGE_KEY, auditLog);
-    } catch {
-      // ignore
-    }
-  }, [auditLog]);
+    void persistWithStatus(AUDIT_LOG_STORAGE_KEY, auditLog);
+  }, [auditLog, isStorageHydrated]);
+
+  useEffect(() => {
+    void persistWithStatus(OPERATIONAL_STORAGE_KEYS.rejectedSuggestions, rejectedSuggestionsArchive);
+  }, [rejectedSuggestionsArchive, isStorageHydrated]);
 
   useEffect(() => {
     try {
@@ -820,14 +864,75 @@ export default function App() {
       const nowFormatted = new Intl.DateTimeFormat('fa-IR-u-nu-latn')
         .format(new Date())
         .replace(/\//g, '-');
-      const fileName = `پشتیبان-کتابخانه-پایگاه-book-${nowFormatted}.xlsx`;
+      const fileName = `خروجی-تخصصی-اکسل-ثبت-قفسه-و-نسخه-فیزیکی-${nowFormatted}.xlsx`;
       XLSX.writeFile(wb, fileName);
-      showNotify(`فایل پشتیبان پایگاه book با نام «${fileName}» با موفقیت دانلود شد.`);
+      showNotify(
+        `خروجی تخصصی اکسل ثبت‌های قفسه و نسخه‌های فیزیکی با نام «${fileName}» دانلود شد. (برای پشتیبان کامل ۱۱ مجموعه سامانه از دکمه پشتیبان کامل JSON استفاده کنید)`
+      );
       return true;
     } catch {
       showNotify('خطا در صدور فایل اکسل.', 'warning');
       return false;
     }
+  };
+
+  const getFullOperationalState = (): FullOperationalState => ({
+    auditRecords,
+    bookCopies,
+    customMartyrs,
+    smartSuggestions,
+    links,
+    pendingReviews,
+    multiMartyrGroups,
+    extractedItems,
+    auditLog,
+    userSettings: {
+      activeRole: activeUserRole
+    },
+    rejectedSuggestionsArchive
+  });
+
+  const handleFullJsonBackupDownload = () => {
+    try {
+      const envelope = createFullSystemBackupEnvelope(getFullOperationalState(), '3.5.0');
+      const blob = new Blob([JSON.stringify(envelope, null, 2)], {
+        type: 'application/json;charset=utf-8'
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `markaz-asnad-full-backup-v3-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showNotify(
+        `پشتیبان کامل سامانه (JSON نسخه ۳ شامل هر ۱۱ مجموعه داده و ${toPersianDigits(
+          envelope.counts.totalOperationalItems
+        )} رکورد عملیاتی) با موفقیت دانلود شد.`
+      );
+      return true;
+    } catch {
+      showNotify('خطا در تولید فایل پشتیبان کامل JSON.', 'warning');
+      return false;
+    }
+  };
+
+  const handleApplyRestoredState = (restored: FullOperationalState, summaryMessage: string) => {
+    setAuditRecords(restored.auditRecords || {});
+    setBookCopies(restored.bookCopies || []);
+    setCustomMartyrs(restored.customMartyrs || []);
+    setSmartSuggestions(restored.smartSuggestions || []);
+    setLinks(enrichLinksWithSorehMehrResearch(restored.links || []));
+    setPendingReviews(restored.pendingReviews || []);
+    setMultiMartyrGroups(restored.multiMartyrGroups || []);
+    setExtractedItems(buildSorehMehrExtractedItems(restored.extractedItems || []));
+    setAuditLog(restored.auditLog || []);
+    setRejectedSuggestionsArchive(restored.rejectedSuggestionsArchive || []);
+    if (restored.userSettings?.activeRole) {
+      setActiveUserRole(restored.userSettings.activeRole);
+    }
+    markSessionModification();
+    appendAuditLog('بازیابی پشتیبان', 'FULL-BACKUP-V3', summaryMessage);
+    showNotify(summaryMessage);
   };
 
   const handleSaveAuditRecord = (record: FieldAuditRecord) => {
@@ -930,6 +1035,7 @@ export default function App() {
       }
       return next;
     });
+    markSessionModification();
   };
 
   const handleMigrateLegacyRecords = (): number => {
@@ -960,6 +1066,9 @@ export default function App() {
       }
       return next;
     });
+    if (migratedCount > 0) {
+      markSessionModification();
+    }
     return migratedCount;
   };
 
@@ -969,6 +1078,7 @@ export default function App() {
       delete next[key];
       return next;
     });
+    markSessionModification();
     showNotify('رکورد انتخابی از حافظه مرورگر حذف شد.');
   };
 
@@ -1138,7 +1248,7 @@ export default function App() {
                 </select>
               </div>
 
-              {/* ۳. کلید دریافت آخرین نسخه */}
+              {/* ۳. کلید دریافت آخرین نسخه (ایزوله و محدود به کش برنامه اصلی طبق بند ۱۷) */}
               <button
                 type="button"
                 onClick={async () => {
@@ -1146,12 +1256,20 @@ export default function App() {
                     if ('serviceWorker' in navigator) {
                       const regs = await navigator.serviceWorker.getRegistrations();
                       for (const r of regs) {
-                        await r.unregister();
+                        // هرگز Service Worker زیربرنامه مستقل /library-research/ را لغو نکن
+                        if (!r.scope.includes('/library-research/')) {
+                          await r.unregister();
+                        }
                       }
                     }
                     if ('caches' in window) {
                       const keys = await caches.keys();
-                      await Promise.all(keys.map((k) => caches.delete(k)));
+                      const ownKeys = keys.filter(
+                        (k) =>
+                          k.startsWith('markaz-asnad-main-book-') ||
+                          k.startsWith('markaz-asnad-pwa-')
+                      );
+                      await Promise.all(ownKeys.map((k) => caches.delete(k)));
                     }
                   } catch {
                     // ignore
@@ -1159,7 +1277,7 @@ export default function App() {
                   const cleanUrl = window.location.origin + window.location.pathname + '?v=' + Date.now();
                   window.location.replace(cleanUrl);
                 }}
-                title="پاک‌سازی کش مرورگر گوشی و دریافت آخرین نسخه از گیت‌هاب"
+                title="پاک‌سازی کش برنامه اصلی و دریافت آخرین نسخه بدون آسیب به سایر زیربرنامه‌ها"
                 className="flex-1 min-h-[34px] px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-bold bg-[#F5E6D3] text-[#8C3B2B] hover:bg-amber-200/70 border border-[#E6D5C1] rounded-lg transition-colors inline-flex items-center justify-center gap-1 min-w-0 whitespace-nowrap truncate cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5 shrink-0" />
@@ -1276,12 +1394,22 @@ export default function App() {
             <div className="flex items-center gap-2.5">
               <button
                 type="button"
+                onClick={handleFullJsonBackupDownload}
+                title="دانلود فایل پشتیبان کامل سامانه (JSON شامل تمام ۱۱ مجموعه داده)"
+                className="text-[#2E7D5B] hover:underline font-bold inline-flex items-center gap-1 text-[11px] cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>پشتیبان کامل JSON</span>
+              </button>
+              <span className="text-[#8C7A6B]">·</span>
+              <button
+                type="button"
                 onClick={handleQuickExcelExport}
-                title="خروجی سریع اکسل از کلیه رکوردهای پایگاه book"
+                title="خروجی تخصصی اکسل ثبت‌های قفسه و نسخه‌های فیزیکی"
                 className="text-[#1F4E79] hover:underline font-bold inline-flex items-center gap-1 text-[11px] cursor-pointer"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>خروجی اکسل book</span>
+                <span>خروجی تخصصی اکسل قفسه</span>
               </button>
               <span className="text-[#8C7A6B]">·</span>
               <button
@@ -1363,11 +1491,19 @@ export default function App() {
               <div className="pt-2 flex flex-col sm:flex-row gap-2.5">
                 <button
                   type="button"
-                  onClick={handleQuickExcelExport}
+                  onClick={handleFullJsonBackupDownload}
                   className="flex-1 min-h-[44px] px-4 py-2.5 bg-[#2E7D5B] hover:bg-[#236247] text-white font-bold text-xs rounded-xl inline-flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
+                  <Download className="w-4 h-4 shrink-0" />
+                  <span>دانلود پشتیبان کامل سامانه (JSON)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleQuickExcelExport}
+                  className="flex-1 min-h-[44px] px-4 py-2.5 bg-[#1F4E79] hover:bg-[#163858] text-white font-bold text-xs rounded-xl inline-flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                >
                   <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                  <span>دانلود فایل اکسل پشتیبان</span>
+                  <span>خروجی تخصصی اکسل قفسه و نسخه‌ها</span>
                 </button>
                 <button
                   type="button"
@@ -1588,11 +1724,13 @@ export default function App() {
             workbookMartyrs={workbookMartyrs}
             customMartyrs={customMartyrs}
             smartSuggestions={smartSuggestions}
+            rejectedSuggestionsArchive={rejectedSuggestionsArchive}
             links={links}
             extractedItems={extractedItems}
             initialMartyrQuery={preselectedSmartMartyrName}
             onAddSuggestion={(newSug: SmartSearchSuggestion) => {
               setSmartSuggestions((prev) => [newSug, ...prev]);
+              markSessionModification();
               appendAuditLog(
                 'بررسی پیشنهاد جست‌وجوی هوشمند',
                 newSug.id,
@@ -1603,6 +1741,37 @@ export default function App() {
               setSmartSuggestions((prev) =>
                 prev.map((s) => (s.id === updated.id ? updated : s))
               );
+              if (updated.reviewStatus === 'رد شده') {
+                setRejectedSuggestionsArchive((prev) => {
+                  const key = `${updated.martyrName}::${updated.bookTitle}`;
+                  const rec: RejectedSuggestionRecord = {
+                    id: updated.id,
+                    martyrId: updated.martyrId,
+                    martyrName: updated.martyrName,
+                    bookTitle: updated.bookTitle,
+                    bookId: updated.tempBookId || undefined,
+                    rejectedBy: updated.reviewerName || getRoleDisplayName(activeUserRole),
+                    rejectedAt: updated.reviewedAt || new Date().toLocaleDateString('fa-IR'),
+                    rejectionReason: updated.rejectionReason || updated.reviewerNote || 'رد کارشناسی',
+                    updatedAt: Date.now()
+                  };
+                  const filtered = prev.filter(
+                    (r) => `${r.martyrName}::${r.bookTitle}` !== key && r.id !== updated.id
+                  );
+                  return [rec, ...filtered];
+                });
+              } else {
+                // اگر از حالت ردشده خارج شد، از بایگانی ردشده‌ها نیز برداشته شود
+                setRejectedSuggestionsArchive((prev) =>
+                  prev.filter(
+                    (r) =>
+                      r.id !== updated.id &&
+                      `${r.martyrName}::${r.bookTitle}` !==
+                        `${updated.martyrName}::${updated.bookTitle}`
+                  )
+                );
+              }
+              markSessionModification();
               appendAuditLog(
                 'بررسی پیشنهاد جست‌وجوی هوشمند',
                 updated.id,
@@ -1611,20 +1780,20 @@ export default function App() {
             }}
             onDeleteSuggestion={(sugId: string) => {
               setSmartSuggestions((prev) => prev.filter((s) => s.id !== sugId));
-              setSessionEditsCount((prev) => prev + 1);
+              markSessionModification();
               appendAuditLog(
                 'بررسی پیشنهاد جست‌وجوی هوشمند',
                 sugId,
-                `حذف رکورد پیشنهاد ${sugId} از صف بررسی کارشناس`
+                `حذف رکورد پیشنهاد ${sugId} از صف بررسی کارشناس (بدون حذف ارتباطات تأییدشده)`
               );
             }}
             onClearAllSuggestions={() => {
               setSmartSuggestions([]);
-              setSessionEditsCount((prev) => prev + 1);
+              markSessionModification();
               appendAuditLog(
                 'بررسی پیشنهاد جست‌وجوی هوشمند',
                 'ALL',
-                'پاک‌سازی کامل صف بررسی کارشناس و صفر کردن همه رکوردهای جست‌وجو'
+                'پاک‌سازی صف بررسی کارشناس (حفظ کامل ارتباطات تأییدشده و بایگانی موارد ردشده)'
               );
             }}
             onApproveSuggestionToLinks={(sug: SmartSearchSuggestion, newLink: BookMartyrLinkRecord) => {
@@ -1632,6 +1801,7 @@ export default function App() {
                 prev.map((s) => (s.id === sug.id ? sug : s))
               );
               setLinks((prev) => [newLink, ...prev]);
+              markSessionModification();
               appendAuditLog(
                 'ثبت یا ویرایش ارتباط کتاب و شهید',
                 newLink.id,
@@ -1646,6 +1816,8 @@ export default function App() {
         {activeTab === 'research' && (
           <ResearchAndLinksTab
             catalogRows={catalogRows}
+            auditRecords={auditRecords}
+            bookCopies={bookCopies}
             links={links}
             pendingReviews={pendingReviews}
             workbookMartyrs={workbookMartyrs}
@@ -1653,6 +1825,7 @@ export default function App() {
             extractedItems={extractedItems}
             onAddLink={(newLnk) => {
               setLinks((prev) => [newLnk, ...prev]);
+              markSessionModification();
               appendAuditLog(
                 'ثبت یا ویرایش ارتباط کتاب و شهید',
                 `${newLnk.id} / ${newLnk.tempBookId}`,
@@ -1665,6 +1838,7 @@ export default function App() {
                   l.id === linkId ? { ...l, reviewStatus: status, reviewerNote: note } : l
                 )
               );
+              markSessionModification();
               appendAuditLog(
                 'ثبت یا ویرایش ارتباط کتاب و شهید',
                 linkId,
@@ -1677,6 +1851,7 @@ export default function App() {
                   pv.trackingId === trackingId ? { ...pv, trackingStatus: newStatus } : pv
                 )
               );
+              markSessionModification();
               appendAuditLog(
                 'تغییر وضعیت پیگیری',
                 trackingId,
@@ -1687,6 +1862,7 @@ export default function App() {
               setMultiMartyrGroups((prev) =>
                 prev.map((g) => (g.groupCode === updatedGroup.groupCode ? updatedGroup : g))
               );
+              markSessionModification();
               appendAuditLog(
                 'بازبینی گروه چندشهیدی',
                 updatedGroup.groupCode,
@@ -1695,6 +1871,7 @@ export default function App() {
             }}
             onAddExtractedItem={(newItem) => {
               setExtractedItems((prev) => [newItem, ...prev]);
+              markSessionModification();
               appendAuditLog(
                 'ثبت مطلب استخراج‌شده',
                 `${newItem.id} / ${newItem.tempBookId}`,
@@ -1714,6 +1891,7 @@ export default function App() {
                     : it
                 )
               );
+              markSessionModification();
               appendAuditLog(
                 'ثبت مطلب استخراج‌شده',
                 id,
@@ -1733,7 +1911,7 @@ export default function App() {
           <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-2 bg-white border border-slate-200 rounded-2xl p-3">
               <span className="text-xs font-bold text-[#253247] px-1">
-                پشتیبان JSON، خروجی Excel، نسخه آفلاین و گزارش‌های ۱۶گانه:
+                پشتیبان کامل JSON سامانه (۱۱ مجموعه داده)، خروجی‌های تخصصی Excel و گزارش‌های ۱۶گانه:
               </span>
               <div className="flex flex-wrap items-center gap-1.5 bg-[#F5F7FA] p-1 rounded-xl text-xs w-full sm:w-auto">
                 <button
@@ -1743,7 +1921,7 @@ export default function App() {
                     !showPilotSubView ? 'bg-[#1F4E79] text-white' : 'text-[#253247]'
                   }`}
                 >
-                  پشتیبان و خروجی‌ها
+                  پشتیبان کامل و خروجی‌ها
                 </button>
                 <button
                   type="button"
@@ -1763,6 +1941,8 @@ export default function App() {
                 catalogRows={catalogRows}
                 headers={headers}
                 currentSheetName={currentSheetName}
+                fullOperationalState={getFullOperationalState()}
+                onRestoreFullBackup={handleApplyRestoredState}
                 onMergeRecords={handleMergeRecords}
                 onMigrateLegacyRecords={handleMigrateLegacyRecords}
                 onDeleteSingleRecord={handleDeleteSingleRecord}
@@ -1774,12 +1954,14 @@ export default function App() {
                 catalogRows={catalogRows}
                 auditRecords={auditRecords}
                 bookCopies={bookCopies}
+                customMartyrs={customMartyrs}
                 links={links}
                 extractedItems={extractedItems}
                 pendingReviews={pendingReviews}
                 smartSuggestions={smartSuggestions}
                 multiMartyrGroups={multiMartyrGroups}
                 auditLog={auditLog}
+                fullOperationalState={getFullOperationalState()}
                 loadedFileName={loadedFileName}
                 currentSheetName={currentSheetName}
                 onLoadSample20PilotRecords={handleLoadSample20PilotRecords}
@@ -1956,19 +2138,37 @@ export default function App() {
               <div className="flex items-center justify-between">
                 <span className="text-[#5D4636]">محل و عنوان ثبت در گوشی:</span>
                 <span className="font-mono font-bold text-sm bg-white px-2 py-0.5 rounded border border-[#E6D5C1] text-[#8C3B2B]">
-                  book
+                  book (IndexedDB + localStorage)
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-[#5D4636]">ثبت‌ها و تغییرات انجام‌شده در این نشست:</span>
+                <span className="text-[#5D4636]">وضعیت واقعی ذخیره‌ساز محلی:</span>
+                {storageStatus === 'error' ? (
+                  <span className="font-bold text-red-700">
+                    خطا در ذخیره‌سازی ({storageErrorMsg || 'نیازمند دانلود پشتیبان JSON'}) ⚠️
+                  </span>
+                ) : storageStatus === 'saving' ? (
+                  <span className="font-bold text-amber-700">در حال ذخیره...</span>
+                ) : (
+                  <span className="font-bold text-[#2E7D5B]">تأییدشده و پایدار ✅</span>
+                )}
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[#5D4636]">کل عملیات و تغییرات ثبت‌شده در این نشست:</span>
                 <span className="font-bold text-[#2E7D5B] text-sm">
-                  {toPersianDigits(sessionEditsCount)} رکورد
+                  {toPersianDigits(sessionEditsCount)} عملیات
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-[#5D4636]">مجموع کل کتاب‌های ثبت‌شده در پایگاه book:</span>
+                <span className="text-[#5D4636]">کتاب‌های ثبت‌شده قفسه / نسخه‌های فیزیکی CP:</span>
                 <span className="font-bold text-slate-800">
-                  {toPersianDigits(totalSavedCount)} جلد
+                  {toPersianDigits(totalSavedCount)} کتاب / {toPersianDigits(bookCopies.length)} نسخه CP
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[#5D4636]">ارتباطات کتاب و شهید / شهدای اضافه‌شده:</span>
+                <span className="font-bold text-slate-800">
+                  {toPersianDigits(links.length)} ارتباط / {toPersianDigits(customMartyrs.length)} شهید
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -1979,20 +2179,46 @@ export default function App() {
               </div>
             </div>
 
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-950 flex items-start gap-2">
-              <CheckCircle2 className="w-4 h-4 text-[#2E7D5B] shrink-0 mt-0.5" />
-              <p className="leading-relaxed">
-                کلیه اطلاعات شما به صورت خودکار و پایدار در پایگاه <strong>book</strong> در حافظه مرورگر این گوشی ذخیره شده است. برای آسودگی خاطر کامل و پیشگیری از حذف احتمالی توسط مرورگر، پیشنهاد می‌شود پیش از خروج، یک نسخه فایل اکسل نیز دریافت نمایید.
-              </p>
-            </div>
+            {storageStatus === 'error' ? (
+              <div className="bg-red-50 border border-red-300 rounded-xl p-3 text-xs text-red-950 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
+                <p className="leading-relaxed font-semibold">
+                  هشدار: آخرین عملیات ذخیره‌سازی در حافظه مرورگر با خطا مواجه شده است. پیش از خروج حتماً روی دکمه «دریافت پشتیبان کامل سامانه (JSON)» کلیک کنید تا هیچ داده‌ای از دست نرود.
+                </p>
+              </div>
+            ) : (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-950 flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 text-[#2E7D5B] shrink-0 mt-0.5" />
+                <p className="leading-relaxed">
+                  کلیه ۱۱ مجموعه داده عملیاتی شما در پایگاه <strong>book</strong> (IndexedDB و localStorage) ذخیره شده است. توجه: برای <strong>پشتیبان کامل سامانه</strong> از خروجی JSON نسخه ۳ استفاده نمایید؛ خروجی اکسل صرفاً گزارش تخصصی ثبت‌های قفسه و نسخه‌های فیزیکی است.
+                </p>
+              </div>
+            )}
 
             <p className="text-xs text-slate-700 font-semibold text-center">
-              آیا مایلید از سامانه کتابخانه خارج شوید؟
+              آیا مایلید به شیفت کاری خود پایان دهید؟
             </p>
 
-            {/* کلیدهای سه‌گانه تصمیم‌گیری */}
+            {/* کلیدهای تصمیم‌گیری در پایان شیفت */}
             <div className="space-y-2 pt-1">
-              {/* گزینه ۱: دریافت اکسل و خروج */}
+              {/* گزینه ۱: دریافت پشتیبان کامل JSON (هر ۱۱ مجموعه داده) و خروج */}
+              <button
+                type="button"
+                onClick={() => {
+                  const ok = handleFullJsonBackupDownload();
+                  if (ok) {
+                    setSessionEditsCount(0);
+                    setShowExitConfirmModal(false);
+                    setIsShiftEnded(true);
+                  }
+                }}
+                className="w-full min-h-[46px] px-4 py-2.5 bg-[#2E7D5B] hover:bg-[#236247] text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 transition-colors shadow-xs cursor-pointer"
+              >
+                <Download className="w-4 h-4 shrink-0" />
+                <span>دریافت پشتیبان کامل سامانه (JSON شامل هر ۱۱ مجموعه) و خروج (توصیه‌شده)</span>
+              </button>
+
+              {/* گزینه ۲: دریافت خروجی تخصصی اکسل قفسه و خروج */}
               <button
                 type="button"
                 onClick={() => {
@@ -2001,28 +2227,29 @@ export default function App() {
                   setShowExitConfirmModal(false);
                   setIsShiftEnded(true);
                 }}
-                className="w-full min-h-[46px] px-4 py-2.5 bg-[#2E7D5B] hover:bg-[#236247] text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 transition-colors shadow-xs cursor-pointer"
+                className="w-full min-h-[42px] px-4 py-2 bg-[#1F4E79] hover:bg-[#163858] text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                <span>ذخیره قطعی + دریافت فوری فایل اکسل و خروج (توصیه‌شده)</span>
+                <span>دریافت خروجی تخصصی اکسل (ثبت‌های قفسه و نسخه‌های CP) و خروج</span>
               </button>
 
-              {/* گزینه ۲: خروج مستقیم با اطمینان از ذخیره در پایگاه book */}
+              {/* گزینه ۳: خروج مستقیم در صورت تأیید سلامت ذخیره‌ساز */}
               <button
                 type="button"
+                disabled={storageStatus === 'error'}
                 onClick={() => {
                   setSessionEditsCount(0);
                   setShowExitConfirmModal(false);
                   setIsShiftEnded(true);
                   showNotify('خروج با موفقیت ثبت شد. اطلاعات در پایگاه book در گوشی محفوظ است.');
                 }}
-                className="w-full min-h-[42px] px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                className="w-full min-h-[42px] px-4 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4 text-slate-500 shrink-0" />
-                <span>تأیید خروج (اطلاعات در پایگاه book روی گوشی ذخیره است)</span>
+                <span>تأیید خروج بدون دانلود فایل (داده‌ها در حافظه دستگاه ذخیره است)</span>
               </button>
 
-              {/* گزینه ۳: انصراف و بازگشت به کار */}
+              {/* گزینه ۴: انصراف و بازگشت به کار */}
               <button
                 type="button"
                 onClick={() => setShowExitConfirmModal(false)}

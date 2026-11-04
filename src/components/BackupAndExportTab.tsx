@@ -11,7 +11,9 @@ import {
   RefreshCw,
   Smartphone,
   BookOpen,
-  FileText
+  FileText,
+  ShieldCheck,
+  AlertTriangle
 } from 'lucide-react';
 import {
   FieldAuditRecord,
@@ -20,12 +22,22 @@ import {
 } from '../data/markazAsnadData';
 import { usePWAInstall } from '../utils/usePWAInstall';
 import { ComprehensiveDocViewer } from './ComprehensiveDocViewer';
+import {
+  BackupInspectionResult,
+  calculateCollectionCounts,
+  createFullSystemBackupEnvelope,
+  executeBackupRestore,
+  FullOperationalState,
+  inspectBackupFile
+} from '../utils/backupService';
 
 interface BackupAndExportTabProps {
   auditRecords: Record<string, FieldAuditRecord>;
   catalogRows: ReferenceCatalogRow[];
   headers: string[];
   currentSheetName: string;
+  fullOperationalState?: FullOperationalState;
+  onRestoreFullBackup?: (restoredState: FullOperationalState, summaryMessage: string) => void;
   onMergeRecords: (newEntries: Record<string, FieldAuditRecord>) => void;
   onMigrateLegacyRecords: () => number;
   onDeleteSingleRecord: (key: string) => void;
@@ -33,26 +45,25 @@ interface BackupAndExportTabProps {
   onOpenComprehensiveDoc?: () => void;
 }
 
-interface PendingRestorePreview {
-  fileName: string;
-  totalInFile: number;
-  newRecordsToAdd: Record<string, FieldAuditRecord>;
-  existingConflictCount: number;
-  invalidCount: number;
-}
-
 export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
   auditRecords,
   catalogRows,
   headers,
   currentSheetName,
+  fullOperationalState,
+  onRestoreFullBackup,
   onMergeRecords,
   onMigrateLegacyRecords,
   onDeleteSingleRecord,
   onNotify,
   onOpenComprehensiveDoc
 }) => {
-  const [restorePreview, setRestorePreview] = useState<PendingRestorePreview | null>(null);
+  const [restoreInspection, setRestoreInspection] = useState<{
+    fileName: string;
+    result: BackupInspectionResult;
+  } | null>(null);
+  const [restoreMode, setRestoreMode] = useState<'merge' | 'replace'>('merge');
+  const [isRestoring, setIsRestoring] = useState(false);
   const [showInstallGuideModal, setShowInstallGuideModal] = useState(false);
   const [showComprehensiveDocModal, setShowComprehensiveDocModal] = useState(false);
   const { isInstallable, isInstalled, install } = usePWAInstall();
@@ -65,6 +76,21 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
     }
   };
 
+  const effectiveState: FullOperationalState = fullOperationalState || {
+    auditRecords,
+    bookCopies: [],
+    customMartyrs: [],
+    smartSuggestions: [],
+    links: [],
+    pendingReviews: [],
+    multiMartyrGroups: [],
+    extractedItems: [],
+    auditLog: [],
+    userSettings: { activeRole: 'registrar' },
+    rejectedSuggestionsArchive: []
+  };
+
+  const liveCounts = calculateCollectionCounts(effectiveState);
   const recordsList = Object.values(auditRecords);
 
   // Detect any legacy SHSF-01-Qxx location codes in localStorage
@@ -89,27 +115,26 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
     setTimeout(() => URL.revokeObjectURL(url), 1500);
   };
 
-  // 1. Export JSON Backup
-  const handleExportJsonBackup = () => {
-    const payload = {
-      app: 'markaz-asnad-library-audit',
-      version: 2,
-      exportedAt: new Date().toISOString(),
-      recordCount: recordsList.length,
-      records: auditRecords
-    };
+  // ۱. دریافت پشتیبان کامل سامانه (JSON نسخه ۳ شامل هر ۱۱ مجموعه داده عملیاتی)
+  const handleExportFullJsonBackup = () => {
+    const envelope = createFullSystemBackupEnvelope(effectiveState, '3.5.0');
+    const dateStr = new Date().toISOString().slice(0, 10);
     downloadBlob(
-      'پشتیبان-نرم‌افزار-کتابخانه.json',
-      JSON.stringify(payload, null, 2),
+      `پشتیبان-کامل-سامانه-مرکز-اسناد-v3-${dateStr}.json`,
+      JSON.stringify(envelope, null, 2),
       'application/json;charset=utf-8'
     );
-    onNotify(`پشتیبان JSON شامل ${toPersianDigits(recordsList.length)} ثبت دانلود شد.`);
+    onNotify(
+      `پشتیبان کامل سامانه (JSON نسخه ۳ شامل هر ۱۱ مجموعه داده و مجموعاً ${toPersianDigits(
+        envelope.counts.totalOperationalItems
+      )} رکورد عملیاتی با Checksum کنترلی ${envelope.checksum}) دانلود شد.`
+    );
   };
 
-  // 2. Export Field Registrations CSV
+  // ۲. خروجی تخصصی CSV ثبت‌های میدانی قفسه
   const handleExportAuditCsv = () => {
     if (!recordsList.length) {
-      onNotify('هنوز ثبتی برای خروجی وجود ندارد.', 'warning');
+      onNotify('هنوز ثبتی در قفسه‌ها برای خروجی تخصصی CSV وجود ندارد.', 'warning');
       return;
     }
     const cols: [keyof FieldAuditRecord, string][] = [
@@ -135,14 +160,14 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
       cols.map((c) => csvCell(c[1])).join(','),
       ...recordsList.map((r) => cols.map((c) => csvCell(r[c[0]])).join(','))
     ];
-    downloadBlob('ثبت-فیزیکی-کتابخانه.csv', lines.join('\r\n'), 'text/csv;charset=utf-8');
-    onNotify('فایل «ثبت-فیزیکی-کتابخانه.csv» با موفقیت دانلود شد.');
+    downloadBlob('خروجی-تخصصی-ثبت-فیزیکی-کتابخانه.csv', lines.join('\r\n'), 'text/csv;charset=utf-8');
+    onNotify('فایل «خروجی-تخصصی-ثبت-فیزیکی-کتابخانه.csv» با موفقیت دانلود شد.');
   };
 
-  // 3. Export Proposed Excel Changes (.xlsx & .csv) without touching original file
+  // ۳. خروجی تخصصی تغییرات پیشنهادی Excel (بدون دستکاری فایل مرجع اصلی)
   const handleExportProposedExcel = () => {
     if (!recordsList.length) {
-      onNotify('هنوز ثبتی برای تهیه خروجی تغییرات Excel وجود ندارد.', 'warning');
+      onNotify('هنوز ثبتی برای تهیه خروجی تخصصی تغییرات Excel وجود ندارد.', 'warning');
       return;
     }
 
@@ -173,13 +198,13 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
     const ws = XLSX.utils.json_to_sheet(rowsForSheet);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'پیشنهاد تغییرات');
-    XLSX.writeFile(wb, 'پیشنهاد-تغییرات-برای-بررسی-اکسل.xlsx');
+    XLSX.writeFile(wb, 'خروجی-تخصصی-پیشنهاد-تغییرات-قفسه.xlsx');
     onNotify(
-      'فایل «پیشنهاد-تغییرات-برای-بررسی-اکسل.xlsx» تولید شد؛ فایل مرجع اصلی بدون تغییر باقی ماند.'
+      'فایل «خروجی-تخصصی-پیشنهاد-تغییرات-قفسه.xlsx» تولید شد؛ فایل مرجع اصلی بدون تغییر باقی ماند.'
     );
   };
 
-  // 4. Export Combined Reference Sheet + Physical Registrations (.xlsx)
+  // ۴. خروجی تخصصی تلفیقی شیت مرجع + ثبت‌های فیزیکی قفسه (.xlsx)
   const handleExportCombinedWorkbook = () => {
     const combinedHeader = [
       ...headers,
@@ -211,7 +236,6 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
       ]);
     }
 
-    // Also include outside-list books in a separate sheet so nothing is lost
     const outsideRecords = recordsList.filter((r) => r.source === 'outside-list');
 
     const wb = XLSX.utils.book_new();
@@ -237,11 +261,11 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
       XLSX.utils.book_append_sheet(wb, wsOutside, 'کتاب‌های خارج از فهرست');
     }
 
-    XLSX.writeFile(wb, 'فهرست-کاری-همراه-با-ثبت-فیزیکی-نسخه-پشتیبان.xlsx');
-    onNotify('فایل اکسل تلفیقی شیت مرجع + ثبت‌های فیزیکی و کتاب‌های خارج از فهرست دانلود شد.');
+    XLSX.writeFile(wb, 'خروجی-تخصصی-فهرست-کاری-و-ثبت-فیزیکی.xlsx');
+    onNotify('گزارش تخصصی اکسل تلفیقی شیت مرجع + ثبت‌های فیزیکی و کتاب‌های خارج از فهرست دانلود شد.');
   };
 
-  // 5. Safe JSON Restore with Pre-Flight Inspection
+  // ۵. بررسی و پیش‌نمایش فایل پشتیبان JSON (پشتیبانی از نسخه ۳ کامل و نسخه ۲ قدیمی)
   const handleSelectRestoreFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -249,49 +273,16 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const parsed = JSON.parse(String(reader.result || ''));
-        if (
-          !parsed ||
-          typeof parsed !== 'object' ||
-          !parsed.records ||
-          typeof parsed.records !== 'object' ||
-          Array.isArray(parsed.records)
-        ) {
-          throw new Error('ساختار فایل پشتیبان JSON معتبر نیست (فیلد records یافت نشد).');
-        }
-
-        const entries = Object.entries(parsed.records) as [string, FieldAuditRecord][];
-        if (!entries.length) {
-          onNotify('فایل پشتیبان انتخاب‌شده هیچ رکوردی ندارد.', 'warning');
+        const rawText = String(reader.result || '');
+        const inspection = inspectBackupFile(rawText, effectiveState);
+        if (!inspection.valid) {
+          onNotify(`خطا در بررسی فایل پشتیبان: ${inspection.error}`, 'warning');
           return;
         }
-
-        const newRecordsToAdd: Record<string, FieldAuditRecord> = {};
-        let existingConflictCount = 0;
-        let invalidCount = 0;
-
-        for (const [k, rec] of entries) {
-          if (!k || !rec || typeof rec !== 'object' || typeof rec.title !== 'string' || !rec.title.trim()) {
-            invalidCount++;
-            continue;
-          }
-          if (Object.prototype.hasOwnProperty.call(auditRecords, k)) {
-            existingConflictCount++;
-          } else {
-            newRecordsToAdd[k] = {
-              ...rec,
-              tempBookId: rec.tempBookId || k.split('::')[1] || k,
-              countedCopies: rec.countedCopies || '1'
-            };
-          }
-        }
-
-        setRestorePreview({
+        setRestoreMode('merge');
+        setRestoreInspection({
           fileName: file.name,
-          totalInFile: entries.length,
-          newRecordsToAdd,
-          existingConflictCount,
-          invalidCount
+          result: inspection
         });
       } catch (err) {
         onNotify(
@@ -305,16 +296,29 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
     reader.readAsText(file, 'utf-8');
   };
 
-  const confirmSafeMerge = () => {
-    if (!restorePreview) return;
-    const addedCount = Object.keys(restorePreview.newRecordsToAdd).length;
-    onMergeRecords(restorePreview.newRecordsToAdd);
-    onNotify(
-      `بازیابی امن انجام شد: ${toPersianDigits(addedCount)} ثبت جدید افزوده شد و ${toPersianDigits(
-        restorePreview.existingConflictCount
-      )} کلید موجود بدون بازنویسی حفظ گردید.`
-    );
-    setRestorePreview(null);
+  const handleConfirmRestore = async () => {
+    if (!restoreInspection) return;
+    setIsRestoring(true);
+    try {
+      const res = await executeBackupRestore(
+        restoreInspection.result,
+        effectiveState,
+        restoreMode
+      );
+      if (!res.ok) {
+        onNotify(res.error || res.summaryMessage, 'warning');
+        return;
+      }
+      if (onRestoreFullBackup) {
+        onRestoreFullBackup(res.restoredState, res.summaryMessage);
+      } else {
+        onMergeRecords(res.restoredState.auditRecords);
+        onNotify(res.summaryMessage);
+      }
+      setRestoreInspection(null);
+    } finally {
+      setIsRestoring(false);
+    }
   };
 
   return (
@@ -362,17 +366,17 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
                 شناسایی کدهای قدیمی قفسه (SHSF-01-Qxx) در حافظه مرورگر ({toPersianDigits(legacyRecords.length)} مورد)
               </h3>
               <p className="leading-relaxed">
-                مطابق اولویت ۱ گزارش فنی، پیش از تبدیل کدهای قدیمی `SHSF-01-Q01..Q06` به الگوی مصوب `SH-01-T01..T06`، ابتدا یک نسخه پشتیبان JSON دریافت کنید و سپس تبدیل امن را اجرا نمایید.
+                مطابق اولویت ۱ گزارش فنی، پیش از تبدیل کدهای قدیمی `SHSF-01-Q01..Q06` به الگوی مصوب `SH-01-T01..T06`، ابتدا یک نسخه پشتیبان کامل JSON دریافت کنید و سپس تبدیل امن را اجرا نمایید.
               </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={handleExportJsonBackup}
+              onClick={handleExportFullJsonBackup}
               className="min-h-[42px] px-4 py-2 bg-white border border-amber-500 text-amber-950 text-xs font-bold rounded-xl"
             >
-              ۱. دریافت پشتیبان JSON پیش از مهاجرت
+              ۱. دریافت پشتیبان کامل JSON پیش از مهاجرت
             </button>
             <button
               type="button"
@@ -391,82 +395,102 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
         </div>
       )}
 
-      {/* Main Export & Backup Grid */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
-        <div>
-          <h2 className="text-base sm:text-lg font-bold text-slate-900">
-            پشتیبان‌گیری، بازیابی امن JSON و خروجی‌های بررسی Excel
-          </h2>
-          <p className="text-xs text-slate-600 mt-1">
-            اطلاعات ثبت‌شده در حافظه مرورگر همین دستگاه نگهداری می‌شود. پایان هر نوبت کاری، حتماً «پشتیبان JSON» و «خروجی پیشنهاد تغییرات Excel» را دریافت و در محل امن ذخیره کنید.
-          </p>
+      {/* بخش ۱: پشتیبان کامل سامانه (JSON نسخه ۳ - شامل هر ۱۱ مجموعه داده عملیاتی) */}
+      <div className="bg-white border-2 border-[#2E7D5B] rounded-2xl p-5 space-y-4 shadow-xs">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-[#2E7D5B]" />
+              <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                پشتیبان کامل سامانه (Full System JSON Backup — نسخه ۳)
+              </h2>
+              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200">
+                شامل هر ۱۱ مجموعه داده عملیاتی + Checksum
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+              تنها خروجی <strong>JSON نسخه ۳</strong> به عنوان <strong>«پشتیبان کامل سامانه»</strong> محسوب می‌شود و کلیه داده‌های ثبت‌شده شما در تمام تب‌ها را پوشش می‌دهد. در زمان بازیابی نیز هر دو قالب نسخه ۳ و فایل‌های قدیمی نسخه ۲ پشتیبانی می‌شوند.
+            </p>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <button
-            type="button"
-            onClick={handleExportProposedExcel}
-            className="min-h-[54px] p-4 bg-[#1f4e79] hover:bg-[#163a5b] text-white rounded-2xl text-right flex items-center justify-between gap-3 transition-colors"
-          >
-            <div>
-              <div className="font-bold text-sm">خروجی تغییرات برای بررسی Excel</div>
-              <div className="text-[11px] text-sky-100 mt-0.5">
-                فایل .xlsx مستقل (بدون تغییر فایل مرجع اصلی)
-              </div>
-            </div>
-            <FileSpreadsheet className="w-5 h-5 shrink-0" />
-          </button>
+        {/* خلاصه آمار ۱۱ مجموعه داده عملیاتی داخل پشتیبان کامل */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs bg-[#FAF3EA] border border-[#E6D5C1] rounded-xl p-3">
+          <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+            <span className="text-slate-500 block text-[11px]">۱. ثبت‌های قفسه (BK):</span>
+            <strong className="text-sm font-bold text-slate-900">{toPersianDigits(liveCounts.auditRecords)}</strong>
+          </div>
+          <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+            <span className="text-slate-500 block text-[11px]">۲. نسخه‌های فیزیکی (CP):</span>
+            <strong className="text-sm font-bold text-slate-900">{toPersianDigits(liveCounts.bookCopies)}</strong>
+          </div>
+          <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+            <span className="text-slate-500 block text-[11px]">۳. شهدای ثبتی کاربر:</span>
+            <strong className="text-sm font-bold text-slate-900">{toPersianDigits(liveCounts.customMartyrs)}</strong>
+          </div>
+          <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+            <span className="text-slate-500 block text-[11px]">۴. ارتباطات کتاب و شهید:</span>
+            <strong className="text-sm font-bold text-slate-900">{toPersianDigits(liveCounts.links)}</strong>
+          </div>
+          <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+            <span className="text-slate-500 block text-[11px]">۵. صف نیازمند بررسی:</span>
+            <strong className="text-sm font-bold text-slate-900">{toPersianDigits(liveCounts.pendingReviews)}</strong>
+          </div>
+          <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+            <span className="text-slate-500 block text-[11px]">۶. ۱۶ گروه چندشهیدی:</span>
+            <strong className="text-sm font-bold text-slate-900">{toPersianDigits(liveCounts.multiMartyrGroups)}</strong>
+          </div>
+          <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+            <span className="text-slate-500 block text-[11px]">۷. مطالب استخراج‌شده:</span>
+            <strong className="text-sm font-bold text-slate-900">{toPersianDigits(liveCounts.extractedItems)}</strong>
+          </div>
+          <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+            <span className="text-slate-500 block text-[11px]">۸. صف پیشنهاد هوشمند:</span>
+            <strong className="text-sm font-bold text-slate-900">{toPersianDigits(liveCounts.smartSuggestions)}</strong>
+          </div>
+          <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+            <span className="text-slate-500 block text-[11px]">۹. بایگانی ردشده‌ها:</span>
+            <strong className="text-sm font-bold text-slate-900">{toPersianDigits(liveCounts.rejectedSuggestionsArchive)}</strong>
+          </div>
+          <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+            <span className="text-slate-500 block text-[11px]">۱۰. تاریخچه عملیات:</span>
+            <strong className="text-sm font-bold text-slate-900">{toPersianDigits(liveCounts.auditLog)}</strong>
+          </div>
+          <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+            <span className="text-slate-500 block text-[11px]">۱۱. تنظیمات نقش کاربر:</span>
+            <strong className="text-sm font-bold text-slate-900">{toPersianDigits(liveCounts.userSettings)}</strong>
+          </div>
+          <div className="bg-emerald-50 p-2.5 rounded-lg border border-emerald-300">
+            <span className="text-emerald-800 block text-[11px] font-bold">مجموع کل رکوردها:</span>
+            <strong className="text-sm font-extrabold text-emerald-900">
+              {toPersianDigits(liveCounts.totalOperationalItems)}
+            </strong>
+          </div>
+        </div>
 
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <button
             type="button"
-            onClick={handleExportCombinedWorkbook}
-            className="min-h-[54px] p-4 bg-emerald-800 hover:bg-emerald-900 text-white rounded-2xl text-right flex items-center justify-between gap-3 transition-colors"
+            onClick={handleExportFullJsonBackup}
+            className="min-h-[58px] p-4 bg-[#2E7D5B] hover:bg-[#236347] text-white rounded-2xl text-right flex items-center justify-between gap-3 transition-colors cursor-pointer shadow-xs"
           >
             <div>
-              <div className="font-bold text-sm">خروجی کامل شیت + ثبت‌های فیزیکی</div>
+              <div className="font-bold text-sm">دریافت پشتیبان کامل سامانه (JSON نسخه ۳)</div>
               <div className="text-[11px] text-emerald-100 mt-0.5">
-                کپی کامل شیت به همراه ستون‌های محل و کتاب‌های خارج از فهرست
+                شامل هر ۱۱ مجموعه داده عملیاتی + کد کنترلی Checksum و زمان‌بندی
               </div>
             </div>
-            <Download className="w-5 h-5 shrink-0" />
+            <FileJson className="w-6 h-6 shrink-0" />
           </button>
 
-          <button
-            type="button"
-            onClick={handleExportAuditCsv}
-            className="min-h-[54px] p-4 bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 rounded-2xl text-right flex items-center justify-between gap-3 transition-colors"
-          >
+          <label className="min-h-[58px] p-4 bg-[#edf4fa] hover:bg-[#dfeaf5] text-[#162b3b] border-2 border-[#1f4e79] rounded-2xl text-right flex items-center justify-between gap-3 cursor-pointer transition-colors">
             <div>
-              <div className="font-bold text-sm">خروجی CSV ثبت‌های میدانی</div>
-              <div className="text-[11px] text-slate-600 mt-0.5">
-                فایل متنی سازگار با Excel (UTF-8 BOM)
+              <div className="font-bold text-sm">بازیابی کامل یا ادغام امن پشتیبان JSON (با پیش‌نمایش)</div>
+              <div className="text-[11px] text-slate-700 mt-0.5">
+                پشتیبانی از نسخه ۳ (۱۱ مجموعه) و نسخه ۲ قدیمی؛ دارای محافظت Rollback خودکار
               </div>
             </div>
-            <Download className="w-5 h-5 shrink-0 text-[#1f4e79]" />
-          </button>
-
-          <button
-            type="button"
-            onClick={handleExportJsonBackup}
-            className="min-h-[54px] p-4 bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 rounded-2xl text-right flex items-center justify-between gap-3 transition-colors"
-          >
-            <div>
-              <div className="font-bold text-sm">دریافت پشتیبان کامل JSON</div>
-              <div className="text-[11px] text-slate-600 mt-0.5">
-                مناسب نگهداری روزانه و انتقال بین گوشی و رایانه
-              </div>
-            </div>
-            <FileJson className="w-5 h-5 shrink-0 text-[#1f4e79]" />
-          </button>
-
-          <label className="sm:col-span-2 min-h-[54px] p-4 bg-[#edf4fa] hover:bg-[#dfeaf5] text-[#162b3b] border border-[#b8d0e8] rounded-2xl text-right flex items-center justify-between gap-3 cursor-pointer transition-colors">
-            <div>
-              <div className="font-bold text-sm">بازیابی / ادغام امن پشتیبان JSON (با پیش‌نمایش)</div>
-              <div className="text-[11px] text-slate-600 mt-0.5">
-                بررسی ساختار پیش از اعمال؛ کلیدهای موجود هرگز به‌طور خودکار بازنویسی نمی‌شوند
-              </div>
-            </div>
-            <Upload className="w-5 h-5 shrink-0 text-[#1f4e79]" />
+            <Upload className="w-6 h-6 shrink-0 text-[#1f4e79]" />
             <input
               type="file"
               accept=".json,application/json"
@@ -476,58 +500,235 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
           </label>
         </div>
 
-        {/* Pre-flight Restore Preview Modal / Box (Priority 2 of Technical Report) */}
-        {restorePreview && (
-          <div className="mt-4 bg-[#f2f7fb] border-2 border-[#1f4e79] rounded-2xl p-4 sm:p-5 space-y-3">
-            <h3 className="text-sm font-bold text-slate-900">
-              پیش‌نمایش بررسی امن فایل پشتیبان: «{restorePreview.fileName}»
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-              <div className="bg-white p-3 rounded-xl border border-slate-200">
-                <span className="text-slate-500 block">کل ثبت‌های داخل فایل:</span>
-                <strong className="text-base font-bold text-slate-900 tabular-nums">
-                  {toPersianDigits(restorePreview.totalInFile)}
+        {/* پیش‌نمایش جامع بررسی فایل پشتیبان پیش از بازیابی (بند ۲ دستور جامع) */}
+        {restoreInspection && (
+          <div className="mt-4 bg-[#f2f7fb] border-2 border-[#1f4e79] rounded-2xl p-4 sm:p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-300 pb-3">
+              <div>
+                <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                  پیش‌نمایش و گزارش تفاوت‌های فایل پشتیبان: «{restoreInspection.fileName}»
+                </h3>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  نسخه تشخیص‌داده‌شده:{' '}
+                  <strong>
+                    طرح‌واره نسخه {toPersianDigits(restoreInspection.result.detectedSchemaVersion)}
+                  </strong>{' '}
+                  | تاریخ صدور: <span dir="ltr">{restoreInspection.result.exportedAt}</span>
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {restoreInspection.result.checksumValid ? (
+                  <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold inline-flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>اصالت Checksum تأیید شد</span>
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold inline-flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>هشدار تغییر دستی در فایل (Checksum متفاوت)</span>
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {restoreInspection.result.isLegacyPartialBackup && (
+              <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 text-xs text-amber-950">
+                توجه: این فایل با قالب قدیمی <strong>نسخه ۲</strong> تهیه شده و تنها شامل مجموعه «ثبت‌های میدانی قفسه» است. در زمان بازیابی، سایر ۱۰ مجموعه داده فعلی شما بدون تغییر حفظ خواهند شد.
+              </div>
+            )}
+
+            {/* خلاصه کلی تفاوت‌ها */}
+            <div className="grid grid-cols-3 gap-2.5 text-xs">
+              <div className="bg-white p-3 rounded-xl border border-emerald-200">
+                <span className="text-emerald-700 block">رکوردهای جدید در فایل پشتیبان:</span>
+                <strong className="text-base font-bold text-emerald-800 tabular-nums">
+                  {toPersianDigits(restoreInspection.result.totalNewItems)}
                 </strong>
               </div>
-              <div className="bg-white p-3 rounded-xl border border-emerald-200">
-                <span className="text-emerald-700 block">ثبت‌های جدید قابل افزودن:</span>
-                <strong className="text-base font-bold text-emerald-800 tabular-nums">
-                  {toPersianDigits(Object.keys(restorePreview.newRecordsToAdd).length)}
+              <div className="bg-white p-3 rounded-xl border border-slate-200">
+                <span className="text-slate-600 block">رکوردهای کاملاً یکسان (تکراری):</span>
+                <strong className="text-base font-bold text-slate-800 tabular-nums">
+                  {toPersianDigits(restoreInspection.result.totalDuplicates)}
                 </strong>
               </div>
               <div className="bg-white p-3 rounded-xl border border-amber-200">
-                <span className="text-amber-800 block">کلیدهای تکراری (بازنویسی نمی‌شوند):</span>
+                <span className="text-amber-800 block">رکوردهای دارای تفاوت/تعارض:</span>
                 <strong className="text-base font-bold text-amber-900 tabular-nums">
-                  {toPersianDigits(restorePreview.existingConflictCount)}
-                </strong>
-              </div>
-              <div className="bg-white p-3 rounded-xl border border-slate-200">
-                <span className="text-slate-500 block">رکوردهای ناقص ردشده:</span>
-                <strong className="text-base font-bold text-slate-700 tabular-nums">
-                  {toPersianDigits(restorePreview.invalidCount)}
+                  {toPersianDigits(restoreInspection.result.totalConflicts)}
                 </strong>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-2">
+            {/* جدول تفکیکی هر ۱۱ مجموعه داده */}
+            <div className="overflow-x-auto bg-white rounded-xl border border-slate-200">
+              <table className="w-full text-right border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
+                    <th className="py-2 px-3">مجموعه داده</th>
+                    <th className="py-2 px-3 text-center">موجود فعلی</th>
+                    <th className="py-2 px-3 text-center">در فایل پشتیبان</th>
+                    <th className="py-2 px-3 text-center text-emerald-700">جدید (+)</th>
+                    <th className="py-2 px-3 text-center text-slate-500">یکسان (=)</th>
+                    <th className="py-2 px-3 text-center text-amber-700">تفاوت (≠)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {restoreInspection.result.collectionDiffs.map((diff) => (
+                    <tr key={diff.key} className="hover:bg-slate-50">
+                      <td className="py-2 px-3 font-medium text-slate-900">{diff.label}</td>
+                      <td className="py-2 px-3 text-center tabular-nums">
+                        {toPersianDigits(diff.currentCount)}
+                      </td>
+                      <td className="py-2 px-3 text-center font-bold tabular-nums">
+                        {toPersianDigits(diff.backupCount)}
+                      </td>
+                      <td className="py-2 px-3 text-center font-bold text-emerald-700 tabular-nums">
+                        {toPersianDigits(diff.newItemsCount)}
+                      </td>
+                      <td className="py-2 px-3 text-center text-slate-500 tabular-nums">
+                        {toPersianDigits(diff.duplicateOrSameCount)}
+                      </td>
+                      <td className="py-2 px-3 text-center font-bold text-amber-700 tabular-nums">
+                        {toPersianDigits(diff.conflictCount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* انتخاب حالت بازیابی: ادغام امن در برابر جایگزینی کامل */}
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-2.5 text-xs">
+              <div className="font-bold text-slate-900">انتخاب روش اعمال فایل پشتیبان:</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <label
+                  className={`p-3 rounded-xl border cursor-pointer flex items-start gap-2.5 transition-colors ${
+                    restoreMode === 'merge'
+                      ? 'bg-emerald-50 border-emerald-500 text-emerald-950'
+                      : 'bg-slate-50 border-slate-200 text-slate-700'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="restoreMode"
+                    checked={restoreMode === 'merge'}
+                    onChange={() => setRestoreMode('merge')}
+                    className="mt-1"
+                  />
+                  <div>
+                    <div className="font-bold">۱. ادغام امن (Safe Merge — توصیه‌شده)</div>
+                    <div className="text-[11px] opacity-90 mt-0.5">
+                      رکوردهای جدید فایل پشتیبان اضافه می‌شوند و رکوردهای جدیدتر موجود در دستگاه شما هرگز با داده قدیمی‌تر بازنویسی نمی‌شوند.
+                    </div>
+                  </div>
+                </label>
+
+                <label
+                  className={`p-3 rounded-xl border cursor-pointer flex items-start gap-2.5 transition-colors ${
+                    restoreMode === 'replace'
+                      ? 'bg-amber-50 border-amber-500 text-amber-950'
+                      : 'bg-slate-50 border-slate-200 text-slate-700'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="restoreMode"
+                    checked={restoreMode === 'replace'}
+                    onChange={() => setRestoreMode('replace')}
+                    className="mt-1"
+                  />
+                  <div>
+                    <div className="font-bold">۲. بازیابی کامل (Full Replace)</div>
+                    <div className="text-[11px] opacity-90 mt-0.5">
+                      مجموعه‌های موجود در فایل پشتیبان دقیقاً جایگزین وضعیت فعلی می‌شوند (همراه با محافظت بازگشت خودکار در صورت خطا).
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-1">
               <button
                 type="button"
-                onClick={() => setRestorePreview(null)}
-                className="min-h-[40px] px-4 py-2 bg-white border border-slate-300 text-slate-700 text-xs font-semibold rounded-xl"
+                onClick={() => setRestoreInspection(null)}
+                className="min-h-[40px] px-4 py-2 bg-white border border-slate-300 text-slate-700 text-xs font-semibold rounded-xl cursor-pointer"
               >
                 لغو عملیات
               </button>
               <button
                 type="button"
-                onClick={confirmSafeMerge}
-                className="min-h-[40px] px-5 py-2 bg-[#1f4e79] text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5"
+                disabled={isRestoring}
+                onClick={handleConfirmRestore}
+                className="min-h-[40px] px-5 py-2 bg-[#1f4e79] hover:bg-[#163a5b] disabled:opacity-50 text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5 cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>تأیید و ادغام ثبت‌های جدید</span>
+                <span>
+                  {isRestoring
+                    ? 'در حال اعمال تراکنشی...'
+                    : restoreMode === 'merge'
+                    ? 'تأیید و اجرای ادغام امن (Safe Merge)'
+                    : 'تأیید و اجرای بازیابی کامل (Replace)'}
+                </span>
               </button>
             </div>
           </div>
         )}
+      </div>
+
+      {/* بخش ۲: خروجی‌های تخصصی Excel و CSV (ویژه ثبت‌های قفسه و کتاب‌ها - بند ۳ دستور جامع) */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+        <div>
+          <h2 className="text-base sm:text-lg font-bold text-slate-900">
+            گزارش‌ها و خروجی‌های تخصصی Excel / CSV (ویژه ثبت‌های میدانی قفسه و فهرست کتاب‌ها)
+          </h2>
+          <p className="text-xs text-slate-600 mt-1">
+            این خروجی‌ها <strong>گزارش تخصصی جدول کتاب‌ها و قفسه‌ها</strong> برای بازبینی در نرم‌افزار Excel هستند (و جایگزین پشتیبان کامل ۱۱گانه JSON نمی‌باشند).
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <button
+            type="button"
+            onClick={handleExportProposedExcel}
+            className="min-h-[54px] p-4 bg-[#1f4e79] hover:bg-[#163a5b] text-white rounded-2xl text-right flex items-center justify-between gap-3 transition-colors cursor-pointer"
+          >
+            <div>
+              <div className="font-bold text-sm">خروجی تخصصی تغییرات قفسه (Excel)</div>
+              <div className="text-[11px] text-sky-100 mt-0.5">
+                فایل .xlsx مستقل از ثبت‌های قفسه (بدون تغییر فایل مرجع اصلی)
+              </div>
+            </div>
+            <FileSpreadsheet className="w-5 h-5 shrink-0" />
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportCombinedWorkbook}
+            className="min-h-[54px] p-4 bg-emerald-800 hover:bg-emerald-900 text-white rounded-2xl text-right flex items-center justify-between gap-3 transition-colors cursor-pointer"
+          >
+            <div>
+              <div className="font-bold text-sm">خروجی تلفیقی شیت مرجع + ثبت قفسه</div>
+              <div className="text-[11px] text-emerald-100 mt-0.5">
+                شیت کتاب‌ها به همراه ستون‌های محل و کتاب‌های خارج از فهرست
+              </div>
+            </div>
+            <Download className="w-5 h-5 shrink-0" />
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportAuditCsv}
+            className="min-h-[54px] p-4 bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 rounded-2xl text-right flex items-center justify-between gap-3 transition-colors cursor-pointer"
+          >
+            <div>
+              <div className="font-bold text-sm">خروجی تخصصی CSV ثبت‌های میدانی</div>
+              <div className="text-[11px] text-slate-600 mt-0.5">
+                فایل متنی سازگار با Excel (UTF-8 BOM)
+              </div>
+            </div>
+            <Download className="w-5 h-5 shrink-0 text-[#1f4e79]" />
+          </button>
+        </div>
       </div>
 
       {/* Complete Ledger of Saved Field Registrations in Browser Memory */}
@@ -535,17 +736,17 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
         <div className="flex items-center justify-between border-b border-slate-200 pb-3">
           <div>
             <h3 className="text-sm sm:text-base font-bold text-slate-900">
-              فهرست ثبت‌های ذخیره‌شده در حافظه این دستگاه ({toPersianDigits(recordsList.length)} مورد)
+              فهرست ثبت‌های قفسه ذخیره‌شده در حافظه این دستگاه ({toPersianDigits(recordsList.length)} مورد)
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              امکان بازبینی تک‌تک رکوردهای ثبت‌شده پیش از خروجی گرفتن برای Excel
+              امکان بازبینی تک‌تک رکوردهای ثبت‌شده قفسه پیش از خروجی گرفتن برای Excel
             </p>
           </div>
         </div>
 
         {recordsList.length === 0 ? (
           <p className="text-xs text-slate-500 py-8 text-center">
-            هنوز کتابی در حافظه این دستگاه ثبت نشده است. از تب «ثبت سریع موجودی» اولین کتاب را ثبت کنید.
+            هنوز کتابی در قفسه‌های این دستگاه ثبت نشده است. از تب «کتابخانه» اولین کتاب را ثبت کنید.
           </p>
         ) : (
           <div className="overflow-x-auto">

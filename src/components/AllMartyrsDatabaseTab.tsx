@@ -24,6 +24,7 @@ import {
   normalizePersianText,
   toPersianDigits
 } from '../data/markazAsnadData';
+import { generateUniqueLinkId, generateUniqueMartyrId } from '../utils/idGenerator';
 import { doesLinkMatchMartyrRecord } from '../data/soorehMehrResearch';
 
 export interface NormalizedDate {
@@ -626,7 +627,7 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
       'شهید گمنام';
 
     const newLink: BookMartyrLinkRecord = {
-      id: `LNK-${Date.now()}`,
+      id: generateUniqueLinkId(links),
       tempBookId: selectedBookForLink,
       bookTitleRaw: bookObj?.titleRaw || selectedBookForLink,
       publisherRaw: bookObj?.publisherRaw || '',
@@ -1608,7 +1609,7 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                   return;
                 }
                 const full = `${newFirstName.trim()} ${newLastName.trim()}`.trim();
-                const id = `MR-${String(customMartyrs.length + 1).padStart(6, '0')}`;
+                const id = generateUniqueMartyrId(customMartyrs.map((m) => ({ id: m.martyrId })));
                 const newRec: CustomMartyrRecord = {
                   martyrId: id,
                   firstName: newFirstName.trim(),

@@ -27,6 +27,8 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Run TypeScript typecheck (lint)
+        run: npm run lint
       - name: Build main application
         run: npm run build
       - name: Verify build output and embedded Persian font

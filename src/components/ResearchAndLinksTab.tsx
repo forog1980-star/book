@@ -27,10 +27,12 @@ import {
 } from 'lucide-react';
 import { DepositoryAndExportHub } from './DepositoryAndExportHub';
 import {
+  BookCopyRecord,
   BookMartyrLinkRecord,
   ExtractedContentItem,
   ExtractedContentType,
   ExtractedReviewStatus,
+  FieldAuditRecord,
   MultiMartyrGroupAudit,
   PendingReviewItem,
   ReferenceCatalogRow,
@@ -39,9 +41,12 @@ import {
   toPersianDigits
 } from '../data/markazAsnadData';
 import { SOOREH_MEHR_RESEARCH_STATS } from '../data/soorehMehrResearch';
+import { generateUniqueExtractedId, generateUniqueLinkId } from '../utils/idGenerator';
 
 interface ResearchAndLinksTabProps {
   catalogRows: ReferenceCatalogRow[];
+  auditRecords?: Record<string, FieldAuditRecord>;
+  bookCopies?: BookCopyRecord[];
   links: BookMartyrLinkRecord[];
   pendingReviews: PendingReviewItem[];
   workbookMartyrs?: WorkbookGolzarMartyr[];
@@ -64,6 +69,8 @@ interface ResearchAndLinksTabProps {
 
 export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
   catalogRows,
+  auditRecords = {},
+  bookCopies = [],
   links,
   pendingReviews,
   workbookMartyrs = [],
@@ -309,7 +316,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
     const bookObj = catalogRows.find((b) => b.tempBookId === selectedBookId);
     const newRecord: BookMartyrLinkRecord = {
-      id: `RL-${String(links.length + 1).padStart(4, '0')}`,
+      id: generateUniqueLinkId(links),
       tempBookId: selectedBookId,
       bookTitleRaw: bookObj?.titleRaw || selectedBookId,
       publisherRaw: bookObj?.publisherRaw || '',
@@ -359,7 +366,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
     const bookObj = catalogRows.find((b) => b.tempBookId === exBookId);
     const newItem: ExtractedContentItem = {
-      id: `EX-${String(extractedItems.length + 1).padStart(4, '0')}`,
+      id: generateUniqueExtractedId(extractedItems),
       tempBookId: exBookId,
       bookTitleRaw: bookObj?.titleRaw || exBookId,
       publisherRaw: bookObj?.publisherRaw || '',
@@ -746,8 +753,11 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     onNotify('فایل CSV کاربرگ بازبینی کارشناس ۱۶ گروه چندشهیدی دانلود شد.');
   };
 
-  // Quick Action: Bulk approve & archive 16 groups to declutter the desk
+  // Quick Action: Bulk approve & archive 16 groups (Directive #11: accurate link & group status synchronization)
   const handleBulkApproveAndArchive16Groups = () => {
+    const groupTitlesNorm = new Set(
+      multiMartyrGroups.map((g) => normalizePersianText(g.registeredTitle)).filter(Boolean)
+    );
     multiMartyrGroups.forEach((grp) => {
       onUpdateGroupAudit({
         ...grp,
@@ -756,18 +766,37 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
         decisionStatus: 'تأیید',
         reviewerName: grp.reviewerName || 'تأیید یکپارچه کارشناس',
         reviewDate: new Intl.DateTimeFormat('fa-IR').format(new Date()),
-        reviewNote: grp.reviewNote || 'تأیید خوشه‌ای و انتقال پیوندها به مخزن اصلی'
+        reviewNote: grp.reviewNote || 'تأیید خوشه‌ای ۱۶ گروه چندشهیدی و همگام‌سازی پیوندهای مرتبط'
       });
     });
+
+    // همگام‌سازی وضعیت پیوندهای مرتبط با این ۱۶ کتاب چندشهیدی به «تأییدشده کارشناسی»
+    let updatedLinksCount = 0;
+    links.forEach((lnk) => {
+      const normBook = normalizePersianText(lnk.bookTitleRaw);
+      if (normBook && groupTitlesNorm.has(normBook) && lnk.reviewStatus !== 'تأییدشده کارشناسی') {
+        updatedLinksCount += 1;
+        onUpdateLinkStatus(
+          lnk.id,
+          'تأییدشده کارشناسی',
+          lnk.reviewerNote || 'تأییدشده در بازبینی خوشه‌ای ۱۶ گروه چندشهیدی'
+        );
+      }
+    });
+
     setHideArchivedGroups(true);
     try {
       localStorage.setItem('book_hide_archived_groups', 'true');
     } catch {
       // ignore
     }
-    setSubView('links');
+    setSubView('depository');
     onNotify(
-      'تمام ۱۶ گروه چندشهیدی تأیید شدند و پیوندهای آن‌ها به پایگاه دپوی اسناد منتقل شد. این برگه برای خلوت‌سازی میز کار پنهان گردید.'
+      `وضعیت هر ۱۶ گروه چندشهیدی (G001 تا G016) به «تأیید» تغییر یافت${
+        updatedLinksCount > 0
+          ? ` و ${toPersianDigits(updatedLinksCount)} پیوند مرتبط نیز در دپوی اسناد «تأییدشده کارشناسی» شد`
+          : ''
+      }. برگه ۱۶ گروه در حالت بایگانی قرار گرفت.`
     );
   };
 
@@ -2784,6 +2813,8 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
       {subView === 'depository' && (
         <DepositoryAndExportHub
           catalogRows={catalogRows}
+          auditRecords={auditRecords}
+          bookCopies={bookCopies}
           links={links}
           pendingReviews={pendingReviews}
           workbookMartyrs={workbookMartyrs}
