@@ -24,6 +24,7 @@ import {
   normalizePersianText,
   toPersianDigits
 } from '../data/markazAsnadData';
+import { doesLinkMatchMartyrRecord } from '../data/soorehMehrResearch';
 
 export interface NormalizedDate {
   day: string;
@@ -85,12 +86,13 @@ const MONTHS = [
 function cleanText(val: unknown): string {
   if (val === null || val === undefined) return '';
   return String(val)
-    .replace(/\u200c/g, ' ')
-    .replace(/[يى]/g, 'ی')
+    .replace(/[\u200B-\u200D\uFEFF]/g, ' ')
+    .replace(/[يىئ]/g, 'ی')
     .replace(/ك/g, 'ک')
     .replace(/[ۀة]/g, 'ه')
     .replace(/[ؤ]/g, 'و')
     .replace(/[إأآ]/g, 'ا')
+    .replace(/الله/g, 'اله')
     .replace(/[\u064B-\u065F\u0670]/g, '')
     .replace(/[۰-۹]/g, (d) => String(PERSIAN_DIGITS.indexOf(d)))
     .replace(/[٠-٩]/g, (d) => String(ARABIC_DIGITS.indexOf(d)))
@@ -495,6 +497,20 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
     return cleanText(getFieldValue(rec, field)).includes(q);
   };
 
+  // Named non-* links for fast matching
+  const validNamedLinks = useMemo(() => {
+    return links.filter(
+      (l) => Boolean(l.martyrNameRaw) && l.martyrNameRaw !== '*' && !l.isGroupPhrase
+    );
+  }, [links]);
+
+  const getMartyrLinkedBooks = React.useCallback(
+    (rec: AllMartyrRecord): BookMartyrLinkRecord[] => {
+      return validNamedLinks.filter((lnk) => doesLinkMatchMartyrRecord(lnk, rec));
+    },
+    [validNamedLinks]
+  );
+
   const executeSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!records.length) return;
@@ -505,7 +521,21 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
     if (q) {
       if (selectedField === 'all') {
         const words = q.split(/\s+/).filter(Boolean);
-        res = res.filter((r) => words.every((w) => r.searchable_text.includes(w)));
+        // همچنین اگر کاربر نام کتابی از پژوهش سوره مهر یا کارپوشه را جست‌وجو کرد، شهدای مرتبط با آن کتاب را بیاب
+        const matchingBookLinks = validNamedLinks.filter((lnk) => {
+          const bookHay = cleanText(
+            `${lnk.bookTitleRaw} ${lnk.alternativeTitle || ''} ${lnk.sourceDescriptionRaw || ''} ${lnk.tempBookId || ''}`
+          );
+          return words.every((w) => bookHay.includes(w));
+        });
+
+        res = res.filter((r) => {
+          if (words.every((w) => r.searchable_text.includes(w))) return true;
+          if (matchingBookLinks.length > 0) {
+            return matchingBookLinks.some((lnk) => doesLinkMatchMartyrRecord(lnk, r));
+          }
+          return false;
+        });
       } else {
         res = res.filter((r) => matchesField(r, selectedField, q));
       }
@@ -526,6 +556,18 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
 
     setHasSearched(true);
     setActiveResults(res);
+  };
+
+  const handleFilterMartyrsWithLinkedBooks = () => {
+    if (!records.length) return;
+    const matched = records.filter((r) =>
+      validNamedLinks.some((lnk) => doesLinkMatchMartyrRecord(lnk, r))
+    );
+    setHasSearched(true);
+    setActiveResults(matched);
+    onNotify(
+      `${toPersianDigits(matched.length)} شهید در بانک ۲۸٬۳۶۸ شهید گلزار با کتاب‌های پژوهشی سوره مهر و کارپوشه تطبیق یافتند.`
+    );
   };
 
   const handleResetSearch = () => {
@@ -854,6 +896,22 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                 </button>
               )}
             </div>
+          </div>
+
+          {/* نوار دسترسی سریع به شهدای دارای کتاب در پژوهش سوره مهر و کارپوشه */}
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-[#FAF2E8] border border-[#E6D5C1] rounded-xl px-3 py-2 text-xs">
+            <span className="text-[#755C48] font-medium">
+              جست‌وجوی دوطرفه فعال است: می‌توانید نام شهید (مثل «جعفر جنگروی»، «محسن وزوایی»، «علی سمندریان») یا عنوان کتاب (مثل «یک محسن عزیز»، «یادداشت های ناتمام») را جست‌وجو کنید.
+            </span>
+            <button
+              type="button"
+              onClick={handleFilterMartyrsWithLinkedBooks}
+              disabled={loading}
+              className="px-3 py-1.5 rounded-lg bg-[#8C3B2B] hover:bg-[#702D20] text-white font-bold text-[11px] inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>نمایش شهدای دارای کتاب مرتبط ({toPersianDigits(validNamedLinks.length)} ارتباط)</span>
+            </button>
           </div>
 
           {/* Combined Exact Filters */}
@@ -1204,6 +1262,49 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                         · ردیف {toPersianDigits(rec.grave_row || '—')} · شماره{' '}
                         {toPersianDigits(rec.grave_number || '—')}
                       </div>
+
+                      {/* نمایش کتاب‌های مرتبط با این شهید در کارت شناسنامه شهید */}
+                      {(() => {
+                        const mBooks = getMartyrLinkedBooks(rec);
+                        if (mBooks.length === 0) return null;
+                        return (
+                          <div className="mt-2 bg-amber-50/80 border border-amber-200 rounded-xl p-2.5 space-y-1.5">
+                            <div className="text-[11px] font-bold text-[#8C3B2B] flex items-center justify-between">
+                              <span className="flex items-center gap-1">
+                                <BookOpen className="w-3.5 h-3.5" />
+                                <span>کتاب‌های مرتبط ({toPersianDigits(mBooks.length)} مورد):</span>
+                              </span>
+                            </div>
+                            <div className="space-y-1 max-h-28 overflow-y-auto">
+                              {mBooks.map((lnk) => (
+                                <div
+                                  key={lnk.id}
+                                  className="text-[11px] bg-white border border-amber-200/80 rounded-lg px-2 py-1 space-y-0.5"
+                                >
+                                  <div className="font-bold text-slate-900">
+                                    کتاب «{lnk.bookTitleRaw}»{' '}
+                                    <span className="font-normal text-slate-600">
+                                      ({lnk.publisherRaw || 'سوره مهر'})
+                                    </span>
+                                  </div>
+                                  <div className="text-[10.5px] text-slate-700 flex flex-wrap items-center gap-1.5">
+                                    {lnk.pageReferenceRaw && (
+                                      <span className="font-semibold text-[#1f4e79]">
+                                        صفحه: {toPersianDigits(lnk.pageReferenceRaw)}
+                                      </span>
+                                    )}
+                                    {lnk.sourceDescriptionRaw && (
+                                      <span className="text-slate-600">
+                                        · {lnk.sourceDescriptionRaw}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -1304,19 +1405,25 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
 
             {/* Linked Books & Extracted Research Passages for this Martyr */}
             {(() => {
-              const mName = normalizePersianText(
+              const martyrLinks = getMartyrLinkedBooks(inspectedRecord);
+              const confirmedM = martyrLinks.filter(
+                (l) => l.reviewStatus.includes('تأیید') || l.reviewStatus.includes('پژوهش اصلی')
+              );
+              const pendingM = martyrLinks.filter(
+                (l) => !l.reviewStatus.includes('تأیید') && !l.reviewStatus.includes('پژوهش اصلی')
+              );
+              const mName = cleanText(
                 [inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' ')
               );
-              const martyrLinks = mName
-                ? links.filter((l) => normalizePersianText(l.martyrNameRaw).includes(mName))
-                : [];
-              const confirmedM = martyrLinks.filter((l) => l.reviewStatus.includes('تأیید'));
-              const pendingM = martyrLinks.filter((l) => !l.reviewStatus.includes('تأیید'));
-              const martyrExtracts = mName
-                ? extractedItems.filter((ex) =>
-                    normalizePersianText(ex.martyrNameRaw).includes(mName)
-                  )
-                : [];
+              const martyrExtracts = extractedItems.filter((ex) => {
+                if (mName && cleanText(ex.martyrNameRaw).includes(mName)) return true;
+                return martyrLinks.some(
+                  (lnk) =>
+                    lnk.tempBookId &&
+                    ex.tempBookId === lnk.tempBookId &&
+                    cleanText(ex.martyrNameRaw) === cleanText(lnk.martyrNameRaw)
+                );
+              });
 
               return (
                 <div className="space-y-2.5 border-t border-slate-200 pt-3">
@@ -1324,8 +1431,8 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                     <span className="font-bold text-[#1F4E79] flex items-center gap-1">
                       <BookOpen className="w-4 h-4" />
                       <span>
-                        کتاب‌ها و مطالب پژوهشی مرتبط ({toPersianDigits(confirmedM.length)} تأییدشده ·{' '}
-                        {toPersianDigits(pendingM.length)} در انتظار بررسی):
+                        کتاب‌ها و مطالب پژوهشی مرتبط ({toPersianDigits(confirmedM.length)} بررسی/تأییدشده ·{' '}
+                        {toPersianDigits(pendingM.length)} نیازمند بررسی):
                       </span>
                     </span>
                   </div>
@@ -1335,22 +1442,38 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                       هنوز کتابی در فهرست فعلی به این شهید متصل نشده است. می‌توانید از دکمه «جست‌وجوی هوشمند کتاب‌های جدید» یا «اتصال به کتاب» استفاده کنید.
                     </div>
                   ) : (
-                    <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    <div className="space-y-1.5 max-h-56 overflow-y-auto">
                       {martyrLinks.map((lnk) => (
                         <div
                           key={lnk.id}
-                          className="bg-slate-50 border border-slate-200 rounded-lg p-2 flex items-center justify-between gap-2"
+                          className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1"
                         >
-                          <div>
-                            <strong className="text-slate-900">کتاب «{lnk.bookTitleRaw}»</strong>
-                            <span className="text-slate-500 mr-1.5">
-                              ({lnk.publisherRaw || 'ناشر نامشخص'} · صفحه:{' '}
-                              {lnk.pageReferenceRaw || '—'})
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <strong className="text-slate-900">
+                                کتاب «{lnk.bookTitleRaw}»{' '}
+                                {lnk.tempBookId ? `(${lnk.tempBookId})` : ''}
+                              </strong>
+                              <span className="text-slate-600 mr-1.5">
+                                ({lnk.publisherRaw || 'سوره مهر'} · صفحه:{' '}
+                                <strong className="text-[#8C3B2B]">
+                                  {toPersianDigits(lnk.pageReferenceRaw || 'ثبت‌نشده')}
+                                </strong>
+                                )
+                              </span>
+                            </div>
+                            <span className="text-[10.5px] font-bold text-[#1F4E79] bg-blue-50 border border-blue-200 px-2 py-0.5 rounded shrink-0">
+                              {lnk.reviewStatus}
                             </span>
                           </div>
-                          <span className="text-[11px] font-bold text-[#1F4E79] shrink-0">
-                            {lnk.reviewStatus}
-                          </span>
+                          {lnk.sourceDescriptionRaw && (
+                            <div className="text-[11px] text-slate-700">
+                              شرح و موضوع در پژوهش: {lnk.sourceDescriptionRaw}
+                            </div>
+                          )}
+                          <div className="text-[10px] text-slate-500">
+                            منبع: {lnk.sourceFile} ({lnk.sourceSheet} · ردیف {toPersianDigits(lnk.sourceExcelRow)})
+                          </div>
                         </div>
                       ))}
                       {martyrExtracts.map((ex) => (
@@ -1359,9 +1482,9 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                           className="bg-emerald-50/70 border border-emerald-200 rounded-lg p-2 space-y-0.5"
                         >
                           <div className="font-bold text-[#2E7D5B]">
-                            [{ex.contentType}] {ex.passageTitle} (صفحه {ex.pageReferenceRaw})
+                            [{ex.contentType}] {ex.passageTitle} (صفحه {toPersianDigits(ex.pageReferenceRaw)})
                           </div>
-                          <div className="text-[11px] text-slate-700 line-clamp-2">
+                          <div className="text-[11px] text-slate-700">
                             {ex.extractedText}
                           </div>
                         </div>

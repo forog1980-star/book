@@ -65,6 +65,10 @@ import { PilotTestAndReportTab } from './components/PilotTestAndReportTab';
 import { ComprehensiveDocViewer } from './components/ComprehensiveDocViewer';
 import { useOnlineStatus, usePWAInstall } from './utils/usePWAInstall';
 import { idbGetItem, idbSetItem } from './utils/indexedDbStorage';
+import {
+  buildSorehMehrExtractedItems,
+  enrichLinksWithSorehMehrResearch
+} from './data/soorehMehrResearch';
 
 // عنوان و شناسه اختصاصی پایگاه داده در حافظه گوشی و مرورگر: book
 export const BOOK_STORAGE_NAMESPACE = 'book';
@@ -267,21 +271,47 @@ export default function App() {
                 isGroupPhrase: status.includes('تفکیک نام') || /چند شهید|اشاره به/.test(martyrOrPhrase)
               });
             }
+            const enrichedRows = enrichLinksWithSorehMehrResearch(lRows);
+            let finalLinks = enrichedRows;
             const localLinksRaw = localStorage.getItem(LINKS_STORAGE_KEY);
             if (localLinksRaw) {
               try {
                 const parsedLocal = JSON.parse(localLinksRaw);
                 if (Array.isArray(parsedLocal) && parsedLocal.length > 0) {
-                  setLinks(parsedLocal);
-                } else {
-                  setLinks(lRows);
+                  // اگر حافظه محلی فقط ۵ رکورد نمونه اولیه (LNK-001..LNK-005) یا کمتر از کل کارپوشه را داشت، کل ۸۳۶ رکورد غنی‌شده را با ویرایش‌های کارشناس ادغام کن
+                  const byId = new Map<string, BookMartyrLinkRecord>();
+                  for (const item of enrichedRows) {
+                    byId.set(item.id, item);
+                  }
+                  for (const localItem of parsedLocal as BookMartyrLinkRecord[]) {
+                    if (!localItem?.id) continue;
+                    // حذف رکوردهای نمونه تکراری LNK-001 تا LNK-005 که معادل واقعی RL دارند
+                    if (/^LNK-00[1-5]$/.test(localItem.id)) continue;
+                    const base = byId.get(localItem.id);
+                    if (base) {
+                      byId.set(localItem.id, {
+                        ...base,
+                        ...localItem,
+                        tempBookId: base.tempBookId || localItem.tempBookId,
+                        alternativeTitle: base.alternativeTitle || localItem.alternativeTitle,
+                        reviewStatus:
+                          localItem.reviewStatus && localItem.reviewStatus !== 'بررسی‌نشده'
+                            ? localItem.reviewStatus
+                            : base.reviewStatus,
+                        reviewerNote: localItem.reviewerNote || base.reviewerNote
+                      });
+                    } else {
+                      byId.set(localItem.id, localItem);
+                    }
+                  }
+                  finalLinks = Array.from(byId.values());
                 }
               } catch {
-                setLinks(lRows);
+                finalLinks = enrichedRows;
               }
-            } else {
-              setLinks(lRows);
             }
+            setLinks(finalLinks);
+            setExtractedItems((prev) => buildSorehMehrExtractedItems(finalLinks, prev));
           }
 
           // 3. Parse Sheet «موارد نیازمند بررسی» (567 rows)
@@ -1559,6 +1589,7 @@ export default function App() {
             customMartyrs={customMartyrs}
             smartSuggestions={smartSuggestions}
             links={links}
+            extractedItems={extractedItems}
             initialMartyrQuery={preselectedSmartMartyrName}
             onAddSuggestion={(newSug: SmartSearchSuggestion) => {
               setSmartSuggestions((prev) => [newSug, ...prev]);

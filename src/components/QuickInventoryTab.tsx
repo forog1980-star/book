@@ -376,16 +376,32 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
   }, [catalogRows]);
 
+  // Index all valid (non-*) book-martyr links by tempBookId and normalized book title
+  const validBookMartyrLinks = useMemo(() => {
+    return bookMartyrLinks.filter(
+      (lnk) => Boolean(lnk.martyrNameRaw) && lnk.martyrNameRaw !== '*'
+    );
+  }, [bookMartyrLinks]);
+
+  const getLinksForBookRow = React.useCallback(
+    (row: ReferenceCatalogRow): BookMartyrLinkRecord[] => {
+      const normTitle = normalizePersianText(row.titleRaw);
+      return validBookMartyrLinks.filter(
+        (lnk) =>
+          (lnk.tempBookId && lnk.tempBookId === row.tempBookId) ||
+          (normTitle &&
+            (normalizePersianText(lnk.bookTitleRaw) === normTitle ||
+              normalizePersianText(lnk.alternativeTitle || '') === normTitle))
+      );
+    },
+    [validBookMartyrLinks]
+  );
+
   // Linked martyrs for the currently selected book
   const selectedBookMartyrLinks = useMemo(() => {
     if (!selectedRow) return [];
-    const normTitle = normalizePersianText(selectedRow.titleRaw);
-    return bookMartyrLinks.filter(
-      (lnk) =>
-        lnk.tempBookId === selectedRow.tempBookId ||
-        (normTitle && normalizePersianText(lnk.bookTitleRaw) === normTitle)
-    );
-  }, [selectedRow, bookMartyrLinks]);
+    return getLinksForBookRow(selectedRow);
+  }, [selectedRow, getLinksForBookRow]);
 
   // Category counts across the catalog + saved records
   const categoryCounts = useMemo(() => {
@@ -497,10 +513,16 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
         if (!effectiveLoc.startsWith(shelfFilter)) return false;
       }
 
-      // 5. General / Title / ID Query
+      // 5. General / Title / ID / Linked Martyr Query (Two-way search)
       if (!q) return true;
+      const linkedMartyrsText = getLinksForBookRow(r)
+        .map(
+          (l) =>
+            `${l.martyrNameRaw} ${l.sourceDescriptionRaw || ''} ${l.pageReferenceRaw || ''} ${l.alternativeTitle || ''}`
+        )
+        .join(' ');
       const haystack = normalizePersianText(
-        `${r.tempBookId} ${r.titleRaw} ${effectivePublisher} ${r.descriptionRaw} ${effectiveAuthor}`
+        `${r.tempBookId} ${r.titleRaw} ${effectivePublisher} ${r.descriptionRaw} ${effectiveAuthor} ${linkedMartyrsText}`
       );
       return q.split(' ').every((word) => haystack.includes(word));
     });
@@ -514,7 +536,8 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     categoryFilter,
     shelfFilter,
     auditFilter,
-    auditRecords
+    auditRecords,
+    getLinksForBookRow
   ]);
 
   const activeFiltersCount = useMemo(() => {
@@ -1471,6 +1494,53 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                             )}
                           </div>
 
+                          {/* نمایش شهدای مرتبط با این کتاب در کارت شناسنامه کتاب */}
+                          {(() => {
+                            const rowLinks = getLinksForBookRow(row);
+                            if (rowLinks.length === 0) return null;
+                            return (
+                              <div className="mt-2 pt-2 border-t border-amber-200/70 bg-amber-50/60 rounded-xl px-2.5 py-2 space-y-1">
+                                <div className="flex items-center justify-between text-[11px] font-bold text-[#8C3B2B]">
+                                  <span>
+                                    شهدای مرتبط ثبت‌شده در پژوهش ({toPersianDigits(rowLinks.length)} مورد):
+                                  </span>
+                                  <span className="text-[10px] font-normal text-slate-500">
+                                    {rowLinks[0]?.sourceFile?.includes('سوره مهر') || rowLinks[0]?.sourceFile?.includes('لیست کتابهای')
+                                      ? 'منبع: پژوهش سوره مهر'
+                                      : 'منبع: کارپوشه شهدا'}
+                                  </span>
+                                </div>
+                                <div className="space-y-1 max-h-28 overflow-y-auto">
+                                  {rowLinks.map((lnk) => (
+                                    <div
+                                      key={lnk.id}
+                                      className="text-[11px] text-slate-800 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 bg-white/80 px-2 py-1 rounded-lg border border-amber-200/60"
+                                    >
+                                      <span className="font-bold text-slate-900">{lnk.martyrNameRaw}</span>
+                                      {lnk.gravePieceRaw && (
+                                        <span className="text-slate-600">
+                                          · قطعه {toPersianDigits(lnk.gravePieceRaw)}
+                                          {lnk.graveRowRaw ? `، ردیف ${toPersianDigits(lnk.graveRowRaw)}` : ''}
+                                          {lnk.graveNumberRaw ? `، شماره ${toPersianDigits(lnk.graveNumberRaw)}` : ''}
+                                        </span>
+                                      )}
+                                      {lnk.pageReferenceRaw && (
+                                        <span className="text-[#1f4e79] font-semibold">
+                                          · صفحه: {toPersianDigits(lnk.pageReferenceRaw)}
+                                        </span>
+                                      )}
+                                      {lnk.sourceDescriptionRaw && (
+                                        <span className="text-slate-500">
+                                          ({lnk.sourceDescriptionRaw})
+                                        </span>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
                           {!isChosen && (
                             <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-[#1f4e79]">
                               <span className="flex items-center gap-1 font-semibold">
@@ -1826,20 +1896,45 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                   </div>
 
                   {selectedBookMartyrLinks.length > 0 && (
-                    <div className="pt-2 mt-2 border-t border-[#c9dced] text-xs space-y-1">
-                      <div className="font-bold text-[#1f4e79]">
-                        شهدای مرتبط ثبت‌شده در کارپوشه برای این کتاب ({toPersianDigits(selectedBookMartyrLinks.length)} مورد):
+                    <div className="pt-2.5 mt-2 border-t border-[#c9dced] text-xs space-y-1.5">
+                      <div className="font-bold text-[#1f4e79] flex items-center justify-between">
+                        <span>
+                          شهدای مرتبط ثبت‌شده در کارپوشه و پژوهش سوره مهر برای این کتاب ({toPersianDigits(selectedBookMartyrLinks.length)} مورد):
+                        </span>
                       </div>
-                      <div className="max-h-24 overflow-y-auto space-y-1 text-[11px] text-slate-800">
-                        {selectedBookMartyrLinks.slice(0, 8).map((lnk) => (
-                          <div key={lnk.id} className="flex flex-wrap items-center gap-1.5">
-                            <span className="font-mono text-slate-500" dir="ltr">
-                              {lnk.id}
+                      <div className="max-h-48 overflow-y-auto space-y-1.5 text-[11px] text-slate-800">
+                        {selectedBookMartyrLinks.map((lnk) => (
+                          <div
+                            key={lnk.id}
+                            className="flex flex-wrap items-center justify-between gap-1.5 bg-white/90 px-2.5 py-1.5 rounded-lg border border-[#c9dced]"
+                          >
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="font-mono text-slate-500" dir="ltr">
+                                {lnk.id}
+                              </span>
+                              <span>·</span>
+                              <span className="font-bold text-slate-900">{lnk.martyrNameRaw}</span>
+                              {lnk.gravePieceRaw && (
+                                <span className="text-slate-700">
+                                  · قطعه {toPersianDigits(lnk.gravePieceRaw)}
+                                  {lnk.graveRowRaw ? `، ردیف ${toPersianDigits(lnk.graveRowRaw)}` : ''}
+                                  {lnk.graveNumberRaw ? `، شماره ${toPersianDigits(lnk.graveNumberRaw)}` : ''}
+                                </span>
+                              )}
+                              {lnk.pageReferenceRaw && (
+                                <span className="font-bold text-[#8C3B2B]">
+                                  · صفحه: {toPersianDigits(lnk.pageReferenceRaw)}
+                                </span>
+                              )}
+                              {lnk.sourceDescriptionRaw && (
+                                <span className="text-slate-600">
+                                  · توضیح: {lnk.sourceDescriptionRaw}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                              {lnk.reviewStatus}
                             </span>
-                            <span>·</span>
-                            <span className="font-semibold">{lnk.martyrNameRaw}</span>
-                            {lnk.gravePieceRaw && <span>· قطعه {toPersianDigits(lnk.gravePieceRaw)}</span>}
-                            {lnk.pageReferenceRaw && <span>· صفحه: {toPersianDigits(lnk.pageReferenceRaw)}</span>}
                           </div>
                         ))}
                       </div>

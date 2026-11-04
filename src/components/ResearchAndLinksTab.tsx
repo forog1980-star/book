@@ -38,6 +38,7 @@ import {
   normalizePersianText,
   toPersianDigits
 } from '../data/markazAsnadData';
+import { SOOREH_MEHR_RESEARCH_STATS } from '../data/soorehMehrResearch';
 
 interface ResearchAndLinksTabProps {
   catalogRows: ReferenceCatalogRow[];
@@ -250,6 +251,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
       }
       if (extractedStatusFilter !== 'all') {
         if (extractedStatusFilter === 'تأییدشده کارشناسی' && item.reviewStatus !== 'تأییدشده کارشناسی') return false;
+        if (extractedStatusFilter === 'بررسی‌شده در پژوهش اصلی' && item.reviewStatus !== 'بررسی‌شده در پژوهش اصلی') return false;
         if (extractedStatusFilter === 'نیازمند بررسی' && item.reviewStatus !== 'نیازمند بررسی') return false;
         if (extractedStatusFilter === 'ردشده با دلیل' && !item.reviewStatus.includes('رد')) return false;
       }
@@ -962,6 +964,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                 >
                   <option value="named_only">رکوردهای دارای نام/عبارت ثبت‌شده (حذف خالی و *)</option>
                   <option value="all">همه رکوردهای شیت ({toPersianDigits(links.length)} مورد)</option>
+                  <option value="بررسی‌شده در پژوهش اصلی">بررسی‌شده در پژوهش اصلی (پژوهش سوره مهر)</option>
                   <option value="بررسی‌نشده">بررسی‌نشده</option>
                   <option value="نیازمند تکمیل">نیازمند تکمیل</option>
                   <option value="نیازمند تفکیک نام‌ها">نیازمند تفکیک نام‌ها (عبارت گروهی)</option>
@@ -1015,6 +1018,68 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                   <FileJson className="w-3.5 h-3.5 text-amber-600" />
                   <span>خروجی JSON</span>
                 </button>
+              </div>
+            </div>
+
+            {/* خلاصه آمار بازیابی فایل پژوهشی سوره مهر (۸ شاخص دقیق مأموریت) */}
+            <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 text-xs space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-bold text-emerald-950">
+                  آمار رسمی بازیابی فایل «{SOOREH_MEHR_RESEARCH_STATS.sourceFileName}» (شیت {SOOREH_MEHR_RESEARCH_STATS.sourceSheetName}):
+                </span>
+                <span className="text-[11px] font-semibold text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-200">
+                  آرشیو منبع: /public/data/sooreh_mehr_book_martyr_research.json
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-[11px]">
+                <div className="bg-white border border-emerald-200 rounded-lg p-2">
+                  <div className="text-slate-500">۱. ردیف‌های شیت</div>
+                  <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
+                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalSheetRowsWithHeader)} سطر ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.nonEmptyDataRows)} داده)
+                  </div>
+                </div>
+                <div className="bg-white border border-emerald-200 rounded-lg p-2">
+                  <div className="text-slate-500">۲. کتاب‌های یکتا</div>
+                  <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
+                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.uniqueCanonicalBooksInFile)} کتاب ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.booksWithMartyrOrPhrase)} دارای ارتباط)
+                  </div>
+                </div>
+                <div className="bg-white border border-emerald-200 rounded-lg p-2">
+                  <div className="text-slate-500">۳. شهدای یکتا</div>
+                  <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
+                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.uniqueNamedMartyrs)} شهید نام‌برده
+                  </div>
+                </div>
+                <div className="bg-white border border-emerald-200 rounded-lg p-2">
+                  <div className="text-slate-500">۴. کل ارتباطات فایل</div>
+                  <div className="font-extrabold text-emerald-800 mt-0.5 tabular-nums">
+                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalValidRelations)} ارتباط ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.namedMartyrRelations)} فردی + {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.groupPhraseRelations)} گروهی)
+                  </div>
+                </div>
+                <div className="bg-white border border-emerald-200 rounded-lg p-2">
+                  <div className="text-slate-500">۵. منطبق با مخزن</div>
+                  <div className="font-extrabold text-emerald-800 mt-0.5 tabular-nums">
+                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.matchedCatalogBooksTotal)} از {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.uniqueCanonicalBooksInFile)} کتاب (۱۰۰٪)
+                  </div>
+                </div>
+                <div className="bg-white border border-emerald-200 rounded-lg p-2">
+                  <div className="text-slate-500">۶. خارج از مخزن</div>
+                  <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
+                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.unmatchedBooksAfterNormalization)} در سوره مهر ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.unmatchedBooksBeforeNormalization)} حل‌شده با نرمال‌سازی)
+                  </div>
+                </div>
+                <div className="bg-white border border-emerald-200 rounded-lg p-2">
+                  <div className="text-slate-500">۷. قطعی / احتمالی / بررسی</div>
+                  <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
+                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.definiteRelationsCount)} / {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.probableRelationsCount)} / {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.needsExpertReviewRelationsCount)}
+                  </div>
+                </div>
+                <div className="bg-white border border-emerald-200 rounded-lg p-2">
+                  <div className="text-slate-500">۸. تکراری واقعی / ظاهری</div>
+                  <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
+                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.trueDuplicateRowsCount)} تکراری / {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.apparentRepeatedBookRowsCount)} سطر چندشهیدی
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1227,13 +1292,14 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                         onUpdateLinkStatus(lnk.id, e.target.value, lnk.reviewerNote)
                       }
                       className={`px-2.5 py-1 rounded-lg border text-xs font-bold ${
-                        lnk.reviewStatus === 'تأییدشده کارشناسی'
+                        lnk.reviewStatus === 'تأییدشده کارشناسی' || lnk.reviewStatus === 'بررسی‌شده در پژوهش اصلی'
                           ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
                           : lnk.reviewStatus.includes('نیازمند')
                           ? 'bg-amber-50 border-amber-300 text-amber-800'
                           : 'bg-slate-50 border-slate-300 text-slate-700'
                       }`}
                     >
+                      <option value="بررسی‌شده در پژوهش اصلی">بررسی‌شده در پژوهش اصلی</option>
                       <option value="پیشنهادشده توسط سامانه">پیشنهادشده توسط سامانه</option>
                       <option value="بررسی‌نشده">بررسی‌نشده</option>
                       <option value="نیازمند بررسی">نیازمند بررسی</option>
@@ -1396,6 +1462,12 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
               {(
                 [
                   { key: 'all', label: `همه مطالب (${toPersianDigits(extractedItems.length)})` },
+                  {
+                    key: 'بررسی‌شده در پژوهش اصلی',
+                    label: `بررسی‌شده در پژوهش اصلی (${toPersianDigits(
+                      extractedItems.filter((i) => i.reviewStatus === 'بررسی‌شده در پژوهش اصلی').length
+                    )})`
+                  },
                   {
                     key: 'تأییدشده کارشناسی',
                     label: `تأییدشده کارشناسی (${toPersianDigits(
@@ -1658,7 +1730,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
           {/* Extracted Content Items List */}
           <div className="space-y-3">
-            {filteredExtractedItems.map((item) => (
+            {filteredExtractedItems.slice(0, visibleLimit).map((item) => (
               <div
                 key={item.id}
                 className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3"
@@ -1726,7 +1798,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                         )
                       }
                       className={`px-2.5 py-1 rounded-lg border text-xs font-bold ${
-                        item.reviewStatus === 'تأییدشده کارشناسی'
+                        item.reviewStatus === 'تأییدشده کارشناسی' || item.reviewStatus === 'بررسی‌شده در پژوهش اصلی'
                           ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
                           : item.reviewStatus === 'نیازمند بررسی'
                           ? 'bg-amber-50 border-amber-300 text-amber-800'
@@ -1735,6 +1807,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                           : 'bg-slate-50 border-slate-300 text-slate-700'
                       }`}
                     >
+                      <option value="بررسی‌شده در پژوهش اصلی">بررسی‌شده در پژوهش اصلی</option>
                       <option value="تأییدشده کارشناسی">تأییدشده کارشناسی</option>
                       <option value="نیازمند بررسی">نیازمند بررسی</option>
                       <option value="خام (ثبت اولیه)">خام (ثبت اولیه)</option>
@@ -1841,6 +1914,16 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                 </div>
               </div>
             ))}
+
+            {filteredExtractedItems.length > visibleLimit && (
+              <button
+                type="button"
+                onClick={() => setVisibleLimit((prev) => prev + 100)}
+                className="w-full min-h-[44px] py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 text-xs font-bold rounded-xl"
+              >
+                نمایش ۱۰۰ مطلب بعدی (از مجموع {toPersianDigits(filteredExtractedItems.length)} مطلب استخراج‌شده)
+              </button>
+            )}
           </div>
         </div>
       )}

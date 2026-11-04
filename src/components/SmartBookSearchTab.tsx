@@ -27,6 +27,7 @@ import {
 import {
   BookMartyrLinkRecord,
   CustomMartyrRecord,
+  ExtractedContentItem,
   OFFICIAL_SEARCH_SOURCES,
   ReferenceCatalogRow,
   SmartSearchSuggestion,
@@ -36,6 +37,7 @@ import {
   normalizePersianText,
   toPersianDigits
 } from '../data/markazAsnadData';
+import { SOOREH_MEHR_RESEARCH_STATS } from '../data/soorehMehrResearch';
 
 export interface SpecializedPublisher {
   id: string;
@@ -217,6 +219,7 @@ interface SmartBookSearchTabProps {
   customMartyrs?: CustomMartyrRecord[];
   smartSuggestions: SmartSearchSuggestion[];
   links?: BookMartyrLinkRecord[];
+  extractedItems?: ExtractedContentItem[];
   initialMartyrQuery?: string;
   onAddSuggestion: (newSug: SmartSearchSuggestion) => void;
   onUpdateSuggestion: (updatedSug: SmartSearchSuggestion) => void;
@@ -261,6 +264,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
   customMartyrs = [],
   smartSuggestions,
   links = [],
+  extractedItems = [],
   initialMartyrQuery = '',
   onAddSuggestion,
   onUpdateSuggestion,
@@ -269,6 +273,8 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
   onApproveSuggestionToLinks,
   onNotify
 }) => {
+  const [twoWayQuery, setTwoWayQuery] = useState(initialMartyrQuery || '');
+  const [twoWaySourceFilter, setTwoWaySourceFilter] = useState<'all' | 'sooreh' | 'golzar'>('all');
   const [selectedMartyrName, setSelectedMartyrName] = useState(initialMartyrQuery || '');
   const [customAltNames, setCustomAltNames] = useState('');
   const [rejectedHistory, setRejectedHistory] = useState<RejectedSuggestionHistory[]>(loadRejectedHistory);
@@ -311,6 +317,97 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
     () => generateMartyrNameVariants(selectedMartyrName, customAltNames),
     [selectedMartyrName, customAltNames]
   );
+
+  // موتور جست‌وجوی دوطرفه کتاب و شهید (مقابله ۵۹۹ رکورد پژوهش سوره مهر، ۲۳۷ رکورد قطعات شهدا و ۹۸۰ کتاب کاتالوگ)
+  const validResearchLinks = useMemo(() => {
+    return links.filter((l) => Boolean(l.martyrNameRaw) && l.martyrNameRaw !== '*');
+  }, [links]);
+
+  const twoWayMatchedBookGroups = useMemo(() => {
+    const q = normalizePersianText(twoWayQuery.replace(/^شهید\s+/, ''));
+    const words = q ? q.split(/\s+/).filter(Boolean) : [];
+
+    // گردآوری همه پیوندهای کتاب و شهید به تفکیک کلید کتاب
+    const groupsMap = new Map<
+      string,
+      {
+        bookKey: string;
+        tempBookId: string;
+        bookTitle: string;
+        alternativeTitle: string;
+        publisher: string;
+        description: string;
+        sourceFile: string;
+        catalogRow?: ReferenceCatalogRow;
+        allBookLinks: BookMartyrLinkRecord[];
+        matchedMartyrLinkIds: Set<string>;
+      }
+    >();
+
+    for (const lnk of validResearchLinks) {
+      if (twoWaySourceFilter === 'sooreh' && !lnk.sourceFile?.includes('لیست کتابهای')) continue;
+      if (twoWaySourceFilter === 'golzar' && !lnk.sourceFile?.includes('قطعات شهدا')) continue;
+
+      const key = lnk.tempBookId || `${normalizePersianText(lnk.bookTitleRaw)}::${normalizePersianText(lnk.publisherRaw)}`;
+      let grp = groupsMap.get(key);
+      if (!grp) {
+        const catRow = catalogRows.find(
+          (c) =>
+            (lnk.tempBookId && c.tempBookId === lnk.tempBookId) ||
+            normalizePersianText(c.titleRaw) === normalizePersianText(lnk.bookTitleRaw)
+        );
+        grp = {
+          bookKey: key,
+          tempBookId: lnk.tempBookId || catRow?.tempBookId || '',
+          bookTitle: catRow?.titleRaw || lnk.bookTitleRaw,
+          alternativeTitle: lnk.alternativeTitle || (catRow && catRow.titleRaw !== lnk.bookTitleRaw ? lnk.bookTitleRaw : ''),
+          publisher: lnk.publisherRaw || catRow?.publisherRaw || 'سوره مهر',
+          description: lnk.sourceDescriptionRaw || catRow?.descriptionRaw || '',
+          sourceFile: lnk.sourceFile || 'لیست کتابهای و شهدای مرتبط.xlsx',
+          catalogRow: catRow,
+          allBookLinks: [],
+          matchedMartyrLinkIds: new Set<string>()
+        };
+        groupsMap.set(key, grp);
+      }
+      if (!grp.description && lnk.sourceDescriptionRaw) {
+        grp.description = lnk.sourceDescriptionRaw;
+      }
+      grp.allBookLinks.push(lnk);
+    }
+
+    const allGroups = Array.from(groupsMap.values());
+    if (words.length === 0) {
+      return allGroups;
+    }
+
+    const matchedGroups: typeof allGroups = [];
+    for (const grp of allGroups) {
+      const bookHeaderHay = normalizePersianText(
+        `${grp.tempBookId} ${grp.bookTitle} ${grp.alternativeTitle} ${grp.publisher} ${grp.description}`
+      );
+      const bookMatchesDirectly = words.every((w) => bookHeaderHay.includes(w));
+
+      const matchedLinkIds = new Set<string>();
+      for (const lnk of grp.allBookLinks) {
+        const lnkHay = normalizePersianText(
+          `${lnk.martyrNameRaw} ${lnk.sourceDescriptionRaw || ''} ${lnk.pageReferenceRaw || ''} ${lnk.gravePieceRaw || ''} ${lnk.bookTitleRaw} ${lnk.alternativeTitle || ''}`
+        );
+        if (words.every((w) => lnkHay.includes(w))) {
+          matchedLinkIds.add(lnk.id);
+        }
+      }
+
+      if (bookMatchesDirectly || matchedLinkIds.size > 0) {
+        matchedGroups.push({
+          ...grp,
+          matchedMartyrLinkIds: matchedLinkIds
+        });
+      }
+    }
+
+    return matchedGroups;
+  }, [validResearchLinks, catalogRows, twoWayQuery, twoWaySourceFilter]);
 
   const isMartyrOrphanOrTest = (martyrName: string, martyrId?: string): boolean => {
     const cleanLower = (martyrName || '').toLowerCase().trim();
@@ -688,13 +785,63 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
       minute: '2-digit'
     }).format(new Date());
 
-    // Compare against the REAL 980 books in catalogRows
-    const matchedBooks = catalogRows.filter((r) =>
+    // همچنین عبارت جست‌وجوی دوطرفه را همگام کن تا کاربر بلافاصله جدول کتاب‌ها و شهدای مرتبط را ببیند
+    setTwoWayQuery(targetName);
+
+    // ۱. جست‌وجو در کاتالوگ ۹۸۰ کتاب (عنوان، توضیحات، نویسنده)
+    const directCatalogMatches = catalogRows.filter((r) =>
       normalizePersianText(`${r.titleRaw} ${r.descriptionRaw} ${r.authorRaw}`).includes(normTarget)
     );
 
-    if (matchedBooks.length > 0) {
-      const matched = matchedBooks[0];
+    // ۲. جست‌وجو در ۵۹۹ ردیف پژوهش سوره مهر و ۲۳۷ ردیف قطعات شهدا (ارتباط کتاب و شهید)
+    const linkMatches = validResearchLinks.filter((lnk) =>
+      normalizePersianText(`${lnk.martyrNameRaw} ${lnk.sourceDescriptionRaw || ''} ${lnk.bookTitleRaw}`).includes(
+        normTarget
+      )
+    );
+
+    // ترکیب یکتای کتاب‌های منطبق از هر دو منبع
+    const matchedBooksMap = new Map<string, { book: ReferenceCatalogRow; linkEvidence?: BookMartyrLinkRecord }>();
+    for (const b of directCatalogMatches) {
+      matchedBooksMap.set(b.tempBookId || b.titleRaw, { book: b });
+    }
+    for (const lnk of linkMatches) {
+      const catBook =
+        catalogRows.find(
+          (c) =>
+            (lnk.tempBookId && c.tempBookId === lnk.tempBookId) ||
+            normalizePersianText(c.titleRaw) === normalizePersianText(lnk.bookTitleRaw)
+        ) || {
+          rowKey: `LINK::${lnk.id}`,
+          rowIndex: Number(lnk.sourceExcelRow) || 0,
+          tempBookId: lnk.tempBookId || lnk.id,
+          titleRaw: lnk.bookTitleRaw,
+          publisherRaw: lnk.publisherRaw || 'سوره مهر',
+          descriptionRaw: lnk.sourceDescriptionRaw || '',
+          categoryRaw: 'R',
+          authorRaw: '',
+          isbnRaw: '',
+          fipaRaw: '',
+          registrationNoRaw: '',
+          locationRaw: '',
+          countedCopiesRaw: '1',
+          reviewStatusRaw: lnk.reviewStatus,
+          noteRaw: lnk.reviewerNote || '',
+          backupSourceSheet: lnk.sourceSheet || 'Sheet2',
+          backupSourceRow: lnk.sourceExcelRow || '',
+          allValues: []
+        };
+      const mapKey = catBook.tempBookId || catBook.titleRaw;
+      if (!matchedBooksMap.has(mapKey)) {
+        matchedBooksMap.set(mapKey, { book: catBook, linkEvidence: lnk });
+      }
+    }
+
+    const matchedEntries = Array.from(matchedBooksMap.values());
+
+    if (matchedEntries.length > 0) {
+      const firstEntry = matchedEntries[0];
+      const matched = firstEntry.book;
       const prior = checkBookMartyrPriorStatus(targetName, matched.titleRaw, matched.tempBookId);
 
       // حالت ۱: اگر کتاب قبلاً توسط کارشناس تأیید شده است
@@ -969,10 +1116,21 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
         return;
       }
 
-      // Search Reference Catalog (980 books)
-      const matched = catalogRows.find((r) =>
-        normalizePersianText(`${r.titleRaw} ${r.descriptionRaw} ${r.authorRaw}`).includes(normName)
+      // Search Reference Catalog (980 books) AND Soreh Mehr / Golzar Research Links (836 rows)
+      const matchedLink = validResearchLinks.find((lnk) =>
+        normalizePersianText(lnk.martyrNameRaw).includes(normName)
       );
+      const matched =
+        catalogRows.find((r) =>
+          normalizePersianText(`${r.titleRaw} ${r.descriptionRaw} ${r.authorRaw}`).includes(normName)
+        ) ||
+        (matchedLink
+          ? catalogRows.find(
+              (c) =>
+                (matchedLink.tempBookId && c.tempBookId === matchedLink.tempBookId) ||
+                normalizePersianText(c.titleRaw) === normalizePersianText(matchedLink.bookTitleRaw)
+            )
+          : undefined);
 
       if (matched) {
         found++;
@@ -1200,14 +1358,245 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h1 className="text-base sm:text-lg font-bold text-[#253247] flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-[#C58A2B]" />
-            <span>جست‌وجوی هوشمند کتاب‌های مرتبط با شهدا و صف بررسی کارشناس</span>
+            <span>مقابله و جست‌وجوی دوطرفه کتاب‌ها و شهدا (پژوهش سوره مهر، کارپوشه و ۹۸۰ کتاب)</span>
           </h1>
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-3.5 py-2 text-xs text-[#253247] flex items-center gap-2">
             <ShieldAlert className="w-4 h-4 text-[#C58A2B] shrink-0" />
             <span>
-              <strong>قاعده کنترل کیفیت:</strong> هیچ نتیجه اینترنتی یا پیشنهادی بدون تأیید کارشناس وارد پرونده قطعی کتاب یا شهید نمی‌شود.
+              <strong>قاعده کنترل کیفیت:</strong> وضعیت «بررسی‌شده در پژوهش اصلی» از «تأییدشده کارشناسی» تفکیک شده و ارجاعات صفحه خام عیناً حفظ شده است.
             </span>
           </div>
+        </div>
+      </section>
+
+      {/* بخش اصلی مقابله و جست‌وجوی دوطرفه عنوان کتاب و نام شهید (فایل لیست کتابهای و شهدای مرتبط.xlsx) */}
+      <section className="bg-white border-2 border-[#8C3B2B]/30 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div className="space-y-1">
+            <h2 className="text-sm sm:text-base font-bold text-[#8C3B2B] flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-[#8C3B2B]" />
+              <span>
+                جست‌وجوی دوطرفه عنوان کتاب و نام شهید (پژوهش «{SOOREH_MEHR_RESEARCH_STATS.sourceFileName}» و «قطعات شهدا»)
+              </span>
+            </h2>
+            <p className="text-xs text-slate-600">
+              اگر <strong>عنوان کتاب</strong> (مانند «یک محسن عزیز» یا «یادداشت های ناتمام») را جست‌وجو کنید، تمامی شهدای مرتبط با توضیحات، قطعه/ردیف/شماره مزار و شماره صفحه نمایش داده می‌شوند؛ و اگر <strong>نام شهید</strong> (مانند «جعفر جنگروی»، «محسن وزوایی»، «علی سمندریان»، «سید محمد شکری») را جست‌وجو کنید، کتاب(های) مرتبط و صفحات مربوطه نمایش داده می‌شود.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold">
+            <span className="px-2.5 py-1 rounded-lg bg-[#FAF2E8] text-[#8C3B2B] border border-[#E6D5C1]">
+              ردیف‌های پژوهش سوره مهر: {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalResearchRows)} ردیف
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-[#1F4E79] border border-blue-200">
+              ارتباط‌های فعال کتاب و شهید: {toPersianDigits(validResearchLinks.length)} ارتباط ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalBookMartyrRelations)} سوره مهر + {toPersianDigits(validResearchLinks.length - SOOREH_MEHR_RESEARCH_STATS.totalBookMartyrRelations)} قطعات شهدا)
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-[#2E7D5B] border border-emerald-200">
+              مطالب استخراج‌شده: {toPersianDigits(extractedItems.length)} مورد
+            </span>
+          </div>
+        </div>
+
+        {/* کادر جست‌وجوی دوطرفه + فیلتر منبع */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
+          <div className="md:col-span-8 relative">
+            <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="search"
+              value={twoWayQuery}
+              onChange={(e) => setTwoWayQuery(e.target.value)}
+              placeholder="عنوان کتاب (مثلاً: یک محسن عزیز، یادداشت های ناتمام) یا نام شهید (مثلاً: جعفر جنگروی، علی سمندریان، وزوایی)..."
+              className="w-full min-h-[46px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-[#FDF8F2] border border-[#E6D5C1] rounded-xl text-slate-900 focus:bg-white focus:outline-none focus:border-[#8C3B2B]"
+            />
+          </div>
+
+          <div className="md:col-span-3">
+            <select
+              value={twoWaySourceFilter}
+              onChange={(e) => setTwoWaySourceFilter(e.target.value as 'all' | 'sooreh' | 'golzar')}
+              className="w-full min-h-[46px] px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl font-bold text-slate-800"
+            >
+              <option value="all">همه منابع پژوهشی ({toPersianDigits(validResearchLinks.length)} ارتباط)</option>
+              <option value="sooreh">فقط منبع سوره مهر ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalBookMartyrRelations)} ارتباط)</option>
+              <option value="golzar">فقط منبع قطعات شهدا (۲۳۷ ارتباط)</option>
+            </select>
+          </div>
+
+          <div className="md:col-span-1 flex items-center">
+            <button
+              type="button"
+              onClick={() => {
+                setTwoWayQuery('');
+                setTwoWaySourceFilter('all');
+              }}
+              title="پاک‌سازی جست‌وجوی دوطرفه"
+              className="w-full min-h-[46px] px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center cursor-pointer"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* دکمه‌های نمونه سریع برای آزمایش فوری مثال‌های کاربر */}
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="font-bold text-slate-600 ml-1">آزمون سریع نمونه‌های پژوهشی سوره مهر:</span>
+          {[
+            { label: 'کتاب: یک محسن عزیز', q: 'یک محسن عزیز' },
+            { label: 'کتاب: یادداشت های ناتمام', q: 'یادداشت های ناتمام' },
+            { label: 'شهید: جعفر جنگروی', q: 'جعفر جنگروی' },
+            { label: 'شهید: محسن وزوایی', q: 'محسن وزوایی' },
+            { label: 'شهید: ابراهیم هادی', q: 'ابراهیم هادی' },
+            { label: 'شهید: علیرضا موحد دانش', q: 'علیرضا موحد دانش' },
+            { label: 'شهید: علی سمندریان', q: 'علی سمندریان' },
+            { label: 'شهید: سید محمد شکری', q: 'سید محمد شکری' },
+            { label: 'کتاب: سیزده در هفت', q: 'سیزده در هفت' },
+            { label: 'کتاب: فرکانس 1160', q: 'فرکانس 1160' }
+          ].map((chip) => (
+            <button
+              key={chip.q}
+              type="button"
+              onClick={() => setTwoWayQuery(chip.q)}
+              className={`px-2.5 py-1 rounded-lg border transition-colors cursor-pointer ${
+                twoWayQuery === chip.q
+                  ? 'bg-[#8C3B2B] text-white border-[#8C3B2B] font-bold'
+                  : 'bg-slate-50 hover:bg-[#FAF2E8] text-slate-700 border-slate-200'
+              }`}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+
+        {/* نتایج گروه‌بندی‌شده بر اساس کتاب به همراه فهرست کامل شهدای هر کتاب */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between text-xs text-slate-600 px-1">
+            <span>
+              نتیجه مقابله:{' '}
+              <strong className="text-[#8C3B2B]">{toPersianDigits(twoWayMatchedBookGroups.length)}</strong>{' '}
+              عنوان کتاب دارای ارتباط با شهید یافت شد
+              {twoWayMatchedBookGroups.length > 30 ? ' (نمایش ۳۰ کتاب نخست؛ برای محدودسازی عبارت دقیق‌تر بنویسید)' : ''}
+            </span>
+          </div>
+
+          {twoWayMatchedBookGroups.length === 0 ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-900">
+              هیچ ارتباط ثبت‌شده‌ای در شیت پژوهش سوره مهر یا کارپوشه شهدا با عبارت «{twoWayQuery}» یافت نشد.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 max-h-[540px] overflow-y-auto pr-0.5">
+              {twoWayMatchedBookGroups.slice(0, 30).map((grp) => (
+                <div
+                  key={grp.bookKey}
+                  className="bg-[#FDF8F2]/60 border border-[#E6D5C1] rounded-2xl p-3.5 sm:p-4 space-y-2.5"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2 border-b border-[#E6D5C1]/70 pb-2">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {grp.tempBookId && (
+                          <span
+                            className="font-mono font-bold text-xs bg-[#1F4E79] text-white px-2 py-0.5 rounded-md"
+                            dir="ltr"
+                          >
+                            {grp.tempBookId}
+                          </span>
+                        )}
+                        <h3 className="font-bold text-sm sm:text-base text-slate-900">
+                          کتاب «{grp.bookTitle}»
+                        </h3>
+                        {grp.alternativeTitle && (
+                          <span className="text-xs text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded-md border border-amber-200">
+                            عنوان در شیت منبع: {grp.alternativeTitle}
+                          </span>
+                        )}
+                        <span className="text-xs font-semibold text-[#8C3B2B] bg-white px-2 py-0.5 rounded-md border border-[#E6D5C1]">
+                          ناشر: {grp.publisher}
+                        </span>
+                      </div>
+                      {grp.description && (
+                        <div className="text-xs text-slate-700 font-medium">
+                          توضیحات کتاب در پژوهش: <strong className="text-slate-900">{grp.description}</strong>
+                        </div>
+                      )}
+                    </div>
+
+                    <span className="text-[11px] font-bold text-[#1F4E79] bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200">
+                      {toPersianDigits(grp.allBookLinks.length)} ردیف شهید / عبارت مرتبط
+                    </span>
+                  </div>
+
+                  {/* جدول شهدای مرتبط با این کتاب */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-white/90 text-slate-600 border-b border-[#E6D5C1]">
+                          <th className="py-1.5 px-2 font-bold">نام و نام خانوادگی شهید / عبارت ثبت‌شده</th>
+                          <th className="py-1.5 px-2 font-bold">قطعه</th>
+                          <th className="py-1.5 px-2 font-bold">ردیف</th>
+                          <th className="py-1.5 px-2 font-bold">شماره</th>
+                          <th className="py-1.5 px-2 font-bold">شماره صفحه / ارجاع در کتاب</th>
+                          <th className="py-1.5 px-2 font-bold">منبع و ردیف اکسل</th>
+                          <th className="py-1.5 px-2 font-bold">وضعیت بررسی</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E6D5C1]/50">
+                        {grp.allBookLinks.map((lnk) => {
+                          const isHighlighted = grp.matchedMartyrLinkIds.has(lnk.id);
+                          return (
+                            <tr
+                              key={lnk.id}
+                              className={
+                                isHighlighted
+                                  ? 'bg-amber-100/80 font-semibold text-slate-900'
+                                  : 'bg-white/70 hover:bg-white text-slate-800'
+                              }
+                            >
+                              <td className="py-2 px-2 font-bold text-slate-900">
+                                {lnk.martyrNameRaw}
+                                {lnk.isGroupPhrase && (
+                                  <span className="mr-1.5 text-[10px] font-normal px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">
+                                    عبارت گروهی
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2 px-2 tabular-nums">
+                                {toPersianDigits(lnk.gravePieceRaw || '—')}
+                              </td>
+                              <td className="py-2 px-2 tabular-nums">
+                                {toPersianDigits(lnk.graveRowRaw || '—')}
+                              </td>
+                              <td className="py-2 px-2 tabular-nums">
+                                {toPersianDigits(lnk.graveNumberRaw || '—')}
+                              </td>
+                              <td className="py-2 px-2 font-bold text-[#8C3B2B] tabular-nums">
+                                {toPersianDigits(lnk.pageReferenceRaw || '—')}
+                              </td>
+                              <td className="py-2 px-2 text-[11px] text-slate-500">
+                                {lnk.sourceFile?.includes('لیست کتابهای') ? 'سوره مهر' : 'قطعات شهدا'} · ردیف{' '}
+                                {toPersianDigits(lnk.sourceExcelRow)}
+                              </td>
+                              <td className="py-2 px-2">
+                                <span
+                                  className={`inline-block text-[10.5px] px-2 py-0.5 rounded-md border ${
+                                    lnk.reviewStatus.includes('تأیید')
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 font-bold'
+                                      : lnk.reviewStatus.includes('پژوهش اصلی')
+                                      ? 'bg-blue-50 text-[#1F4E79] border-blue-200 font-bold'
+                                      : 'bg-amber-50 text-amber-800 border-amber-200'
+                                  }`}
+                                >
+                                  {lnk.reviewStatus}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
