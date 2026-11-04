@@ -248,9 +248,115 @@
    - تصریح این نکته که انتخابگر «نقش کاربر» صرفاً جهت ثبت نام اقدام‌کننده در سابقه تغییرات (Audit Log) است و احراز هویت امنیتی محسوب نمی‌شود.
 
 ================================================================================
-پایان گزارش جامع ثبت پرونده فنی — مرکز اسناد گلزار شهدای تهران
+بخش ۷: گزارش جامع مأموریت فنی نجات، رفع خطاهای کامپایل، Review مستقل و آماده‌سازی انتشار
 ================================================================================
 
+۱. تهیه و راستی‌آزمایی نقطه بازیابی (Recovery Point) پیش از هرگونه تغییر
+--------------------------------------------------------------------------------
+- پیش از اعمال هرگونه اصلاح در کدهای پروژه، یک آرشیو کامل و قابل‌بازگشت از وضعیت اولیه پروژه تهیه و راستی‌آزمایی شد:
+  * مسیر اول (حافظه پایدار پروژه): /app/applet/.aistudio/recovery/project_recovery_point.tar.gz
+  * مسیر دوم (Hard Link جهت دانلود مستقیم از File Explorer): /app/applet/recovery_download/project_recovery_point.tar.gz
+  * حجم دقیق آرشیو: 33,394,446 بایت (شامل ۳۰۰ مدخل فایل و پوشه)
+  * شماره Inode مشترک: 323
+  * هش SHA-256 راستی‌آزمایی‌شده:
+    ae50a3cb5cdb11275c6f2e5b467841b0d462070521efd5bbc82ce814c0cd4c59
+  * آزمون استخراج ایزوله (tar -xzf در مسیر موقت خارج از پروژه) و مقایسه بایت‌به‌بایت (cmp -s) با موفقیت کامل (Exit Code: 0) انجام شد.
 
+۲. ریشه‌یابی و اصلاح دامنه کامپایل TypeScript در فایل ریشه tsconfig.json
+--------------------------------------------------------------------------------
+- علت خطای کامپایل و مصرف بالای حافظه در اجرای اولیه tsc:
+  فایل tsconfig.json ریشه دارای تنظیم "include": ["."] و فاقد بخش "exclude" بود؛ در نتیجه کامپایلر TypeScript علاوه بر کدهای اصلی (src/)، فایل‌های باندل‌شده داخل پوشه‌های خروجی (dist/، docs/، خروجی نرم‌افزار/) و همچنین کدهای برنامه مستقل (apps/library-research-pwa/) را نیز وارد دامنه کامپایل می‌کرد.
+- اصلاح حداقلی اعمال‌شده در /tsconfig.json:
+  * محدودسازی "include" به: ["src", "vite.config.ts"]
+  * افزودن "exclude": ["dist", "docs", "خروجی نرم‌افزار", "apps", "public", "node_modules"]
+  * حفظ کامل سایر تنظیمات compilerOptions.
 
+۳. ممیزی و رفع کامل خطاهای TypeScript (مرحله npm run lint در GitHub Actions)
+--------------------------------------------------------------------------------
+- بررسی علت شکست مرحله "Run TypeScript typecheck (lint)" در گردش‌کار GitHub Actions نشان داد که ۴۱ خطای کامپایلر در ۲۷ نقطه از ۶ فایل داخل پوشه src/ وجود داشت.
+- تمامی این خطاها بدون بازنویسی معماری یا حذف قابلیت‌ها، با اصلاحات حداقلی و دقیق برطرف شدند:
+  1) src/App.tsx (2,275 خط | 104,190 بایت | SHA-256: bb7c593a84e6a74303bac8b33294375199dd2bb0920c26a1a76da9d6bc6d19fb):
+     - خط ۵۷۴: پاس دادن آرگومان دوم (baseLinks) به تابع buildSorehMehrExtractedItems(rows, baseLinks) هنگام بارگذاری اولیه.
+     - خطوط ۱۷۹۰ و ۱۷۹۹: تطبیق پراپ‌های حذف تکی و پاک‌سازی صف (onDeleteSuggestion و onClearAllSuggestions) با کامپوننت SmartBookSearchTab.
+     - خطوط ۱۸۹۱ تا ۱۸۹۴: تصریح تایپ پارامترهای تابع بازبینی مطالب استخراج‌شده (onUpdateExtractedItemStatus).
+  2) src/components/DepositoryAndExportHub.tsx (1,010 خط | 44,975 بایت | SHA-256: 666e38e8ef0b1bde0acfd485e149e79b64a716627e4697c937c235d6074ba302):
+     - خطوط ۲۰۸، ۲۰۹ و ۵۹۴: اصلاح نام فیلدهای rec?.publicationYear و rec?.notes به فیلدهای واقعی مدل FieldAuditRecord یعنی rec?.year و rec?.note.
+  3) src/components/PilotTestAndReportTab.tsx (1,148 خط | 60,528 بایت | SHA-256: 76c7d5f7e205d53793545a69a7cfc0b977352f334b434e970597bcde5363b041):
+     - خطوط ۱۹۹، ۲۰۶، ۲۱۰ و ۲۲۶: اصلاح ترتیب آرگومان‌های generateUniqueCopyId(sampleCopies, 'BK-0001')، مقایسه شیء برگشتی از طریق فیلد .copyId و اصلاح نام تابع بازرسی پشتیبان به inspectBackupFile.
+  4) src/components/ResearchAndLinksTab.tsx (2,825 خط | 142,958 بایت | SHA-256: a3d6de92d7d6119ce93c24cb3614c5075769fd40a62585d833f77a273eb43fc8):
+     - تطبیق کامل فیلدهای BookMartyrLinkRecord و ExtractedContentItem (شامل sourceSheet، confidenceScore، witnessQuote، martyrCode، plot) و تعیین تایپ صریح پارامترهای Callback در ۲۰ نقطه.
+  5) src/components/SmartBookSearchTab.tsx (2,906 خط | 147,149 بایت | SHA-256: c685218fcb7271c71dfc864e82e945d6d6e407d2c510d213fd9584f95c519a3e):
+     - افزودن تعریف پراپ‌های onDeleteSuggestion و onClearAllSuggestions به SmartBookSearchTabProps و اصلاح فیلدهای ساخت پیوند از پیشنهاد هوشمند در ۱۲ نقطه.
+  6) src/utils/backupService.ts (786 خط | 28,996 بایت | SHA-256: d1e57dc29c4d935bc69fc6d365f189470a33d0bb4f6b32041c2ab7b863a6e8fb):
+     - اصلاح توابع استخراج شناسه در inspectBackupFile و executeBackupRestore متناسب با ساختار واقعی مدل‌ها (rec.key برای auditRecords، m.id برای customMartyrs، p.trackingId برای pendingReviews و g.groupCode برای multiMartyrGroups).
+  7) src/data/soorehMehrResearch.ts (536 خط | 26,835 بایت | SHA-256: b7ddf4d91582794815fc80a0c3bb50884789ef9d8798e8ea3216877aea78cc9e):
+     - خط ۴۵۳: افزودن مقدار پیش‌فرض آرایه خالی (existingLinks: BookMartyrLinkRecord[] = []) و گارد ایمنی جهت پیشگیری از خطای Runtime در بارگذاری اولیه.
+  8) src/index.css (213 خط | 4,332 بایت | SHA-256: 7f0376b4b4752802f1c26a7daed97b4aa98e706af22c8d3c2cbe0b167c281b5e):
+     - حذف بلوک @font-face معیوب فونت خارجی دارای خطای CORS و تکیه بر فونت‌های استاندارد تعریف‌شده.
+- نتیجه نهایی اجرای npm run lint (tsc --noEmit): موفقیت کامل با Exit Code: 0 و ۰ خطا.
+
+۴. تأیید دست‌نخوردگی ۱۰۰٪ فایل‌های داده مرجع با هش SHA-256
+--------------------------------------------------------------------------------
+- تمامی فایل‌های داده اصلی پروژه بدون کوچک‌ترین تغییر حفظ شده‌اند:
+  * src/data/markazAsnadData.ts (102,429 بایت):
+    SHA-256: cb453967719416f86ec5d50e689e4558417107b064e255c8ad86fe8f152b60b6
+  * public/data/golzar_martyrs.xlsx (1,158,342 بایت):
+    SHA-256: 93c080fb4f578c485ab96d67e4c344238549080383c05a1cb46770224f6e0a90
+  * public/data/library_books.json (532,377 بایت):
+    SHA-256: 6dcf28236fc40a16cb0b8f3c1488fdd0bb7c3fad87fd16d8810a525f7fc078c5
+  * public/data/library_books_980.xlsx (104,043 بایت):
+    SHA-256: 6b85de9ff1d4537f902c324a1d995c6a2beae636a58836b016fb12ec195b2bf4
+  * public/data/library_workbook_v01.xlsx (322,740 بایت):
+    SHA-256: 1261f6421c9aaf276e27e866b972dfe227dbca6371a8652bb65e6d0868490a0a
+  * public/data/sooreh_mehr_book_martyr_research.json (60,972 بایت):
+    SHA-256: 790f60ab4ba6301e04158424de5a184f62f0aad1de7ea754e32697865021d20b
+
+۵. نتایج آزمون‌های عملیاتی در مرورگر واقعی (Playwright Chromium)
+--------------------------------------------------------------------------------
+الف) آزمون‌های ۶گانه پشتیبان کامل نسخه ۳ (Backup v3)، ادغام امن و Rollback:
+- آزمون الف (تولید پشتیبان سالم نسخه ۳): تولید پاکت شامل هر ۱۱ مجموعه عملیاتی با schemaVersion: 3 و امضای کنترلی FNV1A-3271A5CD (PASS).
+- آزمون ب (بازیابی کامل Replace و ادغام امن Safe Merge): در حالت Safe Merge، رکوردهای دارای زمان ویرایش جدیدتر (updatedAt) حفظ شدند و با داده قدیمی‌تر بازنویسی نگردیدند (PASS).
+- آزمون ج (تشخیص دستکاری Checksum): تغییر آزمایشی محتوای JSON بلافاصله با checksumValid: false شناسایی شد (PASS).
+- آزمون د (رد فایل JSON معیوب): فایل ساختار نامعتبر بدون تغییر در داده‌های قبلی رد شد (PASS).
+- آزمون هـ (بازگشت خودکار Transactional Rollback): با شبیه‌سازی خطای ذخیره‌سازی روی کلید چهارم در حین بازیابی، سامانه به‌طور خودکار تمامی ۱۰ کلید را به Snapshot پیش از بازیابی بازگرداند (PASS).
+- آزمون و (سازگاری با فایل پشتیبان نسخه ۲ قدیمی): بازیابی موفق records بدون حذف سایر مجموعه‌های عملیاتی (PASS).
+
+ب) آزمون مستقل لایه‌های ذخیره‌سازی IndexedDB و localStorage:
+- ثبت رکورد آزمایشی (RL-999999) و تأیید حضور فیزیکی آن به‌طور مستقل در هر دو لایه IndexedDB (MarkazAsnadBookLibraryDB) و localStorage.
+- تأیید ماندگاری در هر دو لایه پس از رفرش صفحه (page.reload) و پس از بستن و بازگشایی کامل مرورگر (launchPersistentContext).
+- تأیید گزارش شفاف خطا هنگام شبیه‌سازی پر شدن ظرفیت localStorage (عدم بلعیدن خاموش خطا).
+- تأیید عملکرد دقیق مقایسه updatedAt در hydrateOperationalKey جهت انتخاب نسخه جدیدتر.
+
+ج) آزمون تولید شناسه‌های یکتا پس از حذف رکوردهای میانی (idGenerator.ts):
+- با حذف رکورد میانی 1002 از آرایه [1001, 1002, 1003] در هر ۶ خانواده شناسه (CP, RL, SS, MR, EX, LOG)، شناسه بعدی در تمامی موارد برابر 1004 تولید شد و هیچ برخوردی با 1003 رخ نداد (PASS).
+
+د) اجرای واقعی ۱۱ آزمون در ۶ دسته الزامی پذیرش (CAT-A1 تا CAT-F1):
+- کنترل وضعیت اولیه پیش از اجرا: نمایش صادقانه ۱۱ برچسب «آزمایش‌نشده».
+- پس از کلیک روی «اجرای واقعی تمام آزمون‌های پذیرش (۶ دسته الزامی)»: موفقیت کامل هر ۱۱ آزمون (CAT-A1, CAT-A2, CAT-B1, CAT-B2, CAT-C1, CAT-C2, CAT-D1, CAT-D2, CAT-E1, CAT-E2, CAT-F1) با ۰ خطای کنسول.
+
+هـ) آزمون ریسپانسیو موبایل اندروید در ابعاد 360×800:
+- پیمایش هر ۵ تب نوار پایین («خانه»، «کتابخانه»، «شهدا»، «جست‌وجو»، «پژوهش») و بخش «پشتیبانی و گزارش‌ها» در ابعاد 360×800:
+  scrollWidth === 360px در تمامی صفحات، بدون اسکرول افقی ناخواسته و با ۰ خطای کنسول.
+
+۶. نتایج اجرای کامل تست‌ها و ساخت زیربرنامه مستقل PWA (apps/library-research-pwa)
+--------------------------------------------------------------------------------
+- کنترل سلامت آرشیوهای فشرده منبع (gzip -t): موفق (PASS).
+- بازگشایی منابع، کامپایل TypeScript و فشرده‌سازی ۷ ماژول Runtime (npm run build): موفق (PASS).
+- اجرای ۱۱ آزمون واحد دامنه و ارتباطات (node --test tests/*.test.mjs): ۱۱ موفق، ۰ خطا (PASS).
+- آزمون HTTP Smoke برای ۱۵ دارایی برنامه (node scripts/smoke.mjs): موفق (PASS).
+- آزمون Chromium E2E مرورگر (node scripts/browser-smoke.mjs): موفق (PASS — شامل چیدمان موبایل، ثبت/ویرایش، ماندگاری IndexedDB، پیش‌نمایش و بازیابی پشتیبان، پردازش و نگاشت فایل اکسل ۵ شیتی و بارگذاری آفلاین).
+- بسته‌بندی سایت ایستا و آزمون بسته انتشار (npm run assemble:site && node scripts/static-smoke.mjs): موفق (۲۳ فایل Runtime ایستا بدون نشت فایل‌های منبع یا تست).
+
+۷. کنترل نهایی بسته انتشار ترکیبی (dist/) مطابق گردش‌کار GitHub Actions
+--------------------------------------------------------------------------------
+- ساخت برنامه اصلی در dist/ و کپی خروجی ایستا (site/) زیربرنامه PWA در dist/library-research/ انجام شد و هر ۵ شرط مرحله نهایی گردش‌کار .github/workflows/deploy.yml تأیید گردید:
+  1) test -s dist/index.html -> PASS
+  2) test -s dist/library-quick-inventory.html -> PASS
+  3) test -s dist/library-research/index.html -> PASS
+  4) test -s dist/library-research/manifest.webmanifest -> PASS
+  5) test -s dist/library-research/sw.js -> PASS
+
+================================================================================
+پایان گزارش جامع ثبت پرونده فنی — مرکز اسناد گلزار شهدای تهران
+================================================================================
 

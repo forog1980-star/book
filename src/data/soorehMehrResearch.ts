@@ -346,12 +346,12 @@ function parsePageRangeRaw(pageRefRaw: string): { start?: string; end?: string }
  * به همراه رکوردهای اولیه و رکوردهای ثبت‌شده توسط کاربر بدون ایجاد تکرار
  */
 export function buildSorehMehrExtractedItems(
-  enrichedLinks: BookMartyrLinkRecord[],
-  existingItems: ExtractedContentItem[]
+  enrichedLinks: BookMartyrLinkRecord[] = [],
+  existingItems: ExtractedContentItem[] = []
 ): ExtractedContentItem[] {
   const byId = new Map<string, ExtractedContentItem>();
-  for (const item of existingItems) {
-    byId.set(item.id, item);
+  for (const item of Array.isArray(existingItems) ? existingItems : []) {
+    if (item?.id) byId.set(item.id, item);
   }
 
   let smCounter = 1;

@@ -704,7 +704,7 @@ export async function executeBackupRestore(
           currentState.extractedItems || [],
           incoming.extractedItems || [],
           e => e.id,
-          e => parseTimestamp(e.extractedAt)
+          e => parseTimestamp(e.updatedAt)
         ),
         auditLog: mergeArrayByIdAndTimestamp(
           currentState.auditLog || [],

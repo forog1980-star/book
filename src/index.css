@@ -2,8 +2,7 @@
 
 @font-face {
   font-family: 'B Titr';
-  src: local('B Titr'), local('BTitrBold'), local('Titr'),
-       url('https://cdn.fontcdn.ir/Font/Persian/BTitr/BTitrBold.woff') format('woff');
+  src: local('B Titr'), local('BTitrBold'), local('Titr');
   font-weight: bold;
   font-style: normal;
   font-display: swap;

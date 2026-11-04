@@ -184,7 +184,7 @@ export const PilotTestAndReportTab: React.FC<PilotTestAndReportTabProps> = ({
     const missingPublisherCount = catalogRows.filter((r) => !r.publisherRaw.trim()).length;
     const missingYearCount = catalogRows.filter((r) => {
       const rec = auditRecords[r.rowKey];
-      return !rec?.publicationYear?.trim();
+      return !rec?.year?.trim();
     }).length;
 
     return [
@@ -215,7 +215,7 @@ export const PilotTestAndReportTab: React.FC<PilotTestAndReportTabProps> = ({
         value: ['SH-01', 'SH-02', 'SH-03', 'SH-04']
           .map((sh) => {
             const recCnt = recordsList.filter((r) => r.shelf === sh).length;
-            const cpCnt = bookCopies.filter((c) => c.shelfCode === sh).length;
+            const cpCnt = bookCopies.filter((c) => c.shelf === sh).length;
             return `${sh} (رکورد: ${toPersianDigits(recCnt)} · نسخه CP: ${toPersianDigits(cpCnt)})`;
           })
           .join(' · '),
@@ -450,11 +450,11 @@ export const PilotTestAndReportTab: React.FC<PilotTestAndReportTabProps> = ({
         category: 'A',
         categoryTitle: 'دسته A: ذخیره‌سازی و حفاظت از داده',
         title: 'سلامت کامل نوشتن، خواندن و حذف آزمایشی در localStorage و IndexedDB',
-        status: health.localStorageOk && health.indexedDbOk ? 'passed' : 'failed',
+        status: health.localStorageWorking && health.indexedDbWorking ? 'passed' : 'failed',
         detail:
-          health.localStorageOk && health.indexedDbOk
+          health.localStorageWorking && health.indexedDbWorking
             ? 'نوشتن، خواندن و حذف کلید آزمایشی در هر دو حافظه localStorage و IndexedDB با موفقیت انجام شد.'
-            : `خطا در حافظه: ${health.error || 'عدم دسترسی به IndexedDB/localStorage'}`,
+            : `خطا در حافظه: ${health.details || 'عدم دسترسی به IndexedDB/localStorage'}`,
         executedAt: nowTime
       });
 
@@ -484,7 +484,7 @@ export const PilotTestAndReportTab: React.FC<PilotTestAndReportTabProps> = ({
         multiMartyrGroups,
         extractedItems,
         auditLog,
-        userSettings: { currentUserRole: 'مدیر مرکز اسناد' },
+        userSettings: { activeRole: 'admin' },
         rejectedSuggestionsArchive: []
       };
       const v3Envelope = createFullSystemBackupEnvelope(stateForTest);
@@ -492,9 +492,9 @@ export const PilotTestAndReportTab: React.FC<PilotTestAndReportTabProps> = ({
       const v3Inspection = inspectBackupFile(v3Json, stateForTest);
       const hasAll11Collections =
         v3Inspection.valid &&
-        v3Inspection.schemaVersion === 3 &&
+        v3Inspection.detectedSchemaVersion === 3 &&
         v3Inspection.checksumValid &&
-        v3Inspection.diffs.length === 11;
+        v3Inspection.collectionDiffs.length === 11;
 
       results.push({
         code: 'CAT-B1',
@@ -503,7 +503,7 @@ export const PilotTestAndReportTab: React.FC<PilotTestAndReportTabProps> = ({
         title: 'تولید و بازرسی پشتیبان کامل سامانه (schemaVersion: 3) شامل هر ۱۱ مجموعه عملیاتی و Checksum',
         status: hasAll11Collections ? 'passed' : 'failed',
         detail: hasAll11Collections
-          ? `پشتیبان نسخه ۳ با امضای کنترلی معتبر (${v3Envelope.checksum}) و پوشش هر ۱۱ مجموعه عملیاتی (${toPersianDigits(v3Inspection.diffs.length)} جدول) تولید و راستی‌آزمایی شد.`
+          ? `پشتیبان نسخه ۳ با امضای کنترلی معتبر (${v3Envelope.checksum}) و پوشش هر ۱۱ مجموعه عملیاتی (${toPersianDigits(v3Inspection.collectionDiffs.length)} جدول) تولید و راستی‌آزمایی شد.`
           : 'خطا در تولید یا بررسی امضای کنترلی پشتیبان نسخه ۳.',
         executedAt: nowTime
       });
@@ -521,17 +521,18 @@ export const PilotTestAndReportTab: React.FC<PilotTestAndReportTabProps> = ({
         category: 'B',
         categoryTitle: 'دسته B: پشتیبان کامل v3 و بازیابی',
         title: 'پشتیبانی کامل از فایل‌های پشتیبان قدیمی (نسخه ۲: { records }) و تفکیک ادغام امن از جایگزینی کامل',
-        status: v2Inspection.valid && v2Inspection.isLegacyV2 ? 'passed' : 'failed',
+        status: v2Inspection.valid && v2Inspection.isLegacyPartialBackup ? 'passed' : 'failed',
         detail:
-          v2Inspection.valid && v2Inspection.isLegacyV2
+          v2Inspection.valid && v2Inspection.isLegacyPartialBackup
             ? 'فایل پشتیبان قدیمی نسخه ۲ با موفقیت شناسایی و جدول پیش‌نمایش تفاوت‌ها برای «ادغام امن» و «جایگزینی کامل» محاسبه شد.'
             : 'خطا در شناسایی ساختار پشتیبان نسخه ۲.',
         executedAt: nowTime
       });
 
       // CAT-C1: Collision-free ID generation after middle deletion
-      const sampleAfterMiddleDelete = [{ id: 'CP-000001' }, { id: 'CP-000003' }]; // CP-000002 deleted
-      const generatedCpId = generateUniqueCopyId(sampleAfterMiddleDelete);
+      const sampleAfterMiddleDelete = [{ copyId: 'CP-000001' }, { copyId: 'CP-000003' }]; // CP-000002 deleted
+      const generatedCp = generateUniqueCopyId(sampleAfterMiddleDelete);
+      const generatedCpId = generatedCp.copyId;
       const sampleLinksAfterDelete = [{ id: 'LNK-0001' }, { id: 'LNK-0003' }];
       const generatedLnkId = generateUniqueLinkId(sampleLinksAfterDelete);
       const generatedSugId = generateUniqueSuggestionId([{ id: 'SS-0001' }, { id: 'SS-0004' }]);

@@ -571,7 +571,13 @@ export default function App() {
         if (hydSmart.source === 'indexedDB') setSmartSuggestions(hydSmart.value);
         if (hydGroups.source === 'indexedDB') setMultiMartyrGroups(hydGroups.value);
         if (hydExtracted.source === 'indexedDB') {
-          setExtractedItems(buildSorehMehrExtractedItems(hydExtracted.value));
+          const baseLinks = hydLinks.source === 'indexedDB' ? hydLinks.value : links;
+          setExtractedItems(
+            buildSorehMehrExtractedItems(
+              enrichLinksWithSorehMehrResearch(baseLinks),
+              hydExtracted.value
+            )
+          );
         }
         if (hydLinks.source === 'indexedDB') {
           setLinks(enrichLinksWithSorehMehrResearch(hydLinks.value));
@@ -921,17 +927,20 @@ export default function App() {
     setBookCopies(restored.bookCopies || []);
     setCustomMartyrs(restored.customMartyrs || []);
     setSmartSuggestions(restored.smartSuggestions || []);
-    setLinks(enrichLinksWithSorehMehrResearch(restored.links || []));
+    const enrichedRestoredLinks = enrichLinksWithSorehMehrResearch(restored.links || []);
+    setLinks(enrichedRestoredLinks);
     setPendingReviews(restored.pendingReviews || []);
     setMultiMartyrGroups(restored.multiMartyrGroups || []);
-    setExtractedItems(buildSorehMehrExtractedItems(restored.extractedItems || []));
+    setExtractedItems(
+      buildSorehMehrExtractedItems(enrichedRestoredLinks, restored.extractedItems || [])
+    );
     setAuditLog(restored.auditLog || []);
     setRejectedSuggestionsArchive(restored.rejectedSuggestionsArchive || []);
     if (restored.userSettings?.activeRole) {
       setActiveUserRole(restored.userSettings.activeRole);
     }
     markSessionModification();
-    appendAuditLog('بازیابی پشتیبان', 'FULL-BACKUP-V3', summaryMessage);
+    appendAuditLog('تغییر وضعیت پیگیری', 'FULL-BACKUP-V3', `بازیابی پشتیبان: ${summaryMessage}`);
     showNotify(summaryMessage);
   };
 
@@ -1741,7 +1750,7 @@ export default function App() {
               setSmartSuggestions((prev) =>
                 prev.map((s) => (s.id === updated.id ? updated : s))
               );
-              if (updated.reviewStatus === 'رد شده') {
+              if (updated.reviewStatus === 'ردشده با ثبت دلیل') {
                 setRejectedSuggestionsArchive((prev) => {
                   const key = `${updated.martyrName}::${updated.bookTitle}`;
                   const rec: RejectedSuggestionRecord = {
@@ -1749,10 +1758,10 @@ export default function App() {
                     martyrId: updated.martyrId,
                     martyrName: updated.martyrName,
                     bookTitle: updated.bookTitle,
-                    bookId: updated.tempBookId || undefined,
-                    rejectedBy: updated.reviewerName || getRoleDisplayName(activeUserRole),
+                    bookId: updated.matchedCatalogBookId || undefined,
+                    rejectedBy: updated.reviewedBy || getRoleDisplayName(activeUserRole),
                     rejectedAt: updated.reviewedAt || new Date().toLocaleDateString('fa-IR'),
-                    rejectionReason: updated.rejectionReason || updated.reviewerNote || 'رد کارشناسی',
+                    rejectionReason: updated.reviewerNote || 'رد کارشناسی',
                     updatedAt: Date.now()
                   };
                   const filtered = prev.filter(

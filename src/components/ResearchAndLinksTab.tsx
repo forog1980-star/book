@@ -613,10 +613,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
       'ناشر': pv.publisher || '',
       'موضوع ایراد / ابهام': pv.issueSubject,
       'اقدام پیشنهادی بازبین': pv.suggestedAction,
-      'وضعیت پیگیری': pv.trackingStatus,
-      'وضعیت اطلاعات مزار': pv.locationStatus,
-      'وضعیت ارجاع صفحه': pv.pageRefStatus,
-      'اولویت بررسی': pv.priority
+      'وضعیت پیگیری': pv.trackingStatus
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
@@ -1064,37 +1061,37 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                 <div className="bg-white border border-emerald-200 rounded-lg p-2">
                   <div className="text-slate-500">۱. ردیف‌های شیت</div>
                   <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
-                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalSheetRowsWithHeader)} سطر ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.nonEmptyDataRows)} داده)
+                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalRowsWithHeader)} سطر ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalResearchRows)} داده)
                   </div>
                 </div>
                 <div className="bg-white border border-emerald-200 rounded-lg p-2">
                   <div className="text-slate-500">۲. کتاب‌های یکتا</div>
                   <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
-                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.uniqueCanonicalBooksInFile)} کتاب ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.booksWithMartyrOrPhrase)} دارای ارتباط)
+                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.uniqueBooksByRowId)} کتاب ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.booksWithMartyrOrPhrase)} دارای ارتباط)
                   </div>
                 </div>
                 <div className="bg-white border border-emerald-200 rounded-lg p-2">
                   <div className="text-slate-500">۳. شهدای یکتا</div>
                   <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
-                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.uniqueNamedMartyrs)} شهید نام‌برده
+                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.uniqueNamedMartyrsCount)} شهید نام‌برده
                   </div>
                 </div>
                 <div className="bg-white border border-emerald-200 rounded-lg p-2">
                   <div className="text-slate-500">۴. کل ارتباطات فایل</div>
                   <div className="font-extrabold text-emerald-800 mt-0.5 tabular-nums">
-                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalValidRelations)} ارتباط ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.namedMartyrRelations)} فردی + {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.groupPhraseRelations)} گروهی)
+                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalBookMartyrRelations)} ارتباط ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.namedMartyrRelationsCount)} فردی + {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.groupPhraseRelationsCount)} گروهی)
                   </div>
                 </div>
                 <div className="bg-white border border-emerald-200 rounded-lg p-2">
                   <div className="text-slate-500">۵. منطبق با مخزن</div>
                   <div className="font-extrabold text-emerald-800 mt-0.5 tabular-nums">
-                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.matchedCatalogBooksTotal)} از {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.uniqueCanonicalBooksInFile)} کتاب (۱۰۰٪)
+                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.catalogMatchedBooksCount)} از {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.uniqueBooksByRowId)} کتاب (۱۰۰٪)
                   </div>
                 </div>
                 <div className="bg-white border border-emerald-200 rounded-lg p-2">
                   <div className="text-slate-500">۶. خارج از مخزن</div>
                   <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
-                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.unmatchedBooksAfterNormalization)} در سوره مهر ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.unmatchedBooksBeforeNormalization)} حل‌شده با نرمال‌سازی)
+                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.catalogUnmatchedBooksCount)} در سوره مهر ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.strictlyUnmatchedBeforeNormalizationBooksCount)} حل‌شده با نرمال‌سازی)
                   </div>
                 </div>
                 <div className="bg-white border border-emerald-200 rounded-lg p-2">
@@ -1106,7 +1103,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                 <div className="bg-white border border-emerald-200 rounded-lg p-2">
                   <div className="text-slate-500">۸. تکراری واقعی / ظاهری</div>
                   <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
-                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.trueDuplicateRowsCount)} تکراری / {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.apparentRepeatedBookRowsCount)} سطر چندشهیدی
+                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.trueDuplicateRelationsCount)} تکراری / {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.multiMartyrApparentRepeatRowsCount)} سطر چندشهیدی
                   </div>
                 </div>
               </div>

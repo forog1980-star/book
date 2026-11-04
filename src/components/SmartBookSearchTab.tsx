@@ -554,7 +554,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
       ...rejectedSuggestionsArchive.map((ra) => ({
         martyrName: ra.martyrName,
         bookTitle: ra.bookTitle,
-        catalogBookId: ra.matchedCatalogBookId,
+        catalogBookId: ra.bookId,
         reason: ra.rejectionReason,
         rejectedBy: ra.rejectedBy,
         rejectedAt: ra.rejectedAt

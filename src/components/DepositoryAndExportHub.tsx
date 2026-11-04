@@ -472,7 +472,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
       'شناسه پیوند': m.id,
       'نام و نام خانوادگی شهید': m.martyrName,
       'قطعه مزار': m.gravePiece,
-      'ردیف': m.graveRow,
+      'ردیف مزار': m.graveRow,
       'شماره مزار': m.graveNumber,
       'شناسه کتاب': m.bookId,
       'عنوان کتاب': m.bookTitle,
