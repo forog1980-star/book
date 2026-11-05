@@ -14,12 +14,15 @@ import {
   Clock,
   Layers,
   FileSpreadsheet,
-  Download
+  Download,
+  Trash2,
+  ShieldCheck
 } from 'lucide-react';
 import {
   AuditLogEntry,
   BookCopyRecord,
   BookMartyrLinkRecord,
+  CustomMartyrRecord,
   ExtractedContentItem,
   FieldAuditRecord,
   LEVELS,
@@ -45,11 +48,17 @@ interface HomeDashboardTabProps {
   links: BookMartyrLinkRecord[];
   pendingReviews: PendingReviewItem[];
   workbookMartyrs: WorkbookGolzarMartyr[];
+  customMartyrs?: CustomMartyrRecord[];
   extractedItems: ExtractedContentItem[];
   smartSuggestions: SmartSearchSuggestion[];
   auditLog: AuditLogEntry[];
+  globalQuery?: string;
+  onChangeGlobalQuery?: (q: string) => void;
   onNavigateTab: (tab: 'home' | 'library' | 'martyrs' | 'smart_search' | 'research' | 'management') => void;
+  onOpenBookInLibrary?: (bookQuery: string) => void;
   onSaveVoiceOrQuickBook: (record: FieldAuditRecord, newCopy?: BookCopyRecord) => void;
+  onApproveOutsideBook?: (recordKey: string) => void;
+  onDeleteAuditRecord?: (recordKey: string) => void;
   onNotify: (message: string, type?: 'success' | 'warning') => void;
 }
 
@@ -63,17 +72,38 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
   links,
   pendingReviews,
   workbookMartyrs,
+  customMartyrs = [],
   extractedItems,
   smartSuggestions,
   auditLog,
+  globalQuery: externalGlobalQuery,
+  onChangeGlobalQuery,
   onNavigateTab,
+  onOpenBookInLibrary,
   onSaveVoiceOrQuickBook,
+  onApproveOutsideBook,
+  onDeleteAuditRecord,
   onNotify
 }) => {
-  const [globalQuery, setGlobalQuery] = useState('');
+  const [internalGlobalQuery, setInternalGlobalQuery] = useState('');
+  const globalQuery = externalGlobalQuery !== undefined ? externalGlobalQuery : internalGlobalQuery;
+  const setGlobalQuery = (val: string) => {
+    if (onChangeGlobalQuery) {
+      onChangeGlobalQuery(val);
+    } else {
+      setInternalGlobalQuery(val);
+    }
+  };
+
   const [showVoiceModal, setShowVoiceModal] = useState(false);
   const [showQuickBookModal, setShowQuickBookModal] = useState(false);
   const [showInstallGuideModal, setShowInstallGuideModal] = useState(false);
+  const [lastSavedNotice, setLastSavedNotice] = useState<{
+    title: string;
+    tempBookId: string;
+    copyId: string;
+    location: string;
+  } | null>(null);
 
   // Voice Input State (Section 11)
   const [voiceConsentChecked, setVoiceConsentChecked] = useState(true);
@@ -105,6 +135,13 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
   const [quickLevel, setQuickLevel] = useState<LevelCode>('T01');
 
   const { isInstallable, isInstalled, install } = usePWAInstall();
+
+  // کتاب‌های ثبت‌شده خارج از فهرست اولیه ۹۸۰ کتاب (از طریق ثبت سریع، ثبت صوتی یا بخش ۴ کتابخانه)
+  const outsideRegisteredBooks = useMemo(() => {
+    return Object.values(auditRecords)
+      .filter((r) => r.source === 'outside-list')
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  }, [auditRecords]);
 
   const syncVoiceToPreview = (text: string) => {
     setVoiceTranscript(text);
@@ -201,11 +238,11 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       shelf: previewShelf,
       level: previewLevel,
       location: loc,
-      physical: 'verified',
-      copyStatus: 'verified_present',
+      physical: 'review',
+      copyStatus: 'pending_review',
       physicalCondition: 'healthy',
       countedCopies: '1',
-      notes: previewNotes.trim() || `ثبت‌شده با فرمان صوتی کنار قفسه (${loc})`,
+      notes: previewNotes.trim() || `ثبت‌شده با فرمان صوتی کنار قفسه (${loc}) — در انتظار تأیید کارشناس`,
       updatedAt: nowIso
     };
 
@@ -213,21 +250,29 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       copyId,
       bookId: tempBookId,
       bookTitle: previewTitle.trim(),
-      copyStatus: 'verified_present',
+      copyStatus: 'pending_review',
       shelf: previewShelf,
       level: previewLevel,
       location: loc,
       observedDate: nowFa,
       physicalCondition: 'healthy',
       loanOrMoveStatus: 'در قفسه مرکز اسناد',
-      expertNote: `ثبت صوتی کنار قفسه — نوبت چاپ: ${previewEdition || 'ثبت‌نشده'}`,
+      expertNote: `ثبت صوتی کنار قفسه (خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس) — نوبت چاپ: ${previewEdition || 'ثبت‌نشده'}`,
       lastReviewedAt: nowFa,
       locationHistory: []
     };
 
     onSaveVoiceOrQuickBook(newRec, newCopy);
     setShowVoiceModal(false);
-    onNotify(`کتاب «${previewTitle.trim()}» پس از تأیید پیش‌نمایش در محل ${loc} ذخیره شد.`);
+    setLastSavedNotice({
+      title: newRec.title,
+      tempBookId,
+      copyId,
+      location: loc
+    });
+    onNotify(
+      `✅ کتاب «${newRec.title}» با کد ${tempBookId} در محل ${loc} ثبت شد (خارج از فهرست اولیه — در انتظار تأیید کارشناس).`
+    );
   };
 
   const handleConfirmQuickBookSave = (e: React.FormEvent) => {
@@ -257,11 +302,11 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       shelf: quickShelf,
       level: quickLevel,
       location: loc,
-      physical: 'verified',
-      copyStatus: 'verified_present',
+      physical: 'review',
+      copyStatus: 'pending_review',
       physicalCondition: 'healthy',
       countedCopies: '1',
-      notes: 'ثبت سریع از صفحه اصلی سامانه',
+      notes: 'ثبت سریع از صفحه اصلی (خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس)',
       updatedAt: nowIso
     };
 
@@ -269,33 +314,78 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       copyId,
       bookId: tempBookId,
       bookTitle: quickTitle.trim(),
-      copyStatus: 'verified_present',
+      copyStatus: 'pending_review',
       shelf: quickShelf,
       level: quickLevel,
       location: loc,
       observedDate: nowFa,
       physicalCondition: 'healthy',
       loanOrMoveStatus: 'در قفسه مرکز اسناد',
-      expertNote: 'ثبت سریع از منوی خانه',
+      expertNote: 'ثبت سریع از منوی خانه (در انتظار تأیید کارشناس)',
       lastReviewedAt: nowFa,
       locationHistory: []
     };
 
     onSaveVoiceOrQuickBook(newRec, newCopy);
     setShowQuickBookModal(false);
+    setLastSavedNotice({
+      title: newRec.title,
+      tempBookId,
+      copyId,
+      location: loc
+    });
     setQuickTitle('');
     setQuickAuthor('');
     setQuickPublisher('');
     setQuickYear('');
-    onNotify(`کتاب «${newRec.title}» با نسخه فیزیکی ${copyId} در ${loc} ثبت شد.`);
+    onNotify(
+      `✅ کتاب «${newRec.title}» با شناسه ${tempBookId} و نسخه ${copyId} در ${loc} ثبت شد (خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس).`
+    );
   };
 
-  // Global Search Results (Books + Martyrs + Links + Extracted)
+  // Global Search Results (Outside Registered Books + 980 Catalog Books + Custom & Workbook Martyrs + Links + Extracted)
   const searchResults = useMemo(() => {
     const q = normalizePersianText(globalQuery);
     if (!q || q.length < 2) return null;
 
-    const matchedBooks = catalogRows
+    const outsideAsCatalogRows: (ReferenceCatalogRow & {
+      isOutsideInitialList?: boolean;
+      isExpertApproved?: boolean;
+      auditKey?: string;
+    })[] = outsideRegisteredBooks
+      .filter((r) =>
+        normalizePersianText(
+          `${r.tempBookId} ${r.title} ${r.publisher} ${r.author} ${r.notes} ${r.location}`
+        ).includes(q)
+      )
+      .map((r, i) => ({
+        rowKey: r.key,
+        rowIndex: 10000 + i,
+        tempBookId: r.tempBookId,
+        titleRaw: r.title,
+        publisherRaw: r.publisher || '',
+        descriptionRaw: r.notes || '',
+        categoryRaw: r.category || '',
+        authorRaw: r.author || '',
+        isbnRaw: r.isbn || '',
+        fipaRaw: r.fipa || '',
+        registrationNoRaw: r.registrationNo || '',
+        locationRaw: r.location || '',
+        countedCopiesRaw: r.countedCopies || '1',
+        reviewStatusRaw:
+          r.physical === 'verified' && r.copyStatus === 'verified_present'
+            ? 'تأییدشده کارشناس (خارج از فهرست اولیه)'
+            : 'ثبت‌شده — در انتظار تأیید کارشناس (خارج از فهرست اولیه ۹۸۰ کتاب)',
+        noteRaw: r.notes || '',
+        backupSourceSheet: r.sheet || 'خارج از فهرست اولیه',
+        backupSourceRow: String(i + 1),
+        allValues: [r.tempBookId, r.title, r.publisher, r.notes, r.category, r.author],
+        isOutsideInitialList: true,
+        isExpertApproved: r.physical === 'verified' && r.copyStatus === 'verified_present',
+        auditKey: r.key
+      }));
+
+    const catalogMatches = catalogRows
       .filter((b) =>
         normalizePersianText(
           `${b.tempBookId} ${b.titleRaw} ${b.publisherRaw} ${b.authorRaw} ${b.descriptionRaw}`
@@ -303,13 +393,37 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       )
       .slice(0, 8);
 
-    const matchedMartyrs = workbookMartyrs
+    const matchedBooks = [...outsideAsCatalogRows, ...catalogMatches].slice(0, 12);
+
+    const customMartyrMatches: WorkbookGolzarMartyr[] = customMartyrs
+      .filter((cm) =>
+        normalizePersianText(
+          `${cm.martyrId} ${cm.fullName} ${cm.gravePiece} ${cm.graveRow} ${cm.graveNumber}`
+        ).includes(q)
+      )
+      .map((cm) => ({
+        tempPersonId: cm.martyrId,
+        firstNameRaw: cm.firstName,
+        lastNameRaw: cm.lastName,
+        fullNameSearch: cm.fullName,
+        piece: cm.gravePiece,
+        graveRow: cm.graveRow,
+        graveNumber: cm.graveNumber,
+        graveStatus: cm.graveVerificationStatus,
+        sourceFile: 'ثبت کارشناس در سامانه',
+        sourceSheet: 'پرونده شهدا',
+        sourceRow: '—'
+      }));
+
+    const workbookMartyrMatches = workbookMartyrs
       .filter((m) =>
         normalizePersianText(
           `${m.tempPersonId} ${m.fullNameSearch} ${m.piece} ${m.graveRow} ${m.graveNumber}`
         ).includes(q)
       )
       .slice(0, 8);
+
+    const matchedMartyrs = [...customMartyrMatches, ...workbookMartyrMatches].slice(0, 8);
 
     const matchedLinks = links
       .filter((l) =>
@@ -328,7 +442,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       .slice(0, 5);
 
     return { matchedBooks, matchedMartyrs, matchedLinks, matchedExtracted };
-  }, [globalQuery, catalogRows, workbookMartyrs, links, extractedItems]);
+  }, [globalQuery, outsideRegisteredBooks, catalogRows, customMartyrs, workbookMartyrs, links, extractedItems]);
 
   // Accurate Separated Statistics (Section 8 Menu 1 & Section 16)
   const stats = useMemo(() => {
@@ -372,7 +486,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
               سامانه مدیریت کتابخانه و پژوهش مرکز اسناد گلزار شهدای تهران
             </h1>
             <p className="text-xs text-[#697586]">
-              جست‌وجوی سراسری در کتاب‌ها، نسخه‌های فیزیکی قفسه‌ها، پرونده شهدا و مطالب پژوهشی مستخرج با حفظ منشأ داده
+              جست‌وجوی سراسری در کتاب‌ها (فهرست اولیه ۹۸۰ کتاب + ثبت‌های جدید)، نسخه‌های فیزیکی قفسه‌ها، پرونده شهدا و مطالب پژوهشی
             </p>
           </div>
 
@@ -381,7 +495,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             <button
               type="button"
               onClick={() => setShowQuickBookModal(true)}
-              className="min-h-[44px] px-4 py-2 rounded-xl bg-[#1F4E79] hover:bg-[#173b5c] text-white text-xs font-bold flex items-center gap-2 transition-colors whitespace-nowrap"
+              className="min-h-[44px] px-4 py-2 rounded-xl bg-[#1F4E79] hover:bg-[#173b5c] text-white text-xs font-bold flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" />
               <span>ثبت سریع کتاب</span>
@@ -390,13 +504,63 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             <button
               type="button"
               onClick={openVoiceRegistrationModal}
-              className="min-h-[44px] px-4 py-2 rounded-xl bg-[#2E7D5B] hover:bg-[#246348] text-white text-xs font-bold flex items-center gap-2 transition-colors whitespace-nowrap"
+              className="min-h-[44px] px-4 py-2 rounded-xl bg-[#2E7D5B] hover:bg-[#246348] text-white text-xs font-bold flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
             >
               <Mic className="w-4 h-4" />
               <span>ثبت صوتی اطلاعات کنار قفسه</span>
             </button>
           </div>
         </div>
+
+        {/* پیام تأیید فوری پس از ثبت سریع یا صوتی کتاب */}
+        {lastSavedNotice && (
+          <div className="bg-emerald-50 border-2 border-emerald-400 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs text-emerald-950">
+            <div className="flex items-start gap-2.5">
+              <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-bold text-sm text-emerald-900">
+                  ✅ کتاب «{lastSavedNotice.title}» با موفقیت در حافظه دستگاه ثبت شد!
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-emerald-800">
+                  <span className="font-mono bg-white px-2 py-0.5 rounded border border-emerald-300">
+                    شناسه: {lastSavedNotice.tempBookId}
+                  </span>
+                  <span className="font-mono bg-white px-2 py-0.5 rounded border border-emerald-300">
+                    نسخه: {lastSavedNotice.copyId}
+                  </span>
+                  <span className="font-mono bg-white px-2 py-0.5 rounded border border-emerald-300">
+                    محل: {lastSavedNotice.location}
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-bold">
+                    ⏳ خارج از فهرست اولیه (۹۸۰ کتاب) — در انتظار تأیید کارشناس
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenBookInLibrary) {
+                    onOpenBookInLibrary(lastSavedNotice.title);
+                  } else {
+                    onNavigateTab('library');
+                  }
+                }}
+                className="px-3 py-1.5 rounded-lg bg-[#1F4E79] text-white font-bold text-xs hover:bg-[#163a5b] cursor-pointer"
+              >
+                مشاهده در کتابخانه ←
+              </button>
+              <button
+                type="button"
+                onClick={() => setLastSavedNotice(null)}
+                className="px-2.5 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-900 text-xs cursor-pointer"
+              >
+                بستن پیام
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Global Instant Search Input (Supports Enter Key) */}
         <form
@@ -432,7 +596,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             type="text"
             value={globalQuery}
             onChange={(e) => setGlobalQuery(e.target.value)}
-            placeholder="جست‌وجوی سریع عنوان کتاب، نام شهید، ناشر، قطعه مزار یا کد BK-0014 (با کلید Enter)..."
+            placeholder="جست‌وجوی سریع عنوان کتاب (از ۹۸۰ کتاب اولیه یا ثبت‌های جدید)، نام شهید، ناشر یا کد..."
             className="w-full min-h-[48px] pr-11 pl-28 py-2.5 text-sm bg-[#F5F7FA] border border-slate-300 rounded-xl focus:outline-none focus:border-[#1F4E79] focus:bg-white text-[#253247]"
           />
           <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
@@ -440,14 +604,14 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
               <button
                 type="button"
                 onClick={() => setGlobalQuery('')}
-                className="px-2 py-1 text-xs text-[#697586] hover:text-[#253247] bg-amber-100/70 rounded-lg"
+                className="px-2 py-1 text-xs text-[#697586] hover:text-[#253247] bg-amber-100/70 rounded-lg cursor-pointer"
               >
                 پاک‌کردن
               </button>
             )}
             <button
               type="submit"
-              className="px-3 py-1.5 text-xs font-bold bg-[#1F4E79] text-white rounded-lg hover:bg-[#173b5c] transition-colors"
+              className="px-3 py-1.5 text-xs font-bold bg-[#1F4E79] text-white rounded-lg hover:bg-[#173b5c] transition-colors cursor-pointer"
             >
               جست‌وجو ↵
             </button>
@@ -457,11 +621,11 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
         {/* Global Search Instant Results Drawer */}
         {searchResults && (
           <div id="global-search-results-box" className="bg-[#F5F7FA] border border-slate-200 rounded-xl p-4 space-y-4">
-            <div className="flex items-center justify-between text-xs text-[#697586]">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#697586]">
               <span>
-                نتایج جست‌وجوی سراسری برای «<strong className="text-[#253247]">{globalQuery}</strong>»:
+                نتایج جست‌وجوی سراسری برای «<strong className="text-[#253247]">{globalQuery}</strong>» (با رفتن به تب‌ها و بازگشت، این جست‌وجو حفظ می‌شود):
               </span>
-              <span className="tabular-nums">
+              <span className="tabular-nums font-bold text-[#1F4E79]">
                 {toPersianDigits(searchResults.matchedBooks.length)} کتاب ·{' '}
                 {toPersianDigits(searchResults.matchedMartyrs.length)} شهید ·{' '}
                 {toPersianDigits(searchResults.matchedLinks.length)} ارتباط پژوهشی
@@ -472,36 +636,107 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
               {/* Matched Books */}
               <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-bold text-[#1F4E79]">کتاب‌های منطبق در فهرست</h3>
+                  <h3 className="text-xs font-bold text-[#1F4E79]">
+                    کتاب‌های منطبق در فهرست ({toPersianDigits(searchResults.matchedBooks.length)})
+                  </h3>
                   <button
                     type="button"
-                    onClick={() => onNavigateTab('library')}
-                    className="text-[11px] text-[#1F4E79] hover:underline"
+                    onClick={() => {
+                      if (onOpenBookInLibrary) {
+                        onOpenBookInLibrary(globalQuery);
+                      } else {
+                        onNavigateTab('library');
+                      }
+                    }}
+                    className="text-[11px] text-[#1F4E79] font-bold hover:underline cursor-pointer"
                   >
-                    مشاهده در منوی کتابخانه ←
+                    مشاهده این جست‌وجو در کتابخانه ←
                   </button>
                 </div>
                 {searchResults.matchedBooks.length === 0 ? (
                   <p className="text-xs text-[#697586] py-2">کتابی با این عبارت یافت نشد.</p>
                 ) : (
                   <div className="divide-y divide-slate-100">
-                    {searchResults.matchedBooks.map((b) => (
-                      <div key={b.rowKey} className="py-2 flex items-center justify-between gap-2 text-xs">
-                        <div>
-                          <span className="font-bold text-[#253247]">{b.titleRaw}</span>
-                          <span className="text-[#697586] mr-2">
-                            · {b.publisherRaw || 'ناشر ثبت‌نشده'} · {b.tempBookId}
-                          </span>
+                    {searchResults.matchedBooks.map((b) => {
+                      const extBook = b as ReferenceCatalogRow & {
+                        isOutsideInitialList?: boolean;
+                        isExpertApproved?: boolean;
+                        auditKey?: string;
+                      };
+                      return (
+                        <div key={b.rowKey} className="py-2.5 flex flex-col gap-1.5 text-xs">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="space-y-1">
+                              <div>
+                                <span className="font-bold text-[#253247]">{b.titleRaw}</span>
+                                <span className="text-[#697586] mr-2">
+                                  · {b.publisherRaw || 'ناشر ثبت‌نشده'} · {b.tempBookId}
+                                </span>
+                                {b.locationRaw && (
+                                  <span className="font-mono text-[11px] text-[#1F4E79] mr-1.5">
+                                    ({b.locationRaw})
+                                  </span>
+                                )}
+                              </div>
+                              <div>
+                                {extBook.isOutsideInitialList ? (
+                                  extBook.isExpertApproved ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 text-[10.5px] font-bold">
+                                      <ShieldCheck className="w-3 h-3" />
+                                      <span>ثبت جدید (خارج از فهرست اولیه ۹۸۰ کتاب) — تأییدشده توسط کارشناس</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-300 text-[10.5px] font-bold">
+                                      <AlertTriangle className="w-3 h-3 text-amber-700" />
+                                      <span>ثبت‌شده — هنوز توسط کارشناس تأیید نشده (خارج از فهرست اولیه ۹۸۰ کتاب)</span>
+                                    </span>
+                                  )
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]">
+                                    موجود در فهرست اولیه (۹۸۰ کتاب)
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {extBook.isOutsideInitialList && !extBook.isExpertApproved && extBook.auditKey && onApproveOutsideBook && (
+                                <button
+                                  type="button"
+                                  onClick={() => onApproveOutsideBook(extBook.auditKey!)}
+                                  className="px-2 py-1 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg cursor-pointer"
+                                  title="تأیید کارشناسی این کتاب"
+                                >
+                                  ✓ تأیید کارشناس
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (onOpenBookInLibrary) {
+                                    onOpenBookInLibrary(b.titleRaw);
+                                  } else {
+                                    onNavigateTab('library');
+                                  }
+                                }}
+                                className="px-2.5 py-1 text-[11px] bg-[#EAF1F7] hover:bg-blue-100 text-[#1F4E79] font-bold rounded-lg shrink-0 cursor-pointer"
+                              >
+                                پرونده کتاب
+                              </button>
+                              {extBook.isOutsideInitialList && extBook.auditKey && onDeleteAuditRecord && (
+                                <button
+                                  type="button"
+                                  onClick={() => onDeleteAuditRecord(extBook.auditKey!)}
+                                  className="p-1 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                                  title="حذف این رکورد ثبت‌شده"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => onNavigateTab('library')}
-                          className="px-2 py-1 text-[11px] bg-[#EAF1F7] text-[#1F4E79] rounded-lg shrink-0"
-                        >
-                          پرونده کتاب
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -513,14 +748,16 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                   <button
                     type="button"
                     onClick={() => onNavigateTab('martyrs')}
-                    className="text-[11px] text-[#2E7D5B] hover:underline"
+                    className="text-[11px] text-[#2E7D5B] font-bold hover:underline cursor-pointer"
                   >
                     مشاهده در منوی شهدا ←
                   </button>
                 </div>
                 {searchResults.matchedMartyrs.length === 0 &&
                 searchResults.matchedLinks.length === 0 ? (
-                  <p className="text-xs text-[#697586] py-2">شهید یا ارتباطی با این عبارت یافت نشد.</p>
+                  <p className="text-xs text-[#697586] py-2">
+                    شهید یا ارتباط پژوهشی با عبارت «{globalQuery}» ثبت نشده است.
+                  </p>
                 ) : (
                   <div className="divide-y divide-slate-100">
                     {searchResults.matchedMartyrs.slice(0, 4).map((m) => (
@@ -535,13 +772,13 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                             {m.graveNumber || '—'}
                           </span>
                           <span className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mr-1.5">
-                            نمونه شیت اولیه (۱۹۶ شهید)
+                            {m.sourceSheet === 'پرونده شهدا' ? 'پرونده ثبت‌شده' : 'نمونه شیت اولیه (۱۹۶ شهید)'}
                           </span>
                         </div>
                         <button
                           type="button"
                           onClick={() => onNavigateTab('martyrs')}
-                          className="px-2 py-1 text-[11px] bg-emerald-50 text-[#2E7D5B] rounded-lg shrink-0"
+                          className="px-2 py-1 text-[11px] bg-emerald-50 text-[#2E7D5B] font-bold rounded-lg shrink-0 cursor-pointer"
                         >
                           پرونده شهید
                         </button>
@@ -558,7 +795,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                         <button
                           type="button"
                           onClick={() => onNavigateTab('research')}
-                          className="px-2 py-1 text-[11px] bg-amber-50 text-[#C58A2B] rounded-lg shrink-0"
+                          className="px-2 py-1 text-[11px] bg-amber-50 text-[#C58A2B] font-bold rounded-lg shrink-0 cursor-pointer"
                         >
                           بررسی ارتباط
                         </button>
@@ -567,6 +804,114 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* فهرست کتاب‌های ثبت‌شده جدید در خانه (خارج از فهرست اولیه ۹۸۰ کتاب) برای رؤیت فوری و تأیید کارشناس */}
+        {outsideRegisteredBooks.length > 0 && (
+          <div className="bg-[#FAF3EA] border border-[#E6D5C1] rounded-xl p-3.5 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-[#8C3B2B]" />
+                <h3 className="text-xs sm:text-sm font-bold text-[#332218]">
+                  کتاب‌های ثبت‌شده جدید توسط شما (خارج از فهرست اولیه ۹۸۰ کتاب):{' '}
+                  <span className="text-[#8C3B2B]">{toPersianDigits(outsideRegisteredBooks.length)} مورد</span>
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenBookInLibrary) {
+                    onOpenBookInLibrary('');
+                  } else {
+                    onNavigateTab('library');
+                  }
+                }}
+                className="text-xs font-bold text-[#1F4E79] hover:underline cursor-pointer"
+              >
+                مدیریت در بخش کتابخانه ←
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-64 overflow-y-auto pr-0.5">
+              {outsideRegisteredBooks.map((rec) => {
+                const isApproved = rec.physical === 'verified' && rec.copyStatus === 'verified_present';
+                return (
+                  <div
+                    key={rec.key}
+                    className="bg-white border border-[#E6D5C1] rounded-xl p-3 flex flex-col justify-between gap-2 text-xs shadow-2xs"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-slate-900 text-sm">{rec.title}</span>
+                        <span className="font-mono text-[11px] text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200" dir="ltr">
+                          {rec.tempBookId} · {rec.location || 'بدون محل'}
+                        </span>
+                      </div>
+                      <div className="text-slate-600 text-[11px]">
+                        {[
+                          rec.author && `نویسنده: ${rec.author}`,
+                          rec.publisher && `ناشر: ${rec.publisher}`,
+                          rec.year && `سال: ${rec.year}`,
+                          rec.category && `دسته: ${rec.category.split(' ')[0]}`
+                        ]
+                          .filter(Boolean)
+                          .join(' · ') || 'مشخصات تکمیلی ثبت‌نشده'}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-slate-100">
+                      {isApproved ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-300 text-[10.5px] font-bold">
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>تأییدشده توسط کارشناس (خارج از ۹۸۰ کتاب اولیه)</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-300 text-[10.5px] font-bold">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
+                          <span>ثبت‌شده — هنوز توسط کارشناس تأیید نشده (خارج از فهرست اولیه)</span>
+                        </span>
+                      )}
+
+                      <div className="flex items-center gap-1.5">
+                        {!isApproved && onApproveOutsideBook && (
+                          <button
+                            type="button"
+                            onClick={() => onApproveOutsideBook(rec.key)}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] cursor-pointer"
+                          >
+                            ✓ تأیید کارشناس
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onOpenBookInLibrary) {
+                              onOpenBookInLibrary(rec.title);
+                            } else {
+                              onNavigateTab('library');
+                            }
+                          }}
+                          className="px-2 py-1 rounded-lg bg-[#EAF1F7] text-[#1F4E79] font-bold text-[11px] cursor-pointer"
+                        >
+                          کتابخانه
+                        </button>
+                        {onDeleteAuditRecord && (
+                          <button
+                            type="button"
+                            onClick={() => onDeleteAuditRecord(rec.key)}
+                            className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer"
+                            title="حذف این رکورد (مناسب حذف رکوردهای تستی)"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

@@ -125,6 +125,8 @@ export default function App() {
   const [librarySubView, setLibrarySubView] = useState<'catalog' | 'shelves'>('catalog');
   const [showPilotSubView, setShowPilotSubView] = useState(false);
   const [preselectedSmartMartyrName, setPreselectedSmartMartyrName] = useState<string>('');
+  const [homeGlobalQuery, setHomeGlobalQuery] = useState<string>('');
+  const [libraryInitialSearchQuery, setLibraryInitialSearchQuery] = useState<string>('');
   const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
   const [showHeaderInstallModal, setShowHeaderInstallModal] = useState<boolean>(false);
   const [showComprehensiveDocModal, setShowComprehensiveDocModal] = useState<boolean>(false);
@@ -1434,28 +1436,28 @@ export default function App() {
         </div>
       )}
 
-      {/* Toast Notification */}
+      {/* Toast Notification (شناور در بالای صفحه تا در هر بخش اسکرول‌شده بلافاصله دیده شود) */}
       {toast && (
         <div
-          className={`w-full max-w-full px-3 sm:px-4 py-2.5 text-xs font-medium border-b ${
+          className={`fixed top-3 left-1/2 -translate-x-1/2 z-50 w-[94%] max-w-2xl px-4 py-3 text-xs sm:text-sm font-bold rounded-2xl border-2 shadow-2xl ${
             toast.type === 'warning'
-              ? 'bg-amber-100 border-amber-300 text-amber-950'
+              ? 'bg-amber-100 border-amber-400 text-amber-950'
               : 'bg-[#2E7D5B] border-emerald-900 text-white'
           }`}
         >
-          <div className="max-w-6xl mx-auto flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
               {toast.type === 'warning' ? (
-                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <AlertTriangle className="w-5 h-5 shrink-0" />
               ) : (
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <CheckCircle2 className="w-5 h-5 shrink-0" />
               )}
-              <span className="break-words">{toast.message}</span>
+              <span className="break-words leading-relaxed">{toast.message}</span>
             </div>
             <button
               type="button"
               onClick={() => setToast(null)}
-              className="opacity-80 hover:opacity-100 text-[11px] shrink-0"
+              className="px-2.5 py-1 rounded-lg bg-black/15 hover:bg-black/25 text-[11px] shrink-0 cursor-pointer"
             >
               بستن
             </button>
@@ -1538,16 +1540,39 @@ export default function App() {
             links={links}
             pendingReviews={pendingReviews}
             workbookMartyrs={workbookMartyrs}
+            customMartyrs={customMartyrs}
             extractedItems={extractedItems}
             smartSuggestions={smartSuggestions}
             auditLog={auditLog}
+            globalQuery={homeGlobalQuery}
+            onChangeGlobalQuery={setHomeGlobalQuery}
             onNavigateTab={(tab) => setActiveTab(tab)}
+            onOpenBookInLibrary={(bookQuery) => {
+              setLibrarySubView('catalog');
+              setLibraryInitialSearchQuery(bookQuery);
+              setActiveTab('library');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
             onSaveVoiceOrQuickBook={(rec, newCopy) => {
               handleSaveAuditRecord(rec);
               if (newCopy) {
                 handleAddBookCopy(newCopy);
               }
             }}
+            onApproveOutsideBook={(recordKey) => {
+              const existing = auditRecords[recordKey];
+              if (!existing) return;
+              const updated: FieldAuditRecord = {
+                ...existing,
+                physical: 'verified',
+                copyStatus: 'verified_present',
+                notes: existing.notes.replace(/در انتظار تأیید کارشناس/g, 'تأییدشده توسط کارشناس'),
+                updatedAt: new Date().toISOString()
+              };
+              handleSaveAuditRecord(updated);
+              showNotify(`✅ کتاب «${existing.title}» (${existing.tempBookId}) توسط کارشناس تأیید نهایی شد.`);
+            }}
+            onDeleteAuditRecord={handleDeleteSingleRecord}
             onNotify={showNotify}
           />
         )}
@@ -1564,7 +1589,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setLibrarySubView('catalog')}
-                  className={`flex-1 sm:flex-initial px-2.5 py-1.5 rounded-lg font-bold transition-colors text-center ${
+                  className={`flex-1 sm:flex-initial px-2.5 py-1.5 rounded-lg font-bold transition-colors text-center cursor-pointer ${
                     librarySubView === 'catalog'
                       ? 'bg-[#1F4E79] text-white'
                       : 'text-[#253247] hover:bg-slate-200'
@@ -1575,7 +1600,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setLibrarySubView('shelves')}
-                  className={`flex-1 sm:flex-initial px-2.5 py-1.5 rounded-lg font-bold transition-colors inline-flex items-center justify-center gap-1 ${
+                  className={`flex-1 sm:flex-initial px-2.5 py-1.5 rounded-lg font-bold transition-colors inline-flex items-center justify-center gap-1 cursor-pointer ${
                     librarySubView === 'shelves'
                       ? 'bg-[#1F4E79] text-white'
                       : 'text-[#253247] hover:bg-slate-200'
@@ -1598,10 +1623,13 @@ export default function App() {
                 columnMap={columnMap}
                 auditRecords={auditRecords}
                 loadedFileName={loadedFileName}
+                initialSearchQuery={libraryInitialSearchQuery}
+                onClearInitialSearchQuery={() => setLibraryInitialSearchQuery('')}
                 onWorkbookLoaded={handleWorkbookLoaded}
                 onSwitchSheet={handleSwitchSheet}
                 onUpdateColumnMap={handleUpdateColumnMap}
                 onSaveAuditRecord={handleSaveAuditRecord}
+                onDeleteAuditRecord={handleDeleteSingleRecord}
                 onAddBookCopy={handleAddBookCopy}
                 onMoveBookCopy={handleMoveBookCopy}
                 onNotify={showNotify}
