@@ -88,8 +88,23 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
   const [subView, setSubView] = useState<
     'links' | 'ghatat_sheets' | 'extracted' | 'pending567' | 'groups16' | 'publish_gateway' | 'depository'
   >('depository');
-  const [ghatatActiveSheet, setGhatatActiveSheet] = useState<'one' | 'multi' | 'graves'>('one');
+  const [ghatatActiveSheet, setGhatatActiveSheet] = useState<'one' | 'multi'>('one');
   const [ghatatQuery, setGhatatQuery] = useState('');
+  const [ghatatPage, setGhatatPage] = useState<number>(1);
+  const [ghatatPageSize, setGhatatPageSize] = useState<number | 'all'>(50);
+
+  // صفحه‌بندی و حالت نمایش بخش مطالب و صفحات استخراج‌شده (۳۰۹ مورد)
+  const [extractedViewMode, setExtractedViewMode] = useState<'cards' | 'table'>('cards');
+  const [extractedPage, setExtractedPage] = useState<number>(1);
+  const [extractedPageSize, setExtractedPageSize] = useState<number | 'all'>(50);
+
+  // تنظیمات و صفحه‌بندی بخش خروجی انتشار سایت
+  const [publishScope, setPublishScope] = useState<'all_valid' | 'expert_only'>('all_valid');
+  const [publishPreviewTab, setPublishPreviewTab] = useState<'martyr_cards' | 'extracted_passages'>('martyr_cards');
+  const [publishSearchQuery, setPublishSearchQuery] = useState('');
+  const [publishPage, setPublishPage] = useState<number>(1);
+  const [publishPageSize, setPublishPageSize] = useState<number | 'all'>(40);
+
   const [deskMode, setDeskMode] = useState<'streamlined' | 'detailed'>('streamlined');
   const [hideArchivedGroups, setHideArchivedGroups] = useState<boolean>(() => {
     try {
@@ -801,17 +816,12 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
   return (
     <div className="space-y-5">
-      {/* Sub-navigation Switcher — پالت یکدست کرم و قهوه‌ای شکلاتی (بدون تب شلوغ ۵۶۷ مورد نیازمند بررسی) */}
+      {/* Sub-navigation Switcher — پالت یکدست کرم و قهوه‌ای شکلاتی */}
       <div className="bg-white border border-[#E2D2BE] rounded-2xl p-4 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#EFE4D6] pb-2.5">
-          <div>
-            <h2 className="text-base font-bold text-[#332218] flex flex-wrap items-center gap-1.5">
-              <span>پژوهش و پیوند کتاب‌ها با شهدای گلزار تهران</span>
-              <span className="text-xs font-normal text-[#78604E]">
-                (تطبیق ۲۸٬۳۶۸ شهید گلزار با ۹۸۰ کتاب، اکسل «قطعات شهدا» و پژوهش سوره مهر)
-              </span>
-            </h2>
-          </div>
+          <h2 className="text-base sm:text-lg font-bold text-[#332218]">
+            پژوهش و پیوند کتاب‌ها با شهدای گلزار تهران
+          </h2>
         </div>
 
         {/* Tab Buttons Grid */}
@@ -832,23 +842,58 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
             <span>خروجی دوسویه اسناد (شهید ↔ کتاب)</span>
           </button>
 
-          {/* 2. قطعات شهدا (یک شهید، چند شهید، آدرس مزار) */}
+          {/* 2. Extracted Items (۳۰۹ مطلب و صفحه استخراج‌شده) */}
+          <button
+            type="button"
+            onClick={() => {
+              setSubView('extracted');
+              setExtractedPage(1);
+            }}
+            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[170px] cursor-pointer ${
+              subView === 'extracted'
+                ? 'bg-[#6B3E26] text-white shadow-2xs'
+                : 'text-[#332218] hover:bg-[#EFE4D6] bg-white border border-[#E2D2BE]'
+            }`}
+          >
+            <FileText className="w-4 h-4 shrink-0" />
+            <span>مطالب و صفحات استخراج‌شده ({toPersianDigits(extractedItems.length)})</span>
+          </button>
+
+          {/* 3. Publishing Gateway (خروجی انتشار سایت) */}
+          <button
+            type="button"
+            onClick={() => {
+              setSubView('publish_gateway');
+              setPublishPage(1);
+            }}
+            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[150px] cursor-pointer ${
+              subView === 'publish_gateway'
+                ? 'bg-[#2E6F40] text-white shadow-2xs'
+                : 'text-[#2E6F40] hover:bg-[#EAF4EC] bg-white border border-[#C6DFCD]'
+            }`}
+          >
+            <Download className="w-4 h-4 shrink-0" />
+            <span>خروجی انتشار سایت</span>
+          </button>
+
+          {/* 4. قطعات شهدا (یک شهید و چند شهید) */}
           <button
             type="button"
             onClick={() => {
               setSubView('ghatat_sheets');
+              setGhatatPage(1);
             }}
-            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[170px] cursor-pointer ${
+            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[160px] cursor-pointer ${
               subView === 'ghatat_sheets'
                 ? 'bg-[#6B3E26] text-white shadow-2xs'
                 : 'text-[#332218] hover:bg-[#EFE4D6] bg-white border border-[#E2D2BE]'
             }`}
           >
             <BookOpen className="w-4 h-4 shrink-0" />
-            <span>اکسل قطعات شهدا (یک شهید · چند شهید · آدرس مزار)</span>
+            <span>اکسل قطعات شهدا (یک شهید · چند شهید)</span>
           </button>
 
-          {/* 3. Core Links (فقط پیوندهای دارای نام مشخص شهید — بدون موارد ستاره‌دار) */}
+          {/* 5. Core Links (ثبت و مدیریت پیوندها) */}
           <button
             type="button"
             onClick={() => {
@@ -866,37 +911,6 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
             <span>
               ثبت و مدیریت پیوندها ({toPersianDigits(links.filter((l) => l.martyrNameRaw && l.martyrNameRaw !== '*').length)})
             </span>
-          </button>
-
-          {/* 4. Extracted Items */}
-          <button
-            type="button"
-            onClick={() => {
-              setSubView('extracted');
-              setVisibleLimit(60);
-            }}
-            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[140px] cursor-pointer ${
-              subView === 'extracted'
-                ? 'bg-[#6B3E26] text-white shadow-2xs'
-                : 'text-[#332218] hover:bg-[#EFE4D6] bg-white border border-[#E2D2BE]'
-            }`}
-          >
-            <FileText className="w-4 h-4 shrink-0" />
-            <span>مطالب و صفحات استخراج‌شده ({toPersianDigits(extractedItems.length)})</span>
-          </button>
-
-          {/* 5. Publishing Gateway */}
-          <button
-            type="button"
-            onClick={() => setSubView('publish_gateway')}
-            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[140px] cursor-pointer ${
-              subView === 'publish_gateway'
-                ? 'bg-[#2E6F40] text-white shadow-2xs'
-                : 'text-[#2E6F40] hover:bg-[#EAF4EC] bg-white border border-[#C6DFCD]'
-            }`}
-          >
-            <Download className="w-4 h-4 shrink-0" />
-            <span>خروجی انتشار سایت</span>
           </button>
         </div>
       </div>
@@ -993,68 +1007,6 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                   <FileJson className="w-3.5 h-3.5 text-amber-600" />
                   <span>خروجی JSON</span>
                 </button>
-              </div>
-            </div>
-
-            {/* خلاصه آمار بازیابی فایل پژوهشی سوره مهر (۸ شاخص دقیق مأموریت) */}
-            <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 text-xs space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-bold text-emerald-950">
-                  آمار رسمی بازیابی فایل «{SOOREH_MEHR_RESEARCH_STATS.sourceFileName}» (شیت {SOOREH_MEHR_RESEARCH_STATS.sourceSheetName}):
-                </span>
-                <span className="text-[11px] font-semibold text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-200">
-                  آرشیو منبع: /public/data/sooreh_mehr_book_martyr_research.json
-                </span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-[11px]">
-                <div className="bg-white border border-emerald-200 rounded-lg p-2">
-                  <div className="text-slate-500">۱. ردیف‌های شیت</div>
-                  <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
-                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalRowsWithHeader)} سطر ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalResearchRows)} داده)
-                  </div>
-                </div>
-                <div className="bg-white border border-emerald-200 rounded-lg p-2">
-                  <div className="text-slate-500">۲. کتاب‌های یکتا</div>
-                  <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
-                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.uniqueBooksByRowId)} کتاب ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.booksWithMartyrOrPhrase)} دارای ارتباط)
-                  </div>
-                </div>
-                <div className="bg-white border border-emerald-200 rounded-lg p-2">
-                  <div className="text-slate-500">۳. شهدای یکتا</div>
-                  <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
-                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.uniqueNamedMartyrsCount)} شهید نام‌برده
-                  </div>
-                </div>
-                <div className="bg-white border border-emerald-200 rounded-lg p-2">
-                  <div className="text-slate-500">۴. کل ارتباطات فایل</div>
-                  <div className="font-extrabold text-emerald-800 mt-0.5 tabular-nums">
-                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalBookMartyrRelations)} ارتباط ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.namedMartyrRelationsCount)} فردی + {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.groupPhraseRelationsCount)} گروهی)
-                  </div>
-                </div>
-                <div className="bg-white border border-emerald-200 rounded-lg p-2">
-                  <div className="text-slate-500">۵. منطبق با مخزن</div>
-                  <div className="font-extrabold text-emerald-800 mt-0.5 tabular-nums">
-                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.catalogMatchedBooksCount)} از {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.uniqueBooksByRowId)} کتاب (۱۰۰٪)
-                  </div>
-                </div>
-                <div className="bg-white border border-emerald-200 rounded-lg p-2">
-                  <div className="text-slate-500">۶. خارج از مخزن</div>
-                  <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
-                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.catalogUnmatchedBooksCount)} در سوره مهر ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.strictlyUnmatchedBeforeNormalizationBooksCount)} حل‌شده با نرمال‌سازی)
-                  </div>
-                </div>
-                <div className="bg-white border border-emerald-200 rounded-lg p-2">
-                  <div className="text-slate-500">۷. قطعی / احتمالی / بررسی</div>
-                  <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
-                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.definiteRelationsCount)} / {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.probableRelationsCount)} / {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.needsExpertReviewRelationsCount)}
-                  </div>
-                </div>
-                <div className="bg-white border border-emerald-200 rounded-lg p-2">
-                  <div className="text-slate-500">۸. تکراری واقعی / ظاهری</div>
-                  <div className="font-extrabold text-slate-900 mt-0.5 tabular-nums">
-                    {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.trueDuplicateRelationsCount)} تکراری / {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.multiMartyrApparentRepeatRowsCount)} سطر چندشهیدی
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -1358,550 +1310,750 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
         </div>
       )}
 
-      {/* SubView 1.5: Extracted Content & Page Passages (ثبت و جست‌وجوی مطالب استخراج‌شده — extracted_items) */}
-      {subView === 'extracted' && (
-        <div className="space-y-4">
-          {/* راهنمای مفهومی مطالب استخراج‌شده */}
-          <div className="bg-[#f0f7ff] border border-[#bcd7f5] rounded-2xl p-4 text-xs space-y-1.5">
-            <div className="font-bold text-[#1f4e79] flex items-center gap-1.5 text-sm">
-              <FileText className="w-4 h-4 shrink-0" />
-              <span>مفهوم و کارکرد شیت «مطالب استخراج‌شده» (پژوهش عمقی و ارجاع صفحه):</span>
-            </div>
-            <p className="text-slate-700 leading-relaxed">
-              این بخش شامل گزیده‌های پژوهشی، خاطرات کوتاه، فرازهای وصیت‌نامه و زندگی‌نامه‌های مستند با ذکر شماره صفحات کتاب‌ها است (مانند کتاب <em>چند قدم تا وصال</em>، صفحه ۱۱۲).
-              رکوردهای تأییدشده در این بخش پس از بررسی کارشناس، مستقیماً وارد بسته انتشار وب‌سایت رسمی گلزار (golzarteh.ir) می‌شوند.
-            </p>
-          </div>
+      {/* SubView 1.5: Extracted Content & Page Passages (ثبت، مدیریت و مرور کامل مطالب و صفحات استخراج‌شده) */}
+      {subView === 'extracted' && (() => {
+        const totalExtractedCount = filteredExtractedItems.length;
+        const exTotalPages =
+          extractedPageSize === 'all' ? 1 : Math.max(1, Math.ceil(totalExtractedCount / extractedPageSize));
+        const exSafePage = Math.min(extractedPage, exTotalPages);
+        const exStartIdx = extractedPageSize === 'all' ? 0 : (exSafePage - 1) * extractedPageSize;
+        const visibleExtractedRows =
+          extractedPageSize === 'all'
+            ? filteredExtractedItems
+            : filteredExtractedItems.slice(exStartIdx, exStartIdx + extractedPageSize);
 
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="جست‌وجو در مطالب استخراج‌شده (نام شهید، عنوان کتاب، متن خاطره/وصیت‌نامه، شماره صفحه یا EX-0001)..."
-                  className="w-full min-h-[44px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#1f4e79]"
-                />
-              </div>
+        const uniqueExtractedMartyrs = new Set(extractedItems.map((i) => i.martyrNameRaw)).size;
+        const uniqueExtractedBooks = new Set(extractedItems.map((i) => i.tempBookId || i.bookTitleRaw)).size;
 
-              <div className="flex flex-wrap items-center gap-2">
-                <select
-                  value={contentTypeFilter}
-                  onChange={(e) => setContentTypeFilter(e.target.value)}
-                  className="min-h-[42px] px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-800"
-                >
-                  <option value="all">همه انواع مطلب ({toPersianDigits(extractedItems.length)})</option>
-                  <option value="زندگی‌نامه">زندگی‌نامه</option>
-                  <option value="خاطره">خاطره</option>
-                  <option value="وصیت‌نامه">وصیت‌نامه</option>
-                  <option value="سند و دست‌نوشته">سند و دست‌نوشته</option>
-                  <option value="تحلیل و پژوهش">تحلیل و پژوهش</option>
-                  <option value="اشاره کوتاه / فهرست">اشاره کوتاه / فهرست</option>
-                  <option value="سایر">سایر</option>
-                </select>
-
-                <button
-                  type="button"
-                  onClick={exportExtractedExcel}
-                  className="min-h-[42px] px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
-                >
-                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                  <span>خروجی اکسل مطالب (.xlsx)</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={exportExtractedCsv}
-                  className="min-h-[42px] px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>خروجی CSV</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setShowAddExtracted((prev) => !prev)}
-                  className="min-h-[42px] px-4 py-2 bg-[#1f4e79] hover:bg-[#163a5b] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>{showAddExtracted ? 'بستن فرم ثبت مطلب' : 'ثبت مطلب استخراج‌شده جدید'}</span>
-                </button>
-              </div>
-            </div>
-
-            {/* نوار فیلتر وضعیت بازبینی مطالب */}
-            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs border-t border-slate-100">
-              <span className="text-slate-500 font-medium ml-1">فیلتر وضعیت بازبینی:</span>
-              {(
-                [
-                  { key: 'all', label: `همه مطالب (${toPersianDigits(extractedItems.length)})` },
-                  {
-                    key: 'بررسی‌شده در پژوهش اصلی',
-                    label: `بررسی‌شده در پژوهش اصلی (${toPersianDigits(
-                      extractedItems.filter((i) => i.reviewStatus === 'بررسی‌شده در پژوهش اصلی').length
-                    )})`
-                  },
-                  {
-                    key: 'تأییدشده کارشناسی',
-                    label: `تأییدشده کارشناسی (${toPersianDigits(
-                      extractedItems.filter((i) => i.reviewStatus === 'تأییدشده کارشناسی').length
-                    )})`
-                  },
-                  {
-                    key: 'نیازمند بررسی',
-                    label: `نیازمند بررسی (${toPersianDigits(
-                      extractedItems.filter((i) => i.reviewStatus === 'نیازمند بررسی').length
-                    )})`
-                  },
-                  {
-                    key: 'ردشده با دلیل',
-                    label: `ردشده با دلیل (${toPersianDigits(
-                      extractedItems.filter((i) => i.reviewStatus.includes('رد')).length
-                    )})`
-                  }
-                ] as const
-              ).map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => setExtractedStatusFilter(tab.key)}
-                  className={`px-3 py-1.5 rounded-xl font-bold transition-colors ${
-                    extractedStatusFilter === tab.key
-                      ? 'bg-[#1f4e79] text-white shadow-xs'
-                      : 'bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {showAddExtracted && (
-            <form
-              onSubmit={handleCreateExtractedItem}
-              className="bg-white border-2 border-[#1f4e79] rounded-2xl p-4 sm:p-5 space-y-4 text-xs"
-            >
-              <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
-                <h3 className="text-sm font-bold text-slate-900">
-                  ثبت مطلب استخراج‌شده از کتاب و ارجاع صفحه (جدول extracted_items در طرح اجرایی)
-                </h3>
-                <span className="text-[11px] text-slate-500">
-                  قاعده D-08: عبارت خام صفحه (مانند 173تا184) بدون تغییر حفظ می‌شود
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">
-                    کتاب مرجع (از میان ۹۸۰ کتاب فهرست) *
-                  </label>
-                  <select
-                    value={exBookId}
-                    onChange={(e) => setExBookId(e.target.value)}
-                    className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl"
-                  >
-                    {catalogRows.slice(0, 350).map((b) => (
-                      <option key={b.tempBookId} value={b.tempBookId}>
-                        {b.tempBookId} — {b.titleRaw} ({b.publisherRaw || 'بدون ناشر'})
-                      </option>
-                    ))}
-                  </select>
+        return (
+          <div className="space-y-4">
+            {/* خلاصه کاربردی و نوار ابزار بخش مطالب و صفحات استخراج‌شده */}
+            <div className="bg-white border border-[#E2D2BE] rounded-2xl p-4 space-y-3.5 shadow-2xs">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-[#EFE4D6] pb-3">
+                <div className="space-y-1">
+                  <h3 className="text-sm sm:text-base font-bold text-[#332218] flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-[#6B3E26]" />
+                    <span>
+                      بانک مطالب و صفحات استخراج‌شده از کتاب‌ها ({toPersianDigits(extractedItems.length)} مورد)
+                    </span>
+                  </h3>
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-[#6E5846]">
+                    <span>
+                      شهدای دارای ارجاع صفحه: <strong className="text-[#332218]">{toPersianDigits(uniqueExtractedMartyrs)} شهید</strong>
+                    </span>
+                    <span>·</span>
+                    <span>
+                      کتاب‌های دارای ارجاع صفحه: <strong className="text-[#332218]">{toPersianDigits(uniqueExtractedBooks)} کتاب</strong>
+                    </span>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    نوع مطلب (content_type) *
-                  </label>
-                  <select
-                    value={exContentType}
-                    onChange={(e) => setExContentType(e.target.value as ExtractedContentType)}
-                    className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-slate-900"
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={exportExtractedExcel}
+                    className="min-h-[40px] px-3.5 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
                   >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>دانلود اکسل مطالب و صفحات (.xlsx)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={exportExtractedCsv}
+                    className="min-h-[40px] px-3.5 py-2 bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 text-[#6B3E26]" />
+                    <span>خروجی CSV</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowAddExtracted((prev) => !prev)}
+                    className="min-h-[40px] px-4 py-2 bg-[#6B3E26] hover:bg-[#56311E] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>{showAddExtracted ? 'بستن فرم ثبت مطلب' : '＋ ثبت مطلب و صفحه جدید'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* کادر جست‌وجو + فیلتر نوع مطلب + سوییچ نمایش کارتی/جدولی */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
+                <div className="md:col-span-6 relative">
+                  <Search className="w-4 h-4 text-[#6E5846] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="search"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setExtractedPage(1);
+                    }}
+                    placeholder="جست‌وجو در نام شهید، عنوان کتاب، متن مطلب، شماره صفحه یا کد EX-0001..."
+                    className="w-full min-h-[42px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-[#FAF5EE] border border-[#D8C7B2] rounded-xl focus:bg-white focus:outline-none focus:border-[#6B3E26]"
+                  />
+                </div>
+
+                <div className="md:col-span-3">
+                  <select
+                    value={contentTypeFilter}
+                    onChange={(e) => {
+                      setContentTypeFilter(e.target.value);
+                      setExtractedPage(1);
+                    }}
+                    className="w-full min-h-[42px] px-3 py-2 bg-white border border-[#D8C7B2] rounded-xl text-xs font-bold text-[#332218]"
+                  >
+                    <option value="all">همه انواع مطلب ({toPersianDigits(extractedItems.length)})</option>
                     <option value="زندگی‌نامه">زندگی‌نامه</option>
                     <option value="خاطره">خاطره</option>
                     <option value="وصیت‌نامه">وصیت‌نامه</option>
-                    <option value="نامه">نامه</option>
-                    <option value="روایت عملیات">روایت عملیات</option>
-                    <option value="سند تاریخی">سند تاریخی</option>
                     <option value="سند و دست‌نوشته">سند و دست‌نوشته</option>
-                    <option value="مصاحبه">مصاحبه</option>
-                    <option value="معرفی شخصیت">معرفی شخصیت</option>
-                    <option value="اطلاعات خانواده">اطلاعات خانواده</option>
-                    <option value="اشاره کوتاه به شهید">اشاره کوتاه به شهید</option>
                     <option value="تحلیل و پژوهش">تحلیل و پژوهش</option>
+                    <option value="اشاره کوتاه به شهید">اشاره کوتاه به شهید</option>
                     <option value="سایر">سایر</option>
                   </select>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">
-                    نام شهید یا عبارت گروهی مرتبط *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={exMartyrName}
-                    onChange={(e) => setExMartyrName(e.target.value)}
-                    placeholder="مثال: احمد بیابانی یا محمد ابراهیم همت"
-                    className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    قطعه مزار (در صورت وجود)
-                  </label>
-                  <input
-                    type="text"
-                    value={exGravePiece}
-                    onChange={(e) => setExGravePiece(e.target.value)}
-                    placeholder="مثال: 26 یا غ تهرانی"
-                    className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl tabular-nums"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    ارجاع صفحه خام (page_reference_raw) *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={exPageRefRaw}
-                    onChange={(e) => setExPageRefRaw(e.target.value)}
-                    placeholder="مثال: 173تا184 یا ص 42"
-                    className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl tabular-nums"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">
-                    عنوان بخش / سرفصل مطلب استخراج‌شده *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={exPassageTitle}
-                    onChange={(e) => setExPassageTitle(e.target.value)}
-                    placeholder="مثال: روایت همرزمان از عملیات خیبر و آخرین وداع"
-                    className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block font-medium text-slate-600 mb-1">صفحه شروع (عدد)</label>
-                    <input
-                      type="text"
-                      value={exPageStart}
-                      onChange={(e) => setExPageStart(e.target.value)}
-                      placeholder="173"
-                      className="w-full min-h-[42px] px-2.5 py-2 bg-white border border-slate-300 rounded-xl tabular-nums"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-medium text-slate-600 mb-1">صفحه پایان (عدد)</label>
-                    <input
-                      type="text"
-                      value={exPageEnd}
-                      onChange={(e) => setExPageEnd(e.target.value)}
-                      placeholder="184"
-                      className="w-full min-h-[42px] px-2.5 py-2 bg-white border border-slate-300 rounded-xl tabular-nums"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  متن گزیده یا خلاصه پژوهشی مطلب استخراج‌شده *
-                </label>
-                <textarea
-                  rows={3}
-                  required
-                  value={exExtractedText}
-                  onChange={(e) => setExExtractedText(e.target.value)}
-                  placeholder="متن دقیق یا خلاصه پژوهشی مستند به صفحات کتاب را وارد کنید..."
-                  className="w-full p-3 bg-white border border-slate-300 rounded-xl text-slate-900"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-medium text-slate-600 mb-1">
-                    نقل‌قول کوتاه مستند (در صورت مجاز بودن طبق حق نشر)
-                  </label>
-                  <input
-                    type="text"
-                    value={exShortQuote}
-                    onChange={(e) => setExShortQuote(e.target.value)}
-                    placeholder="جمله کوتاه مستند با ذکر صفحه (بدون کپی متن کامل کتاب)..."
-                    className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-slate-600 mb-1">
-                    کلیدواژه‌ها (جداشده با ویرگول)
-                  </label>
-                  <input
-                    type="text"
-                    value={exKeywordsText}
-                    onChange={(e) => setExKeywordsText(e.target.value)}
-                    placeholder="مثال: لشکر ۲۷، عملیات خیبر، وصیت‌نامه"
-                    className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-medium text-slate-600 mb-1">
-                    یادداشت کارشناسی / استنادی خصوصی (در بسته سایت منتشر نمی‌شود)
-                  </label>
-                  <input
-                    type="text"
-                    value={exResearcherNote}
-                    onChange={(e) => setExResearcherNote(e.target.value)}
-                    placeholder="توضیح درباره تطبیق مزار یا وضعیت نسخه..."
-                    className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-slate-600 mb-1">
-                    نام پژوهشگر ثبت‌کننده
-                  </label>
-                  <input
-                    type="text"
-                    value={exRecordedBy}
-                    onChange={(e) => setExRecordedBy(e.target.value)}
-                    className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowAddExtracted(false)}
-                  className="min-h-[42px] px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-semibold"
-                >
-                  انصراف
-                </button>
-                <button
-                  type="submit"
-                  className="min-h-[42px] px-5 py-2 bg-[#1f4e79] hover:bg-[#163a5b] text-white rounded-xl font-bold"
-                >
-                  ذخیره مطلب استخراج‌شده
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* Extracted Content Items List */}
-          <div className="space-y-3">
-            {filteredExtractedItems.slice(0, visibleLimit).map((item) => (
-              <div
-                key={item.id}
-                className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs border-b border-slate-100 pb-2.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono font-bold text-[#1f4e79]" dir="ltr">
-                      {item.id}
-                    </span>
-                    <span className="text-slate-400">·</span>
-                    <span className="font-mono font-semibold text-slate-700" dir="ltr">
-                      {item.tempBookId}
-                    </span>
-                    <span className="text-slate-400">·</span>
-                    <span className="font-bold text-slate-800">{item.contentType}</span>
-                    <span className="text-slate-400">·</span>
-                    <span className="text-slate-500">
-                      منشأ: {item.sourceFile} / شیت «{item.sourceSheet}» / ردیف {toPersianDigits(item.sourceRow)}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    {/* دکمه‌های اقدام سریع کارشناسی */}
-                    {item.reviewStatus !== 'تأییدشده کارشناسی' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onUpdateExtractedItemStatus(
-                            item.id,
-                            'تأییدشده کارشناسی',
-                            'کارشناس بازبین',
-                            item.researcherNote
-                          );
-                          onNotify(`مطلب ${item.id} با موفقیت تأیید شد و آماده انتشار گردید.`);
-                        }}
-                        className="min-h-[30px] px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>تأیید کارشناسی</span>
-                      </button>
-                    )}
-
-                    {!item.reviewStatus.includes('رد') && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRejectingExtractedId(item.id);
-                          setExtractedRejectReason('');
-                        }}
-                        className="min-h-[30px] px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-800 rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
-                      >
-                        <XCircle className="w-3.5 h-3.5" />
-                        <span>رد با ذکر دلیل</span>
-                      </button>
-                    )}
-
-                    <select
-                      value={item.reviewStatus}
-                      onChange={(e) =>
-                        onUpdateExtractedItemStatus(
-                          item.id,
-                          e.target.value as ExtractedReviewStatus,
-                          item.reviewedBy || 'بازبین مرکز اسناد',
-                          item.researcherNote
-                        )
-                      }
-                      className={`px-2.5 py-1 rounded-lg border text-xs font-bold ${
-                        item.reviewStatus === 'تأییدشده کارشناسی' || item.reviewStatus === 'بررسی‌شده در پژوهش اصلی'
-                          ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                          : item.reviewStatus === 'نیازمند بررسی'
-                          ? 'bg-amber-50 border-amber-300 text-amber-800'
-                          : item.reviewStatus.includes('رد')
-                          ? 'bg-red-50 border-red-300 text-red-800'
-                          : 'bg-slate-50 border-slate-300 text-slate-700'
+                <div className="md:col-span-3 flex items-center justify-end gap-1.5">
+                  <div className="inline-flex p-1 bg-[#FAF5EE] border border-[#D8C7B2] rounded-xl text-xs font-bold w-full">
+                    <button
+                      type="button"
+                      onClick={() => setExtractedViewMode('cards')}
+                      className={`flex-1 py-1.5 px-2.5 rounded-lg transition-colors cursor-pointer ${
+                        extractedViewMode === 'cards'
+                          ? 'bg-[#6B3E26] text-white'
+                          : 'text-[#5C4033] hover:text-[#332218]'
                       }`}
                     >
-                      <option value="بررسی‌شده در پژوهش اصلی">بررسی‌شده در پژوهش اصلی</option>
-                      <option value="تأییدشده کارشناسی">تأییدشده کارشناسی</option>
-                      <option value="نیازمند بررسی">نیازمند بررسی</option>
-                      <option value="خام (ثبت اولیه)">خام (ثبت اولیه)</option>
-                      <option value="ردشده با دلیل">ردشده با دلیل</option>
+                      نمایش کارتی
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExtractedViewMode('table')}
+                      className={`flex-1 py-1.5 px-2.5 rounded-lg transition-colors cursor-pointer ${
+                        extractedViewMode === 'table'
+                          ? 'bg-[#6B3E26] text-white'
+                          : 'text-[#5C4033] hover:text-[#332218]'
+                      }`}
+                    >
+                      نمایش جدولی
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* نوار فیلتر وضعیت بازبینی مطالب + دکمه تأیید یکجای مطالب برای انتشار سایت */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 text-xs border-t border-[#EFE4D6]">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[#6E5846] font-medium ml-1">فیلتر وضعیت:</span>
+                  {(
+                    [
+                      { key: 'all', label: `همه مطالب (${toPersianDigits(extractedItems.length)})` },
+                      {
+                        key: 'بررسی‌شده در پژوهش اصلی',
+                        label: `پژوهش اصلی (${toPersianDigits(
+                          extractedItems.filter((i) => i.reviewStatus === 'بررسی‌شده در پژوهش اصلی').length
+                        )})`
+                      },
+                      {
+                        key: 'تأییدشده کارشناسی',
+                        label: `تأییدشده کارشناسی (${toPersianDigits(
+                          extractedItems.filter((i) => i.reviewStatus === 'تأییدشده کارشناسی').length
+                        )})`
+                      },
+                      {
+                        key: 'نیازمند بررسی',
+                        label: `نیازمند بررسی (${toPersianDigits(
+                          extractedItems.filter((i) => i.reviewStatus === 'نیازمند بررسی').length
+                        )})`
+                      },
+                      {
+                        key: 'ردشده با دلیل',
+                        label: `ردشده (${toPersianDigits(
+                          extractedItems.filter((i) => i.reviewStatus.includes('رد')).length
+                        )})`
+                      }
+                    ] as const
+                  ).map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => {
+                        setExtractedStatusFilter(tab.key);
+                        setExtractedPage(1);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer ${
+                        extractedStatusFilter === tab.key
+                          ? 'bg-[#6B3E26] text-white'
+                          : 'bg-[#FAF5EE] border border-[#E2D2BE] text-[#332218] hover:bg-[#F3E9DC]'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-[#6E5846]">تعداد در صفحه:</span>
+                  <select
+                    value={String(extractedPageSize)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setExtractedPageSize(val === 'all' ? 'all' : Number(val));
+                      setExtractedPage(1);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-white border border-[#D8C7B2] text-[#332218] font-bold text-xs cursor-pointer"
+                  >
+                    <option value="50">۵۰ مورد</option>
+                    <option value="100">۱۰۰ مورد</option>
+                    <option value="all">نمایش همه ({toPersianDigits(totalExtractedCount)})</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {showAddExtracted && (
+              <form
+                onSubmit={handleCreateExtractedItem}
+                className="bg-white border-2 border-[#6B3E26] rounded-2xl p-4 sm:p-5 space-y-4 text-xs"
+              >
+                <div className="flex items-center justify-between border-b border-[#EFE4D6] pb-2.5">
+                  <h3 className="text-sm font-bold text-[#332218]">
+                    ثبت مطلب و صفحه استخراج‌شده جدید از کتاب
+                  </h3>
+                  <span className="text-[11px] text-[#6E5846]">
+                    عبارت خام صفحه (مانند 173تا184) عیناً حفظ می‌شود
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block font-bold text-[#332218] mb-1">
+                      کتاب مرجع (از میان {toPersianDigits(catalogRows.length)} کتاب فهرست) *
+                    </label>
+                    <select
+                      value={exBookId}
+                      onChange={(e) => setExBookId(e.target.value)}
+                      className="w-full min-h-[42px] px-3 py-2 bg-white border border-[#D8C7B2] rounded-xl"
+                    >
+                      {catalogRows.map((b) => (
+                        <option key={b.tempBookId} value={b.tempBookId}>
+                          {b.tempBookId} — {b.titleRaw} ({b.publisherRaw || 'بدون ناشر'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-[#332218] mb-1">
+                      نوع مطلب *
+                    </label>
+                    <select
+                      value={exContentType}
+                      onChange={(e) => setExContentType(e.target.value as ExtractedContentType)}
+                      className="w-full min-h-[42px] px-3 py-2 bg-white border border-[#D8C7B2] rounded-xl font-bold text-[#332218]"
+                    >
+                      <option value="زندگی‌نامه">زندگی‌نامه</option>
+                      <option value="خاطره">خاطره</option>
+                      <option value="وصیت‌نامه">وصیت‌نامه</option>
+                      <option value="نامه">نامه</option>
+                      <option value="روایت عملیات">روایت عملیات</option>
+                      <option value="سند تاریخی">سند تاریخی</option>
+                      <option value="سند و دست‌نوشته">سند و دست‌نوشته</option>
+                      <option value="مصاحبه">مصاحبه</option>
+                      <option value="معرفی شخصیت">معرفی شخصیت</option>
+                      <option value="اطلاعات خانواده">اطلاعات خانواده</option>
+                      <option value="اشاره کوتاه به شهید">اشاره کوتاه به شهید</option>
+                      <option value="تحلیل و پژوهش">تحلیل و پژوهش</option>
+                      <option value="سایر">سایر</option>
                     </select>
                   </div>
                 </div>
 
-                {/* فرم بازشونده ثبت دلیل رد */}
-                {rejectingExtractedId === item.id && (
-                  <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs space-y-2">
-                    <div className="font-bold text-red-900 flex items-center gap-1.5">
-                      <AlertCircle className="w-4 h-4 text-red-600" />
-                      <span>ثبت دلیل رد برای مطلب {item.id}:</span>
-                    </div>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block font-bold text-[#332218] mb-1">
+                      نام شهید مرتبط *
+                    </label>
                     <input
                       type="text"
-                      value={extractedRejectReason}
-                      onChange={(e) => setExtractedRejectReason(e.target.value)}
-                      placeholder="علت رد (مثلاً: عدم تطبیق صفحه با متن، تشابه اسمی اشتباه، نقض حق نشر)..."
-                      className="w-full min-h-[38px] px-3 py-1.5 bg-white border border-red-300 rounded-lg text-slate-900"
+                      required
+                      value={exMartyrName}
+                      onChange={(e) => setExMartyrName(e.target.value)}
+                      placeholder="مثال: احمد بیابانی یا محمد ابراهیم همت"
+                      className="w-full min-h-[42px] px-3 py-2 bg-white border border-[#D8C7B2] rounded-xl"
                     />
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setRejectingExtractedId(null)}
-                        className="px-3 py-1 text-slate-600 hover:text-slate-900"
-                      >
-                        انصراف
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!extractedRejectReason.trim()) {
-                            onNotify('لطفاً دلیل رد را بنویسید.', 'warning');
-                            return;
-                          }
-                          onUpdateExtractedItemStatus(
-                            item.id,
-                            'ردشده با دلیل',
-                            'کارشناس بازبین',
-                            `دلیل رد: ${extractedRejectReason.trim()}`
-                          );
-                          setRejectingExtractedId(null);
-                          onNotify(`مطلب ${item.id} با ثبت دلیل رد شد.`);
-                        }}
-                        className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg"
-                      >
-                        ثبت قطعی رد مطلب
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
-                  <div className="md:col-span-9 space-y-1.5">
-                    <div className="text-xs text-slate-600">
-                      کتاب: <strong className="text-slate-900">{item.bookTitleRaw}</strong>
-                      {item.publisherRaw && ` · ناشر: ${item.publisherRaw}`}
-                      {' · '}
-                      شهید / موضوع: <strong className="text-[#1f4e79]">{item.martyrNameRaw}</strong>
-                      {item.gravePieceRaw && ` (قطعه ${toPersianDigits(item.gravePieceRaw)})`}
-                    </div>
-
-                    <h4 className="text-sm sm:text-base font-bold text-slate-900">
-                      {item.passageTitle}
-                    </h4>
-
-                    <p className="text-xs sm:text-sm text-slate-700 leading-relaxed bg-slate-50 border border-slate-200/80 rounded-xl p-3">
-                      {item.extractedText}
-                    </p>
-
-                    {item.researcherNote && (
-                      <div
-                        className={`text-xs p-2 rounded-lg ${
-                          item.reviewStatus.includes('رد')
-                            ? 'bg-red-50 text-red-800 border border-red-200'
-                            : 'text-[#1f4e79]'
-                        }`}
-                      >
-                        <strong>{item.reviewStatus.includes('رد') ? 'علت رد کارشناسی: ' : 'یادداشت کارشناسی: '}</strong>
-                        {item.researcherNote}
-                      </div>
-                    )}
                   </div>
 
-                  <div className="md:col-span-3 bg-[#edf4fa] border border-[#c9dced] rounded-xl p-3 text-xs space-y-1.5">
+                  <div>
+                    <label className="block font-bold text-[#332218] mb-1">
+                      قطعه مزار (در صورت وجود)
+                    </label>
+                    <input
+                      type="text"
+                      value={exGravePiece}
+                      onChange={(e) => setExGravePiece(e.target.value)}
+                      placeholder="مثال: 26"
+                      className="w-full min-h-[42px] px-3 py-2 bg-white border border-[#D8C7B2] rounded-xl tabular-nums"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-[#332218] mb-1">
+                      شماره صفحه در کتاب *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={exPageRefRaw}
+                      onChange={(e) => setExPageRefRaw(e.target.value)}
+                      placeholder="مثال: 173تا184 یا ص 42"
+                      className="w-full min-h-[42px] px-3 py-2 bg-white border border-[#D8C7B2] rounded-xl tabular-nums"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block font-bold text-[#332218] mb-1">
+                      عنوان بخش / سرفصل مطلب *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={exPassageTitle}
+                      onChange={(e) => setExPassageTitle(e.target.value)}
+                      placeholder="مثال: روایت همرزمان از عملیات خیبر و آخرین وداع"
+                      className="w-full min-h-[42px] px-3 py-2 bg-white border border-[#D8C7B2] rounded-xl"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <span className="text-slate-600 block">ارجاع صفحه خام (منبع):</span>
-                      <strong className="text-sm font-bold text-[#162b3b] tabular-nums block mt-0.5">
-                        {toPersianDigits(item.pageReferenceRaw)}
-                      </strong>
+                      <label className="block font-medium text-[#5C4033] mb-1">صفحه شروع</label>
+                      <input
+                        type="text"
+                        value={exPageStart}
+                        onChange={(e) => setExPageStart(e.target.value)}
+                        placeholder="173"
+                        className="w-full min-h-[42px] px-2.5 py-2 bg-white border border-[#D8C7B2] rounded-xl tabular-nums"
+                      />
                     </div>
-                    {(item.pageStartNormalized || item.pageEndNormalized) && (
-                      <div className="text-[11px] text-slate-600 tabular-nums border-t border-[#c9dced] pt-1">
-                        بازه صفحه نرمال‌شده: از {toPersianDigits(item.pageStartNormalized || '—')} تا{' '}
-                        {toPersianDigits(item.pageEndNormalized || '—')}
-                      </div>
-                    )}
-                    <div className="text-[11px] text-slate-500 border-t border-[#c9dced] pt-1">
-                      ثبت‌کننده: {item.recordedBy} · تاریخ: {item.updatedAt}
+                    <div>
+                      <label className="block font-medium text-[#5C4033] mb-1">صفحه پایان</label>
+                      <input
+                        type="text"
+                        value={exPageEnd}
+                        onChange={(e) => setExPageEnd(e.target.value)}
+                        placeholder="184"
+                        className="w-full min-h-[42px] px-2.5 py-2 bg-white border border-[#D8C7B2] rounded-xl tabular-nums"
+                      />
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
 
-            {filteredExtractedItems.length > visibleLimit && (
-              <button
-                type="button"
-                onClick={() => setVisibleLimit((prev) => prev + 100)}
-                className="w-full min-h-[44px] py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 text-xs font-bold rounded-xl"
-              >
-                نمایش ۱۰۰ مطلب بعدی (از مجموع {toPersianDigits(filteredExtractedItems.length)} مطلب استخراج‌شده)
-              </button>
+                <div>
+                  <label className="block font-bold text-[#332218] mb-1">
+                    متن گزیده یا خلاصه پژوهشی مطلب استخراج‌شده *
+                  </label>
+                  <textarea
+                    rows={3}
+                    required
+                    value={exExtractedText}
+                    onChange={(e) => setExExtractedText(e.target.value)}
+                    placeholder="متن دقیق یا خلاصه پژوهشی مستند به صفحات کتاب را وارد کنید..."
+                    className="w-full p-3 bg-white border border-[#D8C7B2] rounded-xl text-[#332218]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-medium text-[#5C4033] mb-1">
+                      نقل‌قول کوتاه مستند (اختیاری)
+                    </label>
+                    <input
+                      type="text"
+                      value={exShortQuote}
+                      onChange={(e) => setExShortQuote(e.target.value)}
+                      placeholder="جمله کوتاه مستند با ذکر صفحه..."
+                      className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-[#5C4033] mb-1">
+                      کلیدواژه‌ها (جداشده با ویرگول)
+                    </label>
+                    <input
+                      type="text"
+                      value={exKeywordsText}
+                      onChange={(e) => setExKeywordsText(e.target.value)}
+                      placeholder="مثال: لشکر ۲۷، عملیات خیبر، وصیت‌نامه"
+                      className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddExtracted(false)}
+                    className="min-h-[42px] px-4 py-2 bg-[#FAF5EE] border border-[#D8C7B2] text-[#332218] rounded-xl font-semibold cursor-pointer"
+                  >
+                    انصراف
+                  </button>
+                  <button
+                    type="submit"
+                    className="min-h-[42px] px-5 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold cursor-pointer"
+                  >
+                    ذخیره مطلب استخراج‌شده
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* نمایش جدولی فشرده برای مرور سریع ۳۰۹ مطلب و صفحه */}
+            {extractedViewMode === 'table' ? (
+              <div className="bg-white border border-[#E2D2BE] rounded-2xl overflow-hidden shadow-2xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-right border-collapse">
+                    <thead>
+                      <tr className="bg-[#F6EFE6] text-[#332218] border-b border-[#E2D2BE] font-bold">
+                        <th className="py-2.5 px-3 w-12 text-center">ردیف</th>
+                        <th className="py-2.5 px-3 min-w-[130px]">نام شهید</th>
+                        <th className="py-2.5 px-3 min-w-[80px]">قطعه</th>
+                        <th className="py-2.5 px-3 min-w-[160px]">عنوان کتاب</th>
+                        <th className="py-2.5 px-3 min-w-[90px]">شماره صفحه</th>
+                        <th className="py-2.5 px-3 min-w-[100px]">نوع مطلب</th>
+                        <th className="py-2.5 px-3 min-w-[260px]">عنوان و خلاصه مطلب</th>
+                        <th className="py-2.5 px-3 min-w-[130px] text-center">عملیات کارشناس</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#EFE4D6]">
+                      {visibleExtractedRows.map((item, idx) => (
+                        <tr key={item.id} className="hover:bg-[#FAF5EE]">
+                          <td className="py-2.5 px-3 text-center font-mono text-[#78604E]">
+                            {toPersianDigits(exStartIdx + idx + 1)}
+                          </td>
+                          <td className="py-2.5 px-3 font-bold text-[#332218]">{item.martyrNameRaw}</td>
+                          <td className="py-2.5 px-3 tabular-nums text-[#5C4033]">
+                            {toPersianDigits(item.gravePieceRaw || '—')}
+                          </td>
+                          <td className="py-2.5 px-3 font-bold text-[#6B3E26]">
+                            {item.bookTitleRaw}{' '}
+                            <span className="font-mono text-[10.5px] text-[#78604E] font-normal" dir="ltr">
+                              ({item.tempBookId})
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 font-bold text-[#332218] tabular-nums">
+                            {toPersianDigits(item.pageReferenceRaw)}
+                          </td>
+                          <td className="py-2.5 px-3 text-[#5C4033]">{item.contentType}</td>
+                          <td className="py-2.5 px-3 text-[#332218] leading-relaxed">
+                            <div className="font-bold">{item.passageTitle}</div>
+                            <div className="text-[11px] text-[#5C4033] line-clamp-2">{item.extractedText}</div>
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              {item.reviewStatus !== 'تأییدشده کارشناسی' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    onUpdateExtractedItemStatus(
+                                      item.id,
+                                      'تأییدشده کارشناسی',
+                                      'کارشناس بازبین',
+                                      item.researcherNote
+                                    );
+                                    onNotify(`مطلب ${item.id} تأیید شد.`);
+                                  }}
+                                  className="px-2 py-1 rounded-lg bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-[11px] cursor-pointer"
+                                >
+                                  ✓ تأیید
+                                </button>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded bg-[#EDF6F0] text-[#1E4D2B] border border-[#A8D5B5] text-[10.5px] font-bold">
+                                  تأییدشده
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              /* نمایش کارتی مشروح مطالب استخراج‌شده */
+              <div className="space-y-3">
+                {visibleExtractedRows.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    className="bg-white border border-[#E2D2BE] rounded-2xl p-4 sm:p-5 space-y-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs border-b border-[#EFE4D6] pb-2.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono font-bold text-[#6B3E26]">
+                          #{toPersianDigits(exStartIdx + idx + 1)}
+                        </span>
+                        <span className="font-mono font-bold text-[#332218]" dir="ltr">
+                          {item.id}
+                        </span>
+                        <span className="text-[#78604E]">·</span>
+                        <span className="font-mono font-semibold text-[#5C4033]" dir="ltr">
+                          {item.tempBookId}
+                        </span>
+                        <span className="text-[#78604E]">·</span>
+                        <span className="font-bold text-[#6B3E26] bg-[#FAF5EE] px-2 py-0.5 rounded border border-[#E2D2BE]">
+                          {item.contentType}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        {item.reviewStatus !== 'تأییدشده کارشناسی' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onUpdateExtractedItemStatus(
+                                item.id,
+                                'تأییدشده کارشناسی',
+                                'کارشناس بازبین',
+                                item.researcherNote
+                              );
+                              onNotify(`مطلب ${item.id} با موفقیت تأیید شد و آماده انتشار گردید.`);
+                            }}
+                            className="min-h-[30px] px-2.5 py-1 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>تأیید کارشناسی</span>
+                          </button>
+                        )}
+
+                        {!item.reviewStatus.includes('رد') && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRejectingExtractedId(item.id);
+                              setExtractedRejectReason('');
+                            }}
+                            className="min-h-[30px] px-2.5 py-1 bg-[#A63A3A] hover:bg-[#8A2E2E] text-white rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                            <span>رد با ذکر دلیل</span>
+                          </button>
+                        )}
+
+                        <select
+                          value={item.reviewStatus}
+                          onChange={(e) =>
+                            onUpdateExtractedItemStatus(
+                              item.id,
+                              e.target.value as ExtractedReviewStatus,
+                              item.reviewedBy || 'بازبین مرکز اسناد',
+                              item.researcherNote
+                            )
+                          }
+                          className={`px-2.5 py-1 rounded-lg border text-xs font-bold ${
+                            item.reviewStatus === 'تأییدشده کارشناسی' || item.reviewStatus === 'بررسی‌شده در پژوهش اصلی'
+                              ? 'bg-[#EDF6F0] border-[#A8D5B5] text-[#1E4D2B]'
+                              : item.reviewStatus.includes('رد')
+                              ? 'bg-[#FDF0F0] border-[#E6B8B8] text-[#A63A3A]'
+                              : 'bg-[#FAF5EE] border-[#D8C7B2] text-[#5C4033]'
+                          }`}
+                        >
+                          <option value="بررسی‌شده در پژوهش اصلی">بررسی‌شده در پژوهش اصلی</option>
+                          <option value="تأییدشده کارشناسی">تأییدشده کارشناسی</option>
+                          <option value="نیازمند بررسی">نیازمند بررسی</option>
+                          <option value="خام (ثبت اولیه)">خام (ثبت اولیه)</option>
+                          <option value="ردشده با دلیل">ردشده با دلیل</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {rejectingExtractedId === item.id && (
+                      <div className="bg-[#FDF0F0] border border-[#E6B8B8] rounded-xl p-3 text-xs space-y-2">
+                        <div className="font-bold text-[#A63A3A] flex items-center gap-1.5">
+                          <AlertCircle className="w-4 h-4" />
+                          <span>ثبت دلیل رد برای مطلب {item.id}:</span>
+                        </div>
+                        <input
+                          type="text"
+                          value={extractedRejectReason}
+                          onChange={(e) => setExtractedRejectReason(e.target.value)}
+                          placeholder="علت رد (مثلاً: عدم تطبیق صفحه با متن یا تشابه اسمی)..."
+                          className="w-full min-h-[38px] px-3 py-1.5 bg-white border border-[#E6B8B8] rounded-lg text-[#332218]"
+                        />
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setRejectingExtractedId(null)}
+                            className="px-3 py-1 text-[#5C4033] hover:text-[#332218]"
+                          >
+                            انصراف
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!extractedRejectReason.trim()) {
+                                onNotify('لطفاً دلیل رد را بنویسید.', 'warning');
+                                return;
+                              }
+                              onUpdateExtractedItemStatus(
+                                item.id,
+                                'ردشده با دلیل',
+                                'کارشناس بازبین',
+                                `دلیل رد: ${extractedRejectReason.trim()}`
+                              );
+                              setRejectingExtractedId(null);
+                              onNotify(`مطلب ${item.id} با ثبت دلیل رد شد.`);
+                            }}
+                            className="px-3 py-1 bg-[#A63A3A] hover:bg-[#8A2E2E] text-white font-bold rounded-lg cursor-pointer"
+                          >
+                            ثبت قطعی رد مطلب
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+                      <div className="md:col-span-9 space-y-1.5">
+                        <div className="text-xs text-[#5C4033]">
+                          کتاب: <strong className="text-[#332218]">{item.bookTitleRaw}</strong>
+                          {item.publisherRaw && ` · ناشر: ${item.publisherRaw}`}
+                          {' · '}
+                          شهید: <strong className="text-[#6B3E26]">{item.martyrNameRaw}</strong>
+                          {item.gravePieceRaw && ` (قطعه ${toPersianDigits(item.gravePieceRaw)})`}
+                        </div>
+
+                        <h4 className="text-sm sm:text-base font-bold text-[#332218]">
+                          {item.passageTitle}
+                        </h4>
+
+                        <p className="text-xs sm:text-sm text-[#332218] leading-relaxed bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3">
+                          {item.extractedText}
+                        </p>
+
+                        {item.researcherNote && (
+                          <div
+                            className={`text-xs p-2 rounded-lg ${
+                              item.reviewStatus.includes('رد')
+                                ? 'bg-[#FDF0F0] text-[#A63A3A] border border-[#E6B8B8]'
+                                : 'text-[#6B3E26]'
+                            }`}
+                          >
+                            <strong>{item.reviewStatus.includes('رد') ? 'علت رد کارشناسی: ' : 'یادداشت کارشناسی: '}</strong>
+                            {item.researcherNote}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="md:col-span-3 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3 text-xs space-y-1.5">
+                        <div>
+                          <span className="text-[#6E5846] block">شماره صفحه در کتاب:</span>
+                          <strong className="text-sm font-bold text-[#332218] tabular-nums block mt-0.5">
+                            {toPersianDigits(item.pageReferenceRaw)}
+                          </strong>
+                        </div>
+                        {(item.pageStartNormalized || item.pageEndNormalized) && (
+                          <div className="text-[11px] text-[#5C4033] tabular-nums border-t border-[#E2D2BE] pt-1">
+                            بازه صفحه: از {toPersianDigits(item.pageStartNormalized || '—')} تا{' '}
+                            {toPersianDigits(item.pageEndNormalized || '—')}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* نوار صفحه‌بندی کامل برای مطالب استخراج‌شده (صفحه ۱، ۲، ۳ ... + نمایش یکجای همه ۳۰۹ مورد) */}
+            {totalExtractedCount > 0 && (
+              <div className="p-3.5 bg-white border border-[#E2D2BE] rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="text-[#5C4033] font-medium">
+                  {extractedPageSize === 'all' ? (
+                    <span>
+                      نمایش یکجای تمام <strong className="text-[#332218]">{toPersianDigits(totalExtractedCount)}</strong> مطلب استخراج‌شده
+                    </span>
+                  ) : (
+                    <span>
+                      صفحه <strong className="text-[#332218]">{toPersianDigits(exSafePage)}</strong> از{' '}
+                      <strong className="text-[#332218]">{toPersianDigits(exTotalPages)}</strong> (مورد{' '}
+                      {toPersianDigits(exStartIdx + 1)} تا{' '}
+                      {toPersianDigits(Math.min(totalExtractedCount, exStartIdx + (extractedPageSize as number)))} از مجموع{' '}
+                      {toPersianDigits(totalExtractedCount)} مطلب)
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {extractedPageSize !== 'all' && exTotalPages > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={exSafePage <= 1}
+                        onClick={() => setExtractedPage((p) => Math.max(1, p - 1))}
+                        className="px-3 py-1.5 rounded-lg bg-[#FAF5EE] border border-[#D8C7B2] text-[#332218] font-bold disabled:opacity-40 hover:bg-[#F3E9DC] cursor-pointer"
+                      >
+                        → صفحه قبل
+                      </button>
+
+                      {Array.from({ length: exTotalPages }, (_, i) => i + 1).map((pageNum) => (
+                        <button
+                          key={pageNum}
+                          type="button"
+                          onClick={() => setExtractedPage(pageNum)}
+                          className={`min-w-[34px] px-2.5 py-1.5 rounded-lg border font-bold tabular-nums cursor-pointer ${
+                            exSafePage === pageNum
+                              ? 'bg-[#6B3E26] text-white border-[#6B3E26]'
+                              : 'bg-white text-[#332218] border-[#D8C7B2] hover:bg-[#F3E9DC]'
+                          }`}
+                        >
+                          {toPersianDigits(pageNum)}
+                        </button>
+                      ))}
+
+                      <button
+                        type="button"
+                        disabled={exSafePage >= exTotalPages}
+                        onClick={() => setExtractedPage((p) => Math.min(exTotalPages, p + 1))}
+                        className="px-3 py-1.5 rounded-lg bg-[#6B3E26] text-white font-bold disabled:opacity-40 hover:bg-[#56311E] cursor-pointer"
+                      >
+                        صفحه بعد (ادامه مطالب) ←
+                      </button>
+                    </>
+                  )}
+
+                  {extractedPageSize !== 'all' ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExtractedPageSize('all');
+                        setExtractedPage(1);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-white border border-[#6B3E26] text-[#6B3E26] font-bold hover:bg-[#F3E9DC] cursor-pointer"
+                    >
+                      نمایش یکجای همه ({toPersianDigits(totalExtractedCount)} مورد)
+                    </button>
+                  ) : (
+                    totalExtractedCount > 50 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExtractedPageSize(50);
+                          setExtractedPage(1);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-[#FAF5EE] border border-[#D8C7B2] text-[#5C4033] font-bold hover:bg-[#F3E9DC] cursor-pointer"
+                      >
+                        بازگشت به نمایش صفحه‌بندی (۵۰تایی)
+                      </button>
+                    )
+                  )}
+                </div>
+              </div>
             )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* SubView 2: Sheet 4 — 567 Pending Review Items (موارد نیازمند بررسی PV-0001..PV-0567) */}
       {subView === 'pending567' && (
@@ -2566,196 +2718,627 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
         </div>
       )}
 
-      {/* SubView 5: Website Publication Gateway for https://golzarteh.ir (Section 15) */}
-      {subView === 'publish_gateway' && (
-        <div className="space-y-4">
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 space-y-4">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-              <div>
-                <h3 className="text-sm sm:text-base font-bold text-[#253247]">
-                  دروازه انتشار کنترل‌شده برای وب‌سایت رسمی گلزار شهدای تهران (golzarteh.ir)
-                </h3>
-                <p className="text-xs text-[#697586] mt-1">
-                  فقط اطلاعاتی که بررسی، تأیید کارشناسی و مجاز شناخته شده‌اند وارد بسته انتشار می‌شوند؛ یادداشت‌های خصوصی پژوهشگران و رکوردهای تأییدنشده به‌طور خودکار فیلتر می‌شوند.
-                </p>
+      {/* SubView 5: مرکز جامع خروجی انتشار سایت گلزار شهدا (golzarteh.ir) */}
+      {subView === 'publish_gateway' && (() => {
+        const qNorm = normalizePersianText(publishSearchQuery);
+
+        // رکوردهای معتبر قابل انتشار در سایت (پیش‌فرض: همه پیوندهای دارای نام شهید و همه ۳۰۹ مطلب استخراج‌شده غیر ردشده)
+        const publishableLinks = links.filter((l) => {
+          if (!l.martyrNameRaw || l.martyrNameRaw === '*' || l.reviewStatus.includes('رد')) return false;
+          if (publishScope === 'expert_only' && !l.reviewStatus.includes('تأیید')) return false;
+          return true;
+        });
+
+        const publishableExtracts = extractedItems.filter((it) => {
+          if (it.reviewStatus.includes('رد')) return false;
+          if (publishScope === 'expert_only' && it.reviewStatus !== 'تأییدشده کارشناسی') return false;
+          return true;
+        });
+
+        // تجمیع پرونده‌های آماده انتشار در سایت به ازای هر شهید (شامل کتاب‌ها، شماره صفحات و مطالب استخراج‌شده)
+        const martyrPublishProfilesMap = new Map<
+          string,
+          {
+            martyrName: string;
+            gravePiece: string;
+            graveRow: string;
+            graveNumber: string;
+            books: {
+              bookId: string;
+              bookTitle: string;
+              publisher: string;
+              pageReference: string;
+              description: string;
+            }[];
+            passages: ExtractedContentItem[];
+          }
+        >();
+
+        publishableLinks.forEach((l) => {
+          const normKey = normalizePersianText(l.martyrNameRaw);
+          let prof = martyrPublishProfilesMap.get(normKey);
+          if (!prof) {
+            prof = {
+              martyrName: l.martyrNameRaw,
+              gravePiece: l.gravePieceRaw || '—',
+              graveRow: l.graveRowRaw || '—',
+              graveNumber: l.graveNumberRaw || '—',
+              books: [],
+              passages: []
+            };
+            martyrPublishProfilesMap.set(normKey, prof);
+          }
+          if (prof.gravePiece === '—' && l.gravePieceRaw) prof.gravePiece = l.gravePieceRaw;
+          if (prof.graveRow === '—' && l.graveRowRaw) prof.graveRow = l.graveRowRaw;
+          if (prof.graveNumber === '—' && l.graveNumberRaw) prof.graveNumber = l.graveNumberRaw;
+
+          prof.books.push({
+            bookId: l.tempBookId || '',
+            bookTitle: l.bookTitleRaw,
+            publisher: l.publisherRaw || '—',
+            pageReference: l.pageReferenceRaw || 'ثبت در منبع',
+            description: l.sourceDescriptionRaw || ''
+          });
+        });
+
+        publishableExtracts.forEach((ex) => {
+          const normKey = normalizePersianText(ex.martyrNameRaw);
+          let prof = martyrPublishProfilesMap.get(normKey);
+          if (!prof) {
+            prof = {
+              martyrName: ex.martyrNameRaw,
+              gravePiece: ex.gravePieceRaw || '—',
+              graveRow: '—',
+              graveNumber: '—',
+              books: [],
+              passages: []
+            };
+            martyrPublishProfilesMap.set(normKey, prof);
+          }
+          prof.passages.push(ex);
+        });
+
+        const allMartyrPublishProfiles = Array.from(martyrPublishProfilesMap.values()).filter((p) => {
+          if (!qNorm) return true;
+          const hay = normalizePersianText(
+            `${p.martyrName} ${p.gravePiece} ${p.books.map((b) => `${b.bookTitle} ${b.publisher} ${b.pageReference}`).join(' ')} ${p.passages.map((ex) => `${ex.passageTitle} ${ex.extractedText}`).join(' ')}`
+          );
+          return qNorm.split(' ').every((w) => hay.includes(w));
+        });
+
+        const filteredPublishableExtracts = publishableExtracts.filter((it) => {
+          if (!qNorm) return true;
+          const hay = normalizePersianText(
+            `${it.martyrNameRaw} ${it.bookTitleRaw} ${it.passageTitle} ${it.extractedText} ${it.pageReferenceRaw} ${it.contentType}`
+          );
+          return qNorm.split(' ').every((w) => hay.includes(w));
+        });
+
+        const activeTotalCount =
+          publishPreviewTab === 'martyr_cards'
+            ? allMartyrPublishProfiles.length
+            : filteredPublishableExtracts.length;
+        const pubTotalPages =
+          publishPageSize === 'all' ? 1 : Math.max(1, Math.ceil(activeTotalCount / publishPageSize));
+        const pubSafePage = Math.min(publishPage, pubTotalPages);
+        const pubStartIdx = publishPageSize === 'all' ? 0 : (pubSafePage - 1) * publishPageSize;
+
+        const visibleMartyrProfiles =
+          publishPageSize === 'all'
+            ? allMartyrPublishProfiles
+            : allMartyrPublishProfiles.slice(pubStartIdx, pubStartIdx + publishPageSize);
+
+        const visiblePublishExtracts =
+          publishPageSize === 'all'
+            ? filteredPublishableExtracts
+            : filteredPublishableExtracts.slice(pubStartIdx, pubStartIdx + publishPageSize);
+
+        // ۱. خروجی اکسل ویژه انتشار سایت (۳ شیت آماده بارگذاری در سایت گلزار)
+        const handleExportWebsiteExcel = () => {
+          const wb = XLSX.utils.book_new();
+
+          const sheetMartyrProfiles = allMartyrPublishProfiles.map((p, idx) => ({
+            'ردیف': idx + 1,
+            'کد انتشار سایت': `${externalIdPrefix}SH-${String(idx + 1).padStart(4, '0')}`,
+            'نام و نام خانوادگی شهید': p.martyrName,
+            'قطعه مزار': p.gravePiece,
+            'ردیف مزار': p.graveRow,
+            'شماره مزار': p.graveNumber,
+            'تعداد کتاب‌های مرتبط': p.books.length,
+            'فهرست کتاب‌ها و صفحات': p.books
+              .map((b) => `کتاب «${b.bookTitle}» (${b.publisher})${b.pageReference && b.pageReference !== '-' ? ` - صفحه ${b.pageReference}` : ''}`)
+              .join(' | '),
+            'تعداد مطالب و صفحات استخراج‌شده': p.passages.length,
+            'متن کامل مطالب استخراج‌شده جهت درج در سایت': p.passages
+              .map((ex) => `[${ex.contentType} - کتاب ${ex.bookTitleRaw}، ص ${ex.pageReferenceRaw}]: ${ex.passageTitle} — ${ex.extractedText}`)
+              .join('\n\n')
+          }));
+
+          const sheetExtractedPassages = filteredPublishableExtracts.map((it, idx) => ({
+            'ردیف': idx + 1,
+            'کد مطلب در سایت': `${externalIdPrefix}PUB-${String(idx + 1).padStart(4, '0')}`,
+            'نام شهید': it.martyrNameRaw,
+            'قطعه مزار': it.gravePieceRaw || '—',
+            'کد کتاب': it.tempBookId,
+            'عنوان کتاب': it.bookTitleRaw,
+            'ناشر': it.publisherRaw || '—',
+            'شماره صفحه در کتاب': it.pageReferenceRaw,
+            'نوع مطلب': it.contentType,
+            'عنوان مطلب': it.passageTitle,
+            'متن آماده انتشار در سایت': it.extractedText
+          }));
+
+          const sheetBookLinks = publishableLinks.map((l, idx) => ({
+            'ردیف': idx + 1,
+            'نام شهید': l.martyrNameRaw,
+            'قطعه': l.gravePieceRaw || '—',
+            'ردیف مزار': l.graveRowRaw || '—',
+            'شماره مزار': l.graveNumberRaw || '—',
+            'کد کتاب': l.tempBookId,
+            'عنوان کتاب': l.bookTitleRaw,
+            'ناشر': l.publisherRaw || '—',
+            'شماره صفحه': l.pageReferenceRaw || '—',
+            'توضیحات کتاب': l.sourceDescriptionRaw || '—'
+          }));
+
+          XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheetMartyrProfiles), 'پرونده شهدای سایت');
+          XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheetExtractedPassages), 'مطالب و صفحات استخراج‌شده');
+          XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheetBookLinks), 'پیوندهای کتاب و شهید');
+
+          const fileName = `بسته-انتشار-سایت-گلزار-${new Date().toISOString().slice(0, 10)}.xlsx`;
+          XLSX.writeFile(wb, fileName);
+          onNotify(`فایل اکسل ۳ شیت ویژه انتشار در سایت («${fileName}») دانلود شد.`);
+        };
+
+        // ۲. خروجی JSON استاندارد وب‌سایت
+        const handleExportWebsiteJson = () => {
+          const payload = {
+            schema_version: 'golzarteh-publish-package-v2.0',
+            target_website: 'https://golzarteh.ir',
+            generated_at: new Date().toISOString(),
+            external_id_prefix: externalIdPrefix,
+            martyrs_with_books_count: allMartyrPublishProfiles.length,
+            total_book_martyr_links_count: publishableLinks.length,
+            total_extracted_passages_count: filteredPublishableExtracts.length,
+            martyr_profiles: allMartyrPublishProfiles.map((p, idx) => ({
+              public_martyr_code: `${externalIdPrefix}SH-${String(idx + 1).padStart(4, '0')}`,
+              martyr_name: p.martyrName,
+              grave_address: {
+                piece: p.gravePiece,
+                row: p.graveRow,
+                number: p.graveNumber
+              },
+              linked_books: p.books,
+              extracted_passages: p.passages.map((it) => ({
+                passage_id: it.id,
+                book_title: it.bookTitleRaw,
+                page_reference: it.pageReferenceRaw,
+                content_type: it.contentType,
+                title: it.passageTitle,
+                text: it.extractedText
+              }))
+            }))
+          };
+          const blob = new Blob([JSON.stringify(payload, null, 2)], {
+            type: 'application/json;charset=utf-8'
+          });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `golzarteh-website-package-${new Date().toISOString().slice(0, 10)}.json`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1500);
+          onNotify('بسته استاندارد JSON ویژه بارگذاری در وب‌سایت golzarteh.ir دانلود شد.');
+        };
+
+        // ۳. کپی متن آماده درج در سایت برای یک شهید
+        const handleCopyMartyrProfileForWebsite = (p: (typeof allMartyrPublishProfiles)[0]) => {
+          const lines: string[] = [
+            `🌷 شهید ${p.martyrName}`,
+            `📍 نشانی مزار: قطعه ${p.gravePiece}${p.graveRow !== '—' ? `، ردیف ${p.graveRow}` : ''}${p.graveNumber !== '—' ? `، شماره ${p.graveNumber}` : ''}`,
+            ''
+          ];
+          if (p.books.length > 0) {
+            lines.push('📚 کتاب‌های مرتبط در مرکز اسناد گلزار شهدا:');
+            p.books.forEach((b, i) => {
+              lines.push(
+                `${i + 1}. کتاب «${b.bookTitle}» — ناشر: ${b.publisher}${
+                  b.pageReference && b.pageReference !== '-' ? ` (صفحه: ${b.pageReference})` : ''
+                }${b.description && b.description !== '-' ? ` — ${b.description}` : ''}`
+              );
+            });
+            lines.push('');
+          }
+          if (p.passages.length > 0) {
+            lines.push('📖 گزیده مطالب و صفحات استخراج‌شده:');
+            p.passages.forEach((ex, i) => {
+              lines.push(
+                `${i + 1}. [${ex.contentType} — کتاب «${ex.bookTitleRaw}»، ص ${ex.pageReferenceRaw}] ${ex.passageTitle}:`
+              );
+              lines.push(ex.extractedText);
+              lines.push('');
+            });
+          }
+          navigator.clipboard?.writeText(lines.join('\n'));
+          onNotify(`متن کامل کتاب‌ها و صفحات «شهید ${p.martyrName}» برای درج در سایت کپی شد.`);
+        };
+
+        return (
+          <div className="space-y-4">
+            {/* هدر و دکمه‌های دریافت خروجی انتشار سایت */}
+            <div className="bg-white border border-[#E2D2BE] rounded-2xl p-4 sm:p-5 space-y-4 shadow-2xs">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[#EFE4D6] pb-4">
+                <div className="space-y-1">
+                  <h3 className="text-base sm:text-lg font-bold text-[#332218]">
+                    مرکز خروجی انتشار سایت گلزار شهدای تهران (golzarteh.ir)
+                  </h3>
+                  <p className="text-xs text-[#6E5846]">
+                    بسته‌بندی یکپارچه اسامی شهدا، کتاب‌های مرتبط، شماره صفحات و ۳۰۹ مطلب استخراج‌شده جهت بارگذاری مستقیم در وب‌سایت
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleExportWebsiteExcel}
+                    className="min-h-[42px] px-4 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white text-xs font-bold flex items-center gap-2 shadow-2xs cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>دانلود اکسل ویژه سایت (۳ شیت .xlsx)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExportWebsiteJson}
+                    className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <FileJson className="w-4 h-4 text-[#6B3E26]" />
+                    <span>بسته JSON وب‌سایت</span>
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const approvedExtracts = extractedItems.filter(
-                    (it) => it.reviewStatus === 'تأییدشده کارشناسی'
-                  );
-                  const approvedLinks = links.filter((l) => l.reviewStatus.includes('تأیید'));
-                  const payload = {
-                    schema_version: 'golzarteh-publish-package-v1.0',
-                    target_website: 'https://golzarteh.ir',
-                    generated_at: new Date().toISOString(),
-                    security_policy:
-                      'NO_DIRECT_LIVE_MUTATION_WITHOUT_ADMIN_TOKEN — PRIVATE_NOTES_STRIPPED',
-                    external_id_prefix: externalIdPrefix,
-                    approved_book_martyr_links_count: approvedLinks.length,
-                    approved_extracted_passages_count: approvedExtracts.length,
-                    publishable_passages: approvedExtracts.map((it, idx) => ({
-                      public_record_id: `${externalIdPrefix}PUB-${String(idx + 1).padStart(4, '0')}`,
-                      martyr_name: it.martyrNameRaw,
-                      grave_piece: it.gravePieceRaw,
-                      book_id: it.tempBookId,
-                      book_title: it.bookTitleRaw,
-                      publisher: it.publisherRaw,
-                      content_type: it.contentType,
-                      passage_title: it.passageTitle,
-                      research_summary: it.extractedText,
-                      short_verified_quote: it.shortVerifiedQuote || null,
-                      page_reference: it.pageReferenceRaw,
-                      approved_by: it.reviewedBy || 'کارشناس مسئول مرکز اسناد'
-                    })),
-                    publishable_book_links: approvedLinks.map((l) => ({
-                      link_id: l.id,
-                      martyr_name: l.martyrNameRaw,
-                      grave_address: {
-                        piece: l.gravePieceRaw,
-                        row: l.graveRowRaw,
-                        number: l.graveNumberRaw
-                      },
-                      book_id: l.tempBookId,
-                      book_title: l.bookTitleRaw,
-                      publisher: l.publisherRaw,
-                      page_reference: l.pageReferenceRaw
-                    }))
-                  };
-                  const blob = new Blob([JSON.stringify(payload, null, 2)], {
-                    type: 'application/json;charset=utf-8'
-                  });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `golzarteh-approved-publish-package-${new Date()
-                    .toISOString()
-                    .slice(0, 10)}.json`;
-                  document.body.appendChild(a);
-                  a.click();
-                  a.remove();
-                  setTimeout(() => URL.revokeObjectURL(url), 1500);
-                  onNotify(
-                    'بسته اطلاعاتی تأییدشده و مجاز (بدون یادداشت‌های خصوصی) برای وب‌سایت golzarteh.ir آماده و دانلود شد.'
-                  );
-                }}
-                className="min-h-[42px] px-4 py-2 rounded-xl bg-[#2E7D5B] hover:bg-[#246348] text-white text-xs font-bold flex items-center gap-2 shrink-0"
-              >
-                <Download className="w-4 h-4" />
-                <span>دریافت بسته انتشار JSON تأییدشده</span>
-              </button>
+
+              {/* ۲ کارت خلاصه وضعیت خروجی سایت + تنظیمات */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3.5 flex items-center justify-between">
+                  <div>
+                    <div className="font-bold text-[#5C4033]">پرونده شهدای آماده انتشار در سایت</div>
+                    <div className="text-[11px] text-[#78604E] mt-0.5">
+                      شامل کتاب‌های مرتبط، نشانی مزار و ارجاع صفحات
+                    </div>
+                  </div>
+                  <div className="text-xl font-bold text-[#332218] tabular-nums">
+                    {toPersianDigits(allMartyrPublishProfiles.length)} شهید
+                  </div>
+                </div>
+
+                <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3.5 flex items-center justify-between">
+                  <div>
+                    <div className="font-bold text-[#5C4033]">مطالب و صفحات استخراج‌شده آماده انتشار</div>
+                    <div className="text-[11px] text-[#78604E] mt-0.5">
+                      خاطره، وصیت‌نامه، زندگی‌نامه و شماره صفحه دقیق
+                    </div>
+                  </div>
+                  <div className="text-xl font-bold text-[#6B3E26] tabular-nums">
+                    {toPersianDigits(filteredPublishableExtracts.length)} مطلب
+                  </div>
+                </div>
+
+                <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3 flex flex-col justify-between gap-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-[#332218]">دامنه خروجی سایت:</span>
+                    <select
+                      value={publishScope}
+                      onChange={(e) => {
+                        setPublishScope(e.target.value as 'all_valid' | 'expert_only');
+                        setPublishPage(1);
+                      }}
+                      className="px-2.5 py-1 bg-white border border-[#D8C7B2] rounded-lg font-bold text-[#332218] text-xs"
+                    >
+                      <option value="all_valid">همه پیوندها و مطالب معتبر سامانه (کامل)</option>
+                      <option value="expert_only">فقط موارد دارای مهر «تأییدشده کارشناسی»</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-[#6E5846]">پیشوند کد سایت:</span>
+                    <input
+                      type="text"
+                      value={externalIdPrefix}
+                      onChange={(e) => setExternalIdPrefix(e.target.value)}
+                      className="w-36 px-2 py-1 bg-white border border-[#D8C7B2] rounded-lg font-mono text-xs"
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* نوار سوییچ پیش‌نمایش و جست‌وجو */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2 border-t border-[#EFE4D6]">
+                <div className="inline-flex p-1 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPublishPreviewTab('martyr_cards');
+                      setPublishPage(1);
+                    }}
+                    className={`px-3.5 py-2 rounded-lg transition-colors cursor-pointer ${
+                      publishPreviewTab === 'martyr_cards'
+                        ? 'bg-[#6B3E26] text-white'
+                        : 'text-[#5C4033] hover:text-[#332218]'
+                    }`}
+                  >
+                    ۱. پرونده انتشار هر شهید در سایت ({toPersianDigits(allMartyrPublishProfiles.length)} شهید)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPublishPreviewTab('extracted_passages');
+                      setPublishPage(1);
+                    }}
+                    className={`px-3.5 py-2 rounded-lg transition-colors cursor-pointer ${
+                      publishPreviewTab === 'extracted_passages'
+                        ? 'bg-[#6B3E26] text-white'
+                        : 'text-[#5C4033] hover:text-[#332218]'
+                    }`}
+                  >
+                    ۲. فهرست مطالب و صفحات استخراج‌شده ({toPersianDigits(filteredPublishableExtracts.length)} مطلب)
+                  </button>
+                </div>
+
+                <div className="flex flex-1 max-w-md items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-[#6E5846] absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="search"
+                      value={publishSearchQuery}
+                      onChange={(e) => {
+                        setPublishSearchQuery(e.target.value);
+                        setPublishPage(1);
+                      }}
+                      placeholder="جست‌وجوی نام شهید، کتاب یا متن..."
+                      className="w-full min-h-[38px] pr-9 pl-3 py-1.5 text-xs bg-[#FAF5EE] border border-[#D8C7B2] rounded-xl focus:bg-white focus:outline-none focus:border-[#6B3E26]"
+                    />
+                  </div>
+
+                  <select
+                    value={String(publishPageSize)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setPublishPageSize(val === 'all' ? 'all' : Number(val));
+                      setPublishPage(1);
+                    }}
+                    className="min-h-[38px] px-2.5 py-1.5 rounded-xl bg-white border border-[#D8C7B2] text-[#332218] font-bold text-xs cursor-pointer"
+                  >
+                    <option value="40">۴۰ مورد در صفحه</option>
+                    <option value="100">۱۰۰ مورد در صفحه</option>
+                    <option value="all">نمایش یکجای همه ({toPersianDigits(activeTotalCount)})</option>
+                  </select>
+                </div>
+              </div>
             </div>
 
-            {/* 6-Step Exchange Pipeline Visualization */}
-            <div className="bg-[#F5F7FA] border border-slate-200 rounded-xl p-3.5">
-              <div className="text-xs font-bold text-[#1F4E79] mb-2">
-                معماری تبادل اطلاعات مرکز اسناد با وب‌سایت رسمی گلزار تهران:
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-center text-xs">
-                {[
-                  '۱. مرکز اسناد',
-                  '۲. ثبت و تکمیل اطلاعات',
-                  '۳. بررسی و تأیید کارشناسی',
-                  '۴. دروازه انتشار',
-                  '۵. بسته قابل انتشار',
-                  '۶. وب‌سایت golzarteh.ir'
-                ].map((step, idx) => (
+            {/* بخش ۱ پیش‌نمایش: کارت‌های آماده انتشار هر شهید در سایت */}
+            {publishPreviewTab === 'martyr_cards' ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {visibleMartyrProfiles.map((p, idx) => (
                   <div
-                    key={idx}
-                    className="bg-white border border-slate-200 rounded-lg py-2 px-2 font-bold text-[#253247]"
+                    key={p.martyrName + idx}
+                    className="bg-white border border-[#E2D2BE] rounded-2xl p-4 flex flex-col justify-between gap-3 text-xs shadow-2xs"
                   >
-                    {step}
+                    <div className="space-y-2.5">
+                      <div className="flex items-start justify-between gap-2 border-b border-[#EFE4D6] pb-2">
+                        <div>
+                          <span className="font-mono text-[10.5px] text-[#78604E] block" dir="ltr">
+                            {externalIdPrefix}SH-{String(pubStartIdx + idx + 1).padStart(4, '0')}
+                          </span>
+                          <h4 className="text-sm sm:text-base font-bold text-[#332218] mt-0.5">
+                            شهید {p.martyrName}
+                          </h4>
+                        </div>
+                        <span className="px-2.5 py-1 rounded-lg bg-[#FAF5EE] border border-[#E2D2BE] text-[#5C4033] font-bold tabular-nums">
+                          قطعه {toPersianDigits(p.gravePiece)}
+                          {p.graveRow !== '—' && ` · ر.${toPersianDigits(p.graveRow)}`}
+                          {p.graveNumber !== '—' && ` · ش.${toPersianDigits(p.graveNumber)}`}
+                        </span>
+                      </div>
+
+                      {/* کتاب‌های مرتبط با این شهید */}
+                      <div className="space-y-1">
+                        <div className="font-bold text-[#6B3E26]">
+                          کتاب‌های مرتبط ({toPersianDigits(p.books.length)} عنوان):
+                        </div>
+                        <div className="space-y-1">
+                          {p.books.map((b, bIdx) => (
+                            <div
+                              key={bIdx}
+                              className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-lg px-2.5 py-1.5 flex flex-wrap items-center justify-between gap-1"
+                            >
+                              <span className="font-bold text-[#332218]">
+                                «{b.bookTitle}» <span className="font-normal text-[#6E5846]">({b.publisher})</span>
+                              </span>
+                              <span className="font-mono font-bold text-[#6B3E26] tabular-nums">
+                                صفحه: {toPersianDigits(b.pageReference)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* مطالب و صفحات استخراج‌شده مرتبط با این شهید */}
+                      {p.passages.length > 0 && (
+                        <div className="space-y-1 pt-1">
+                          <div className="font-bold text-[#2E6F40]">
+                            گزیده مطالب و صفحات استخراج‌شده ({toPersianDigits(p.passages.length)} مورد):
+                          </div>
+                          {p.passages.map((ex) => (
+                            <div
+                              key={ex.id}
+                              className="bg-[#EDF6F0] border border-[#C6DFCD] rounded-lg p-2.5 space-y-1 text-[#1E4D2B]"
+                            >
+                              <div className="flex items-center justify-between gap-2 font-bold">
+                                <span>
+                                  [{ex.contentType}] {ex.passageTitle}
+                                </span>
+                                <span className="tabular-nums">ص {toPersianDigits(ex.pageReferenceRaw)}</span>
+                              </div>
+                              <p className="text-[11.5px] leading-relaxed text-[#332218]">{ex.extractedText}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-end pt-2 border-t border-[#EFE4D6]">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyMartyrProfileForWebsite(p)}
+                        className="px-3 py-1.5 rounded-lg bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-xs cursor-pointer"
+                      >
+                        کپی شناسنامه کامل شهید برای درج در سایت
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
-            </div>
-
-            {/* External Martyr ID Configuration & Filtering Summary */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-              <div className="bg-[#F5F7FA] border border-slate-200 rounded-xl p-3 space-y-1.5">
-                <label className="block font-bold text-[#253247]">
-                  پیشوند شناسه تبادل با سامانه سایت گلزار:
-                </label>
-                <input
-                  type="text"
-                  value={externalIdPrefix}
-                  onChange={(e) => setExternalIdPrefix(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-mono"
-                  dir="ltr"
-                />
-                <p className="text-[11px] text-[#697586]">
-                  قابل تنظیم پس از هماهنگی با مسئول فنی سایت golzarteh.ir
-                </p>
-              </div>
-
-              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 space-y-1">
-                <div className="font-bold text-[#2E7D5B]">رکوردهای مجاز آماده در بسته انتشار:</div>
-                <div className="text-sm font-bold text-[#253247] tabular-nums">
-                  {toPersianDigits(
-                    extractedItems.filter((i) => i.reviewStatus === 'تأییدشده کارشناسی').length
-                  )}{' '}
-                  خلاصه پژوهشی تأییدشده ·{' '}
-                  {toPersianDigits(links.filter((l) => l.reviewStatus.includes('تأیید')).length)}{' '}
-                  ارتباط کتاب–شهید تأییدشده
-                </div>
-                <div className="text-[11px] text-[#697586]">
-                  فیلدهای یادداشت داخلی (`researcherNote`) و رکوردهای خام به‌طور کامل حذف شده‌اند.
-                </div>
-              </div>
-
-              <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3 space-y-1">
-                <div className="font-bold text-[#C58A2B]">رکوردهای متوقف‌شده پشت دروازه انتشار:</div>
-                <div className="text-sm font-bold text-[#253247] tabular-nums">
-                  {toPersianDigits(
-                    extractedItems.filter((i) => i.reviewStatus !== 'تأییدشده کارشناسی').length
-                  )}{' '}
-                  مطلب نیازمند بررسی ·{' '}
-                  {toPersianDigits(links.filter((l) => !l.reviewStatus.includes('تأیید')).length)}{' '}
-                  ارتباط تأییدنشده
-                </div>
-                <div className="text-[11px] text-[#697586]">
-                  هیچ داده تأییدنشده‌ای اجازه عبور از دروازه انتشار را ندارد.
+            ) : (
+              /* بخش ۲ پیش‌نمایش: جدول کامل ۳۰۹ مطلب و صفحه استخراج‌شده آماده انتشار در سایت */
+              <div className="bg-white border border-[#E2D2BE] rounded-2xl overflow-hidden shadow-2xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-right border-collapse">
+                    <thead>
+                      <tr className="bg-[#F6EFE6] text-[#332218] border-b border-[#E2D2BE] font-bold">
+                        <th className="py-2.5 px-3 w-12 text-center">ردیف</th>
+                        <th className="py-2.5 px-3 min-w-[110px]">کد انتشار</th>
+                        <th className="py-2.5 px-3 min-w-[130px]">نام شهید</th>
+                        <th className="py-2.5 px-3 min-w-[70px]">قطعه</th>
+                        <th className="py-2.5 px-3 min-w-[150px]">کتاب مرجع</th>
+                        <th className="py-2.5 px-3 min-w-[85px]">شماره صفحه</th>
+                        <th className="py-2.5 px-3 min-w-[95px]">نوع مطلب</th>
+                        <th className="py-2.5 px-3 min-w-[280px]">عنوان و متن آماده انتشار در سایت</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#EFE4D6]">
+                      {visiblePublishExtracts.map((it, idx) => (
+                        <tr key={it.id} className="hover:bg-[#FAF5EE]">
+                          <td className="py-2.5 px-3 text-center font-mono text-[#78604E]">
+                            {toPersianDigits(pubStartIdx + idx + 1)}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono font-bold text-[#2E6F40]" dir="ltr">
+                            {externalIdPrefix}PUB-{String(pubStartIdx + idx + 1).padStart(4, '0')}
+                          </td>
+                          <td className="py-2.5 px-3 font-bold text-[#332218]">{it.martyrNameRaw}</td>
+                          <td className="py-2.5 px-3 tabular-nums text-[#5C4033]">
+                            {toPersianDigits(it.gravePieceRaw || '—')}
+                          </td>
+                          <td className="py-2.5 px-3 font-bold text-[#6B3E26]">{it.bookTitleRaw}</td>
+                          <td className="py-2.5 px-3 font-bold text-[#332218] tabular-nums">
+                            {toPersianDigits(it.pageReferenceRaw)}
+                          </td>
+                          <td className="py-2.5 px-3 text-[#5C4033]">{it.contentType}</td>
+                          <td className="py-2.5 px-3 text-[#332218] leading-relaxed">
+                            <div className="font-bold">{it.passageTitle}</div>
+                            <div className="text-[11px] text-[#5C4033] mt-0.5">{it.extractedText}</div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Live Preview of Approved Publishable Content */}
-            <div className="space-y-2">
-              <div className="text-xs font-bold text-[#253247]">
-                پیش‌نمایش محتوای تأییدشده و مجاز برای انتشار در وب‌سایت گلزار تهران:
+            {/* نوار صفحه‌بندی کامل خروجی انتشار سایت */}
+            {activeTotalCount > 0 && (
+              <div className="p-3.5 bg-white border border-[#E2D2BE] rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="text-[#5C4033] font-medium">
+                  {publishPageSize === 'all' ? (
+                    <span>
+                      نمایش یکجای تمام <strong className="text-[#332218]">{toPersianDigits(activeTotalCount)}</strong> مورد
+                    </span>
+                  ) : (
+                    <span>
+                      صفحه <strong className="text-[#332218]">{toPersianDigits(pubSafePage)}</strong> از{' '}
+                      <strong className="text-[#332218]">{toPersianDigits(pubTotalPages)}</strong> (ردیف{' '}
+                      {toPersianDigits(pubStartIdx + 1)} تا{' '}
+                      {toPersianDigits(Math.min(activeTotalCount, pubStartIdx + (publishPageSize as number)))} از مجموع{' '}
+                      {toPersianDigits(activeTotalCount)} مورد)
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {publishPageSize !== 'all' && pubTotalPages > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={pubSafePage <= 1}
+                        onClick={() => setPublishPage((p) => Math.max(1, p - 1))}
+                        className="px-3 py-1.5 rounded-lg bg-[#FAF5EE] border border-[#D8C7B2] text-[#332218] font-bold disabled:opacity-40 hover:bg-[#F3E9DC] cursor-pointer"
+                      >
+                        → صفحه قبل
+                      </button>
+
+                      {Array.from({ length: pubTotalPages }, (_, i) => i + 1).map((pageNum) => (
+                        <button
+                          key={pageNum}
+                          type="button"
+                          onClick={() => setPublishPage(pageNum)}
+                          className={`min-w-[34px] px-2.5 py-1.5 rounded-lg border font-bold tabular-nums cursor-pointer ${
+                            pubSafePage === pageNum
+                              ? 'bg-[#6B3E26] text-white border-[#6B3E26]'
+                              : 'bg-white text-[#332218] border-[#D8C7B2] hover:bg-[#F3E9DC]'
+                          }`}
+                        >
+                          {toPersianDigits(pageNum)}
+                        </button>
+                      ))}
+
+                      <button
+                        type="button"
+                        disabled={pubSafePage >= pubTotalPages}
+                        onClick={() => setPublishPage((p) => Math.min(pubTotalPages, p + 1))}
+                        className="px-3 py-1.5 rounded-lg bg-[#6B3E26] text-white font-bold disabled:opacity-40 hover:bg-[#56311E] cursor-pointer"
+                      >
+                        صفحه بعد (ادامه اسامی) ←
+                      </button>
+                    </>
+                  )}
+
+                  {publishPageSize !== 'all' ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPublishPageSize('all');
+                        setPublishPage(1);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-white border border-[#6B3E26] text-[#6B3E26] font-bold hover:bg-[#F3E9DC] cursor-pointer"
+                    >
+                      نمایش یکجای همه ({toPersianDigits(activeTotalCount)} مورد)
+                    </button>
+                  ) : (
+                    activeTotalCount > 40 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPublishPageSize(40);
+                          setPublishPage(1);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-[#FAF5EE] border border-[#D8C7B2] text-[#5C4033] font-bold hover:bg-[#F3E9DC] cursor-pointer"
+                      >
+                        بازگشت به نمایش صفحه‌بندی (۴۰تایی)
+                      </button>
+                    )
+                  )}
+                </div>
               </div>
-              <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden bg-white text-xs">
-                {extractedItems
-                  .filter((it) => it.reviewStatus === 'تأییدشده کارشناسی')
-                  .map((it, idx) => (
-                    <div key={it.id} className="p-3.5 space-y-1.5">
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-[#697586]">
-                        <span className="font-mono font-bold text-[#2E7D5B]" dir="ltr">
-                          {externalIdPrefix}PUB-{String(idx + 1).padStart(4, '0')}
-                        </span>
-                        <span>
-                          شهید: <strong className="text-[#253247]">{it.martyrNameRaw}</strong> (قطعه{' '}
-                          {toPersianDigits(it.gravePieceRaw || '—')})
-                        </span>
-                        <span>
-                          کتاب: <strong className="text-[#253247]">{it.bookTitleRaw}</strong> · صفحه:{' '}
-                          {toPersianDigits(it.pageReferenceRaw)}
-                        </span>
-                      </div>
-                      <div className="font-bold text-[#253247]">
-                        [{it.contentType}] {it.passageTitle}
-                      </div>
-                      <p className="text-[#253247] leading-relaxed">{it.extractedText}</p>
-                    </div>
-                  ))}
-              </div>
-            </div>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
-      {/* SubView: اکسل قطعات شهدا (هر ۳ شیت: یک شهید، چند شهید، آدرس مزار) */}
+      {/* SubView: اکسل قطعات شهدا (شیت یک شهید و شیت چند شهید — بدون شیت راهنمای ۱۹۶تایی) */}
       {subView === 'ghatat_sheets' && (() => {
         const qNorm = normalizePersianText(ghatatQuery);
         const oneMartyrRows = links.filter((l) => {
@@ -2772,12 +3355,14 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
             `${l.martyrNameRaw} ${l.bookTitleRaw} ${l.publisherRaw} ${l.sourceDescriptionRaw} ${l.gravePieceRaw}`
           ).includes(qNorm);
         });
-        const graveAddressRows = workbookMartyrs.filter((m) => {
-          if (!qNorm) return true;
-          return normalizePersianText(
-            `${m.fullNameSearch} ${m.piece} ${m.graveRow} ${m.graveNumber}`
-          ).includes(qNorm);
-        });
+
+        const activeRows = ghatatActiveSheet === 'one' ? oneMartyrRows : multiMartyrRows;
+        const ghTotalPages =
+          ghatatPageSize === 'all' ? 1 : Math.max(1, Math.ceil(activeRows.length / ghatatPageSize));
+        const ghSafePage = Math.min(ghatatPage, ghTotalPages);
+        const ghStartIdx = ghatatPageSize === 'all' ? 0 : (ghSafePage - 1) * ghatatPageSize;
+        const visibleGhatatRows =
+          ghatatPageSize === 'all' ? activeRows : activeRows.slice(ghStartIdx, ghStartIdx + ghatatPageSize);
 
         const handleExportGhatatExcel = () => {
           const wb = XLSX.utils.book_new();
@@ -2812,22 +3397,10 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                 'شناسه کتاب در مخزن': l.tempBookId
               }))
           );
-          const ws3 = XLSX.utils.json_to_sheet(
-            workbookMartyrs.map((m, idx) => ({
-              'ردیف': idx + 1,
-              'نام': m.firstNameRaw,
-              'نام خانوادگی': m.lastNameRaw,
-              'نام کامل شهید': m.fullNameSearch,
-              'قطعه': m.piece,
-              'ردیف مزار': m.graveRow,
-              'شماره مزار': m.graveNumber
-            }))
-          );
           XLSX.utils.book_append_sheet(wb, ws1, 'یک شهید');
           XLSX.utils.book_append_sheet(wb, ws2, 'چند شهید');
-          XLSX.utils.book_append_sheet(wb, ws3, 'آدرس مزار');
-          XLSX.writeFile(wb, `قطعات-شهدا-سه-شیت-${new Date().toISOString().slice(0, 10)}.xlsx`);
-          onNotify('فایل اکسل «قطعات شهدا» شامل هر ۳ شیت (یک شهید، چند شهید، آدرس مزار) دانلود شد.');
+          XLSX.writeFile(wb, `قطعات-شهدا-${new Date().toISOString().slice(0, 10)}.xlsx`);
+          onNotify('فایل اکسل «قطعات شهدا» (شیت یک شهید و شیت چند شهید) دانلود شد.');
         };
 
         return (
@@ -2835,11 +3408,8 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EFE4D6] pb-3">
               <div>
                 <h3 className="text-base font-bold text-[#332218]">
-                  فایل مرجع «قطعات شهدا.xlsx» — تفکیک‌شده در سه شیت اصلی
+                  فایل «قطعات شهدا.xlsx» (شیت یک شهید و شیت چند شهید)
                 </h3>
-                <p className="text-xs text-[#78604E] mt-0.5">
-                  شیت اول: هر کتاب برای یک شهید (۳۹ مورد) · شیت دوم: یک کتاب برای چند شهید مانند «آخرین نامه» (۱۹۸ مورد) · شیت سوم: آدرس مزار شهدا (۱۹۶ مورد)
-                </p>
               </div>
               <button
                 type="button"
@@ -2847,16 +3417,18 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                 className="min-h-[40px] px-4 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs flex items-center gap-1.5 shrink-0 cursor-pointer"
               >
                 <FileSpreadsheet className="w-4 h-4" />
-                <span>دانلود اکسل ۳ شیت قطعات شهدا (.xlsx)</span>
+                <span>دانلود اکسل قطعات شهدا (.xlsx)</span>
               </button>
             </div>
 
-            {/* انتخابگر ۳ شیت قطعات شهدا + جست‌وجو */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div className="flex flex-wrap gap-1.5 p-1 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs font-bold">
                 <button
                   type="button"
-                  onClick={() => setGhatatActiveSheet('one')}
+                  onClick={() => {
+                    setGhatatActiveSheet('one');
+                    setGhatatPage(1);
+                  }}
                   className={`px-3.5 py-2 rounded-lg transition-colors cursor-pointer ${
                     ghatatActiveSheet === 'one'
                       ? 'bg-[#6B3E26] text-white'
@@ -2867,7 +3439,10 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setGhatatActiveSheet('multi')}
+                  onClick={() => {
+                    setGhatatActiveSheet('multi');
+                    setGhatatPage(1);
+                  }}
                   className={`px-3.5 py-2 rounded-lg transition-colors cursor-pointer ${
                     ghatatActiveSheet === 'multi'
                       ? 'bg-[#6B3E26] text-white'
@@ -2876,17 +3451,6 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                 >
                   ۲. شیت «چند شهید» ({toPersianDigits(multiMartyrRows.length)})
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setGhatatActiveSheet('graves')}
-                  className={`px-3.5 py-2 rounded-lg transition-colors cursor-pointer ${
-                    ghatatActiveSheet === 'graves'
-                      ? 'bg-[#6B3E26] text-white'
-                      : 'text-[#5C4033] hover:bg-[#EFE4D6]'
-                  }`}
-                >
-                  ۳. شیت «آدرس مزار» ({toPersianDigits(graveAddressRows.length)})
-                </button>
               </div>
 
               <div className="relative flex-1 max-w-md">
@@ -2894,83 +3458,118 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                 <input
                   type="search"
                   value={ghatatQuery}
-                  onChange={(e) => setGhatatQuery(e.target.value)}
+                  onChange={(e) => {
+                    setGhatatQuery(e.target.value);
+                    setGhatatPage(1);
+                  }}
                   placeholder="جست‌وجوی نام شهید، عنوان کتاب (مثلاً آخرین نامه، با مرام)، ناشر یا قطعه..."
                   className="w-full min-h-[40px] pr-10 pl-3 py-2 text-xs bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl focus:bg-white focus:outline-none focus:border-[#6B3E26]"
                 />
               </div>
             </div>
 
-            {/* جدول شیت ۱ یا ۲ */}
-            {(ghatatActiveSheet === 'one' || ghatatActiveSheet === 'multi') && (
-              <div className="overflow-x-auto border border-[#E2D2BE] rounded-xl">
-                <table className="w-full text-xs text-right border-collapse">
-                  <thead>
-                    <tr className="bg-[#F6EFE6] text-[#332218] border-b border-[#E2D2BE] font-bold">
-                      <th className="py-2.5 px-3 w-12 text-center">ردیف</th>
-                      <th className="py-2.5 px-3">انتشارات</th>
-                      <th className="py-2.5 px-3">عنوان کتاب</th>
-                      <th className="py-2.5 px-3">توضیحات</th>
-                      <th className="py-2.5 px-3">نام و نام خانوادگی شهید</th>
-                      <th className="py-2.5 px-3 text-center">قطعه</th>
-                      <th className="py-2.5 px-3 text-center">ردیف</th>
-                      <th className="py-2.5 px-3 text-center">شماره</th>
+            <div className="overflow-x-auto border border-[#E2D2BE] rounded-xl">
+              <table className="w-full text-xs text-right border-collapse">
+                <thead>
+                  <tr className="bg-[#F6EFE6] text-[#332218] border-b border-[#E2D2BE] font-bold">
+                    <th className="py-2.5 px-3 w-12 text-center">ردیف</th>
+                    <th className="py-2.5 px-3">انتشارات</th>
+                    <th className="py-2.5 px-3">عنوان کتاب</th>
+                    <th className="py-2.5 px-3">توضیحات</th>
+                    <th className="py-2.5 px-3">نام و نام خانوادگی شهید</th>
+                    <th className="py-2.5 px-3 text-center">قطعه</th>
+                    <th className="py-2.5 px-3 text-center">ردیف</th>
+                    <th className="py-2.5 px-3 text-center">شماره</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#EFE4D6]">
+                  {visibleGhatatRows.map((row, idx) => (
+                    <tr key={row.id} className="hover:bg-[#FAF5EE]">
+                      <td className="py-2 px-3 text-center font-mono text-[#78604E]">
+                        {toPersianDigits(ghStartIdx + idx + 1)}
+                      </td>
+                      <td className="py-2 px-3 text-[#5C4033]">{row.publisherRaw || '—'}</td>
+                      <td className="py-2 px-3 font-bold text-[#6B3E26]">
+                        {row.bookTitleRaw}
+                        {row.alternativeTitle ? ` (${row.alternativeTitle})` : ''}
+                      </td>
+                      <td className="py-2 px-3 text-[#332218]">{row.sourceDescriptionRaw || '—'}</td>
+                      <td className="py-2 px-3 font-bold text-[#332218]">{row.martyrNameRaw}</td>
+                      <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(row.gravePieceRaw || '—')}</td>
+                      <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(row.graveRowRaw || '—')}</td>
+                      <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(row.graveNumberRaw || '—')}</td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#EFE4D6]">
-                    {(ghatatActiveSheet === 'one' ? oneMartyrRows : multiMartyrRows).map((row, idx) => (
-                      <tr key={row.id} className="hover:bg-[#FAF5EE]">
-                        <td className="py-2 px-3 text-center font-mono text-[#78604E]">
-                          {toPersianDigits(idx + 1)}
-                        </td>
-                        <td className="py-2 px-3 text-[#5C4033]">{row.publisherRaw || '—'}</td>
-                        <td className="py-2 px-3 font-bold text-[#6B3E26]">
-                          {row.bookTitleRaw}
-                          {row.alternativeTitle ? ` (${row.alternativeTitle})` : ''}
-                        </td>
-                        <td className="py-2 px-3 text-[#332218]">{row.sourceDescriptionRaw || '—'}</td>
-                        <td className="py-2 px-3 font-bold text-[#332218]">{row.martyrNameRaw}</td>
-                        <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(row.gravePieceRaw || '—')}</td>
-                        <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(row.graveRowRaw || '—')}</td>
-                        <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(row.graveNumberRaw || '—')}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-            {/* جدول شیت ۳: آدرس مزار */}
-            {ghatatActiveSheet === 'graves' && (
-              <div className="overflow-x-auto border border-[#E2D2BE] rounded-xl">
-                <table className="w-full text-xs text-right border-collapse">
-                  <thead>
-                    <tr className="bg-[#F6EFE6] text-[#332218] border-b border-[#E2D2BE] font-bold">
-                      <th className="py-2.5 px-3 w-12 text-center">ردیف</th>
-                      <th className="py-2.5 px-3">نام</th>
-                      <th className="py-2.5 px-3">نام خانوادگی</th>
-                      <th className="py-2.5 px-3">نام کامل شهید</th>
-                      <th className="py-2.5 px-3 text-center">قطعه مزار</th>
-                      <th className="py-2.5 px-3 text-center">ردیف مزار</th>
-                      <th className="py-2.5 px-3 text-center">شماره مزار</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#EFE4D6]">
-                    {graveAddressRows.map((m, idx) => (
-                      <tr key={m.tempPersonId} className="hover:bg-[#FAF5EE]">
-                        <td className="py-2 px-3 text-center font-mono text-[#78604E]">
-                          {toPersianDigits(idx + 1)}
-                        </td>
-                        <td className="py-2 px-3 text-[#332218]">{m.firstNameRaw}</td>
-                        <td className="py-2 px-3 text-[#332218]">{m.lastNameRaw}</td>
-                        <td className="py-2 px-3 font-bold text-[#6B3E26]">{m.fullNameSearch}</td>
-                        <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(m.piece || '—')}</td>
-                        <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(m.graveRow || '—')}</td>
-                        <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(m.graveNumber || '—')}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {activeRows.length > 0 && (
+              <div className="p-3 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="text-[#5C4033]">
+                  نمایش {toPersianDigits(visibleGhatatRows.length)} از {toPersianDigits(activeRows.length)} ردیف
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {ghatatPageSize !== 'all' && ghTotalPages > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={ghSafePage <= 1}
+                        onClick={() => setGhatatPage((p) => Math.max(1, p - 1))}
+                        className="px-3 py-1 rounded-lg bg-white border border-[#D8C7B2] text-[#332218] font-bold disabled:opacity-40 cursor-pointer"
+                      >
+                        → صفحه قبل
+                      </button>
+                      {Array.from({ length: ghTotalPages }, (_, i) => i + 1).map((pageNum) => (
+                        <button
+                          key={pageNum}
+                          type="button"
+                          onClick={() => setGhatatPage(pageNum)}
+                          className={`min-w-[32px] px-2 py-1 rounded-lg border font-bold tabular-nums cursor-pointer ${
+                            ghSafePage === pageNum
+                              ? 'bg-[#6B3E26] text-white border-[#6B3E26]'
+                              : 'bg-white text-[#332218] border-[#D8C7B2]'
+                          }`}
+                        >
+                          {toPersianDigits(pageNum)}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        disabled={ghSafePage >= ghTotalPages}
+                        onClick={() => setGhatatPage((p) => Math.min(ghTotalPages, p + 1))}
+                        className="px-3 py-1 rounded-lg bg-[#6B3E26] text-white font-bold disabled:opacity-40 cursor-pointer"
+                      >
+                        صفحه بعد (ادامه اسامی) ←
+                      </button>
+                    </>
+                  )}
+                  {ghatatPageSize !== 'all' ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGhatatPageSize('all');
+                        setGhatatPage(1);
+                      }}
+                      className="px-3 py-1 rounded-lg bg-white border border-[#6B3E26] text-[#6B3E26] font-bold cursor-pointer"
+                    >
+                      نمایش یکجای همه ({toPersianDigits(activeRows.length)} مورد)
+                    </button>
+                  ) : (
+                    activeRows.length > 50 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGhatatPageSize(50);
+                          setGhatatPage(1);
+                        }}
+                        className="px-3 py-1 rounded-lg bg-white border border-[#D8C7B2] text-[#5C4033] font-bold cursor-pointer"
+                      >
+                        نمایش صفحه‌بندی (۵۰تایی)
+                      </button>
+                    )
+                  )}
+                </div>
               </div>
             )}
           </div>

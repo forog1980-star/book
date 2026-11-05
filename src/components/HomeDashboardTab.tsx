@@ -136,12 +136,16 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
 
   const { isInstallable, isInstalled, install } = usePWAInstall();
 
-  // کتاب‌های ثبت‌شده خارج از فهرست اولیه ۹۸۰ کتاب (از طریق ثبت سریع، ثبت صوتی یا بخش ۴ کتابخانه)
+  // کتاب‌های ثبت‌شده خارج از فهرست اولیه (از طریق ثبت سریع، ثبت صوتی یا بخش ۴ کتابخانه)
   const outsideRegisteredBooks = useMemo(() => {
     return Object.values(auditRecords)
       .filter((r) => r.source === 'outside-list')
       .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
   }, [auditRecords]);
+
+  // شمارش پویا (داینامیک) کل کتاب‌ها و شهدای سامانه تا با هر ثبت جدید یا بارگذاری اکسل خودکار افزایش یابد
+  const totalBooksCount = catalogRows.length + outsideRegisteredBooks.length;
+  const totalMartyrsCount = 28368 + customMartyrs.length;
 
   const syncVoiceToPreview = (text: string) => {
     setVoiceTranscript(text);
@@ -486,7 +490,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
               سامانه مدیریت کتابخانه و پژوهش مرکز اسناد گلزار شهدای تهران
             </h1>
             <p className="text-xs text-[#697586]">
-              جست‌وجوی سراسری در کتاب‌ها (فهرست اولیه ۹۸۰ کتاب + ثبت‌های جدید)، نسخه‌های فیزیکی قفسه‌ها، پرونده شهدا و مطالب پژوهشی
+              جست‌وجوی سراسری در کتاب‌ها ({toPersianDigits(totalBooksCount)} کتاب ثبت‌شده در سامانه)، نسخه‌های فیزیکی قفسه‌ها، پرونده شهدا و مطالب پژوهشی
             </p>
           </div>
 
@@ -596,7 +600,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             type="text"
             value={globalQuery}
             onChange={(e) => setGlobalQuery(e.target.value)}
-            placeholder="جست‌وجوی سریع عنوان کتاب (از ۹۸۰ کتاب اولیه یا ثبت‌های جدید)، نام شهید، ناشر یا کد..."
+            placeholder={`جست‌وجوی سریع عنوان کتاب (از میان ${toPersianDigits(totalBooksCount)} کتاب سامانه)، نام شهید، ناشر یا کد...`}
             className="w-full min-h-[48px] pr-11 pl-28 py-2.5 text-sm bg-[#FAF5EE] border border-[#D8C7B2] rounded-xl focus:outline-none focus:border-[#6B3E26] focus:bg-white text-[#332218]"
           />
           <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
@@ -772,7 +776,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                             {m.graveNumber || '—'}
                           </span>
                           <span className="text-[10px] text-[#5C4636] bg-[#FAF5EE] border border-[#E2D2BE] rounded px-1.5 py-0.5 mr-1.5">
-                            {m.sourceSheet === 'پرونده شهدا' ? 'پرونده ثبت‌شده' : 'شیت آدرس مزار (۱۹۶ شهید)'}
+                            {m.sourceSheet === 'پرونده شهدا' ? 'پرونده ثبت‌شده' : 'بانک شهدای گلزار'}
                           </span>
                         </div>
                         <button
@@ -918,19 +922,18 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       </section>
 
       {/* مرکز دپو و خروجی دوسویه اسناد در پژوهش (با رنگ آبی ملایم و روشن متمایز از بقیه صفحه) */}
-      <section className="depository-soft-blue rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
+      <section className="depository-soft-blue rounded-2xl p-4 sm:p-5 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-white text-[#23538A] border border-[#B8D2EC] text-[11px] font-bold">
               <Sparkles className="w-3.5 h-3.5 text-[#23538A]" />
-              <span>خروجی دوسویه اسناد در پژوهش (ارتباط ۲۸٬۳۶۸ شهید با ۹۸۰ کتاب)</span>
+              <span>
+                خروجی دوسویه اسناد در پژوهش (ارتباط {toPersianDigits(totalMartyrsCount)} شهید با {toPersianDigits(totalBooksCount)} کتاب)
+              </span>
             </div>
-            <h3 className="text-base font-bold text-[#1E3A5F]">
-              انبار جامع پیوندهای کتاب–شهید (شیت‌های یک شهید، چند شهید، آدرس مزار و پژوهش سوره مهر)
+            <h3 className="text-base sm:text-lg font-bold text-[#1E3A5F]">
+              انبار جامع پیوندهای کتاب و شهید
             </h3>
-            <p className="text-xs text-[#2B4C73] max-w-2xl leading-relaxed">
-              تطبیق دوطرفه فهرست کتاب‌ها و پرونده شهدا به همراه فایل «قطعات شهدا.xlsx» (شیت یک شهید: ۳۹ مورد، شیت چند شهید: ۱۹۸ مورد، شیت آدرس مزار: ۱۹۶ مورد) و خروجی مستقیم اکسل.
-            </p>
           </div>
 
           <button
@@ -941,27 +944,6 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             <FileSpreadsheet className="w-4 h-4" />
             <span>ورود به خروجی دوسویه اسناد و اکسل ←</span>
           </button>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#C2D8EC] text-xs">
-          <div className="bg-white/90 border border-[#C2D8EC] rounded-lg p-2.5">
-            <span className="text-[#4A6B8C] text-[11px]">پیوندهای دارای نام شهید:</span>
-            <span className="font-bold tabular-nums block text-[#1E3A5F] text-sm mt-0.5">
-              {toPersianDigits(links.filter((l) => Boolean(l.martyrNameRaw) && l.martyrNameRaw !== '*').length)} پیوند فعال
-            </span>
-          </div>
-          <div className="bg-white/90 border border-[#C2D8EC] rounded-lg p-2.5">
-            <span className="text-[#4A6B8C] text-[11px]">اکسل قطعات شهدا (یک و چند شهید):</span>
-            <span className="font-bold tabular-nums block text-[#1E3A5F] text-sm mt-0.5">۲۳۷ ارتباط (۳۹ + ۱۹۸)</span>
-          </div>
-          <div className="bg-white/90 border border-[#C2D8EC] rounded-lg p-2.5">
-            <span className="text-[#4A6B8C] text-[11px]">شیت آدرس مزار قطعات شهدا:</span>
-            <span className="font-bold tabular-nums block text-[#1E3A5F] text-sm mt-0.5">۱۹۶ شهید با مزار</span>
-          </div>
-          <div className="bg-white/90 border border-[#C2D8EC] rounded-lg p-2.5">
-            <span className="text-[#4A6B8C] text-[11px]">بانک جامع شهدا و کتاب‌ها:</span>
-            <span className="font-bold tabular-nums block text-[#1E3A5F] text-sm mt-0.5">۲۸٬۳۶۸ شهید · ۹۸۰ کتاب</span>
-          </div>
         </div>
       </section>
 
