@@ -84,6 +84,11 @@ import {
   buildSorehMehrExtractedItems,
   enrichLinksWithSorehMehrResearch
 } from './data/soorehMehrResearch';
+import {
+  CentralSyncState,
+  recordDeletedTombstone,
+  syncWithCentralServer
+} from './utils/centralServerSync';
 
 // عنوان و شناسه اختصاصی پایگاه داده در حافظه گوشی و مرورگر: book
 export const BOOK_STORAGE_NAMESPACE = 'book';
@@ -563,6 +568,8 @@ export default function App() {
   const [storageStatus, setStorageStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [storageErrorMsg, setStorageErrorMsg] = useState<string>('');
   const [isStorageHydrated, setIsStorageHydrated] = useState<boolean>(false);
+  const [centralSyncStatus, setCentralSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'offline'>('idle');
+  const [lastCentralSyncTime, setLastCentralSyncTime] = useState<string>('');
   const [showExitConfirmModal, setShowExitConfirmModal] = useState<boolean>(false);
   const isExitingRef = React.useRef<boolean>(false);
 
@@ -643,26 +650,107 @@ export default function App() {
 
         if (cancelled) return;
 
-        if (hydAudit.source === 'indexedDB') setAuditRecords(hydAudit.value);
-        if (hydCopies.source === 'indexedDB') setBookCopies(hydCopies.value);
-        if (hydMartyrs.source === 'indexedDB') setCustomMartyrs(hydMartyrs.value);
-        if (hydSmart.source === 'indexedDB') setSmartSuggestions(hydSmart.value);
-        if (hydGroups.source === 'indexedDB') setMultiMartyrGroups(hydGroups.value);
-        if (hydExtracted.source === 'indexedDB') {
-          const baseLinks = hydLinks.source === 'indexedDB' ? hydLinks.value : links;
-          setExtractedItems(
-            buildSorehMehrExtractedItems(
-              enrichLinksWithSorehMehrResearch(baseLinks),
-              hydExtracted.value
-            )
+        const resolvedAudit = hydAudit.source === 'indexedDB' ? hydAudit.value : auditRecords;
+        const resolvedCopies = hydCopies.source === 'indexedDB' ? hydCopies.value : bookCopies;
+        const resolvedMartyrs = hydMartyrs.source === 'indexedDB' ? hydMartyrs.value : customMartyrs;
+        const resolvedSmart = hydSmart.source === 'indexedDB' ? hydSmart.value : smartSuggestions;
+        const resolvedGroups = hydGroups.source === 'indexedDB' ? hydGroups.value : multiMartyrGroups;
+        const resolvedLinks = enrichLinksWithSorehMehrResearch(
+          hydLinks.source === 'indexedDB' ? hydLinks.value : links
+        );
+        const resolvedExtracted = buildSorehMehrExtractedItems(
+          resolvedLinks,
+          hydExtracted.source === 'indexedDB' ? hydExtracted.value : extractedItems
+        );
+        const resolvedPending = hydPending.source === 'indexedDB' ? hydPending.value : pendingReviews;
+        const resolvedLog = hydLog.source === 'indexedDB' ? hydLog.value : auditLog;
+        const resolvedRejected =
+          hydRejected.source === 'indexedDB' ? hydRejected.value : rejectedSuggestionsArchive;
+
+        if (hydAudit.source === 'indexedDB') setAuditRecords(resolvedAudit);
+        if (hydCopies.source === 'indexedDB') setBookCopies(resolvedCopies);
+        if (hydMartyrs.source === 'indexedDB') setCustomMartyrs(resolvedMartyrs);
+        if (hydSmart.source === 'indexedDB') setSmartSuggestions(resolvedSmart);
+        if (hydGroups.source === 'indexedDB') setMultiMartyrGroups(resolvedGroups);
+        if (hydExtracted.source === 'indexedDB') setExtractedItems(resolvedExtracted);
+        if (hydLinks.source === 'indexedDB') setLinks(resolvedLinks);
+        if (hydPending.source === 'indexedDB') setPendingReviews(resolvedPending);
+        if (hydLog.source === 'indexedDB') setAuditLog(resolvedLog);
+        if (hydRejected.source === 'indexedDB') setRejectedSuggestionsArchive(resolvedRejected);
+
+        // همگام‌سازی خودکار با سرور مرکزی در بدو ورود (ارسال ثبت‌های گوشی به سرور و دریافت در سیستم کامپیوتر)
+        setCentralSyncStatus('syncing');
+        const serverSyncRes = await syncWithCentralServer({
+          auditRecords: resolvedAudit,
+          bookCopies: resolvedCopies,
+          customMartyrs: resolvedMartyrs,
+          smartSuggestions: resolvedSmart,
+          multiMartyrGroups: resolvedGroups,
+          extractedItems: resolvedExtracted,
+          links: resolvedLinks,
+          pendingReviews: resolvedPending,
+          auditLog: resolvedLog,
+          rejectedSuggestionsArchive: resolvedRejected
+        });
+
+        if (!cancelled && serverSyncRes.ok && serverSyncRes.state) {
+          const st = serverSyncRes.state;
+          if (st.auditRecords) {
+            setAuditRecords(st.auditRecords);
+            void saveOperationalData(AUDIT_STORAGE_KEY, st.auditRecords);
+          }
+          if (Array.isArray(st.bookCopies) && st.bookCopies.length > 0) {
+            setBookCopies(st.bookCopies);
+            void saveOperationalData(COPIES_STORAGE_KEY, st.bookCopies);
+          }
+          if (Array.isArray(st.customMartyrs)) {
+            setCustomMartyrs(st.customMartyrs);
+            void saveOperationalData(CUSTOM_MARTYRS_STORAGE_KEY, st.customMartyrs);
+          }
+          if (Array.isArray(st.smartSuggestions)) {
+            setSmartSuggestions(st.smartSuggestions);
+            void saveOperationalData(SMART_SUGGESTIONS_STORAGE_KEY, st.smartSuggestions);
+          }
+          if (Array.isArray(st.multiMartyrGroups) && st.multiMartyrGroups.length > 0) {
+            setMultiMartyrGroups(st.multiMartyrGroups);
+            void saveOperationalData(GROUPS_STORAGE_KEY, st.multiMartyrGroups);
+          }
+          if (Array.isArray(st.links) && st.links.length > 0) {
+            const enrichedSrvLinks = enrichLinksWithSorehMehrResearch(st.links);
+            setLinks(enrichedSrvLinks);
+            void saveOperationalData(LINKS_STORAGE_KEY, enrichedSrvLinks);
+            if (Array.isArray(st.extractedItems)) {
+              const builtExt = buildSorehMehrExtractedItems(enrichedSrvLinks, st.extractedItems);
+              setExtractedItems(builtExt);
+              void saveOperationalData(EXTRACTED_STORAGE_KEY, builtExt);
+            }
+          }
+          if (Array.isArray(st.pendingReviews)) {
+            setPendingReviews(st.pendingReviews);
+            void saveOperationalData(PENDING_REVIEWS_STORAGE_KEY, st.pendingReviews);
+          }
+          if (Array.isArray(st.auditLog) && st.auditLog.length > 0) {
+            setAuditLog(st.auditLog);
+            void saveOperationalData(AUDIT_LOG_STORAGE_KEY, st.auditLog);
+          }
+          if (Array.isArray(st.rejectedSuggestionsArchive)) {
+            setRejectedSuggestionsArchive(st.rejectedSuggestionsArchive);
+            void saveOperationalData(
+              OPERATIONAL_STORAGE_KEYS.rejectedSuggestions,
+              st.rejectedSuggestionsArchive
+            );
+          }
+          setCentralSyncStatus('synced');
+          setLastCentralSyncTime(
+            new Intl.DateTimeFormat('fa-IR', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit'
+            }).format(new Date())
           );
+        } else if (!cancelled) {
+          setCentralSyncStatus('offline');
         }
-        if (hydLinks.source === 'indexedDB') {
-          setLinks(enrichLinksWithSorehMehrResearch(hydLinks.value));
-        }
-        if (hydPending.source === 'indexedDB') setPendingReviews(hydPending.value);
-        if (hydLog.source === 'indexedDB') setAuditLog(hydLog.value);
-        if (hydRejected.source === 'indexedDB') setRejectedSuggestionsArchive(hydRejected.value);
       } finally {
         if (!cancelled) {
           setIsStorageHydrated(true);
@@ -784,6 +872,133 @@ export default function App() {
       // ignore
     }
   }, [activeUserRole]);
+
+  // تابع همگام‌سازی دوطرفه با سرور مرکزی (بین گوشی و سیستم کامپیوتر)
+  const handleSyncWithCentralServer = React.useCallback(
+    async (notifyUser = false, overrideState?: Partial<CentralSyncState>) => {
+      setCentralSyncStatus('syncing');
+      const payload: CentralSyncState = {
+        auditRecords: overrideState?.auditRecords ?? auditRecords,
+        bookCopies: overrideState?.bookCopies ?? bookCopies,
+        customMartyrs: overrideState?.customMartyrs ?? customMartyrs,
+        smartSuggestions: overrideState?.smartSuggestions ?? smartSuggestions,
+        multiMartyrGroups: overrideState?.multiMartyrGroups ?? multiMartyrGroups,
+        extractedItems: overrideState?.extractedItems ?? extractedItems,
+        links: overrideState?.links ?? links,
+        pendingReviews: overrideState?.pendingReviews ?? pendingReviews,
+        auditLog: overrideState?.auditLog ?? auditLog,
+        rejectedSuggestionsArchive:
+          overrideState?.rejectedSuggestionsArchive ?? rejectedSuggestionsArchive
+      };
+
+      const res = await syncWithCentralServer(payload);
+      if (res.ok && res.state) {
+        const st = res.state;
+        if (st.auditRecords) {
+          setAuditRecords(st.auditRecords);
+          await saveOperationalData(AUDIT_STORAGE_KEY, st.auditRecords);
+        }
+        if (Array.isArray(st.bookCopies) && st.bookCopies.length > 0) {
+          setBookCopies(st.bookCopies);
+          await saveOperationalData(COPIES_STORAGE_KEY, st.bookCopies);
+        }
+        if (Array.isArray(st.customMartyrs)) {
+          setCustomMartyrs(st.customMartyrs);
+          await saveOperationalData(CUSTOM_MARTYRS_STORAGE_KEY, st.customMartyrs);
+        }
+        if (Array.isArray(st.smartSuggestions)) {
+          setSmartSuggestions(st.smartSuggestions);
+          await saveOperationalData(SMART_SUGGESTIONS_STORAGE_KEY, st.smartSuggestions);
+        }
+        if (Array.isArray(st.multiMartyrGroups) && st.multiMartyrGroups.length > 0) {
+          setMultiMartyrGroups(st.multiMartyrGroups);
+          await saveOperationalData(GROUPS_STORAGE_KEY, st.multiMartyrGroups);
+        }
+        if (Array.isArray(st.links) && st.links.length > 0) {
+          const enrichedSrvLinks = enrichLinksWithSorehMehrResearch(st.links);
+          setLinks(enrichedSrvLinks);
+          await saveOperationalData(LINKS_STORAGE_KEY, enrichedSrvLinks);
+          if (Array.isArray(st.extractedItems)) {
+            const builtExt = buildSorehMehrExtractedItems(enrichedSrvLinks, st.extractedItems);
+            setExtractedItems(builtExt);
+            await saveOperationalData(EXTRACTED_STORAGE_KEY, builtExt);
+          }
+        }
+        if (Array.isArray(st.pendingReviews)) {
+          setPendingReviews(st.pendingReviews);
+          await saveOperationalData(PENDING_REVIEWS_STORAGE_KEY, st.pendingReviews);
+        }
+        if (Array.isArray(st.auditLog) && st.auditLog.length > 0) {
+          setAuditLog(st.auditLog);
+          await saveOperationalData(AUDIT_LOG_STORAGE_KEY, st.auditLog);
+        }
+        if (Array.isArray(st.rejectedSuggestionsArchive)) {
+          setRejectedSuggestionsArchive(st.rejectedSuggestionsArchive);
+          await saveOperationalData(
+            OPERATIONAL_STORAGE_KEYS.rejectedSuggestions,
+            st.rejectedSuggestionsArchive
+          );
+        }
+        const nowFaTime = new Intl.DateTimeFormat('fa-IR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        }).format(new Date());
+        setCentralSyncStatus('synced');
+        setLastCentralSyncTime(nowFaTime);
+
+        if (notifyUser) {
+          const count = Object.keys(st.auditRecords || {}).length;
+          showNotify(
+            `همگام‌سازی با سرور مرکزی انجام شد: ${toPersianDigits(
+              count
+            )} رکورد کتاب بین گوشی و سیستم کامپیوتر یکسان‌سازی شد.`
+          );
+        }
+        return true;
+      } else {
+        setCentralSyncStatus('offline');
+        if (notifyUser) {
+          showNotify(
+            'ارتباط با سرور مرکزی برقرار نشد؛ اطلاعات در حافظه محلی دستگاه ذخیره است.',
+            'warning'
+          );
+        }
+        return false;
+      }
+    },
+    [
+      auditRecords,
+      bookCopies,
+      customMartyrs,
+      smartSuggestions,
+      multiMartyrGroups,
+      extractedItems,
+      links,
+      pendingReviews,
+      auditLog,
+      rejectedSuggestionsArchive
+    ]
+  );
+
+  // ارسال خودکار به سرور مرکزی پس از هر ثبت یا ویرایش در گوشی یا کامپیوتر
+  useEffect(() => {
+    if (!isStorageHydrated || sessionEditsCount === 0) return;
+    const timer = window.setTimeout(() => {
+      void handleSyncWithCentralServer(false);
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [sessionEditsCount, isStorageHydrated, handleSyncWithCentralServer]);
+
+  // همگام‌سازی خودکار هنگام بازگشت به پنجره مرورگر در سیستم کامپیوتر یا گوشی
+  useEffect(() => {
+    if (!isStorageHydrated) return;
+    const onFocus = () => {
+      void handleSyncWithCentralServer(false);
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [isStorageHydrated, handleSyncWithCentralServer]);
 
   // Handlers for Workbook & Sheet Loading
   const handleWorkbookLoaded = (
@@ -1104,9 +1319,10 @@ export default function App() {
   };
 
   const handleSaveAuditRecord = (record: FieldAuditRecord) => {
-    const withActor: FieldAuditRecord = {
+    const withActor: FieldAuditRecord & { _updatedAt?: number } = {
       ...record,
-      checkedBy: getRoleDisplayName(activeUserRole)
+      checkedBy: getRoleDisplayName(activeUserRole),
+      _updatedAt: Date.now()
     };
     setAuditRecords((prev) => ({
       ...prev,
@@ -1257,6 +1473,7 @@ export default function App() {
         : [`کلید رکورد: ${key}`],
       confirmLabel: 'بله، از لیست حذف شود',
       onConfirm: () => {
+        recordDeletedTombstone('audit', key);
         setAuditRecords((prev) => {
           const next = { ...prev };
           delete next[key];
@@ -1558,15 +1775,15 @@ export default function App() {
                 </select>
               </div>
 
-              {/* ۳. کلید دریافت آخرین نسخه (ایزوله و محدود به کش برنامه اصلی طبق بند ۱۷) */}
+              {/* ۳. کلید به‌روزرسانی و همگام‌سازی سرور مرکزی (بین گوشی و سیستم کامپیوتر) */}
               <button
                 type="button"
                 onClick={async () => {
+                  await handleSyncWithCentralServer(true);
                   try {
                     if ('serviceWorker' in navigator) {
                       const regs = await navigator.serviceWorker.getRegistrations();
                       for (const r of regs) {
-                        // هرگز Service Worker زیربرنامه مستقل /library-research/ را لغو نکن
                         if (!r.scope.includes('/library-research/')) {
                           await r.unregister();
                         }
@@ -1584,14 +1801,16 @@ export default function App() {
                   } catch {
                     // ignore
                   }
-                  const cleanUrl = window.location.origin + window.location.pathname + '?v=' + Date.now();
-                  window.location.replace(cleanUrl);
                 }}
-                title="پاک‌سازی کش برنامه اصلی و دریافت آخرین نسخه بدون آسیب به سایر زیربرنامه‌ها"
+                title="همگام‌سازی دوطرفه اطلاعات بین گوشی و سیستم کامپیوتر از طریق سرور مرکزی و دریافت آخرین تغییرات"
                 className="flex-1 min-h-[34px] px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-bold bg-[#F5E6D3] text-[#8C3B2B] hover:bg-amber-200/70 border border-[#E6D5C1] rounded-lg transition-colors inline-flex items-center justify-center gap-1 min-w-0 whitespace-nowrap truncate cursor-pointer"
               >
-                <RefreshCw className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">دریافت آخرین نسخه</span>
+                <RefreshCw
+                  className={`w-3.5 h-3.5 shrink-0 ${
+                    centralSyncStatus === 'syncing' ? 'animate-spin' : ''
+                  }`}
+                />
+                <span className="truncate">به‌روزرسانی و همگام‌سازی سرور</span>
               </button>
 
               {/* ۴. آیکون کوچک نصب روی گوشی */}
@@ -1690,23 +1909,50 @@ export default function App() {
                 عنوان پایگاه داده در گوشی: <strong className="font-mono bg-white px-1.5 py-0.5 rounded border border-[#E6D5C1]">book</strong>
               </span>
               <span className="text-[#8C7A6B]">|</span>
-              <span>کل رکوردهای ثبت‌شده در دستگاه: <strong>{toPersianDigits(totalSavedCount)}</strong></span>
+              <span>کل رکوردهای ثبت‌شده: <strong>{toPersianDigits(totalSavedCount)}</strong></span>
+              <span className="text-[#8C7A6B]">|</span>
+              <span className="inline-flex items-center gap-1 font-bold text-[#2E6F40]">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    centralSyncStatus === 'synced'
+                      ? 'bg-[#2E7D5B]'
+                      : centralSyncStatus === 'syncing'
+                      ? 'bg-amber-500 animate-pulse'
+                      : 'bg-slate-400'
+                  }`}
+                />
+                <span>
+                  سرور مرکزی:{' '}
+                  {centralSyncStatus === 'synced'
+                    ? `همگام بین گوشی و سیستم${lastCentralSyncTime ? ` (${lastCentralSyncTime})` : ''}`
+                    : centralSyncStatus === 'syncing'
+                    ? 'در حال همگام‌سازی...'
+                    : 'ذخیره محلی فعال'}
+                </span>
+              </span>
               {sessionEditsCount > 0 && (
                 <>
                   <span className="text-[#8C7A6B]">|</span>
                   <span className="text-[#2E7D5B] font-bold">
-                    {toPersianDigits(sessionEditsCount)} ثبت جدید در این نشست (ذخیره آنی در دستگاه)
+                    {toPersianDigits(sessionEditsCount)} ثبت جدید در این نشست
                   </span>
                 </>
-              )}
-              {lastSavedTime && (
-                <span className="hidden md:inline text-slate-500">
-                  (آخرین ثبت: {lastSavedTime})
-                </span>
               )}
             </div>
 
             <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => void handleSyncWithCentralServer(true)}
+                title="همگام‌سازی فوری اطلاعات ثبت‌شده بین گوشی و سیستم کامپیوتر"
+                className="text-[#8C3B2B] hover:underline font-bold inline-flex items-center gap-1 text-[11px] cursor-pointer"
+              >
+                <RefreshCw
+                  className={`w-3.5 h-3.5 ${centralSyncStatus === 'syncing' ? 'animate-spin' : ''}`}
+                />
+                <span>همگام‌سازی با سرور مرکزی</span>
+              </button>
+              <span className="text-[#8C7A6B]">·</span>
               <button
                 type="button"
                 onClick={handleQuickExcelExport}
