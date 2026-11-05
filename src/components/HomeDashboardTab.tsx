@@ -61,6 +61,8 @@ interface HomeDashboardTabProps {
   onSaveVoiceOrQuickBook: (record: FieldAuditRecord, newCopy?: BookCopyRecord) => void;
   onApproveOutsideBook?: (recordKey: string) => void;
   onDeleteAuditRecord?: (recordKey: string) => void;
+  onDownloadUnifiedExcel?: () => void;
+  onDownloadFullJsonBackup?: () => void;
   onNotify: (message: string, type?: 'success' | 'warning') => void;
 }
 
@@ -85,6 +87,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
   onSaveVoiceOrQuickBook,
   onApproveOutsideBook,
   onDeleteAuditRecord,
+  onDownloadUnifiedExcel,
   onNotify
 }) => {
   const [internalGlobalQuery, setInternalGlobalQuery] = useState('');
@@ -100,6 +103,8 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
   const [showVoiceModal, setShowVoiceModal] = useState(false);
   const [showQuickBookModal, setShowQuickBookModal] = useState(false);
   const [showInstallGuideModal, setShowInstallGuideModal] = useState(false);
+  const [showUnifiedBankDrawer, setShowUnifiedBankDrawer] = useState(false);
+  const [unifiedBankFilter, setUnifiedBankFilter] = useState<'all' | 'new_and_audited' | 'outside_only'>('all');
   const [lastSavedNotice, setLastSavedNotice] = useState<{
     title: string;
     tempBookId: string;
@@ -951,6 +956,220 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* بانک تجمیعی و یکپارچه کل کتاب‌ها در داخل نرم‌افزار (۹۸۰ کتاب پایه + ثبت‌های جدید در کنار هم) */}
+      <section className="bg-white border-2 border-[#D8C7B2] rounded-2xl p-4 sm:p-5 shadow-xs space-y-3.5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="space-y-1.5">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-[#EDF6F0] text-[#1E4D2B] border border-[#A8D5B5] text-[11px] font-bold">
+              <CheckCircle2 className="w-3.5 h-3.5 text-[#2E6F40]" />
+              <span>
+                ذخیره تجمیعی خودکار در نرم‌افزار — بدون نیاز به دانلود روزانه و چسباندن اکسل‌ها
+              </span>
+            </div>
+            <h3 className="text-base sm:text-lg font-bold text-[#332218]">
+              بانک تجمیعی کل کتاب‌ها در نرم‌افزار ({toPersianDigits(catalogRows.length)} کتاب موجود +{' '}
+              {toPersianDigits(outsideRegisteredBooks.length)} ثبت جدید ={' '}
+              {toPersianDigits(totalBooksCount)} کتاب در کنار هم)
+            </h3>
+            <p className="text-xs text-[#5C4636] leading-relaxed">
+              هر کتابی که ثبت یا تعیین‌تکلیف می‌کنید، به صورت خودکار در همین بانک داخلی در کنار{' '}
+              {toPersianDigits(catalogRows.length)} کتاب پایه می‌نشیند. هر زمان که نیاز داشتید، می‌توانید کل فهرست یکپارچه را از همین نقطه مشاهده یا در یک فایل اکسل واحد دانلود کنید.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowUnifiedBankDrawer((prev) => !prev)}
+              className="min-h-[42px] px-3.5 py-2 bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#6B3E26] border border-[#D8C7B2] font-bold text-xs rounded-xl inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Layers className="w-4 h-4 shrink-0" />
+              <span>
+                {showUnifiedBankDrawer
+                  ? 'بستن جدول بانک تجمیعی'
+                  : `مشاهده فهرست تجمیعی (${toPersianDigits(totalBooksCount)} کتاب کنار هم)`}
+              </span>
+            </button>
+
+            {onDownloadUnifiedExcel && (
+              <button
+                type="button"
+                onClick={onDownloadUnifiedExcel}
+                className="min-h-[42px] px-4 py-2 bg-[#2E6F40] hover:bg-[#245832] text-white font-bold text-xs rounded-xl inline-flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                <span>دانلود اکسل یکپارچه کل کتاب‌ها ({toPersianDigits(totalBooksCount)} کتاب در یک فایل)</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* خلاصه شمارنده‌های بانک تجمیعی */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+          <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-2.5 text-center">
+            <div className="text-[11px] text-[#5C4636]">فهرست اولیه موجود</div>
+            <div className="text-sm sm:text-base font-bold text-[#332218] mt-0.5">
+              {toPersianDigits(catalogRows.length)} کتاب
+            </div>
+          </div>
+          <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-2.5 text-center">
+            <div className="text-[11px] text-[#5C4636]">ثبت جدید اضافه‌شده کنار فهرست</div>
+            <div className="text-sm sm:text-base font-bold text-[#6B3E26] mt-0.5">
+              {toPersianDigits(outsideRegisteredBooks.length)} کتاب جدید
+            </div>
+          </div>
+          <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-2.5 text-center">
+            <div className="text-[11px] text-[#5C4636]">تعیین‌تکلیف‌شده در قفسه‌ها</div>
+            <div className="text-sm sm:text-base font-bold text-[#2E6F40] mt-0.5">
+              {toPersianDigits(Object.keys(auditRecords).length)} کتاب
+            </div>
+          </div>
+          <div className="bg-[#EDF6F0] border border-[#A8D5B5] rounded-xl p-2.5 text-center">
+            <div className="text-[11px] text-[#1E4D2B] font-bold">جمع کل بانک تجمیعی نرم‌افزار</div>
+            <div className="text-sm sm:text-base font-bold text-[#1E4D2B] mt-0.5">
+              {toPersianDigits(totalBooksCount)} کتاب یکپارچه
+            </div>
+          </div>
+        </div>
+
+        {/* جدول بازشوی بانک تجمیعی در داخل نرم‌افزار */}
+        {showUnifiedBankDrawer && (
+          <div className="border-t border-[#E2D2BE] pt-3 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setUnifiedBankFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg font-bold cursor-pointer ${
+                    unifiedBankFilter === 'all'
+                      ? 'bg-[#6B3E26] text-white'
+                      : 'bg-[#FAF5EE] text-[#332218] border border-[#D8C7B2]'
+                  }`}
+                >
+                  کل بانک تجمیعی ({toPersianDigits(totalBooksCount)})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUnifiedBankFilter('outside_only')}
+                  className={`px-3 py-1.5 rounded-lg font-bold cursor-pointer ${
+                    unifiedBankFilter === 'outside_only'
+                      ? 'bg-[#6B3E26] text-white'
+                      : 'bg-[#FAF5EE] text-[#332218] border border-[#D8C7B2]'
+                  }`}
+                >
+                  ثبت‌های جدید اضافه‌شده کنار {toPersianDigits(catalogRows.length)} کتاب ({toPersianDigits(outsideRegisteredBooks.length)})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUnifiedBankFilter('new_and_audited')}
+                  className={`px-3 py-1.5 rounded-lg font-bold cursor-pointer ${
+                    unifiedBankFilter === 'new_and_audited'
+                      ? 'bg-[#6B3E26] text-white'
+                      : 'bg-[#FAF5EE] text-[#332218] border border-[#D8C7B2]'
+                  }`}
+                >
+                  کل کتاب‌های ثبت یا ویرایش‌شده در قفسه ({toPersianDigits(Object.keys(auditRecords).length)})
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => onNavigateTab('library')}
+                className="text-xs font-bold text-[#6B3E26] hover:underline cursor-pointer"
+              >
+                باز کردن در نمای کامل کتابخانه ←
+              </button>
+            </div>
+
+            <div className="max-h-80 overflow-y-auto border border-[#E2D2BE] rounded-xl bg-[#FAF5EE]/50 divide-y divide-[#EFE5D8]">
+              {(() => {
+                const outsideMapped = outsideRegisteredBooks.map((rec, idx) => ({
+                  rowNumber: catalogRows.length + idx + 1,
+                  id: rec.tempBookId,
+                  title: rec.title,
+                  author: rec.author || '—',
+                  publisher: rec.publisher || '—',
+                  location: rec.location || '—',
+                  isOutside: true,
+                  isAudited: true,
+                  statusLabel:
+                    rec.physical === 'verified' && rec.copyStatus === 'verified_present'
+                      ? 'ثبت جدید (تأییدشده کارشناس)'
+                      : 'ثبت جدید (در انتظار تأیید کارشناس)'
+                }));
+
+                const catalogMapped = catalogRows.map((row, idx) => {
+                  const aud = auditRecords[row.rowKey];
+                  return {
+                    rowNumber: idx + 1,
+                    id: row.tempBookId,
+                    title: aud?.title || row.titleRaw,
+                    author: aud?.author || row.authorRaw || '—',
+                    publisher: aud?.publisher || row.publisherRaw || '—',
+                    location: aud?.location || row.locationRaw || '—',
+                    isOutside: false,
+                    isAudited: Boolean(aud),
+                    statusLabel: aud
+                      ? `فهرست پایه — ثبت‌شده در ${aud.location || 'قفسه'}`
+                      : `فهرست پایه (${toPersianDigits(catalogRows.length)} کتاب)`
+                  };
+                });
+
+                // نمایش ثبت‌های جدید و قفسه‌بندی‌شده در صدر جدول تجمیعی تا کاربر بلافاصله آن‌ها را در کنار فهرست ببیند
+                const combined =
+                  unifiedBankFilter === 'outside_only'
+                    ? outsideMapped
+                    : unifiedBankFilter === 'new_and_audited'
+                    ? [...outsideMapped, ...catalogMapped.filter((c) => c.isAudited)]
+                    : [...outsideMapped, ...catalogMapped];
+
+                if (combined.length === 0) {
+                  return (
+                    <div className="p-4 text-center text-xs text-[#5C4636]">
+                      موردی در این فیلتر وجود ندارد.
+                    </div>
+                  );
+                }
+
+                return combined.slice(0, 60).map((item) => (
+                  <div
+                    key={`${item.id}-${item.rowNumber}`}
+                    className="p-2.5 flex flex-wrap items-center justify-between gap-2 text-xs bg-white hover:bg-[#FAF5EE]"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="px-2 py-0.5 rounded bg-[#FAF5EE] border border-[#D8C7B2] font-mono text-[11px] text-[#6B3E26] shrink-0">
+                        ردیف {toPersianDigits(item.rowNumber)}
+                      </span>
+                      <span className="font-bold text-[#332218] truncate">{item.title}</span>
+                      <span className="text-[#5C4636] text-[11px] truncate">
+                        · {item.publisher} · {item.id}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {item.location !== '—' && (
+                        <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-[#EDF6F0] text-[#1E4D2B] border border-[#A8D5B5]">
+                          {item.location}
+                        </span>
+                      )}
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10.5px] font-bold ${
+                          item.isOutside
+                            ? 'bg-amber-50 text-[#6B3E26] border border-[#D8C7B2]'
+                            : item.isAudited
+                            ? 'bg-[#EDF6F0] text-[#1E4D2B] border border-[#A8D5B5]'
+                            : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {item.statusLabel}
+                      </span>
+                    </div>
+                  </div>
+                ));
+              })()}
             </div>
           </div>
         )}

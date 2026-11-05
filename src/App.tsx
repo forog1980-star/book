@@ -564,7 +564,7 @@ export default function App() {
   const [storageErrorMsg, setStorageErrorMsg] = useState<string>('');
   const [isStorageHydrated, setIsStorageHydrated] = useState<boolean>(false);
   const [showExitConfirmModal, setShowExitConfirmModal] = useState<boolean>(false);
-  const [isShiftEnded, setIsShiftEnded] = useState<boolean>(false);
+  const isExitingRef = React.useRef<boolean>(false);
 
   const markSessionModification = () => {
     setSessionEditsCount((prev) => prev + 1);
@@ -576,19 +576,35 @@ export default function App() {
     setLastSavedTime(nowFaTime);
   };
 
-  // ممانعت از خروج ناخواسته مرورگر در صورت وجود تغییرات در نشست کاری یا خطای ذخیره‌سازی
+  const handleCompleteExitFromApp = () => {
+    isExitingRef.current = true;
+    setSessionEditsCount(0);
+    setShowExitConfirmModal(false);
+    try {
+      window.onbeforeunload = null;
+      window.close();
+    } catch {
+      // ignore
+    }
+    setTimeout(() => {
+      window.location.replace('about:blank');
+    }, 60);
+  };
+
+  // ممانعت از خروج ناخواسته مرورگر فقط در صورت بسته شدن تصادفی تب
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (sessionEditsCount > 0 || storageStatus === 'error') {
+      if (isExitingRef.current) return;
+      if (storageStatus === 'error') {
         e.preventDefault();
         e.returnValue =
-          'تغییرات نشست کاری شما ثبت شده است؛ پیشنهاد می‌شود پیش از بستن کامل مرورگر، از منوی پایان شیفت پشتیبان کامل JSON دریافت نمایید.';
+          'خطا در ذخیره‌سازی محلی؛ لطفاً پیش از بستن کامل مرورگر بررسی نمایید.';
         return e.returnValue;
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [sessionEditsCount, storageStatus]);
+  }, [storageStatus]);
 
   // بازیابی کامل و زمان‌بندی‌شده هر ۱۰ مجموعه داده عملیاتی از IndexedDB در شروع برنامه (بند ۴ و ۵ دستور جامع)
   useEffect(() => {
@@ -880,35 +896,110 @@ export default function App() {
     try {
       const wb = XLSX.utils.book_new();
 
-      // شیت ۱: ثبت‌های میدانی قفسه (پایگاه book)
+      // شیت ۱ (اصلی): بانک تجمیعی و یکپارچه کل کتاب‌ها (۹۸۰ کتاب پایه + تمام کتاب‌های جدید ثبت‌شده کنار هم)
+      const baseCatalogMergedRows = catalogRows.map((row, idx) => {
+        const audited =
+          auditRecords[row.rowKey] ||
+          Object.values(auditRecords).find(
+            (r) => r.source !== 'outside-list' && r.tempBookId === row.tempBookId
+          );
+        return {
+          'ردیف تجمیعی': idx + 1,
+          'شناسه کتاب': row.tempBookId,
+          'کد نسخه فیزیکی CP':
+            audited?.copyId || `CP-${String(Math.max(1, row.rowIndex - 1)).padStart(6, '0')}`,
+          'عنوان کتاب': audited?.title || row.titleRaw,
+          'نویسنده': audited?.author || row.authorRaw || '',
+          'ناشر': audited?.publisher || row.publisherRaw || '',
+          'گروه موضوعی': audited?.category || row.categoryRaw || '',
+          'محل فیزیکی (قفسه-طبقه)': audited?.location || row.locationRaw || '',
+          'قفسه': audited?.shelf || '',
+          'طبقه': audited?.level || '',
+          'تعداد نسخه': audited?.countedCopies || row.countedCopiesRaw || '1',
+          'منبع در بانک تجمیعی': `فهرست پایه (${catalogRows.length} کتاب موجود)`,
+          'وضعیت در قفسه': audited
+            ? audited.physical === 'verified'
+              ? 'موجود و تأییدشده در قفسه'
+              : audited.physical === 'review'
+              ? 'نیازمند بررسی'
+              : 'پیدا نشد در قفسه'
+            : 'ثبت اولیه کاتالوگ (بررسی‌نشده در قفسه)',
+          'تأیید کارشناس': audited
+            ? audited.physical === 'verified' && audited.copyStatus === 'verified_present'
+              ? 'تأییدشده کارشناس'
+              : 'در انتظار تأیید کارشناس'
+            : 'فهرست مرجع اولیه',
+          'تاریخ آخرین ثبت/ویرایش': audited?.updatedAt || '',
+          'یادداشت': audited?.notes || row.noteRaw || ''
+        };
+      });
+
+      const outsideAddedRows = Object.values(auditRecords)
+        .filter((rec) => rec.source === 'outside-list')
+        .sort((a, b) => (a.updatedAt || '').localeCompare(b.updatedAt || ''))
+        .map((rec, i) => ({
+          'ردیف تجمیعی': catalogRows.length + i + 1,
+          'شناسه کتاب': rec.tempBookId,
+          'کد نسخه فیزیکی CP': rec.copyId || '-',
+          'عنوان کتاب': rec.title,
+          'نویسنده': rec.author || '',
+          'ناشر': rec.publisher || '',
+          'گروه موضوعی': rec.category || '',
+          'محل فیزیکی (قفسه-طبقه)': rec.location || '',
+          'قفسه': rec.shelf || '',
+          'طبقه': rec.level || '',
+          'تعداد نسخه': rec.countedCopies || '1',
+          'منبع در بانک تجمیعی': 'ثبت جدید اضافه‌شده کنار ۹۸۰ کتاب',
+          'وضعیت در قفسه':
+            rec.physical === 'verified'
+              ? 'موجود و تأییدشده در قفسه'
+              : rec.physical === 'review'
+              ? 'نیازمند بررسی'
+              : 'پیدا نشد در قفسه',
+          'تأیید کارشناس':
+            rec.physical === 'verified' && rec.copyStatus === 'verified_present'
+              ? 'تأییدشده کارشناس'
+              : 'در انتظار تأیید کارشناس',
+          'تاریخ آخرین ثبت/ویرایش': rec.updatedAt || '',
+          'یادداشت': rec.notes || ''
+        }));
+
+      const unifiedMasterRows = [...baseCatalogMergedRows, ...outsideAddedRows];
+      const wsUnified = XLSX.utils.json_to_sheet(unifiedMasterRows);
+      XLSX.utils.book_append_sheet(wb, wsUnified, 'بانک تجمیعی کل کتاب‌ها');
+
+      // شیت ۲: فقط ثبت‌ها و تغییرات قفسه
       const auditRows = Object.values(auditRecords).map((rec, i) => ({
         'ردیف': i + 1,
         'شناسه موقت کتاب': rec.tempBookId,
         'کد نسخه فیزیکی CP': rec.copyId || '-',
         'عنوان کتاب': rec.title,
+        'نویسنده': rec.author || '',
+        'ناشر': rec.publisher || '',
         'گروه موضوعی': rec.category,
         'محل فیزیکی (قفسه-طبقه)': rec.location,
         'قفسه': rec.shelf,
         'طبقه': rec.level,
         'تعداد نسخه شمرده‌شده': rec.countedCopies,
+        'نوع رکورد':
+          rec.source === 'outside-list'
+            ? 'کتاب جدید (اضافه‌شده کنار ۹۸۰ کتاب)'
+            : 'تعیین‌تکلیف‌شده از ۹۸۰ کتاب پایه',
         'وضعیت فیزیکی':
           rec.physical === 'verified'
             ? 'موجود و تأییدشده'
             : rec.physical === 'review'
             ? 'نیازمند بررسی'
             : 'پیدا نشد',
-        'سلامت جلد': rec.physicalCondition || 'healthy',
-        'کارشناس ثبت‌کننده': rec.checkedBy || 'کارشناس کتابخانه',
         'تاریخ ثبت': rec.updatedAt || '',
-        'یادداشت میدانی': rec.notes || '',
-        'پایگاه داده': 'book'
+        'یادداشت میدانی': rec.notes || ''
       }));
       const wsAudit = XLSX.utils.json_to_sheet(
         auditRows.length ? auditRows : [{ 'پیام': 'هنوز رکوردی ثبت نشده است' }]
       );
-      XLSX.utils.book_append_sheet(wb, wsAudit, 'ثبت‌های میدانی پایگاه book');
+      XLSX.utils.book_append_sheet(wb, wsAudit, 'ثبت‌های میدانی قفسه');
 
-      // شیت ۲: شناسنامه نسخه‌های فیزیکی CP
+      // شیت ۳: شناسنامه نسخه‌های فیزیکی CP
       const copyRows = bookCopies.map((cp, i) => ({
         'ردیف': i + 1,
         'کد نسخه مستقل CP': cp.copyId,
@@ -932,10 +1023,16 @@ export default function App() {
       const nowFormatted = new Intl.DateTimeFormat('fa-IR-u-nu-latn')
         .format(new Date())
         .replace(/\//g, '-');
-      const fileName = `خروجی-تخصصی-اکسل-ثبت-قفسه-و-نسخه-فیزیکی-${nowFormatted}.xlsx`;
+      const fileName = `بانک-تجمیعی-یکپارچه-کل-کتابها-${unifiedMasterRows.length}-جلد-${nowFormatted}.xlsx`;
       XLSX.writeFile(wb, fileName);
       showNotify(
-        `خروجی تخصصی اکسل ثبت‌های قفسه و نسخه‌های فیزیکی با نام «${fileName}» دانلود شد. (برای پشتیبان کامل ۱۱ مجموعه سامانه از دکمه پشتیبان کامل JSON استفاده کنید)`
+        `فایل اکسل یکپارچه «${fileName}» شامل ${toPersianDigits(
+          catalogRows.length
+        )} کتاب پایه و ${toPersianDigits(
+          outsideAddedRows.length
+        )} کتاب جدید در کنار هم (جمعاً ${toPersianDigits(
+          unifiedMasterRows.length
+        )} کتاب) دانلود شد.`
       );
       return true;
     } catch {
@@ -1302,22 +1399,14 @@ export default function App() {
       return 'stepped_back';
     }
 
-    // ۲. اگر در صفحه پایان شیفت هستیم، به صفحه خانه برگردد
-    if (isShiftEnded) {
-      setIsShiftEnded(false);
-      setActiveTab('home');
-      doubleBackExitArmedRef.current = false;
-      return 'stepped_back';
-    }
-
-    // ۳. اگر در صفحه خانه عبارتی جست‌وجو شده است، ابتدا جست‌وجو پاک شود و به نمای اولیه خانه برگردد
+    // ۲. اگر در صفحه خانه عبارتی جست‌وجو شده است، ابتدا جست‌وجو پاک شود و به نمای اولیه خانه برگردد
     if (activeTab === 'home' && homeGlobalQuery.trim() !== '') {
       setHomeGlobalQuery('');
       doubleBackExitArmedRef.current = false;
       return 'stepped_back';
     }
 
-    // ۴. اگر در پشته تاریخچه مرحله قبلی وجود دارد، یک مرحله به عقب برگردد
+    // ۳. اگر در پشته تاریخچه مرحله قبلی وجود دارد، یک مرحله به عقب برگردد
     if (navHistoryRef.current.length > 0) {
       const prevStep = navHistoryRef.current.pop()!;
       isPoppingHistoryRef.current = true;
@@ -1329,7 +1418,7 @@ export default function App() {
       return 'stepped_back';
     }
 
-    // ۵. اگر در تب غیر از خانه هستیم ولی پشته خالی است، به تب خانه برگردد
+    // ۴. اگر در تب غیر از خانه هستیم ولی پشته خالی است، به تب خانه برگردد
     if (activeTab !== 'home') {
       isPoppingHistoryRef.current = true;
       setActiveTab('home');
@@ -1339,7 +1428,7 @@ export default function App() {
     }
 
     return 'at_root';
-  }, [activeTab, homeGlobalQuery, isShiftEnded]);
+  }, [activeTab, homeGlobalQuery]);
 
   // مدیریت دکمه بازگشت (Back) گوشی و مرورگر به صورت دو مرحله‌ای:
   // مرحله ۱: برگشت به مرحله قبل (بستن پنجره باز یا بازگشت به صفحه/تب قبلی)
@@ -1523,20 +1612,15 @@ export default function App() {
                 <span className="hidden sm:inline">نصب</span>
               </button>
 
-              {/* ۵. کلید پایان شیفت و خروج با تأیید */}
+              {/* ۵. کلید خروج کامل از برنامه */}
               <button
                 type="button"
                 onClick={() => setShowExitConfirmModal(true)}
-                title="تأیید ذخیره‌سازی اطلاعات و خروج امن از سامانه"
+                title="خروج کامل از نرم‌افزار"
                 className="flex-1 min-h-[34px] px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-bold bg-[#8C3B2B] text-white hover:bg-[#702D20] rounded-lg transition-colors inline-flex items-center justify-center gap-1 min-w-0 whitespace-nowrap truncate cursor-pointer shadow-xs"
               >
                 <LogOut className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">پایان شیفت / خروج</span>
-                {sessionEditsCount > 0 && (
-                  <span className="w-4 h-4 rounded-full bg-white text-[#8C3B2B] text-[9px] font-bold flex items-center justify-center shrink-0">
-                    {toPersianDigits(sessionEditsCount)}
-                  </span>
-                )}
+                <span className="truncate">خروج</span>
               </button>
             </div>
             {!isOnline && (
@@ -1625,22 +1709,12 @@ export default function App() {
             <div className="flex items-center gap-2.5">
               <button
                 type="button"
-                onClick={handleFullJsonBackupDownload}
-                title="دانلود فایل پشتیبان کامل سامانه (JSON شامل تمام ۱۱ مجموعه داده)"
-                className="text-[#2E7D5B] hover:underline font-bold inline-flex items-center gap-1 text-[11px] cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>پشتیبان کامل JSON</span>
-              </button>
-              <span className="text-[#8C7A6B]">·</span>
-              <button
-                type="button"
                 onClick={handleQuickExcelExport}
-                title="خروجی تخصصی اکسل ثبت‌های قفسه و نسخه‌های فیزیکی"
-                className="text-[#1F4E79] hover:underline font-bold inline-flex items-center gap-1 text-[11px] cursor-pointer"
+                title="دانلود فایل اکسل یکپارچه شامل ۹۸۰ کتاب پایه به همراه تمام ثبت‌های جدید در یک جدول واحد"
+                className="text-[#2E6F40] hover:underline font-bold inline-flex items-center gap-1 text-[11px] cursor-pointer"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>خروجی تخصصی اکسل قفسه</span>
+                <span>دانلود بانک اکسل تجمیعی کل کتاب‌ها (۹۸۰ + جدید)</span>
               </button>
               <span className="text-[#8C7A6B]">·</span>
               <button
@@ -1649,7 +1723,7 @@ export default function App() {
                 className="text-[#8C3B2B] hover:underline font-bold inline-flex items-center gap-1 text-[11px] cursor-pointer"
               >
                 <LogOut className="w-3.5 h-3.5" />
-                <span>خروج با تأیید</span>
+                <span>خروج کامل</span>
               </button>
             </div>
           </div>
@@ -1687,77 +1761,14 @@ export default function App() {
 
       {/* Main Content Container (Centered & Constrained on Mobile) */}
       <main className="flex-1 w-full max-w-6xl mx-auto px-2.5 sm:px-6 py-3 sm:py-6 overflow-x-hidden">
-        {isShiftEnded ? (
-          <div className="min-h-[55vh] flex items-center justify-center p-3 sm:p-6">
-            <div className="bg-white border-2 border-[#2E7D5B] rounded-2xl max-w-lg w-full p-6 sm:p-8 shadow-xl text-center space-y-5">
-              <div className="w-16 h-16 mx-auto rounded-full bg-emerald-50 text-[#2E7D5B] border border-emerald-200 flex items-center justify-center shadow-xs">
-                <ShieldCheck className="w-9 h-9" />
-              </div>
-              <div className="space-y-2">
-                <h2 className="text-xl font-bold text-slate-900">شیفت کاری با موفقیت پایان یافت</h2>
-                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                  کلیه اطلاعات شما در پایگاه داده اختصاصی <strong className="font-mono text-[#8C3B2B] bg-amber-50 px-2 py-0.5 rounded border border-[#E6D5C1]">book</strong> در حافظه این گوشی به طور پایدار و امن ثبت و محفوظ است.
-                </p>
-              </div>
-
-              <div className="bg-[#FAF3EA] border border-[#E6D5C1] rounded-xl p-4 text-xs text-right space-y-2.5">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-600">عنوان پایگاه داده در گوشی:</span>
-                  <span className="font-mono font-bold text-[#8C3B2B] bg-white px-2 py-0.5 rounded border border-[#E6D5C1]">book</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-600">مجموع کتاب‌های ثبت‌شده در پایگاه:</span>
-                  <span className="font-bold text-slate-900">{toPersianDigits(totalSavedCount)} جلد</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-600">وضعیت پایداری اطلاعات:</span>
-                  <span className="font-bold text-[#2E7D5B]">ذخیره کامل در حافظه دستگاه ✅</span>
-                </div>
-              </div>
-
-              <p className="text-[11px] text-slate-500">
-                اکنون می‌توانید با خیال آسوده صفحه مرورگر را ببندید، یا در صورت تمایل شیفت جدیدی را آغاز نمایید.
-              </p>
-
-              <div className="pt-2 flex flex-col sm:flex-row gap-2.5">
-                <button
-                  type="button"
-                  onClick={handleFullJsonBackupDownload}
-                  className="flex-1 min-h-[44px] px-4 py-2.5 bg-[#2E7D5B] hover:bg-[#236247] text-white font-bold text-xs rounded-xl inline-flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                >
-                  <Download className="w-4 h-4 shrink-0" />
-                  <span>دانلود پشتیبان کامل سامانه (JSON)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleQuickExcelExport}
-                  className="flex-1 min-h-[44px] px-4 py-2.5 bg-[#1F4E79] hover:bg-[#163858] text-white font-bold text-xs rounded-xl inline-flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                >
-                  <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                  <span>خروجی تخصصی اکسل قفسه و نسخه‌ها</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsShiftEnded(false);
-                    setActiveTab('home');
-                  }}
-                  className="flex-1 min-h-[44px] px-4 py-2.5 bg-[#8C3B2B] hover:bg-[#702D20] text-white font-bold text-xs rounded-xl inline-flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                >
-                  <span>شروع شیفت جدید و ورود</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* MENU 1: HOME (خانه) */}
-        {activeTab === 'home' && (
-          <HomeDashboardTab
-            catalogRows={catalogRows}
-            auditRecords={auditRecords}
-            bookCopies={bookCopies}
-            links={links}
+        <>
+          {/* MENU 1: HOME (خانه) */}
+          {activeTab === 'home' && (
+            <HomeDashboardTab
+              catalogRows={catalogRows}
+              auditRecords={auditRecords}
+              bookCopies={bookCopies}
+              links={links}
             pendingReviews={pendingReviews}
             workbookMartyrs={workbookMartyrs}
             customMartyrs={customMartyrs}
@@ -1806,6 +1817,8 @@ export default function App() {
               });
             }}
             onDeleteAuditRecord={handleDeleteSingleRecord}
+            onDownloadUnifiedExcel={handleQuickExcelExport}
+            onDownloadFullJsonBackup={handleFullJsonBackupDownload}
             onNotify={showNotify}
           />
         )}
@@ -2246,8 +2259,7 @@ export default function App() {
             />
           </div>
         )}
-          </>
-        )}
+        </>
       </main>
 
       {/* Quiet Footer for Desktop */}
@@ -2373,143 +2385,43 @@ export default function App() {
         </ModalWindow>
       )}
 
-      {/* پنجره هشدار و تأیید ذخیره‌سازی اطلاعات قبل از خروج (پایگاه book) */}
+      {/* پنجره تأیید خروج کامل از نرم‌افزار (بدون توقف در صفحه میانی و بدون الزام دانلود روزانه) */}
       {showExitConfirmModal && (
         <ModalWindow
           onClose={() => setShowExitConfirmModal(false)}
-          title="تأیید ذخیره‌سازی اطلاعات و پایان شیفت کاری"
-          maxWidthClass="max-w-lg"
+          title="تأیید خروج کامل از نرم‌افزار"
+          maxWidthClass="max-w-md"
         >
-          <div className="flex items-center gap-2 border-b border-slate-200 pb-2.5">
-            <ShieldCheck className="w-6 h-6 text-[#2E7D5B] shrink-0" />
-            <h3 className="text-sm sm:text-base font-bold text-slate-900">
-              تأیید ذخیره‌سازی اطلاعات و پایان شیفت کاری
-            </h3>
+          <div className="bg-[#EDF6F0] border border-[#A8D5B5] rounded-xl p-3.5 text-xs text-[#1E4D2B] space-y-2">
+            <div className="flex items-center gap-2 font-bold text-sm">
+              <CheckCircle2 className="w-5 h-5 text-[#2E6F40] shrink-0" />
+              <span>اطلاعات شما در بانک تجمیعی نرم‌افزار ذخیره شده است</span>
+            </div>
+            <p className="leading-relaxed">
+              تمامی ثبت‌های شما به صورت خودکار در کنار <strong>{toPersianDigits(catalogRows.length)} کتاب موجود</strong> در داخل نرم‌افزار (پایگاه دائمی <strong>book</strong>) قرار گرفته است. نیازی به دانلود فایل در هر بار خروج نیست و هر زمان بخواهید می‌توانید کل فهرست تجمیعی را یکجا از بخش «بانک تجمیعی کتاب‌ها» دانلود کنید.
+            </p>
           </div>
 
-          {/* کارت گزارش وضعیت ذخیره در گوشی با عنوان book */}
-          <div className="bg-[#FAF3EA] border border-[#E6D5C1] rounded-xl p-3.5 space-y-2.5 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-[#5D4636]">محل و عنوان ثبت در گوشی:</span>
-              <span className="font-mono font-bold text-sm bg-white px-2 py-0.5 rounded border border-[#E6D5C1] text-[#8C3B2B]">
-                book (IndexedDB + localStorage)
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[#5D4636]">وضعیت واقعی ذخیره‌ساز محلی:</span>
-              {storageStatus === 'error' ? (
-                <span className="font-bold text-red-700">
-                  خطا در ذخیره‌سازی ({storageErrorMsg || 'نیازمند دانلود پشتیبان JSON'}) ⚠️
-                </span>
-              ) : storageStatus === 'saving' ? (
-                <span className="font-bold text-amber-700">در حال ذخیره...</span>
-              ) : (
-                <span className="font-bold text-[#2E7D5B]">تأییدشده و پایدار ✅</span>
-              )}
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[#5D4636]">کل عملیات و تغییرات ثبت‌شده در این نشست:</span>
-              <span className="font-bold text-[#2E7D5B] text-sm">
-                {toPersianDigits(sessionEditsCount)} عملیات
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[#5D4636]">کتاب‌های ثبت‌شده قفسه / نسخه‌های فیزیکی CP:</span>
-              <span className="font-bold text-slate-800">
-                {toPersianDigits(totalSavedCount)} کتاب / {toPersianDigits(bookCopies.length)} نسخه CP
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[#5D4636]">ارتباطات کتاب و شهید / شهدای اضافه‌شده:</span>
-              <span className="font-bold text-slate-800">
-                {toPersianDigits(links.length)} ارتباط / {toPersianDigits(customMartyrs.length)} شهید
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[#5D4636]">آخرین زمان ذخیره در حافظه دستگاه:</span>
-              <span className="text-slate-700 font-mono">
-                {lastSavedTime || 'لحظاتی پیش'}
-              </span>
-            </div>
-          </div>
-
-          {storageStatus === 'error' ? (
-            <div className="bg-red-50 border border-red-300 rounded-xl p-3 text-xs text-red-950 flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
-              <p className="leading-relaxed font-semibold">
-                هشدار: آخرین عملیات ذخیره‌سازی در حافظه مرورگر با خطا مواجه شده است. پیش از خروج حتماً روی دکمه «دریافت پشتیبان کامل سامانه (JSON)» کلیک کنید تا هیچ داده‌ای از دست نرود.
-              </p>
-            </div>
-          ) : (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-950 flex items-start gap-2">
-              <CheckCircle2 className="w-4 h-4 text-[#2E7D5B] shrink-0 mt-0.5" />
-              <p className="leading-relaxed">
-                کلیه ۱۱ مجموعه داده عملیاتی شما در پایگاه <strong>book</strong> (IndexedDB و localStorage) ذخیره شده است. توجه: برای <strong>پشتیبان کامل سامانه</strong> از خروجی JSON نسخه ۳ استفاده نمایید؛ خروجی اکسل صرفاً گزارش تخصصی ثبت‌های قفسه و نسخه‌های فیزیکی است.
-              </p>
-            </div>
-          )}
-
-          <p className="text-xs text-slate-700 font-semibold text-center">
-            آیا مایلید به شیفت کاری خود پایان دهید؟
+          <p className="text-xs sm:text-sm text-slate-800 font-bold text-center pt-1">
+            آیا می‌خواهید به طور کامل از نرم‌افزار خارج شوید؟
           </p>
 
-          {/* کلیدهای تصمیم‌گیری در پایان شیفت */}
-          <div className="space-y-2 pt-1">
-            {/* گزینه ۱: دریافت پشتیبان کامل JSON (هر ۱۱ مجموعه داده) و خروج */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
             <button
               type="button"
-              onClick={() => {
-                const ok = handleFullJsonBackupDownload();
-                if (ok) {
-                  setSessionEditsCount(0);
-                  setShowExitConfirmModal(false);
-                  setIsShiftEnded(true);
-                }
-              }}
-              className="w-full min-h-[46px] px-4 py-2.5 bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 transition-colors shadow-xs cursor-pointer"
+              onClick={handleCompleteExitFromApp}
+              className="w-full min-h-[44px] px-4 py-2.5 bg-[#B91C1C] hover:bg-[#991B1B] text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 transition-colors shadow-xs cursor-pointer"
             >
-              <Download className="w-4 h-4 shrink-0" />
-              <span>دریافت پشتیبان کامل سامانه (JSON شامل هر ۱۱ مجموعه) و خروج (توصیه‌شده)</span>
+              <LogOut className="w-4 h-4 shrink-0" />
+              <span>بله، خروج کامل از برنامه</span>
             </button>
 
-            {/* گزینه ۲: دریافت خروجی تخصصی اکسل قفسه و خروج */}
-            <button
-              type="button"
-              onClick={() => {
-                handleQuickExcelExport();
-                setSessionEditsCount(0);
-                setShowExitConfirmModal(false);
-                setIsShiftEnded(true);
-              }}
-              className="w-full min-h-[42px] px-4 py-2 bg-[#6B3E26] hover:bg-[#54301D] text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
-            >
-              <FileSpreadsheet className="w-4 h-4 shrink-0" />
-              <span>دریافت خروجی تخصصی اکسل (ثبت‌های قفسه و نسخه‌های CP) و خروج</span>
-            </button>
-
-            {/* گزینه ۳: خروج مستقیم در صورت تأیید سلامت ذخیره‌ساز */}
-            <button
-              type="button"
-              disabled={storageStatus === 'error'}
-              onClick={() => {
-                setSessionEditsCount(0);
-                setShowExitConfirmModal(false);
-                setIsShiftEnded(true);
-                showNotify('خروج با موفقیت ثبت شد. اطلاعات در پایگاه book در گوشی محفوظ است.');
-              }}
-              className="w-full min-h-[42px] px-4 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
-            >
-              <CheckCircle2 className="w-4 h-4 text-slate-500 shrink-0" />
-              <span>تأیید خروج بدون دانلود فایل (داده‌ها در حافظه دستگاه ذخیره است)</span>
-            </button>
-
-            {/* گزینه ۴: انصراف و بازگشت به کار */}
             <button
               type="button"
               onClick={() => setShowExitConfirmModal(false)}
-              className="w-full min-h-[40px] px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium text-xs rounded-xl flex items-center justify-center transition-colors cursor-pointer"
+              className="w-full min-h-[44px] px-4 py-2.5 bg-[#FAF3EA] hover:bg-[#F3E6D6] border border-[#D8C7B2] text-[#332218] font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center transition-colors cursor-pointer"
             >
-              انصراف و ادامه کار در برنامه
+              انصراف و ادامه کار
             </button>
           </div>
         </ModalWindow>
