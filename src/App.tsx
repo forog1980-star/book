@@ -65,6 +65,8 @@ import { BackupAndExportTab } from './components/BackupAndExportTab';
 import { PilotTestAndReportTab } from './components/PilotTestAndReportTab';
 import { ComprehensiveDocViewer } from './components/ComprehensiveDocViewer';
 import { ModalWindow } from './components/ModalWindow';
+import { GlobalConfirmModal } from './components/GlobalConfirmModal';
+import { requestActionConfirmation } from './utils/confirmDialogService';
 import { closeTopModalIfAny, popInnerBackStepIfAny } from './utils/navigationHistory';
 import { useOnlineStatus, usePWAInstall } from './utils/usePWAInstall';
 import {
@@ -1142,84 +1144,116 @@ export default function App() {
   };
 
   const handleDeleteSingleRecord = (key: string) => {
-    setAuditRecords((prev) => {
-      const next = { ...prev };
-      delete next[key];
-      return next;
+    const targetRec = auditRecords[key];
+    requestActionConfirmation({
+      variant: 'danger',
+      title: 'تأیید نهایی حذف رکورد کتاب از سامانه',
+      message: targetRec
+        ? `آیا از حذف کامل رکورد کتاب «${targetRec.title}» از فهرست و حافظه سامانه اطمینان دارید؟`
+        : 'آیا از حذف کامل این رکورد ثبت‌شده از فهرست و حافظه سامانه اطمینان دارید؟',
+      details: targetRec
+        ? [
+            `عنوان کتاب: ${targetRec.title}`,
+            `شناسه کتاب: ${targetRec.tempBookId || key}`,
+            `محل نگهداری: ${targetRec.location || 'ثبت‌نشده'} · دسته: ${targetRec.category || '—'}`
+          ]
+        : [`کلید رکورد: ${key}`],
+      confirmLabel: 'بله، از لیست حذف شود',
+      onConfirm: () => {
+        setAuditRecords((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        markSessionModification();
+        showNotify(
+          targetRec
+            ? `رکورد کتاب «${targetRec.title}» (${targetRec.tempBookId}) از حافظه سامانه حذف شد.`
+            : 'رکورد انتخابی از حافظه مرورگر حذف شد.'
+        );
+      }
     });
-    markSessionModification();
-    showNotify('رکورد انتخابی از حافظه مرورگر حذف شد.');
   };
 
   const handleLoadSample20PilotRecords = () => {
-    const sampleBatch: Record<string, FieldAuditRecord> = {};
-    const levels: ShelfLevelCode[] = ['T01', 'T02', 'T03', 'T04', 'T05', 'T06'];
+    requestActionConfirmation({
+      variant: 'confirm',
+      title: 'تأیید ثبت آزمایشی ۲۰ رکورد پایلوت قفسه‌ها',
+      message:
+        'آیا مایلید ۲۰ رکورد نمونه پایلوت کتابخانه (منطبق با نقشه قفسه‌های SH-01 تا SH-04) بدون بازنویسی ثبت‌های قبلی در حافظه سامانه ثبت شود؟',
+      details: ['تعداد رکورد: ۲۰ کتاب اول فهرست مرجع', 'نحوه اعمال: ادغام امن بدون حذف یا تغییر ثبت‌های قبلی'],
+      confirmLabel: 'بله، ثبت نهایی ۲۰ رکورد پایلوت',
+      onConfirm: () => {
+        const sampleBatch: Record<string, FieldAuditRecord> = {};
+        const levels: ShelfLevelCode[] = ['T01', 'T02', 'T03', 'T04', 'T05', 'T06'];
 
-    catalogRows.slice(0, 20).forEach((row, idx) => {
-      const catCode = (row.categoryRaw || 'R') as 'R' | 'H' | 'A' | 'P' | 'M' | 'K';
-      const catMeta =
-        SUBJECT_CATEGORIES.find((c) => c.code === catCode) || SUBJECT_CATEGORIES[0];
+        catalogRows.slice(0, 20).forEach((row, idx) => {
+          const catCode = (row.categoryRaw || 'R') as 'R' | 'H' | 'A' | 'P' | 'M' | 'K';
+          const catMeta =
+            SUBJECT_CATEGORIES.find((c) => c.code === catCode) || SUBJECT_CATEGORIES[0];
 
-      let shelf: ShelfCode = 'SH-01';
-      let level: ShelfLevelCode = levels[idx % 6];
+          let shelf: ShelfCode = 'SH-01';
+          let level: ShelfLevelCode = levels[idx % 6];
 
-      if (catCode === 'R') {
-        shelf = idx % 2 === 0 ? 'SH-01' : 'SH-02';
-        level = levels[idx % 6];
-      } else if (catCode === 'H') {
-        shelf = 'SH-03';
-        level = 'T01';
-      } else if (catCode === 'A') {
-        shelf = 'SH-03';
-        level = 'T02';
-      } else if (catCode === 'P') {
-        shelf = 'SH-03';
-        level = idx % 2 === 0 ? 'T03' : 'T04';
-      } else if (catCode === 'M') {
-        shelf = 'SH-03';
-        level = idx % 2 === 0 ? 'T05' : 'T06';
-      } else if (catCode === 'K') {
-        shelf = 'SH-04';
-        level = 'T01';
+          if (catCode === 'R') {
+            shelf = idx % 2 === 0 ? 'SH-01' : 'SH-02';
+            level = levels[idx % 6];
+          } else if (catCode === 'H') {
+            shelf = 'SH-03';
+            level = 'T01';
+          } else if (catCode === 'A') {
+            shelf = 'SH-03';
+            level = 'T02';
+          } else if (catCode === 'P') {
+            shelf = 'SH-03';
+            level = idx % 2 === 0 ? 'T03' : 'T04';
+          } else if (catCode === 'M') {
+            shelf = 'SH-03';
+            level = idx % 2 === 0 ? 'T05' : 'T06';
+          } else if (catCode === 'K') {
+            shelf = 'SH-04';
+            level = 'T01';
+          }
+
+          const alloc = getAllocatedCategoryForSlot(shelf, level);
+          sampleBatch[row.rowKey] = {
+            key: row.rowKey,
+            source: 'catalog',
+            sheet: currentSheetName,
+            tempBookId: row.tempBookId,
+            copyId: `CP-${String(row.rowIndex - 1).padStart(6, '0')}`,
+            title: row.titleRaw,
+            author: row.authorRaw || '',
+            publisher: row.publisherRaw,
+            year: '',
+            descriptionRaw: row.descriptionRaw,
+            category: catMeta.label,
+            shelf,
+            level,
+            location: `${shelf}-${level}`,
+            physical: 'verified',
+            copyStatus: 'verified_present',
+            physicalCondition: 'healthy',
+            countedCopies: '1',
+            checkedBy: getRoleDisplayName(activeUserRole),
+            notes: `ثبت آزمایشی پایلوت ۲۰ کتاب (${alloc.title})`,
+            backupSourceSheet: row.backupSourceSheet,
+            backupSourceRow: row.backupSourceRow,
+            updatedAt: new Date().toISOString()
+          };
+        });
+
+        handleMergeRecords(sampleBatch);
+        appendAuditLog(
+          'ثبت موجودی فیزیکی',
+          'PILOT-20',
+          'بارگذاری ۲۰ رکورد نمونه پایلوت کتابخانه منطبق با نقشه قفسه‌های SH-01 تا SH-04'
+        );
+        showNotify(
+          '۲۰ رکورد آزمایشی پایلوت مطابق با نقشه قفسه‌ها (SH-01 تا SH-04) بدون بازنویسی ثبت‌های قبلی بارگذاری شد.'
+        );
       }
-
-      const alloc = getAllocatedCategoryForSlot(shelf, level);
-      sampleBatch[row.rowKey] = {
-        key: row.rowKey,
-        source: 'catalog',
-        sheet: currentSheetName,
-        tempBookId: row.tempBookId,
-        copyId: `CP-${String(row.rowIndex - 1).padStart(6, '0')}`,
-        title: row.titleRaw,
-        author: row.authorRaw || '',
-        publisher: row.publisherRaw,
-        year: '',
-        descriptionRaw: row.descriptionRaw,
-        category: catMeta.label,
-        shelf,
-        level,
-        location: `${shelf}-${level}`,
-        physical: 'verified',
-        copyStatus: 'verified_present',
-        physicalCondition: 'healthy',
-        countedCopies: '1',
-        checkedBy: getRoleDisplayName(activeUserRole),
-        notes: `ثبت آزمایشی پایلوت ۲۰ کتاب (${alloc.title})`,
-        backupSourceSheet: row.backupSourceSheet,
-        backupSourceRow: row.backupSourceRow,
-        updatedAt: new Date().toISOString()
-      };
     });
-
-    handleMergeRecords(sampleBatch);
-    appendAuditLog(
-      'ثبت موجودی فیزیکی',
-      'PILOT-20',
-      'بارگذاری ۲۰ رکورد نمونه پایلوت کتابخانه منطبق با نقشه قفسه‌های SH-01 تا SH-04'
-    );
-    showNotify(
-      '۲۰ رکورد آزمایشی پایلوت مطابق با نقشه قفسه‌ها (SH-01 تا SH-04) بدون بازنویسی ثبت‌های قبلی بارگذاری شد.'
-    );
   };
 
   const totalSavedCount = Object.keys(auditRecords).length;
@@ -1748,15 +1782,28 @@ export default function App() {
             onApproveOutsideBook={(recordKey) => {
               const existing = auditRecords[recordKey];
               if (!existing) return;
-              const updated: FieldAuditRecord = {
-                ...existing,
-                physical: 'verified',
-                copyStatus: 'verified_present',
-                notes: existing.notes.replace(/در انتظار تأیید کارشناس/g, 'تأییدشده توسط کارشناس'),
-                updatedAt: new Date().toISOString()
-              };
-              handleSaveAuditRecord(updated);
-              showNotify(`✅ کتاب «${existing.title}» (${existing.tempBookId}) توسط کارشناس تأیید نهایی شد.`);
+              requestActionConfirmation({
+                variant: 'confirm',
+                title: 'تأیید نهایی کارشناسی کتاب جدید',
+                message: `آیا از تأیید نهایی کارشناسی کتاب «${existing.title}» (${existing.tempBookId}) اطمینان دارید؟`,
+                details: [
+                  `عنوان کتاب: ${existing.title}`,
+                  `شناسه موقت: ${existing.tempBookId} · نسخه: ${existing.copyId || '—'}`,
+                  `محل قفسه: ${existing.location || '—'} · موضوع: ${existing.category || '—'}`
+                ],
+                confirmLabel: 'بله، تأیید نهایی کارشناس انجام شود',
+                onConfirm: () => {
+                  const updated: FieldAuditRecord = {
+                    ...existing,
+                    physical: 'verified',
+                    copyStatus: 'verified_present',
+                    notes: existing.notes.replace(/در انتظار تأیید کارشناس/g, 'تأییدشده توسط کارشناس'),
+                    updatedAt: new Date().toISOString()
+                  };
+                  handleSaveAuditRecord(updated);
+                  showNotify(`✅ کتاب «${existing.title}» (${existing.tempBookId}) توسط کارشناس تأیید نهایی شد.`);
+                }
+              });
             }}
             onDeleteAuditRecord={handleDeleteSingleRecord}
             onNotify={showNotify}
@@ -2467,6 +2514,7 @@ export default function App() {
           </div>
         </ModalWindow>
       )}
+      <GlobalConfirmModal />
     </div>
   );
 }

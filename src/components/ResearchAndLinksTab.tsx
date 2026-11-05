@@ -44,6 +44,7 @@ import {
 } from '../data/markazAsnadData';
 import { SOOREH_MEHR_RESEARCH_STATS } from '../data/soorehMehrResearch';
 import { generateUniqueExtractedId, generateUniqueLinkId } from '../utils/idGenerator';
+import { requestActionConfirmation } from '../utils/confirmDialogService';
 
 interface ResearchAndLinksTabProps {
   catalogRows: ReferenceCatalogRow[];
@@ -209,50 +210,60 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     if (pvTargetStatus === 'needs_source') targetStatusName = 'نیازمند منبع';
     if (pvTargetStatus === 'rejected') targetStatusName = 'ردشده با دلیل';
 
-    onUpdatePendingReviewStatus(activeReviewPv.trackingId, targetStatusName);
+    const pvItem = activeReviewPv;
+    requestActionConfirmation({
+      title: 'تأیید نهایی تعیین تکلیف مورد نیازمند بررسی',
+      message: `آیا از ثبت وضعیت «${pvTargetStatus === 'approved_to_links' ? 'تأیید و انتقال به پیوندهای معتبر' : targetStatusName}» برای مورد ${pvItem.trackingId} (کتاب «${pvItem.bookTitle}») اطمینان دارید؟`,
+      details: `نام/عبارت: ${pvMartyrName.trim() || pvItem.nameOrPhrase} · موضوع بررسی: ${pvItem.issueSubject}`,
+      confirmLabel: 'بله، ثبت نهایی شود',
+      variant: pvTargetStatus === 'rejected' ? 'delete' : 'approve',
+      onConfirm: () => {
+        onUpdatePendingReviewStatus(pvItem.trackingId, targetStatusName);
 
-    // If approved, create or update matching link in links
-    if (pvTargetStatus === 'approved_to_links') {
-      const existing = links.find(
-        (l) => l.id === activeReviewPv.mainRecordId || (l.bookTitleRaw === activeReviewPv.bookTitle && l.martyrNameRaw === activeReviewPv.nameOrPhrase)
-      );
-      if (existing) {
-        onUpdateLinkStatus(
-          existing.id,
-          'تأییدشده کارشناسی',
-          pvReviewerNote.trim() || 'تکمیل و رفع اشکال از کاربرگ نیازمند بررسی'
-        );
-      } else {
-        const bookObj = catalogRows.find(
-          (b) => b.titleRaw === activeReviewPv.bookTitle || b.tempBookId === activeReviewPv.mainRecordId
-        );
-        onAddLink({
-          id: `RL-${String(links.length + 1).padStart(4, '0')}`,
-          tempBookId: bookObj?.tempBookId || '',
-          bookTitleRaw: activeReviewPv.bookTitle,
-          publisherRaw: activeReviewPv.publisher,
-          martyrNameRaw: pvMartyrName.trim() || activeReviewPv.nameOrPhrase,
-          isGroupPhrase: false,
-          gravePieceRaw: pvGravePiece.trim(),
-          graveRowRaw: pvGraveRow.trim(),
-          graveNumberRaw: pvGraveNumber.trim(),
-          pageReferenceRaw: pvPageRef.trim() || 'استخراج‌شده توسط کارشناس',
-          sourceDescriptionRaw: `رفع اشکال از ردیف ${activeReviewPv.trackingId} (${activeReviewPv.issueSubject})`,
-          sourceFile: 'کاربرگ موارد نیازمند بررسی',
-          sourceSheet: activeReviewPv.mainSheet,
-          sourceExcelRow: activeReviewPv.mainRecordId,
-          reviewStatus: 'تأییدشده کارشناسی',
-          reviewerNote: pvReviewerNote.trim() || 'تکمیل و تأیید در سامانه'
-        });
+        // If approved, create or update matching link in links
+        if (pvTargetStatus === 'approved_to_links') {
+          const existing = links.find(
+            (l) => l.id === pvItem.mainRecordId || (l.bookTitleRaw === pvItem.bookTitle && l.martyrNameRaw === pvItem.nameOrPhrase)
+          );
+          if (existing) {
+            onUpdateLinkStatus(
+              existing.id,
+              'تأییدشده کارشناسی',
+              pvReviewerNote.trim() || 'تکمیل و رفع اشکال از کاربرگ نیازمند بررسی'
+            );
+          } else {
+            const bookObj = catalogRows.find(
+              (b) => b.titleRaw === pvItem.bookTitle || b.tempBookId === pvItem.mainRecordId
+            );
+            onAddLink({
+              id: `RL-${String(links.length + 1).padStart(4, '0')}`,
+              tempBookId: bookObj?.tempBookId || '',
+              bookTitleRaw: pvItem.bookTitle,
+              publisherRaw: pvItem.publisher,
+              martyrNameRaw: pvMartyrName.trim() || pvItem.nameOrPhrase,
+              isGroupPhrase: false,
+              gravePieceRaw: pvGravePiece.trim(),
+              graveRowRaw: pvGraveRow.trim(),
+              graveNumberRaw: pvGraveNumber.trim(),
+              pageReferenceRaw: pvPageRef.trim() || 'استخراج‌شده توسط کارشناس',
+              sourceDescriptionRaw: `رفع اشکال از ردیف ${pvItem.trackingId} (${pvItem.issueSubject})`,
+              sourceFile: 'کاربرگ موارد نیازمند بررسی',
+              sourceSheet: pvItem.mainSheet,
+              sourceExcelRow: pvItem.mainRecordId,
+              reviewStatus: 'تأییدشده کارشناسی',
+              reviewerNote: pvReviewerNote.trim() || 'تکمیل و تأیید در سامانه'
+            });
+          }
+          onNotify(
+            `مورد ${pvItem.trackingId} با موفقیت بررسی و ثبت شد و به پیوندهای معتبر منتقل گردید.`
+          );
+        } else {
+          onNotify(`وضعیت مورد ${pvItem.trackingId} به «${targetStatusName}» به‌روزرسانی شد.`);
+        }
+
+        setActiveReviewPv(null);
       }
-      onNotify(
-        `مورد ${activeReviewPv.trackingId} با موفقیت بررسی و ثبت شد و به پیوندهای معتبر منتقل گردید.`
-      );
-    } else {
-      onNotify(`وضعیت مورد ${activeReviewPv.trackingId} به «${targetStatusName}» به‌روزرسانی شد.`);
-    }
-
-    setActiveReviewPv(null);
+    });
   };
 
   // Filtered 836 Links
@@ -343,32 +354,41 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     }
 
     const bookObj = catalogRows.find((b) => b.tempBookId === selectedBookId);
-    const newRecord: BookMartyrLinkRecord = {
-      id: generateUniqueLinkId(links),
-      tempBookId: selectedBookId,
-      bookTitleRaw: bookObj?.titleRaw || selectedBookId,
-      publisherRaw: bookObj?.publisherRaw || '',
-      martyrNameRaw: martyrName.trim(),
-      isGroupPhrase,
-      gravePieceRaw: gravePiece.trim(),
-      graveRowRaw: graveRow.trim(),
-      graveNumberRaw: graveNumber.trim(),
-      pageReferenceRaw: pageRefRaw.trim() || 'ثبت‌نشده',
-      sourceDescriptionRaw: sourceDesc.trim() || 'ثبت کارشناسی در سامانه مرکز اسناد',
-      sourceFile: 'ثبت مستقیم کارشناس',
-      sourceSheet: 'ارتباط کتاب و شهید',
-      sourceExcelRow: '-',
-      reviewStatus: 'تأییدشده کارشناسی',
-      reviewerNote: reviewerNote.trim()
-    };
+    requestActionConfirmation({
+      title: 'تأیید نهایی ثبت ارتباط پژوهشی کتاب و شهید',
+      message: `آیا از ثبت ارتباط پژوهشی میان کتاب «${bookObj?.titleRaw || selectedBookId}» و شهید «${martyrName.trim()}» اطمینان دارید؟`,
+      details: `صفحه/ارجاع: ${pageRefRaw.trim() || 'ثبت‌نشده'} · قطعه مزار: ${gravePiece.trim() || '—'}`,
+      confirmLabel: 'بله، ارتباط پژوهشی ثبت شود',
+      variant: 'save',
+      onConfirm: () => {
+        const newRecord: BookMartyrLinkRecord = {
+          id: generateUniqueLinkId(links),
+          tempBookId: selectedBookId,
+          bookTitleRaw: bookObj?.titleRaw || selectedBookId,
+          publisherRaw: bookObj?.publisherRaw || '',
+          martyrNameRaw: martyrName.trim(),
+          isGroupPhrase,
+          gravePieceRaw: gravePiece.trim(),
+          graveRowRaw: graveRow.trim(),
+          graveNumberRaw: graveNumber.trim(),
+          pageReferenceRaw: pageRefRaw.trim() || 'ثبت‌نشده',
+          sourceDescriptionRaw: sourceDesc.trim() || 'ثبت کارشناسی در سامانه مرکز اسناد',
+          sourceFile: 'ثبت مستقیم کارشناس',
+          sourceSheet: 'ارتباط کتاب و شهید',
+          sourceExcelRow: '-',
+          reviewStatus: 'تأییدشده کارشناسی',
+          reviewerNote: reviewerNote.trim()
+        };
 
-    onAddLink(newRecord);
-    setMartyrName('');
-    setPageRefRaw('');
-    setSourceDesc('');
-    setReviewerNote('');
-    setShowAddLink(false);
-    onNotify(`ارتباط پژوهشی میان «${newRecord.bookTitleRaw}» و «${newRecord.martyrNameRaw}» ثبت شد.`);
+        onAddLink(newRecord);
+        setMartyrName('');
+        setPageRefRaw('');
+        setSourceDesc('');
+        setReviewerNote('');
+        setShowAddLink(false);
+        onNotify(`ارتباط پژوهشی میان «${newRecord.bookTitleRaw}» و «${newRecord.martyrNameRaw}» ثبت شد.`);
+      }
+    });
   };
 
   // Pre-fill Extracted Item Form from a BookMartyrLinkRecord
@@ -393,45 +413,54 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     }
 
     const bookObj = catalogRows.find((b) => b.tempBookId === exBookId);
-    const newItem: ExtractedContentItem = {
-      id: generateUniqueExtractedId(extractedItems),
-      tempBookId: exBookId,
-      bookTitleRaw: bookObj?.titleRaw || exBookId,
-      publisherRaw: bookObj?.publisherRaw || '',
-      martyrNameRaw: exMartyrName.trim(),
-      gravePieceRaw: exGravePiece.trim(),
-      pageReferenceRaw: exPageRefRaw.trim() || 'ثبت‌نشده',
-      pageStartNormalized: exPageStart.trim() || undefined,
-      pageEndNormalized: exPageEnd.trim() || undefined,
-      contentType: exContentType,
-      passageTitle: exPassageTitle.trim(),
-      extractedText: exExtractedText.trim(),
-      shortVerifiedQuote: exShortQuote.trim() || undefined,
-      keywords: exKeywordsText
-        .split(/[،,]/)
-        .map((s) => s.trim())
-        .filter(Boolean),
-      researcherNote: exResearcherNote.trim(),
-      reviewStatus: 'تأییدشده کارشناسی',
-      recordedBy: exRecordedBy.trim() || 'پژوهشگر مرکز اسناد',
-      reviewedBy: 'کارشناس مسئول',
-      sourceFile: exSourceFile,
-      sourceSheet: exSourceSheet,
-      sourceRow: exSourceRow,
-      updatedAt: new Intl.DateTimeFormat('fa-IR').format(new Date())
-    };
+    requestActionConfirmation({
+      title: 'تأیید نهایی ثبت مطلب و صفحه استخراج‌شده',
+      message: `آیا از ثبت مطلب «${exPassageTitle.trim()}» برای شهید «${exMartyrName.trim()}» از کتاب «${bookObj?.titleRaw || exBookId}» اطمینان دارید؟`,
+      details: `نوع مطلب: ${exContentType} · شماره صفحه: ${exPageRefRaw.trim() || 'ثبت‌نشده'}`,
+      confirmLabel: 'بله، مطلب ذخیره شود',
+      variant: 'save',
+      onConfirm: () => {
+        const newItem: ExtractedContentItem = {
+          id: generateUniqueExtractedId(extractedItems),
+          tempBookId: exBookId,
+          bookTitleRaw: bookObj?.titleRaw || exBookId,
+          publisherRaw: bookObj?.publisherRaw || '',
+          martyrNameRaw: exMartyrName.trim(),
+          gravePieceRaw: exGravePiece.trim(),
+          pageReferenceRaw: exPageRefRaw.trim() || 'ثبت‌نشده',
+          pageStartNormalized: exPageStart.trim() || undefined,
+          pageEndNormalized: exPageEnd.trim() || undefined,
+          contentType: exContentType,
+          passageTitle: exPassageTitle.trim(),
+          extractedText: exExtractedText.trim(),
+          shortVerifiedQuote: exShortQuote.trim() || undefined,
+          keywords: exKeywordsText
+            .split(/[،,]/)
+            .map((s) => s.trim())
+            .filter(Boolean),
+          researcherNote: exResearcherNote.trim(),
+          reviewStatus: 'تأییدشده کارشناسی',
+          recordedBy: exRecordedBy.trim() || 'پژوهشگر مرکز اسناد',
+          reviewedBy: 'کارشناس مسئول',
+          sourceFile: exSourceFile,
+          sourceSheet: exSourceSheet,
+          sourceRow: exSourceRow,
+          updatedAt: new Intl.DateTimeFormat('fa-IR').format(new Date())
+        };
 
-    onAddExtractedItem(newItem);
-    setExPassageTitle('');
-    setExExtractedText('');
-    setExShortQuote('');
-    setExKeywordsText('');
-    setExResearcherNote('');
-    setExPageRefRaw('');
-    setExPageStart('');
-    setExPageEnd('');
-    setShowAddExtracted(false);
-    onNotify(`مطلب استخراج‌شده (${newItem.id}) برای «${newItem.martyrNameRaw}» با حفظ ارجاع صفحه خام ثبت شد.`);
+        onAddExtractedItem(newItem);
+        setExPassageTitle('');
+        setExExtractedText('');
+        setExShortQuote('');
+        setExKeywordsText('');
+        setExResearcherNote('');
+        setExPageRefRaw('');
+        setExPageStart('');
+        setExPageEnd('');
+        setShowAddExtracted(false);
+        onNotify(`مطلب استخراج‌شده (${newItem.id}) برای «${newItem.martyrNameRaw}» با حفظ ارجاع صفحه خام ثبت شد.`);
+      }
+    });
   };
 
   // Export Links Excel (.xlsx)
@@ -780,49 +809,57 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
   // Quick Action: Bulk approve & archive 16 groups (Directive #11: accurate link & group status synchronization)
   const handleBulkApproveAndArchive16Groups = () => {
-    const groupTitlesNorm = new Set(
-      multiMartyrGroups.map((g) => normalizePersianText(g.registeredTitle)).filter(Boolean)
-    );
-    multiMartyrGroups.forEach((grp) => {
-      onUpdateGroupAudit({
-        ...grp,
-        boundaryApproved: 'بله',
-        allMartyrsLinked: 'بله',
-        decisionStatus: 'تأیید',
-        reviewerName: grp.reviewerName || 'تأیید یکپارچه کارشناس',
-        reviewDate: new Intl.DateTimeFormat('fa-IR').format(new Date()),
-        reviewNote: grp.reviewNote || 'تأیید خوشه‌ای ۱۶ گروه چندشهیدی و همگام‌سازی پیوندهای مرتبط'
-      });
-    });
+    requestActionConfirmation({
+      title: 'تأیید نهایی یکپارچه ۱۶ گروه چندشهیدی و بایگانی برگه',
+      message: 'آیا از تأیید یکجای هر ۱۶ گروه کتاب‌های چندشهیدی (G001 تا G016) و همگام‌سازی پیوندهای مرتبط با وضعیت «تأییدشده کارشناسی» اطمینان دارید؟',
+      confirmLabel: 'بله، هر ۱۶ گروه تأیید نهایی شود',
+      variant: 'approve',
+      onConfirm: () => {
+        const groupTitlesNorm = new Set(
+          multiMartyrGroups.map((g) => normalizePersianText(g.registeredTitle)).filter(Boolean)
+        );
+        multiMartyrGroups.forEach((grp) => {
+          onUpdateGroupAudit({
+            ...grp,
+            boundaryApproved: 'بله',
+            allMartyrsLinked: 'بله',
+            decisionStatus: 'تأیید',
+            reviewerName: grp.reviewerName || 'تأیید یکپارچه کارشناس',
+            reviewDate: new Intl.DateTimeFormat('fa-IR').format(new Date()),
+            reviewNote: grp.reviewNote || 'تأیید خوشه‌ای ۱۶ گروه چندشهیدی و همگام‌سازی پیوندهای مرتبط'
+          });
+        });
 
-    // همگام‌سازی وضعیت پیوندهای مرتبط با این ۱۶ کتاب چندشهیدی به «تأییدشده کارشناسی»
-    let updatedLinksCount = 0;
-    links.forEach((lnk) => {
-      const normBook = normalizePersianText(lnk.bookTitleRaw);
-      if (normBook && groupTitlesNorm.has(normBook) && lnk.reviewStatus !== 'تأییدشده کارشناسی') {
-        updatedLinksCount += 1;
-        onUpdateLinkStatus(
-          lnk.id,
-          'تأییدشده کارشناسی',
-          lnk.reviewerNote || 'تأییدشده در بازبینی خوشه‌ای ۱۶ گروه چندشهیدی'
+        // همگام‌سازی وضعیت پیوندهای مرتبط با این ۱۶ کتاب چندشهیدی به «تأییدشده کارشناسی»
+        let updatedLinksCount = 0;
+        links.forEach((lnk) => {
+          const normBook = normalizePersianText(lnk.bookTitleRaw);
+          if (normBook && groupTitlesNorm.has(normBook) && lnk.reviewStatus !== 'تأییدشده کارشناسی') {
+            updatedLinksCount += 1;
+            onUpdateLinkStatus(
+              lnk.id,
+              'تأییدشده کارشناسی',
+              lnk.reviewerNote || 'تأییدشده در بازبینی خوشه‌ای ۱۶ گروه چندشهیدی'
+            );
+          }
+        });
+
+        setHideArchivedGroups(true);
+        try {
+          localStorage.setItem('book_hide_archived_groups', 'true');
+        } catch {
+          // ignore
+        }
+        setSubView('depository');
+        onNotify(
+          `وضعیت هر ۱۶ گروه چندشهیدی (G001 تا G016) به «تأیید» تغییر یافت${
+            updatedLinksCount > 0
+              ? ` و ${toPersianDigits(updatedLinksCount)} پیوند مرتبط نیز در دپوی اسناد «تأییدشده کارشناسی» شد`
+              : ''
+          }. برگه ۱۶ گروه در حالت بایگانی قرار گرفت.`
         );
       }
     });
-
-    setHideArchivedGroups(true);
-    try {
-      localStorage.setItem('book_hide_archived_groups', 'true');
-    } catch {
-      // ignore
-    }
-    setSubView('depository');
-    onNotify(
-      `وضعیت هر ۱۶ گروه چندشهیدی (G001 تا G016) به «تأیید» تغییر یافت${
-        updatedLinksCount > 0
-          ? ` و ${toPersianDigits(updatedLinksCount)} پیوند مرتبط نیز در دپوی اسناد «تأییدشده کارشناسی» شد`
-          : ''
-      }. برگه ۱۶ گروه در حالت بایگانی قرار گرفت.`
-    );
   };
 
   return (
@@ -1226,9 +1263,19 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                     <span className="text-slate-500">وضعیت:</span>
                     <select
                       value={lnk.reviewStatus}
-                      onChange={(e) =>
-                        onUpdateLinkStatus(lnk.id, e.target.value, lnk.reviewerNote)
-                      }
+                      onChange={(e) => {
+                        const nextStatus = e.target.value;
+                        requestActionConfirmation({
+                          title: 'تأیید تغییر وضعیت پیوند کتاب و شهید',
+                          message: `آیا از تغییر وضعیت پیوند ${lnk.id} («${lnk.martyrNameRaw}» — کتاب «${lnk.bookTitleRaw}») به «${nextStatus}» اطمینان دارید؟`,
+                          confirmLabel: 'بله، وضعیت تغییر کند',
+                          variant: nextStatus.includes('رد') ? 'delete' : 'approve',
+                          onConfirm: () => {
+                            onUpdateLinkStatus(lnk.id, nextStatus, lnk.reviewerNote);
+                            onNotify(`وضعیت پیوند ${lnk.id} به «${nextStatus}» تغییر یافت.`);
+                          }
+                        });
+                      }}
                       className={`px-2.5 py-1 rounded-lg border text-xs font-bold ${
                         lnk.reviewStatus === 'تأییدشده کارشناسی' || lnk.reviewStatus === 'بررسی‌شده در پژوهش اصلی'
                           ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
@@ -1768,13 +1815,21 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    onUpdateExtractedItemStatus(
-                                      item.id,
-                                      'تأییدشده کارشناسی',
-                                      'کارشناس بازبین',
-                                      item.researcherNote
-                                    );
-                                    onNotify(`مطلب ${item.id} تأیید شد.`);
+                                    requestActionConfirmation({
+                                      title: 'تأیید نهایی مطلب استخراج‌شده',
+                                      message: `آیا از تأیید کارشناسی مطلب ${item.id} («${item.passageTitle}» — شهید «${item.martyrNameRaw}») اطمینان دارید؟`,
+                                      confirmLabel: 'بله، تأیید شود',
+                                      variant: 'approve',
+                                      onConfirm: () => {
+                                        onUpdateExtractedItemStatus(
+                                          item.id,
+                                          'تأییدشده کارشناسی',
+                                          'کارشناس بازبین',
+                                          item.researcherNote
+                                        );
+                                        onNotify(`مطلب ${item.id} تأیید شد.`);
+                                      }
+                                    });
                                   }}
                                   className="px-2 py-1 rounded-lg bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-[11px] cursor-pointer"
                                 >
@@ -1824,13 +1879,21 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              onUpdateExtractedItemStatus(
-                                item.id,
-                                'تأییدشده کارشناسی',
-                                'کارشناس بازبین',
-                                item.researcherNote
-                              );
-                              onNotify(`مطلب ${item.id} با موفقیت تأیید شد و آماده انتشار گردید.`);
+                              requestActionConfirmation({
+                                title: 'تأیید نهایی کارشناسی مطلب استخراج‌شده',
+                                message: `آیا از تأیید کارشناسی مطلب ${item.id} («${item.passageTitle}» — شهید «${item.martyrNameRaw}») اطمینان دارید؟`,
+                                confirmLabel: 'بله، تأیید کارشناسی شود',
+                                variant: 'approve',
+                                onConfirm: () => {
+                                  onUpdateExtractedItemStatus(
+                                    item.id,
+                                    'تأییدشده کارشناسی',
+                                    'کارشناس بازبین',
+                                    item.researcherNote
+                                  );
+                                  onNotify(`مطلب ${item.id} با موفقیت تأیید شد و آماده انتشار گردید.`);
+                                }
+                              });
                             }}
                             className="min-h-[30px] px-2.5 py-1 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
                           >
@@ -1855,14 +1918,24 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
                         <select
                           value={item.reviewStatus}
-                          onChange={(e) =>
-                            onUpdateExtractedItemStatus(
-                              item.id,
-                              e.target.value as ExtractedReviewStatus,
-                              item.reviewedBy || 'بازبین مرکز اسناد',
-                              item.researcherNote
-                            )
-                          }
+                          onChange={(e) => {
+                            const nextStatus = e.target.value as ExtractedReviewStatus;
+                            requestActionConfirmation({
+                              title: 'تأیید تغییر وضعیت مطلب استخراج‌شده',
+                              message: `آیا از تغییر وضعیت مطلب ${item.id} («${item.passageTitle}») به «${nextStatus}» اطمینان دارید؟`,
+                              confirmLabel: 'بله، وضعیت تغییر کند',
+                              variant: nextStatus.includes('رد') ? 'delete' : 'approve',
+                              onConfirm: () => {
+                                onUpdateExtractedItemStatus(
+                                  item.id,
+                                  nextStatus,
+                                  item.reviewedBy || 'بازبین مرکز اسناد',
+                                  item.researcherNote
+                                );
+                                onNotify(`وضعیت مطلب ${item.id} به «${nextStatus}» تغییر یافت.`);
+                              }
+                            });
+                          }}
                           className={`px-2.5 py-1 rounded-lg border text-xs font-bold ${
                             item.reviewStatus === 'تأییدشده کارشناسی' || item.reviewStatus === 'بررسی‌شده در پژوهش اصلی'
                               ? 'bg-[#EDF6F0] border-[#A8D5B5] text-[#1E4D2B]'
@@ -1908,14 +1981,24 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                                 onNotify('لطفاً دلیل رد را بنویسید.', 'warning');
                                 return;
                               }
-                              onUpdateExtractedItemStatus(
-                                item.id,
-                                'ردشده با دلیل',
-                                'کارشناس بازبین',
-                                `دلیل رد: ${extractedRejectReason.trim()}`
-                              );
-                              setRejectingExtractedId(null);
-                              onNotify(`مطلب ${item.id} با ثبت دلیل رد شد.`);
+                              const reason = extractedRejectReason.trim();
+                              requestActionConfirmation({
+                                title: 'تأیید نهایی رد مطلب استخراج‌شده',
+                                message: `آیا از رد کردن مطلب ${item.id} («${item.passageTitle}») با ذکر دلیل اطمینان دارید؟`,
+                                details: `دلیل رد: ${reason}`,
+                                confirmLabel: 'بله، مطلب رد شود',
+                                variant: 'delete',
+                                onConfirm: () => {
+                                  onUpdateExtractedItemStatus(
+                                    item.id,
+                                    'ردشده با دلیل',
+                                    'کارشناس بازبین',
+                                    `دلیل رد: ${reason}`
+                                  );
+                                  setRejectingExtractedId(null);
+                                  onNotify(`مطلب ${item.id} با ثبت دلیل رد شد.`);
+                                }
+                              });
                             }}
                             className="px-3 py-1 bg-[#A63A3A] hover:bg-[#8A2E2E] text-white font-bold rounded-lg cursor-pointer"
                           >
@@ -2395,8 +2478,17 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                     <select
                       value={pv.trackingStatus}
                       onChange={(e) => {
-                        onUpdatePendingReviewStatus(pv.trackingId, e.target.value);
-                        onNotify(`وضعیت مورد ${pv.trackingId} به «${e.target.value}» تغییر یافت.`);
+                        const nextStatus = e.target.value;
+                        requestActionConfirmation({
+                          title: 'تأیید تغییر وضعیت مورد نیازمند بررسی',
+                          message: `آیا از تغییر وضعیت مورد ${pv.trackingId} (کتاب «${pv.bookTitle}») به «${nextStatus}» اطمینان دارید؟`,
+                          confirmLabel: 'بله، وضعیت تغییر کند',
+                          variant: 'approve',
+                          onConfirm: () => {
+                            onUpdatePendingReviewStatus(pv.trackingId, nextStatus);
+                            onNotify(`وضعیت مورد ${pv.trackingId} به «${nextStatus}» تغییر یافت.`);
+                          }
+                        });
                       }}
                       className={`min-h-[40px] px-3 py-1.5 rounded-xl border font-bold text-xs ${
                         pv.trackingStatus === 'بررسی‌شده'
@@ -2706,8 +2798,16 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            setEditingGroupCode(null);
-                            onNotify(`تصمیم کارشناس برای گروه ${grp.groupCode} با موفقیت در سامانه ثبت شد.`);
+                            requestActionConfirmation({
+                              title: 'تأیید نهایی تصمیم بازبین برای گروه چندشهیدی',
+                              message: `آیا از ثبت و ذخیره نهایی تصمیم «${grp.decisionStatus}» برای گروه ${grp.groupCode} («${grp.registeredTitle}») اطمینان دارید؟`,
+                              confirmLabel: 'بله، تصمیم ثبت نهایی شود',
+                              variant: grp.decisionStatus === 'رد' ? 'delete' : 'approve',
+                              onConfirm: () => {
+                                setEditingGroupCode(null);
+                                onNotify(`تصمیم کارشناس برای گروه ${grp.groupCode} با موفقیت در سامانه ثبت شد.`);
+                              }
+                            });
                           }}
                           className="min-h-[38px] px-5 py-1.5 bg-[#1f4e79] hover:bg-[#163a5b] text-white rounded-xl font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
                         >

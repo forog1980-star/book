@@ -28,6 +28,7 @@ import { generateUniqueLinkId, generateUniqueMartyrId } from '../utils/idGenerat
 import { doesLinkMatchMartyrRecord } from '../data/soorehMehrResearch';
 import { ModalWindow } from './ModalWindow';
 import { registerInnerBackStep } from '../utils/navigationHistory';
+import { requestActionConfirmation } from '../utils/confirmDialogService';
 
 export interface NormalizedDate {
   day: string;
@@ -640,30 +641,39 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
       linkingRecord.memorial_name ||
       'شهید گمنام';
 
-    const newLink: BookMartyrLinkRecord = {
-      id: generateUniqueLinkId(links),
-      tempBookId: selectedBookForLink,
-      bookTitleRaw: bookObj?.titleRaw || selectedBookForLink,
-      publisherRaw: bookObj?.publisherRaw || '',
-      martyrNameRaw: fullName,
-      isGroupPhrase: false,
-      gravePieceRaw: linkingRecord.grave_piece || (linkingRecord.source === 'outside' ? 'قطعات عمومی' : ''),
-      graveRowRaw: linkingRecord.grave_row,
-      graveNumberRaw: linkingRecord.grave_number,
-      pageReferenceRaw: linkPageRef.trim() || 'ثبت‌نشده',
-      sourceDescriptionRaw: `متصل‌شده از بانک کل شهدای گلزار (ردیف منبع: ${linkingRecord.source_row} · نام پدر: ${linkingRecord.father_name || '—'})`,
-      sourceFile: 'golzar_martyrs.xlsx',
-      sourceSheet: linkingRecord.source === 'outside' ? 'outside_golzar_martyrs' : 'golzar_martyrs',
-      sourceExcelRow: String(linkingRecord.source_row),
-      reviewStatus: 'تأییدشده کارشناسی',
-      reviewerNote: linkNote.trim()
-    };
+    requestActionConfirmation({
+      title: 'تأیید نهایی اتصال شهید به کتاب',
+      message: `آیا از ثبت اتصال شهید «${fullName}» به کتاب «${bookObj?.titleRaw || selectedBookForLink}» اطمینان دارید؟`,
+      details: `قطعه: ${linkingRecord.grave_piece || '—'} · ردیف: ${linkingRecord.grave_row || '—'} · مزار: ${linkingRecord.grave_number || '—'} · صفحه: ${linkPageRef.trim() || 'ثبت‌نشده'}`,
+      confirmLabel: 'بله، اتصال ثبت نهایی شود',
+      variant: 'approve',
+      onConfirm: () => {
+        const newLink: BookMartyrLinkRecord = {
+          id: generateUniqueLinkId(links),
+          tempBookId: selectedBookForLink,
+          bookTitleRaw: bookObj?.titleRaw || selectedBookForLink,
+          publisherRaw: bookObj?.publisherRaw || '',
+          martyrNameRaw: fullName,
+          isGroupPhrase: false,
+          gravePieceRaw: linkingRecord.grave_piece || (linkingRecord.source === 'outside' ? 'قطعات عمومی' : ''),
+          graveRowRaw: linkingRecord.grave_row,
+          graveNumberRaw: linkingRecord.grave_number,
+          pageReferenceRaw: linkPageRef.trim() || 'ثبت‌نشده',
+          sourceDescriptionRaw: `متصل‌شده از بانک کل شهدای گلزار (ردیف منبع: ${linkingRecord.source_row} · نام پدر: ${linkingRecord.father_name || '—'})`,
+          sourceFile: 'golzar_martyrs.xlsx',
+          sourceSheet: linkingRecord.source === 'outside' ? 'outside_golzar_martyrs' : 'golzar_martyrs',
+          sourceExcelRow: String(linkingRecord.source_row),
+          reviewStatus: 'تأییدشده کارشناسی',
+          reviewerNote: linkNote.trim()
+        };
 
-    onLinkMartyrToBook(newLink);
-    onNotify(`شهید «${fullName}» با مختصات مزار به کتاب «${newLink.bookTitleRaw}» متصل شد.`);
-    setLinkingRecord(null);
-    setLinkPageRef('');
-    setLinkNote('');
+        onLinkMartyrToBook(newLink);
+        onNotify(`شهید «${fullName}» با مختصات مزار به کتاب «${newLink.bookTitleRaw}» متصل شد.`);
+        setLinkingRecord(null);
+        setLinkPageRef('');
+        setLinkNote('');
+      }
+    });
   };
 
   const shownSlice = useMemo(() => activeResults.slice(0, 120), [activeResults]);
@@ -794,13 +804,22 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              const updated: CustomMartyrRecord = {
-                                ...cm,
-                                identityVerificationStatus: 'تأییدشده',
-                                graveVerificationStatus: 'تأییدشده میدانی/سند'
-                              };
-                              onUpdateCustomMartyr(updated);
-                              onNotify(`پرونده شهید «${cm.fullName}» (${cm.martyrId}) به وضعیت تأییدشده تغییر یافت.`, 'success');
+                              requestActionConfirmation({
+                                title: 'تأیید نهایی هویت و مزار پرونده شهید',
+                                message: `آیا از تأیید نهایی هویت و نشانی مزار شهید «${cm.fullName}» (${cm.martyrId}) اطمینان دارید؟`,
+                                details: `نشانی مزار: ${cm.graveDisplayAddress || 'فاقد نشانی دقیق'}`,
+                                confirmLabel: 'بله، تأیید نهایی شود',
+                                variant: 'approve',
+                                onConfirm: () => {
+                                  const updated: CustomMartyrRecord = {
+                                    ...cm,
+                                    identityVerificationStatus: 'تأییدشده',
+                                    graveVerificationStatus: 'تأییدشده میدانی/سند'
+                                  };
+                                  onUpdateCustomMartyr(updated);
+                                  onNotify(`پرونده شهید «${cm.fullName}» (${cm.martyrId}) به وضعیت تأییدشده تغییر یافت.`, 'success');
+                                }
+                              });
                             }}
                             title="تأیید سریع هویت و مزار شهید"
                             className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer transition-colors"
@@ -1599,41 +1618,50 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                 return;
               }
               const full = `${newFirstName.trim()} ${newLastName.trim()}`.trim();
-              const id = generateUniqueMartyrId(customMartyrs.map((m) => ({ id: m.martyrId })));
-              const newRec: CustomMartyrRecord = {
-                martyrId: id,
-                firstName: newFirstName.trim(),
-                lastName: newLastName.trim(),
-                fullName: full,
-                alternativeNames: newAltNames
-                  .split(/[،,]/)
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-                externalSystemId: newExtId.trim(),
-                identityVerificationStatus: newIdentityStatus,
-                informationSource: newInfoSource.trim(),
-                description: newDescription.trim(),
-                gravePiece: newPiece.trim(),
-                graveRow: newRow.trim(),
-                graveNumber: newGraveNum.trim(),
-                graveDisplayAddress: `قطعه ${newPiece.trim() || '—'} · ردیف ${
-                  newRow.trim() || '—'
-                } · شماره ${newGraveNum.trim() || '—'}`,
-                graveSource: newGraveSource.trim(),
-                graveVerificationStatus: newGraveStatus,
-                createdAt: new Intl.DateTimeFormat('fa-IR').format(new Date())
-              };
-              if (onAddCustomMartyr) {
-                onAddCustomMartyr(newRec);
-              }
-              setShowNewMartyrModal(false);
-              setNewFirstName('');
-              setNewLastName('');
-              setNewAltNames('');
-              setNewPiece('');
-              setNewRow('');
-              setNewGraveNum('');
-              onNotify(`پرونده مستقل شهید «${full}» با شناسه داخلی ${id} ثبت شد.`);
+              requestActionConfirmation({
+                title: 'تأیید نهایی ثبت پرونده مستقل شهید',
+                message: `آیا از ثبت نهایی پرونده مستقل برای شهید «${full}» اطمینان دارید؟`,
+                details: `قطعه: ${newPiece.trim() || '—'} · ردیف: ${newRow.trim() || '—'} · شماره مزار: ${newGraveNum.trim() || '—'} · وضعیت هویت: ${newIdentityStatus}`,
+                confirmLabel: 'بله، پرونده ثبت نهایی شود',
+                variant: 'save',
+                onConfirm: () => {
+                  const id = generateUniqueMartyrId(customMartyrs.map((m) => ({ id: m.martyrId })));
+                  const newRec: CustomMartyrRecord = {
+                    martyrId: id,
+                    firstName: newFirstName.trim(),
+                    lastName: newLastName.trim(),
+                    fullName: full,
+                    alternativeNames: newAltNames
+                      .split(/[،,]/)
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                    externalSystemId: newExtId.trim(),
+                    identityVerificationStatus: newIdentityStatus,
+                    informationSource: newInfoSource.trim(),
+                    description: newDescription.trim(),
+                    gravePiece: newPiece.trim(),
+                    graveRow: newRow.trim(),
+                    graveNumber: newGraveNum.trim(),
+                    graveDisplayAddress: `قطعه ${newPiece.trim() || '—'} · ردیف ${
+                      newRow.trim() || '—'
+                    } · شماره ${newGraveNum.trim() || '—'}`,
+                    graveSource: newGraveSource.trim(),
+                    graveVerificationStatus: newGraveStatus,
+                    createdAt: new Intl.DateTimeFormat('fa-IR').format(new Date())
+                  };
+                  if (onAddCustomMartyr) {
+                    onAddCustomMartyr(newRec);
+                  }
+                  setShowNewMartyrModal(false);
+                  setNewFirstName('');
+                  setNewLastName('');
+                  setNewAltNames('');
+                  setNewPiece('');
+                  setNewRow('');
+                  setNewGraveNum('');
+                  onNotify(`پرونده مستقل شهید «${full}» با شناسه داخلی ${id} ثبت شد.`);
+                }
+              });
             }}
             className="space-y-3"
           >
@@ -1872,11 +1900,21 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                 onNotify('نام شهید نباید خالی باشد.', 'warning');
                 return;
               }
-              if (onUpdateCustomMartyr) {
-                onUpdateCustomMartyr(editingCustomMartyr);
-                onNotify(`مشخصات و وضعیت پرونده شهید «${editingCustomMartyr.fullName}» به‌روزرسانی شد.`, 'success');
-              }
-              setEditingCustomMartyr(null);
+              const targetMartyr = { ...editingCustomMartyr };
+              requestActionConfirmation({
+                title: 'تأیید نهایی ویرایش و صحت‌سنجی پرونده شهید',
+                message: `آیا از ذخیره تغییرات و وضعیت صحت‌سنجی پرونده شهید «${targetMartyr.fullName}» (${targetMartyr.martyrId}) اطمینان دارید؟`,
+                details: `هویت: ${targetMartyr.identityVerificationStatus} · مزار: ${targetMartyr.graveVerificationStatus}`,
+                confirmLabel: 'بله، تغییرات ذخیره شود',
+                variant: 'save',
+                onConfirm: () => {
+                  if (onUpdateCustomMartyr) {
+                    onUpdateCustomMartyr(targetMartyr);
+                    onNotify(`مشخصات و وضعیت پرونده شهید «${targetMartyr.fullName}» به‌روزرسانی شد.`, 'success');
+                  }
+                  setEditingCustomMartyr(null);
+                }
+              });
             }}
             className="space-y-3.5 text-xs"
           >

@@ -37,6 +37,7 @@ import {
 } from '../data/markazAsnadData';
 import { generateUniqueCopyId, generateUniqueOutsideBookId } from '../utils/idGenerator';
 import { registerInnerBackStep } from '../utils/navigationHistory';
+import { requestActionConfirmation } from '../utils/confirmDialogService';
 
 interface QuickInventoryTabProps {
   catalogRows: ReferenceCatalogRow[];
@@ -734,19 +735,32 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     }
   };
 
-  // تأیید کارشناسی کتاب خارج از فهرست اولیه
+  // تأیید کارشناسی کتاب خارج از فهرست اولیه (با پرسش دوم تأیید نهایی)
   const handleApproveOutsideRecord = (recordKey: string) => {
     const existing = auditRecords[recordKey];
     if (!existing) return;
-    const updated: FieldAuditRecord = {
-      ...existing,
-      physical: 'verified',
-      copyStatus: 'verified_present',
-      notes: existing.notes.replace(/در انتظار تأیید کارشناس/g, 'تأییدشده توسط کارشناس'),
-      updatedAt: new Date().toISOString()
-    };
-    onSaveAuditRecord(updated);
-    onNotify(`✅ کتاب «${existing.title}» (${existing.tempBookId}) توسط کارشناس تأیید نهایی شد.`);
+    requestActionConfirmation({
+      variant: 'confirm',
+      title: 'پرسش دوم: تأیید نهایی کارشناسی کتاب جدید',
+      message: `آیا از تأیید نهایی کارشناسی کتاب «${existing.title}» (${existing.tempBookId}) اطمینان دارید؟`,
+      details: [
+        `عنوان کتاب: ${existing.title}`,
+        `شناسه: ${existing.tempBookId} · نسخه: ${existing.copyId || '—'}`,
+        `محل نگهداری: ${existing.location || '—'} · دسته: ${existing.category || '—'}`
+      ],
+      confirmLabel: 'بله، تأیید نهایی کارشناس ثبت شود',
+      onConfirm: () => {
+        const updated: FieldAuditRecord = {
+          ...existing,
+          physical: 'verified',
+          copyStatus: 'verified_present',
+          notes: existing.notes.replace(/در انتظار تأیید کارشناس/g, 'تأییدشده توسط کارشناس'),
+          updatedAt: new Date().toISOString()
+        };
+        onSaveAuditRecord(updated);
+        onNotify(`✅ کتاب «${existing.title}» (${existing.tempBookId}) توسط کارشناس تأیید نهایی شد.`);
+      }
+    });
   };
 
   // Export current filter results to Excel with current Shamsi date
@@ -852,73 +866,94 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       existingRec?.source === 'outside-list' ||
       targetRow.backupSourceSheet === 'کتاب‌های خارج از فهرست';
 
-    const record: FieldAuditRecord = {
-      key: targetRow.rowKey,
-      source: isOutside ? 'outside-list' : 'catalog',
-      sheet: isOutside ? existingRec?.sheet || 'خارج از فهرست مرجع' : currentSheetName,
-      tempBookId: targetRow.tempBookId,
-      copyId: autoCopyId,
-      title: targetRow.titleRaw,
-      author: authorOverride.trim() || targetRow.authorRaw,
-      publisher: publisherOverride.trim() || targetRow.publisherRaw,
-      year: yearOverride.trim() || existingRec?.year || '',
-      isbn: isbnOverride.trim() || targetRow.isbnRaw,
-      fipa: fipaOverride.trim() || targetRow.fipaRaw,
-      registrationNo: regNoOverride.trim() || targetRow.registrationNoRaw,
-      descriptionRaw: targetRow.descriptionRaw,
-      category: categoryValue,
-      shelf: shelfValue,
-      level: levelValue,
-      location: locationCode,
-      physical: physicalStatus,
-      copyStatus:
-        physicalStatus === 'verified'
-          ? 'verified_present'
-          : physicalStatus === 'review'
-          ? 'pending_review'
-          : 'missing',
-      physicalCondition,
-      countedCopies: countedCopies.trim() || '1',
-      notes: notesValue.trim(),
-      backupSourceSheet: targetRow.backupSourceSheet,
-      backupSourceRow: targetRow.backupSourceRow,
-      updatedAt: new Date().toISOString()
-    };
+    const statusFa =
+      physicalStatus === 'verified'
+        ? 'موجود و تأییدشده در قفسه'
+        : physicalStatus === 'review'
+        ? 'نیازمند بررسی'
+        : 'پیدا نشد در قفسه';
 
-    onSaveAuditRecord(record);
+    requestActionConfirmation({
+      variant: physicalStatus === 'not_found' ? 'danger' : 'confirm',
+      title: 'پرسش دوم: تأیید نهایی ثبت اطلاعات کتاب در قفسه',
+      message: `آیا از ثبت و ذخیره وضعیت کتاب «${targetRow.titleRaw}» (${targetRow.tempBookId}) اطمینان دارید؟`,
+      details: [
+        `عنوان کتاب: ${targetRow.titleRaw}`,
+        `شناسه کتاب: ${targetRow.tempBookId} · کد نسخه: ${autoCopyId}`,
+        `گروه موضوعی: ${categoryValue}`,
+        `محل قفسه و طبقه: ${locationCode || 'بدون کد محل'} · وضعیت: ${statusFa}`
+      ],
+      confirmLabel: advanceToNextRow ? 'بله، ثبت نهایی و رفتن به کتاب بعدی' : 'بله، ثبت نهایی شود',
+      onConfirm: () => {
+        const record: FieldAuditRecord = {
+          key: targetRow.rowKey,
+          source: isOutside ? 'outside-list' : 'catalog',
+          sheet: isOutside ? existingRec?.sheet || 'خارج از فهرست مرجع' : currentSheetName,
+          tempBookId: targetRow.tempBookId,
+          copyId: autoCopyId,
+          title: targetRow.titleRaw,
+          author: authorOverride.trim() || targetRow.authorRaw,
+          publisher: publisherOverride.trim() || targetRow.publisherRaw,
+          year: yearOverride.trim() || existingRec?.year || '',
+          isbn: isbnOverride.trim() || targetRow.isbnRaw,
+          fipa: fipaOverride.trim() || targetRow.fipaRaw,
+          registrationNo: regNoOverride.trim() || targetRow.registrationNoRaw,
+          descriptionRaw: targetRow.descriptionRaw,
+          category: categoryValue,
+          shelf: shelfValue,
+          level: levelValue,
+          location: locationCode,
+          physical: physicalStatus,
+          copyStatus:
+            physicalStatus === 'verified'
+              ? 'verified_present'
+              : physicalStatus === 'review'
+              ? 'pending_review'
+              : 'missing',
+          physicalCondition,
+          countedCopies: countedCopies.trim() || '1',
+          notes: notesValue.trim(),
+          backupSourceSheet: targetRow.backupSourceSheet,
+          backupSourceRow: targetRow.backupSourceRow,
+          updatedAt: new Date().toISOString()
+        };
 
-    if (advanceToNextRow) {
-      onNotify(
-        `✅ کتاب «${targetRow.titleRaw}» (${autoCopyId}) با موفقیت ثبت شد. کتاب بعدی آماده شد.`
-      );
-      handleSelectRow(advanceToNextRow);
-      setTimeout(() => {
-        const nextElem = document.getElementById(`book-item-${advanceToNextRow.rowKey}`);
-        if (nextElem) {
-          nextElem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        onSaveAuditRecord(record);
+
+        if (advanceToNextRow) {
+          onNotify(
+            `✅ کتاب «${targetRow.titleRaw}» (${autoCopyId}) با موفقیت ثبت شد. کتاب بعدی آماده شد.`
+          );
+          handleSelectRow(advanceToNextRow);
+          setTimeout(() => {
+            const nextElem = document.getElementById(`book-item-${advanceToNextRow.rowKey}`);
+            if (nextElem) {
+              nextElem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+          }, 70);
+        } else {
+          onNotify(
+            `✅ ثبت ذخیره شد: «${targetRow.titleRaw}» (${autoCopyId}) در محل ${locationCode || 'بدون محل'} (${categoryValue})`
+          );
+          setSelectedRow(null);
+          setShowSection3Drawer(false);
+          setNotesValue('');
+          setAuthorOverride('');
+          setPublisherOverride('');
+          setYearOverride('');
+          setIsbnOverride('');
+          setFipaOverride('');
+          setRegNoOverride('');
+          setCopyIdValue('');
+          setCountedCopies('1');
+          if (!isShelfLocked) {
+            setCategoryValue('');
+            setShelfValue('');
+            setLevelValue('');
+          }
         }
-      }, 70);
-    } else {
-      onNotify(
-        `✅ ثبت ذخیره شد: «${targetRow.titleRaw}» (${autoCopyId}) در محل ${locationCode || 'بدون محل'} (${categoryValue})`
-      );
-      setSelectedRow(null);
-      setShowSection3Drawer(false);
-      setNotesValue('');
-      setAuthorOverride('');
-      setPublisherOverride('');
-      setYearOverride('');
-      setIsbnOverride('');
-      setFipaOverride('');
-      setRegNoOverride('');
-      setCopyIdValue('');
-      setCountedCopies('1');
-      if (!isShelfLocked) {
-        setCategoryValue('');
-        setShelfValue('');
-        setLevelValue('');
       }
-    }
+    });
     return true;
   };
 
@@ -944,77 +979,91 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     const chosenCat = outsideCategory || categoryValue || SUBJECT_CATEGORIES[0].label;
     const chosenShelf = (outsideShelf || shelfValue || 'SH-01') as ShelfCode;
     const chosenLevel = (outsideLevel || levelValue || 'T01') as LevelCode;
-
-    const randomSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
-    const recordKey = `OUT-${Date.now()}-${randomSuffix}`;
-    const existingBookIds = Object.values(auditRecords).map((r) => r.tempBookId);
-    const tempId = generateUniqueOutsideBookId(existingBookIds);
-    const { copyId: generatedOutCopyId } = generateUniqueCopyId(bookCopies, tempId);
     const locationCode = `${chosenShelf}-${chosenLevel}`;
-    const nowIso = new Date().toISOString();
-    const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
 
-    const record: FieldAuditRecord = {
-      key: recordKey,
-      source: 'outside-list',
-      sheet: 'ثبت کتاب خارج از فهرست',
-      tempBookId: tempId,
-      copyId: generatedOutCopyId,
-      title: cleanTitle,
-      author: outsideAuthor.trim(),
-      publisher: outsidePublisher.trim(),
-      year: outsideYear.trim(),
-      category: chosenCat,
-      shelf: chosenShelf,
-      level: chosenLevel,
-      location: locationCode,
-      physical: 'review',
-      copyStatus: 'pending_review',
-      physicalCondition: 'healthy',
-      countedCopies: '1',
-      notes: outsideNotes.trim()
-        ? `${outsideNotes.trim()} | خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس`
-        : 'خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس',
-      updatedAt: nowIso
-    };
+    requestActionConfirmation({
+      variant: 'confirm',
+      title: 'پرسش دوم: تأیید نهایی ثبت کتاب جدید (خارج از فهرست)',
+      message: `آیا از ثبت نهایی کتاب جدید «${cleanTitle}» در محل ${locationCode} اطمینان دارید؟`,
+      details: [
+        `عنوان کتاب: ${cleanTitle}`,
+        `نویسنده: ${outsideAuthor.trim() || 'ثبت‌نشده'} · ناشر: ${outsidePublisher.trim() || 'ثبت‌نشده'}`,
+        `گروه موضوعی: ${chosenCat}`,
+        `محل قفسه و طبقه: ${locationCode}`
+      ],
+      confirmLabel: 'بله، کتاب جدید ثبت شود',
+      onConfirm: () => {
+        const randomSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+        const recordKey = `OUT-${Date.now()}-${randomSuffix}`;
+        const existingBookIds = Object.values(auditRecords).map((r) => r.tempBookId);
+        const tempId = generateUniqueOutsideBookId(existingBookIds);
+        const { copyId: generatedOutCopyId } = generateUniqueCopyId(bookCopies, tempId);
+        const nowIso = new Date().toISOString();
+        const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
 
-    onSaveAuditRecord(record);
+        const record: FieldAuditRecord = {
+          key: recordKey,
+          source: 'outside-list',
+          sheet: 'ثبت کتاب خارج از فهرست',
+          tempBookId: tempId,
+          copyId: generatedOutCopyId,
+          title: cleanTitle,
+          author: outsideAuthor.trim(),
+          publisher: outsidePublisher.trim(),
+          year: outsideYear.trim(),
+          category: chosenCat,
+          shelf: chosenShelf,
+          level: chosenLevel,
+          location: locationCode,
+          physical: 'review',
+          copyStatus: 'pending_review',
+          physicalCondition: 'healthy',
+          countedCopies: '1',
+          notes: outsideNotes.trim()
+            ? `${outsideNotes.trim()} | خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس`
+            : 'خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس',
+          updatedAt: nowIso
+        };
 
-    if (onAddBookCopy) {
-      onAddBookCopy({
-        copyId: generatedOutCopyId,
-        bookId: tempId,
-        bookTitle: cleanTitle,
-        copyStatus: 'pending_review',
-        shelf: chosenShelf,
-        level: chosenLevel,
-        location: locationCode,
-        observedDate: nowFa,
-        physicalCondition: 'healthy',
-        loanOrMoveStatus: 'در قفسه مرکز اسناد',
-        expertNote: 'ثبت کتاب خارج از فهرست اولیه (در انتظار تأیید کارشناس)',
-        lastReviewedAt: nowFa,
-        locationHistory: []
-      });
-    }
+        onSaveAuditRecord(record);
 
-    setLastOutsideSavedBanner({
-      title: cleanTitle,
-      tempBookId: tempId,
-      copyId: generatedOutCopyId,
-      location: locationCode
+        if (onAddBookCopy) {
+          onAddBookCopy({
+            copyId: generatedOutCopyId,
+            bookId: tempId,
+            bookTitle: cleanTitle,
+            copyStatus: 'pending_review',
+            shelf: chosenShelf,
+            level: chosenLevel,
+            location: locationCode,
+            observedDate: nowFa,
+            physicalCondition: 'healthy',
+            loanOrMoveStatus: 'در قفسه مرکز اسناد',
+            expertNote: 'ثبت کتاب خارج از فهرست اولیه (در انتظار تأیید کارشناس)',
+            lastReviewedAt: nowFa,
+            locationHistory: []
+          });
+        }
+
+        setLastOutsideSavedBanner({
+          title: cleanTitle,
+          tempBookId: tempId,
+          copyId: generatedOutCopyId,
+          location: locationCode
+        });
+
+        // ریست کامل فیلدهای فرم شماره ۴ تا متن قبلی جا نماند
+        setOutsideTitle('');
+        setOutsideAuthor('');
+        setOutsidePublisher('');
+        setOutsideYear('');
+        setOutsideNotes('');
+
+        onNotify(
+          `✅ کتاب جدید «${cleanTitle}» با شناسه موقت ${tempId} و نسخه ${generatedOutCopyId} در محل ${locationCode} ثبت شد (در انتظار تأیید کارشناس).`
+        );
+      }
     });
-
-    // ریست کامل فیلدهای فرم شماره ۴ تا متن قبلی جا نماند
-    setOutsideTitle('');
-    setOutsideAuthor('');
-    setOutsidePublisher('');
-    setOutsideYear('');
-    setOutsideNotes('');
-
-    onNotify(
-      `✅ کتاب جدید «${cleanTitle}» با شناسه موقت ${tempId} و نسخه ${generatedOutCopyId} در محل ${locationCode} ثبت شد (در انتظار تأیید کارشناس).`
-    );
   };
 
   const totalCatalogCount = catalogRows.length;
@@ -1792,9 +1841,6 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                               <button
                                 type="button"
                                 onClick={() => {
-                                  if (selectedRow?.rowKey === row.rowKey) {
-                                    setSelectedRow(null);
-                                  }
                                   onDeleteAuditRecord(row.rowKey);
                                 }}
                                 className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-100 border border-rose-200 bg-white cursor-pointer"
@@ -2201,27 +2247,40 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                 );
                                 const sh = (shelfValue || 'SH-01') as ShelfCode;
                                 const lv = (levelValue || 'T01') as LevelCode;
-                                const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
-                                onAddBookCopy({
-                                  copyId: newCid,
-                                  bookId: selectedRow.tempBookId,
-                                  bookTitle: selectedRow.titleRaw,
-                                  copyStatus: 'verified_present',
-                                  shelf: sh,
-                                  level: lv,
-                                  location: `${sh}-${lv}`,
-                                  observedDate: nowFa,
-                                  physicalCondition: physicalCondition || 'healthy',
-                                  loanOrMoveStatus: 'در قفسه مرکز اسناد',
-                                  expertNote: `نسخه فیزیکی مستقل شماره ${toPersianDigits(
-                                    copyNumber
-                                  )} برای کتاب ${selectedRow.tempBookId}`,
-                                  lastReviewedAt: nowFa,
-                                  locationHistory: []
+                                requestActionConfirmation({
+                                  variant: 'confirm',
+                                  title: 'پرسش دوم: تأیید ثبت نسخه فیزیکی جدید (CP)',
+                                  message: `آیا از ثبت نسخه فیزیکی مستقل جدید (${newCid}) برای کتاب «${selectedRow.titleRaw}» در محل ${sh}-${lv} اطمینان دارید؟`,
+                                  details: [
+                                    `عنوان کتاب: ${selectedRow.titleRaw}`,
+                                    `کد نسخه جدید: ${newCid} (نسخه شماره ${toPersianDigits(copyNumber)})`,
+                                    `محل قفسه و طبقه: ${sh}-${lv}`
+                                  ],
+                                  confirmLabel: 'بله، نسخه فیزیکی ثبت شود',
+                                  onConfirm: () => {
+                                    const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
+                                    onAddBookCopy({
+                                      copyId: newCid,
+                                      bookId: selectedRow.tempBookId,
+                                      bookTitle: selectedRow.titleRaw,
+                                      copyStatus: 'verified_present',
+                                      shelf: sh,
+                                      level: lv,
+                                      location: `${sh}-${lv}`,
+                                      observedDate: nowFa,
+                                      physicalCondition: physicalCondition || 'healthy',
+                                      loanOrMoveStatus: 'در قفسه مرکز اسناد',
+                                      expertNote: `نسخه فیزیکی مستقل شماره ${toPersianDigits(
+                                        copyNumber
+                                      )} برای کتاب ${selectedRow.tempBookId}`,
+                                      lastReviewedAt: nowFa,
+                                      locationHistory: []
+                                    });
+                                    onNotify(
+                                      `✅ نسخه فیزیکی مستقل ${newCid} برای کتاب «${selectedRow.titleRaw}» در محل ${sh}-${lv} ثبت شد.`
+                                    );
+                                  }
                                 });
-                                onNotify(
-                                  `✅ نسخه فیزیکی مستقل ${newCid} برای کتاب «${selectedRow.titleRaw}» در محل ${sh}-${lv} ثبت شد.`
-                                );
                               }}
                               className="px-2.5 py-1 rounded-lg bg-[#2E7D5B] hover:bg-[#236247] text-white font-bold text-[11px] cursor-pointer"
                             >
@@ -2296,13 +2355,26 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        onMoveBookCopy(
-                                          cp.copyId,
-                                          moveTargetShelf,
-                                          moveTargetLevel,
-                                          moveReason
-                                        );
-                                        setMovingCopyId(null);
+                                        requestActionConfirmation({
+                                          variant: 'confirm',
+                                          title: 'پرسش دوم: تأیید انتقال محل نسخه فیزیکی',
+                                          message: `آیا از انتقال نسخه ${cp.copyId} از محل ${cp.location} به محل جدید ${moveTargetShelf}-${moveTargetLevel} اطمینان دارید؟`,
+                                          details: [
+                                            `کد نسخه: ${cp.copyId}`,
+                                            `محل قبلی: ${cp.location} ← محل جدید: ${moveTargetShelf}-${moveTargetLevel}`,
+                                            `علت جابه‌جایی: ${moveReason || 'جابه‌جایی قفسه'}`
+                                          ],
+                                          confirmLabel: 'بله، انتقال ثبت شود',
+                                          onConfirm: () => {
+                                            onMoveBookCopy(
+                                              cp.copyId,
+                                              moveTargetShelf,
+                                              moveTargetLevel,
+                                              moveReason
+                                            );
+                                            setMovingCopyId(null);
+                                          }
+                                        });
                                       }}
                                       className="px-3 py-1 rounded bg-[#1F4E79] text-white font-bold text-xs cursor-pointer"
                                     >

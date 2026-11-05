@@ -45,6 +45,7 @@ import {
   generateUniqueSuggestionId
 } from '../utils/idGenerator';
 import { RejectedSuggestionRecord } from '../utils/backupService';
+import { requestActionConfirmation } from '../utils/confirmDialogService';
 
 export interface SpecializedPublisher {
   id: string;
@@ -447,27 +448,36 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
 
   const handleSyncAndPurgeOrphans = () => {
     if (!onDeleteSuggestion) return;
-    let purgedCount = 0;
-    smartSuggestions.forEach((s) => {
-      if (isMartyrOrphanOrTest(s.martyrName, s.martyrId)) {
-        onDeleteSuggestion(s.id);
-        purgedCount++;
+    const orphanItems = smartSuggestions.filter((s) =>
+      isMartyrOrphanOrTest(s.martyrName, s.martyrId)
+    );
+    if (orphanItems.length === 0) {
+      onNotify('همه سوابق صف بررسی با پرونده‌های موجود در سیستم همگام هستند.');
+      return;
+    }
+
+    requestActionConfirmation({
+      title: 'تأیید نهایی پاک‌سازی سوابق تستی و باطل از صف',
+      message: `آیا از حذف و پاک‌سازی ${toPersianDigits(orphanItems.length)} سابقه تستی یا فاقد پرونده شهید از صف بررسی اطمینان دارید؟`,
+      details: 'این رکوردها از صف بررسی کارشناس خارج و حذف خواهند شد.',
+      confirmLabel: 'بله، پاک‌سازی انجام شود',
+      variant: 'delete',
+      onConfirm: () => {
+        orphanItems.forEach((s) => {
+          onDeleteSuggestion(s.id);
+        });
+
+        if (lastSearchFeedback && isMartyrOrphanOrTest(lastSearchFeedback.targetName)) {
+          setLastSearchFeedback(null);
+          setHighlightedSuggestionId(null);
+        }
+
+        onNotify(
+          `همگام‌سازی انجام شد: تعداد ${toPersianDigits(orphanItems.length)} سابقه تستی یا مربوط به پرونده‌های حذف‌شده از صف پاک گردید.`,
+          'success'
+        );
       }
     });
-
-    if (lastSearchFeedback && isMartyrOrphanOrTest(lastSearchFeedback.targetName)) {
-      setLastSearchFeedback(null);
-      setHighlightedSuggestionId(null);
-    }
-
-    if (purgedCount > 0) {
-      onNotify(
-        `همگام‌سازی انجام شد: تعداد ${toPersianDigits(purgedCount)} سابقه تستی یا مربوط به پرونده‌های حذف‌شده از صف پاک گردید.`,
-        'success'
-      );
-    } else {
-      onNotify('همه سوابق صف بررسی با پرونده‌های موجود در سیستم همگام هستند.');
-    }
   };
 
   // Check if a book and martyr combination was previously approved in links or rejected
@@ -1312,54 +1322,63 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
       return;
     }
 
-    const nowFa = new Intl.DateTimeFormat('fa-IR', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(new Date());
+    requestActionConfirmation({
+      title: 'تأیید نهایی ثبت دستی کتاب در صف بررسی',
+      message: `آیا از ثبت کتاب «${manualTitle.trim()}» (ناشر: ${manualPublisher.trim()}) برای شهید «${selectedMartyrName.trim() || 'شهید'}» اطمینان دارید؟`,
+      details: `نویسنده: ${manualAuthor.trim() || '—'} · منبع استناد: ${manualSource}`,
+      confirmLabel: 'بله، کتاب ثبت شود',
+      variant: 'save',
+      onConfirm: () => {
+        const nowFa = new Intl.DateTimeFormat('fa-IR', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        }).format(new Date());
 
-    const newId = generateUniqueSuggestionId(smartSuggestions);
-    const mId = generateUniqueMartyrId([
-      ...customMartyrs.map((m) => ({ id: m.martyrId })),
-      ...smartSuggestions.map((s) => ({ id: s.martyrId }))
-    ]);
-    const newSug: SmartSearchSuggestion = {
-      id: newId,
-      martyrId: mId,
-      martyrName: selectedMartyrName.trim() || 'شهید',
-      martyrAlternativeNames: computedVariants,
-      bookTitle: manualTitle.trim(),
-      authors: manualAuthor.trim() || '—',
-      publisher: manualPublisher.trim(),
-      publishYear: manualYear.trim() || '',
-      editionInfo: 'ثبت دستی مستقیم کارشناس',
-      isbn: 'استعلام کارشناس',
-      fipa: '—',
-      subjectCategory: SUBJECT_CATEGORIES[0].label,
-      publisherDescription: manualNote.trim() || `کتاب واقعی شناسایی‌شده توسط پژوهشگر از ${manualSource}`,
-      sourcePriority: 1,
-      sourceName: manualSource,
-      sourceUrl: '',
-      retrievedAt: nowFa,
-      matchEvidence: `[تطبیق دقیق — ثبت کارشناس] ثبت دستی مشخصات واقعی توسط پژوهشگر با استناد به پایگاه بیرونی ${manualSource}.`,
-      catalogComparisonStatus: 'کتاب جدید (ثبت دستی کارشناس از منابع بیرونی)',
-      reviewStatus: 'در صف بررسی کارشناس',
-      reviewerNote: manualNote.trim(),
-      reviewedBy: 'پژوهشگر مرکز اسناد',
-      reviewedAt: nowFa
-    };
+        const newId = generateUniqueSuggestionId(smartSuggestions);
+        const mId = generateUniqueMartyrId([
+          ...customMartyrs.map((m) => ({ id: m.martyrId })),
+          ...smartSuggestions.map((s) => ({ id: s.martyrId }))
+        ]);
+        const newSug: SmartSearchSuggestion = {
+          id: newId,
+          martyrId: mId,
+          martyrName: selectedMartyrName.trim() || 'شهید',
+          martyrAlternativeNames: computedVariants,
+          bookTitle: manualTitle.trim(),
+          authors: manualAuthor.trim() || '—',
+          publisher: manualPublisher.trim(),
+          publishYear: manualYear.trim() || '',
+          editionInfo: 'ثبت دستی مستقیم کارشناس',
+          isbn: 'استعلام کارشناس',
+          fipa: '—',
+          subjectCategory: SUBJECT_CATEGORIES[0].label,
+          publisherDescription: manualNote.trim() || `کتاب واقعی شناسایی‌شده توسط پژوهشگر از ${manualSource}`,
+          sourcePriority: 1,
+          sourceName: manualSource,
+          sourceUrl: '',
+          retrievedAt: nowFa,
+          matchEvidence: `[تطبیق دقیق — ثبت کارشناس] ثبت دستی مشخصات واقعی توسط پژوهشگر با استناد به پایگاه بیرونی ${manualSource}.`,
+          catalogComparisonStatus: 'کتاب جدید (ثبت دستی کارشناس از منابع بیرونی)',
+          reviewStatus: 'در صف بررسی کارشناس',
+          reviewerNote: manualNote.trim(),
+          reviewedBy: 'پژوهشگر مرکز اسناد',
+          reviewedAt: nowFa
+        };
 
-    onAddSuggestion(newSug);
-    setShowManualAddModal(false);
-    setManualTitle('');
-    setManualPublisher('');
-    setManualAuthor('');
-    setManualYear('');
-    setManualNote('');
-    setHighlightedSuggestionId(newId);
-    onNotify(`کتاب واقعی «${newSug.bookTitle}» با شناسه ${newId} در صف بررسی ثبت شد.`, 'success');
+        onAddSuggestion(newSug);
+        setShowManualAddModal(false);
+        setManualTitle('');
+        setManualPublisher('');
+        setManualAuthor('');
+        setManualYear('');
+        setManualNote('');
+        setHighlightedSuggestionId(newId);
+        onNotify(`کتاب واقعی «${newSug.bookTitle}» با شناسه ${newId} در صف بررسی ثبت شد.`, 'success');
+      }
+    });
   };
 
   const filteredSuggestions = useMemo(() => {
@@ -1374,46 +1393,55 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
   }, [smartSuggestions, queueFilter, selectedSourceCode]);
 
   const handleApproveItem = (sug: SmartSearchSuggestion) => {
-    const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
-    const updated: SmartSearchSuggestion = {
-      ...sug,
-      reviewStatus: 'تأییدشده و افزوده‌شده به پرونده',
-      reviewedBy: 'کارشناس بازبین مرکز اسناد',
-      reviewedAt: nowFa,
-      reviewerNote: sug.reviewerNote || 'تأیید کارشناس مشخصات کتاب‌شناختی و ارتباط با شهید'
-    };
+    requestActionConfirmation({
+      title: 'تأیید نهایی پیشنهاد کتاب و انتقال به پرونده شهید',
+      message: `آیا از تأیید نهایی کتاب «${sug.bookTitle}» برای شهید «${sug.martyrName}» (${sug.id}) و افزودن آن به پیوندهای رسمی اطمینان دارید؟`,
+      details: `ناشر: ${sug.publisher || '—'} · منبع: ${sug.sourceName}`,
+      confirmLabel: 'بله، تأیید نهایی و ثبت در پرونده شود',
+      variant: 'approve',
+      onConfirm: () => {
+        const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
+        const updated: SmartSearchSuggestion = {
+          ...sug,
+          reviewStatus: 'تأییدشده و افزوده‌شده به پرونده',
+          reviewedBy: 'کارشناس بازبین مرکز اسناد',
+          reviewedAt: nowFa,
+          reviewerNote: sug.reviewerNote || 'تأیید کارشناس مشخصات کتاب‌شناختی و ارتباط با شهید'
+        };
 
-    const newLink: BookMartyrLinkRecord = {
-      id: generateUniqueLinkId(links),
-      martyrNameRaw: sug.martyrName,
-      bookTitleRaw: sug.bookTitle,
-      alternativeTitle: '',
-      publisherRaw: sug.publisher,
-      sourceDescriptionRaw: `${sug.authors} | شابک: ${sug.isbn} | منبع: ${sug.sourceName}`,
-      pageReferenceRaw: '',
-      gravePieceRaw: '',
-      graveRowRaw: '',
-      graveNumberRaw: '',
-      reviewStatus: 'تأییدشده کارشناسی',
-      reviewerNote: `تأییدشده از صف جست‌وجوی هوشمند (${sug.id}) — شواهد: ${sug.matchEvidence}`,
-      tempBookId: sug.matchedCatalogBookId || `NEW-${sug.id}`,
-      sourceFile: sug.sourceName,
-      sourceSheet: 'صف جست‌وجوی هوشمند',
-      sourceExcelRow: sug.id,
-      rawNameInSource: sug.martyrName,
-      groupStartRow: '',
-      isGroupPhrase: false
-    };
+        const newLink: BookMartyrLinkRecord = {
+          id: generateUniqueLinkId(links),
+          martyrNameRaw: sug.martyrName,
+          bookTitleRaw: sug.bookTitle,
+          alternativeTitle: '',
+          publisherRaw: sug.publisher,
+          sourceDescriptionRaw: `${sug.authors} | شابک: ${sug.isbn} | منبع: ${sug.sourceName}`,
+          pageReferenceRaw: '',
+          gravePieceRaw: '',
+          graveRowRaw: '',
+          graveNumberRaw: '',
+          reviewStatus: 'تأییدشده کارشناسی',
+          reviewerNote: `تأییدشده از صف جست‌وجوی هوشمند (${sug.id}) — شواهد: ${sug.matchEvidence}`,
+          tempBookId: sug.matchedCatalogBookId || `NEW-${sug.id}`,
+          sourceFile: sug.sourceName,
+          sourceSheet: 'صف جست‌وجوی هوشمند',
+          sourceExcelRow: sug.id,
+          rawNameInSource: sug.martyrName,
+          groupStartRow: '',
+          isGroupPhrase: false
+        };
 
-    onApproveSuggestionToLinks(updated, newLink);
+        onApproveSuggestionToLinks(updated, newLink);
 
-    // If this martyr and book had a prior rejection record, remove from rejectedHistory since now approved
-    const filteredHist = rejectedHistory.filter(
-      (h) => !(h.martyrName === sug.martyrName && h.bookTitle === sug.bookTitle)
-    );
-    setRejectedHistory(filteredHist);
-    saveRejectedHistory(filteredHist);
-    onNotify(`پیشنهاد «${sug.bookTitle}» برای «${sug.martyrName}» تأیید و به پرونده شهید منتقل گردید.`, 'success');
+        // If this martyr and book had a prior rejection record, remove from rejectedHistory since now approved
+        const filteredHist = rejectedHistory.filter(
+          (h) => !(h.martyrName === sug.martyrName && h.bookTitle === sug.bookTitle)
+        );
+        setRejectedHistory(filteredHist);
+        saveRejectedHistory(filteredHist);
+        onNotify(`پیشنهاد «${sug.bookTitle}» برای «${sug.martyrName}» تأیید و به پرونده شهید منتقل گردید.`, 'success');
+      }
+    });
   };
 
   const handleConfirmReject = (sug: SmartSearchSuggestion) => {
@@ -1421,45 +1449,63 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
       onNotify('ثبت دلیل رد پیشنهاد برای مستندسازی الزامی است.', 'warning');
       return;
     }
-    const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
     const reason = rejectReason.trim();
-    onUpdateSuggestion({
-      ...sug,
-      reviewStatus: 'ردشده با ثبت دلیل',
-      reviewerNote: reason,
-      reviewedBy: 'کارشناس بازبین مرکز اسناد',
-      reviewedAt: nowFa
+    requestActionConfirmation({
+      title: 'تأیید نهایی رد پیشنهاد کتاب',
+      message: `آیا از رد کردن پیشنهاد کتاب «${sug.bookTitle}» برای «${sug.martyrName}» (${sug.id}) اطمینان دارید؟`,
+      details: `دلیل ثبت‌شده: ${reason}`,
+      confirmLabel: 'بله، پیشنهاد رد شود',
+      variant: 'delete',
+      onConfirm: () => {
+        const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
+        onUpdateSuggestion({
+          ...sug,
+          reviewStatus: 'ردشده با ثبت دلیل',
+          reviewerNote: reason,
+          reviewedBy: 'کارشناس بازبین مرکز اسناد',
+          reviewedAt: nowFa
+        });
+
+        const newHist: RejectedSuggestionHistory = {
+          martyrName: sug.martyrName,
+          bookTitle: sug.bookTitle,
+          catalogBookId: sug.matchedCatalogBookId,
+          reason,
+          rejectedBy: 'کارشناس بازبین مرکز اسناد',
+          rejectedAt: nowFa
+        };
+        const updatedHistory = [
+          newHist,
+          ...rejectedHistory.filter(
+            (h) => !(h.martyrName === sug.martyrName && h.bookTitle === sug.bookTitle)
+          )
+        ];
+        setRejectedHistory(updatedHistory);
+        saveRejectedHistory(updatedHistory);
+
+        setRejectingId(null);
+        setRejectReason('');
+        onNotify(`پیشنهاد ${sug.id} با ثبت دلیل رد شد.`);
+      }
     });
-
-    const newHist: RejectedSuggestionHistory = {
-      martyrName: sug.martyrName,
-      bookTitle: sug.bookTitle,
-      catalogBookId: sug.matchedCatalogBookId,
-      reason,
-      rejectedBy: 'کارشناس بازبین مرکز اسناد',
-      rejectedAt: nowFa
-    };
-    const updatedHistory = [
-      newHist,
-      ...rejectedHistory.filter(
-        (h) => !(h.martyrName === sug.martyrName && h.bookTitle === sug.bookTitle)
-      )
-    ];
-    setRejectedHistory(updatedHistory);
-    saveRejectedHistory(updatedHistory);
-
-    setRejectingId(null);
-    setRejectReason('');
-    onNotify(`پیشنهاد ${sug.id} با ثبت دلیل رد شد.`);
   };
 
   const handleSaveEditDraft = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editDraft) return;
-    onUpdateSuggestion(editDraft);
-    setEditingId(null);
-    setEditDraft(null);
-    onNotify(`مشخصات پیشنهاد ${editDraft.id} در صف بررسی اصلاح شد.`);
+    const draftToSave = { ...editDraft };
+    requestActionConfirmation({
+      title: 'تأیید نهایی اصلاح مشخصات پیشنهاد',
+      message: `آیا از ذخیره تغییرات مشخصات کتاب «${draftToSave.bookTitle}» (${draftToSave.id}) در صف بررسی اطمینان دارید؟`,
+      confirmLabel: 'بله، تغییرات ذخیره شود',
+      variant: 'save',
+      onConfirm: () => {
+        onUpdateSuggestion(draftToSave);
+        setEditingId(null);
+        setEditDraft(null);
+        onNotify(`مشخصات پیشنهاد ${draftToSave.id} در صف بررسی اصلاح شد.`);
+      }
+    });
   };
 
   return (
@@ -2209,10 +2255,19 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  onClearAllSuggestions();
-                  setLastSearchFeedback(null);
-                  setHighlightedSuggestionId(null);
-                  onNotify('صف بررسی کارشناس کاملاً پاک‌سازی و صفر گردید.');
+                  requestActionConfirmation({
+                    title: 'تأیید نهایی پاک‌سازی کامل صف بررسی',
+                    message: `آیا از حذف کامل تمام ${toPersianDigits(smartSuggestions.length)} پیشنهاد موجود در صف بررسی کارشناس اطمینان دارید؟`,
+                    details: 'هشدار: با این کار تمامی پیشنهادهای صف بررسی از لیست خارج و حذف می‌شوند.',
+                    confirmLabel: 'بله، کل صف پاک‌سازی شود',
+                    variant: 'delete',
+                    onConfirm: () => {
+                      onClearAllSuggestions();
+                      setLastSearchFeedback(null);
+                      setHighlightedSuggestionId(null);
+                      onNotify('صف بررسی کارشناس کاملاً پاک‌سازی و صفر گردید.');
+                    }
+                  });
                 }}
                 className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
                 title="پاک‌سازی کامل صف بررسی و صفر کردن همه رکوردهای جستجو"
@@ -2529,8 +2584,16 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        onDeleteSuggestion(sug.id);
-                        onNotify(`پیشنهاد ${sug.id} از صف بررسی حذف شد.`);
+                        requestActionConfirmation({
+                          title: 'تأیید نهایی حذف پیشنهاد از صف بررسی',
+                          message: `آیا از حذف دائمی پیشنهاد کتاب «${sug.bookTitle}» مرتبط با «${sug.martyrName}» (${sug.id}) از صف بررسی اطمینان دارید؟`,
+                          confirmLabel: 'بله، از صف حذف شود',
+                          variant: 'delete',
+                          onConfirm: () => {
+                            onDeleteSuggestion(sug.id);
+                            onNotify(`پیشنهاد ${sug.id} از صف بررسی حذف شد.`);
+                          }
+                        });
                       }}
                       className="min-h-[36px] px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
                       title="حذف دائمی این پیشنهاد از صف بررسی (مثلاً رکوردهای تست یا نامعتبر)"

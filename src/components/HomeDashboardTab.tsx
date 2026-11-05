@@ -41,6 +41,7 @@ import {
 import { parsePersianVoiceBookCommand } from '../utils/voiceCommandParser';
 import { usePWAInstall } from '../utils/usePWAInstall';
 import { generateUniqueCopyId, generateUniqueOutsideBookId } from '../utils/idGenerator';
+import { requestActionConfirmation } from '../utils/confirmDialogService';
 
 interface HomeDashboardTabProps {
   catalogRows: ReferenceCatalogRow[];
@@ -221,63 +222,80 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       onNotify('عنوان کتاب برای ذخیره الزامی است.', 'warning');
       return;
     }
-    const nowIso = new Date().toISOString();
-    const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
-    const existingIds = Object.values(auditRecords).map((r) => r.tempBookId);
-    const tempBookId = generateUniqueOutsideBookId(existingIds);
-    const { copyId } = generateUniqueCopyId(bookCopies, tempBookId);
     const loc = `${previewShelf}-${previewLevel}`;
 
-    const newRec: FieldAuditRecord = {
-      key: `VOICE::${Date.now()}`,
-      source: 'outside-list',
-      sheet: 'ثبت صوتی موبایل',
-      tempBookId,
-      copyId,
-      title: previewTitle.trim(),
-      author: previewAuthor.trim(),
-      publisher: previewPublisher.trim(),
-      year: previewYear.trim(),
-      edition: previewEdition.trim(),
-      category: previewCategory,
-      shelf: previewShelf,
-      level: previewLevel,
-      location: loc,
-      physical: 'review',
-      copyStatus: 'pending_review',
-      physicalCondition: 'healthy',
-      countedCopies: '1',
-      notes: previewNotes.trim() || `ثبت‌شده با فرمان صوتی کنار قفسه (${loc}) — در انتظار تأیید کارشناس`,
-      updatedAt: nowIso
-    };
+    requestActionConfirmation({
+      variant: 'confirm',
+      title: 'پرسش دوم: تأیید نهایی ثبت صوتی کتاب',
+      message: `آیا از ثبت نهایی کتاب «${previewTitle.trim()}» در محل ${loc} اطمینان دارید؟`,
+      details: [
+        `عنوان کتاب: ${previewTitle.trim()}`,
+        `نویسنده: ${previewAuthor.trim() || 'ثبت‌نشده'} · ناشر: ${previewPublisher.trim() || 'ثبت‌نشده'}`,
+        `دسته موضوعی: ${previewCategory}`,
+        `جانمایی قفسه و طبقه: ${loc}`
+      ],
+      confirmLabel: 'بله، ثبت نهایی شود',
+      onConfirm: () => {
+        const nowIso = new Date().toISOString();
+        const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
+        const existingIds = Object.values(auditRecords).map((r) => r.tempBookId);
+        const tempBookId = generateUniqueOutsideBookId(existingIds);
+        const { copyId } = generateUniqueCopyId(bookCopies, tempBookId);
 
-    const newCopy: BookCopyRecord = {
-      copyId,
-      bookId: tempBookId,
-      bookTitle: previewTitle.trim(),
-      copyStatus: 'pending_review',
-      shelf: previewShelf,
-      level: previewLevel,
-      location: loc,
-      observedDate: nowFa,
-      physicalCondition: 'healthy',
-      loanOrMoveStatus: 'در قفسه مرکز اسناد',
-      expertNote: `ثبت صوتی کنار قفسه (خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس) — نوبت چاپ: ${previewEdition || 'ثبت‌نشده'}`,
-      lastReviewedAt: nowFa,
-      locationHistory: []
-    };
+        const newRec: FieldAuditRecord = {
+          key: `VOICE::${Date.now()}`,
+          source: 'outside-list',
+          sheet: 'ثبت صوتی موبایل',
+          tempBookId,
+          copyId,
+          title: previewTitle.trim(),
+          author: previewAuthor.trim(),
+          publisher: previewPublisher.trim(),
+          year: previewYear.trim(),
+          edition: previewEdition.trim(),
+          category: previewCategory,
+          shelf: previewShelf,
+          level: previewLevel,
+          location: loc,
+          physical: 'review',
+          copyStatus: 'pending_review',
+          physicalCondition: 'healthy',
+          countedCopies: '1',
+          notes:
+            previewNotes.trim() ||
+            `ثبت‌شده با فرمان صوتی کنار قفسه (${loc}) — در انتظار تأیید کارشناس`,
+          updatedAt: nowIso
+        };
 
-    onSaveVoiceOrQuickBook(newRec, newCopy);
-    setShowVoiceModal(false);
-    setLastSavedNotice({
-      title: newRec.title,
-      tempBookId,
-      copyId,
-      location: loc
+        const newCopy: BookCopyRecord = {
+          copyId,
+          bookId: tempBookId,
+          bookTitle: previewTitle.trim(),
+          copyStatus: 'pending_review',
+          shelf: previewShelf,
+          level: previewLevel,
+          location: loc,
+          observedDate: nowFa,
+          physicalCondition: 'healthy',
+          loanOrMoveStatus: 'در قفسه مرکز اسناد',
+          expertNote: `ثبت صوتی کنار قفسه (خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس) — نوبت چاپ: ${previewEdition || 'ثبت‌نشده'}`,
+          lastReviewedAt: nowFa,
+          locationHistory: []
+        };
+
+        onSaveVoiceOrQuickBook(newRec, newCopy);
+        setShowVoiceModal(false);
+        setLastSavedNotice({
+          title: newRec.title,
+          tempBookId,
+          copyId,
+          location: loc
+        });
+        onNotify(
+          `✅ کتاب «${newRec.title}» با کد ${tempBookId} در محل ${loc} ثبت شد (خارج از فهرست اولیه — در انتظار تأیید کارشناس).`
+        );
+      }
     });
-    onNotify(
-      `✅ کتاب «${newRec.title}» با کد ${tempBookId} در محل ${loc} ثبت شد (خارج از فهرست اولیه — در انتظار تأیید کارشناس).`
-    );
   };
 
   const handleConfirmQuickBookSave = (e: React.FormEvent) => {
@@ -286,66 +304,82 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       onNotify('لطفاً عنوان کتاب را وارد کنید.', 'warning');
       return;
     }
-    const nowIso = new Date().toISOString();
-    const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
-    const existingIds = Object.values(auditRecords).map((r) => r.tempBookId);
-    const tempBookId = generateUniqueOutsideBookId(existingIds);
-    const { copyId } = generateUniqueCopyId(bookCopies, tempBookId);
     const loc = `${quickShelf}-${quickLevel}`;
 
-    const newRec: FieldAuditRecord = {
-      key: `QUICK::${Date.now()}`,
-      source: 'outside-list',
-      sheet: 'ثبت سریع خانه',
-      tempBookId,
-      copyId,
-      title: quickTitle.trim(),
-      author: quickAuthor.trim(),
-      publisher: quickPublisher.trim(),
-      year: quickYear.trim(),
-      category: quickCategory,
-      shelf: quickShelf,
-      level: quickLevel,
-      location: loc,
-      physical: 'review',
-      copyStatus: 'pending_review',
-      physicalCondition: 'healthy',
-      countedCopies: '1',
-      notes: 'ثبت سریع از صفحه اصلی (خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس)',
-      updatedAt: nowIso
-    };
+    requestActionConfirmation({
+      variant: 'confirm',
+      title: 'پرسش دوم: تأیید نهایی ثبت سریع کتاب',
+      message: `آیا از ثبت نهایی کتاب «${quickTitle.trim()}» در محل ${loc} اطمینان دارید؟`,
+      details: [
+        `عنوان کتاب: ${quickTitle.trim()}`,
+        `نویسنده: ${quickAuthor.trim() || 'ثبت‌نشده'} · ناشر: ${quickPublisher.trim() || 'ثبت‌نشده'}`,
+        `دسته موضوعی: ${quickCategory}`,
+        `جانمایی قفسه و طبقه: ${loc}`
+      ],
+      confirmLabel: 'بله، ثبت نهایی شود',
+      onConfirm: () => {
+        const nowIso = new Date().toISOString();
+        const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
+        const existingIds = Object.values(auditRecords).map((r) => r.tempBookId);
+        const tempBookId = generateUniqueOutsideBookId(existingIds);
+        const { copyId } = generateUniqueCopyId(bookCopies, tempBookId);
 
-    const newCopy: BookCopyRecord = {
-      copyId,
-      bookId: tempBookId,
-      bookTitle: quickTitle.trim(),
-      copyStatus: 'pending_review',
-      shelf: quickShelf,
-      level: quickLevel,
-      location: loc,
-      observedDate: nowFa,
-      physicalCondition: 'healthy',
-      loanOrMoveStatus: 'در قفسه مرکز اسناد',
-      expertNote: 'ثبت سریع از منوی خانه (در انتظار تأیید کارشناس)',
-      lastReviewedAt: nowFa,
-      locationHistory: []
-    };
+        const newRec: FieldAuditRecord = {
+          key: `QUICK::${Date.now()}`,
+          source: 'outside-list',
+          sheet: 'ثبت سریع خانه',
+          tempBookId,
+          copyId,
+          title: quickTitle.trim(),
+          author: quickAuthor.trim(),
+          publisher: quickPublisher.trim(),
+          year: quickYear.trim(),
+          category: quickCategory,
+          shelf: quickShelf,
+          level: quickLevel,
+          location: loc,
+          physical: 'review',
+          copyStatus: 'pending_review',
+          physicalCondition: 'healthy',
+          countedCopies: '1',
+          notes:
+            'ثبت سریع از صفحه اصلی (خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس)',
+          updatedAt: nowIso
+        };
 
-    onSaveVoiceOrQuickBook(newRec, newCopy);
-    setShowQuickBookModal(false);
-    setLastSavedNotice({
-      title: newRec.title,
-      tempBookId,
-      copyId,
-      location: loc
+        const newCopy: BookCopyRecord = {
+          copyId,
+          bookId: tempBookId,
+          bookTitle: quickTitle.trim(),
+          copyStatus: 'pending_review',
+          shelf: quickShelf,
+          level: quickLevel,
+          location: loc,
+          observedDate: nowFa,
+          physicalCondition: 'healthy',
+          loanOrMoveStatus: 'در قفسه مرکز اسناد',
+          expertNote: 'ثبت سریع از منوی خانه (در انتظار تأیید کارشناس)',
+          lastReviewedAt: nowFa,
+          locationHistory: []
+        };
+
+        onSaveVoiceOrQuickBook(newRec, newCopy);
+        setShowQuickBookModal(false);
+        setLastSavedNotice({
+          title: newRec.title,
+          tempBookId,
+          copyId,
+          location: loc
+        });
+        setQuickTitle('');
+        setQuickAuthor('');
+        setQuickPublisher('');
+        setQuickYear('');
+        onNotify(
+          `✅ کتاب «${newRec.title}» با شناسه ${tempBookId} و نسخه ${copyId} در ${loc} ثبت شد (خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس).`
+        );
+      }
     });
-    setQuickTitle('');
-    setQuickAuthor('');
-    setQuickPublisher('');
-    setQuickYear('');
-    onNotify(
-      `✅ کتاب «${newRec.title}» با شناسه ${tempBookId} و نسخه ${copyId} در ${loc} ثبت شد (خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس).`
-    );
   };
 
   // Global Search Results (Outside Registered Books + 980 Catalog Books + Custom & Workbook Martyrs + Links + Extracted)

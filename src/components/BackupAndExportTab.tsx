@@ -31,6 +31,7 @@ import {
   FullOperationalState,
   inspectBackupFile
 } from '../utils/backupService';
+import { requestActionConfirmation } from '../utils/confirmDialogService';
 
 interface BackupAndExportTabProps {
   auditRecords: Record<string, FieldAuditRecord>;
@@ -297,29 +298,45 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
     reader.readAsText(file, 'utf-8');
   };
 
-  const handleConfirmRestore = async () => {
+  const handleConfirmRestore = () => {
     if (!restoreInspection) return;
-    setIsRestoring(true);
-    try {
-      const res = await executeBackupRestore(
-        restoreInspection.result,
-        effectiveState,
-        restoreMode
-      );
-      if (!res.ok) {
-        onNotify(res.error || res.summaryMessage, 'warning');
-        return;
+    const modeLabel =
+      restoreMode === 'replace'
+        ? 'جایگزینی کامل داده‌های فعلی با فایل پشتیبان'
+        : 'ادغام ایمن رکوردهای فایل پشتیبان با داده‌های فعلی';
+    requestActionConfirmation({
+      title: 'تأیید نهایی بازیابی اطلاعات از فایل پشتیبان',
+      message: `آیا از اجرای عملیات «${modeLabel}» از فایل «${restoreInspection.fileName}» اطمینان دارید؟`,
+      details:
+        restoreMode === 'replace'
+          ? 'هشدار: در حالت جایگزینی کامل، داده‌های فعلی سامانه با محتویات فایل پشتیبان جایگزین می‌شوند.'
+          : 'رکوردهای جدید به داده‌های فعلی اضافه و به‌روزرسانی می‌شوند.',
+      confirmLabel: 'بله، بازیابی اجرا شود',
+      variant: restoreMode === 'replace' ? 'delete' : 'approve',
+      onConfirm: async () => {
+        setIsRestoring(true);
+        try {
+          const res = await executeBackupRestore(
+            restoreInspection.result,
+            effectiveState,
+            restoreMode
+          );
+          if (!res.ok) {
+            onNotify(res.error || res.summaryMessage, 'warning');
+            return;
+          }
+          if (onRestoreFullBackup) {
+            onRestoreFullBackup(res.restoredState, res.summaryMessage);
+          } else {
+            onMergeRecords(res.restoredState.auditRecords);
+            onNotify(res.summaryMessage);
+          }
+          setRestoreInspection(null);
+        } finally {
+          setIsRestoring(false);
+        }
       }
-      if (onRestoreFullBackup) {
-        onRestoreFullBackup(res.restoredState, res.summaryMessage);
-      } else {
-        onMergeRecords(res.restoredState.auditRecords);
-        onNotify(res.summaryMessage);
-      }
-      setRestoreInspection(null);
-    } finally {
-      setIsRestoring(false);
-    }
+    });
   };
 
   return (
@@ -382,10 +399,18 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
             <button
               type="button"
               onClick={() => {
-                const count = onMigrateLegacyRecords();
-                onNotify(
-                  `${toPersianDigits(count)} رکورد دارای کد قدیمی SHSF با موفقیت به قالب SH-01-Txx مهاجرت داده شد.`
-                );
+                requestActionConfirmation({
+                  title: 'تأیید نهایی تبدیل کدهای قدیمی قفسه',
+                  message: `آیا از تبدیل خودکار ${toPersianDigits(legacyRecords.length)} رکورد دارای کد قدیمی SHSF به الگوی استاندارد SH-01-Txx اطمینان دارید؟`,
+                  confirmLabel: 'بله، تبدیل کدها انجام شود',
+                  variant: 'approve',
+                  onConfirm: () => {
+                    const count = onMigrateLegacyRecords();
+                    onNotify(
+                      `${toPersianDigits(count)} رکورد دارای کد قدیمی SHSF با موفقیت به قالب SH-01-Txx مهاجرت داده شد.`
+                    );
+                  }
+                });
               }}
               className="min-h-[42px] px-4 py-2 bg-amber-700 text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5"
             >
