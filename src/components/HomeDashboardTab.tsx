@@ -18,6 +18,7 @@ import {
   Trash2,
   ShieldCheck
 } from 'lucide-react';
+import { ModalWindow } from './ModalWindow';
 import {
   AuditLogEntry,
   BookCopyRecord,
@@ -1213,309 +1214,177 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
 
       {/* MODAL 1: Persian Voice Input & Structured Command Parser (Section 11) */}
       {showVoiceModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-4 sm:p-6 shadow-xl space-y-4 my-8">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <div>
-                <h2 className="text-sm sm:text-base font-bold text-[#253247] flex items-center gap-2">
-                  <Mic className="w-5 h-5 text-[#2E7D5B]" />
-                  <span>ورود صوتی فارسی و ثبت سریع کنار قفسه (با پیش‌نمایش و تفکیک خودکار فیلدها)</span>
-                </h2>
-                <p className="text-xs text-[#697586] mt-0.5">
-                  گفتار شما به متن تبدیل شده، فیلدها (عنوان، نویسنده، ناشر، سال، نوبت چاپ، گروه و محل) تفکیک می‌شوند و فقط پس از تأیید شما ذخیره می‌گردد
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowVoiceModal(false)}
-                className="px-2.5 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded-lg text-[#253247]"
-              >
-                بستن
-              </button>
-            </div>
+        <ModalWindow
+          onClose={() => setShowVoiceModal(false)}
+          title="ورود صوتی فارسی و ثبت سریع کنار قفسه"
+          maxWidthClass="max-w-2xl"
+        >
+          <div className="border-b border-slate-200 pb-2.5">
+            <h2 className="text-sm sm:text-base font-bold text-[#253247] flex items-center gap-2">
+              <Mic className="w-5 h-5 text-[#2E7D5B]" />
+              <span>ورود صوتی فارسی و ثبت سریع کنار قفسه (با پیش‌نمایش و تفکیک خودکار فیلدها)</span>
+            </h2>
+            <p className="text-xs text-[#697586] mt-0.5">
+              گفتار شما به متن تبدیل شده، فیلدها (عنوان، نویسنده، ناشر، سال، نوبت چاپ، گروه و محل) تفکیک می‌شوند و فقط پس از تأیید شما ذخیره می‌گردد
+            </p>
+          </div>
 
-            {/* User Consent Notice (Section 11 rule) */}
-            <label className="flex items-start gap-2 bg-[#EAF1F7] p-3 rounded-xl text-xs text-[#253247] cursor-pointer">
-              <input
-                type="checkbox"
-                checked={voiceConsentChecked}
-                onChange={(e) => setVoiceConsentChecked(e.target.checked)}
-                className="mt-0.5 rounded"
-              />
-              <span>
-                <strong>رضایت کاربر:</strong> هیچ فایل صوتی به سرویس بیرونی ناشناس ارسال یا ضبط نمی‌شود. تبدیل گفتار به متن صرفاً با موتور محلی مرورگر (Android Chrome) یا میکروفون صفحه‌کلید گوشی انجام می‌گیرد.
-              </span>
-            </label>
+          {/* User Consent Notice (Section 11 rule) */}
+          <label className="flex items-start gap-2 bg-[#EAF1F7] p-3 rounded-xl text-xs text-[#253247] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={voiceConsentChecked}
+              onChange={(e) => setVoiceConsentChecked(e.target.checked)}
+              className="mt-0.5 rounded"
+            />
+            <span>
+              <strong>رضایت کاربر:</strong> هیچ فایل صوتی به سرویس بیرونی ناشناس ارسال یا ضبط نمی‌شود. تبدیل گفتار به متن صرفاً با موتور محلی مرورگر (Android Chrome) یا میکروفون صفحه‌کلید گوشی انجام می‌گیرد.
+            </span>
+          </label>
 
-            {/* Voice Command Input & Controls */}
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <label className="text-xs font-bold text-[#253247]">
-                  ۱. متن فرمان صوتی (می‌توانید دکمه میکروفون را بزنید یا با میکروفون کیبورد اندروید صحبت کنید):
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleStartBrowserSpeechRecognition}
-                    className={`min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors ${
-                      isListening
-                        ? 'bg-[#B94A48] text-white'
-                        : 'bg-[#2E7D5B] hover:bg-[#246348] text-white'
-                    }`}
-                  >
-                    <Mic className="w-4 h-4" />
-                    <span>{isListening ? 'در حال گوش دادن (فارسی)...' : 'شروع تشخیص گفتار مرورگر'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => syncVoiceToPreview(SAMPLE_VOICE_COMMAND)}
-                    className="min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-[#253247] text-xs font-medium"
-                  >
-                    بارگذاری فرمان نمونه استاندارد
-                  </button>
-                </div>
-              </div>
-
-              <textarea
-                rows={3}
-                value={voiceTranscript}
-                onChange={(e) => syncVoiceToPreview(e.target.value)}
-                placeholder="نمونه: عنوان کتاب: دلیل. نویسنده: نام نویسنده. ناشر: انتشارات بیست و هفت. سال چاپ: ۱۳۹۸. نوبت چاپ: سوم. گروه: روایت و خاطرات. محل: قفسه یک، طبقه سه."
-                className="w-full p-3 text-xs sm:text-sm bg-[#F5F7FA] border border-slate-300 rounded-xl focus:outline-none focus:border-[#1F4E79] focus:bg-white text-[#253247]"
-              />
-            </div>
-
-            {/* Uncertainty Warnings */}
-            {parsedVoice.uncertainFields.length > 0 && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1">
-                <div className="text-xs font-bold text-[#C58A2B] flex items-center gap-1.5">
-                  <AlertTriangle className="w-4 h-4" />
-                  <span>موارد نامطمئن یا نیازمند بررسی در فرمان صوتی:</span>
-                </div>
-                <ul className="text-xs text-[#253247] pr-4 list-disc space-y-0.5">
-                  {parsedVoice.uncertainFields.map((msg, i) => (
-                    <li key={i}>{msg}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* Editable Preview Form Before Saving */}
-            <form onSubmit={handleConfirmVoiceBookSave} className="space-y-3 pt-1">
-              <div className="text-xs font-bold text-[#1F4E79]">
-                ۲. پیش‌نمایش فیلدهای تفکیک‌شده برای بررسی و اصلاح کاربر پیش از ذخیره:
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-[#253247] mb-1">
-                    عنوان کتاب *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={previewTitle}
-                    onChange={(e) => setPreviewTitle(e.target.value)}
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-[#253247] mb-1">
-                    نویسنده / گردآورنده
-                  </label>
-                  <input
-                    type="text"
-                    value={previewAuthor}
-                    onChange={(e) => setPreviewAuthor(e.target.value)}
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-[#253247] mb-1">
-                    ناشر
-                  </label>
-                  <input
-                    type="text"
-                    value={previewPublisher}
-                    onChange={(e) => setPreviewPublisher(e.target.value)}
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[11px] font-bold text-[#253247] mb-1">
-                      سال چاپ
-                    </label>
-                    <input
-                      type="text"
-                      value={previewYear}
-                      onChange={(e) => setPreviewYear(e.target.value)}
-                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-[#253247] mb-1">
-                      نوبت چاپ
-                    </label>
-                    <input
-                      type="text"
-                      value={previewEdition}
-                      onChange={(e) => setPreviewEdition(e.target.value)}
-                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-[#253247] mb-1">
-                    گروه موضوعی (۶ دسته)
-                  </label>
-                  <select
-                    value={previewCategory}
-                    onChange={(e) => setPreviewCategory(e.target.value)}
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
-                  >
-                    {SUBJECT_CATEGORIES.map((c) => (
-                      <option key={c.code} value={c.label}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[11px] font-bold text-[#253247] mb-1">
-                      قفسه (SH-01..04)
-                    </label>
-                    <select
-                      value={previewShelf}
-                      onChange={(e) => setPreviewShelf(e.target.value as ShelfCode)}
-                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
-                    >
-                      {SHELVES.map((s) => (
-                        <option key={s.code} value={s.code}>
-                          {s.code}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-[#253247] mb-1">
-                      طبقه از بالا (T01..06)
-                    </label>
-                    <select
-                      value={previewLevel}
-                      onChange={(e) => setPreviewLevel(e.target.value as LevelCode)}
-                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
-                    >
-                      {LEVELS.map((l) => (
-                        <option key={l.code} value={l.code}>
-                          {l.code}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between bg-[#F5F7FA] px-3 py-2 rounded-xl text-xs">
-                <span>
-                  کد محل خودکار ساخته‌شده: <strong className="font-mono text-[#1F4E79]">{previewShelf}-{previewLevel}</strong>
-                </span>
-                <span className="text-[#2E7D5B] font-bold flex items-center gap-1">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>آماده تأیید نهایی</span>
-                </span>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2">
+          {/* Voice Command Input & Controls */}
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="text-xs font-bold text-[#253247]">
+                ۱. متن فرمان صوتی (می‌توانید دکمه میکروفون را بزنید یا با میکروفون کیبورد اندروید صحبت کنید):
+              </label>
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowVoiceModal(false)}
-                  className="min-h-[42px] px-4 py-2 rounded-xl bg-slate-100 text-[#253247] text-xs font-bold"
+                  onClick={handleStartBrowserSpeechRecognition}
+                  className={`min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    isListening
+                      ? 'bg-[#A63A3A] text-white'
+                      : 'bg-[#2E6F40] hover:bg-[#235632] text-white'
+                  }`}
                 >
-                  انصراف
+                  <Mic className="w-4 h-4" />
+                  <span>{isListening ? 'در حال گوش دادن (فارسی)...' : 'شروع تشخیص گفتار مرورگر'}</span>
                 </button>
                 <button
-                  type="submit"
-                  className="min-h-[42px] px-5 py-2 rounded-xl bg-[#2E7D5B] hover:bg-[#246348] text-white text-xs font-bold"
+                  type="button"
+                  onClick={() => syncVoiceToPreview(SAMPLE_VOICE_COMMAND)}
+                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-[#253247] text-xs font-medium cursor-pointer"
                 >
-                  تأیید پیش‌نمایش و ذخیره نهایی کتاب
+                  بارگذاری فرمان نمونه استاندارد
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 2: Quick Manual Book Registration */}
-      {showQuickBookModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-5 shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <h2 className="text-sm font-bold text-[#253247]">ثبت سریع کتاب و نسخه فیزیکی</h2>
-              <button
-                type="button"
-                onClick={() => setShowQuickBookModal(false)}
-                className="px-2.5 py-1 text-xs bg-slate-100 rounded-lg"
-              >
-                بستن
-              </button>
             </div>
-            <form onSubmit={handleConfirmQuickBookSave} className="space-y-3">
+
+            <textarea
+              rows={3}
+              value={voiceTranscript}
+              onChange={(e) => syncVoiceToPreview(e.target.value)}
+              placeholder="نمونه: عنوان کتاب: دلیل. نویسنده: نام نویسنده. ناشر: انتشارات بیست و هفت. سال چاپ: ۱۳۹۸. نوبت چاپ: سوم. گروه: روایت و خاطرات. محل: قفسه یک، طبقه سه."
+              className="w-full p-3 text-xs sm:text-sm bg-[#F5F7FA] border border-slate-300 rounded-xl focus:outline-none focus:border-[#1F4E79] focus:bg-white text-[#253247]"
+            />
+          </div>
+
+          {/* Uncertainty Warnings */}
+          {parsedVoice.uncertainFields.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1">
+              <div className="text-xs font-bold text-[#C58A2B] flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4" />
+                <span>موارد نامطمئن یا نیازمند بررسی در فرمان صوتی:</span>
+              </div>
+              <ul className="text-xs text-[#253247] pr-4 list-disc space-y-0.5">
+                {parsedVoice.uncertainFields.map((msg, i) => (
+                  <li key={i}>{msg}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Editable Preview Form Before Saving */}
+          <form onSubmit={handleConfirmVoiceBookSave} className="space-y-3 pt-1">
+            <div className="text-xs font-bold text-[#1F4E79]">
+              ۲. پیش‌نمایش فیلدهای تفکیک‌شده برای بررسی و اصلاح کاربر پیش از ذخیره:
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-[#253247] mb-1">عنوان کتاب *</label>
+                <label className="block text-[11px] font-bold text-[#253247] mb-1">
+                  عنوان کتاب *
+                </label>
                 <input
                   type="text"
                   required
-                  value={quickTitle}
-                  onChange={(e) => setQuickTitle(e.target.value)}
-                  placeholder="نام دقیق کتاب روی جلد..."
-                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl"
+                  value={previewTitle}
+                  onChange={(e) => setPreviewTitle(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-bold text-[#253247] mb-1">
+                  نویسنده / گردآورنده
+                </label>
+                <input
+                  type="text"
+                  value={previewAuthor}
+                  onChange={(e) => setPreviewAuthor(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-[#253247] mb-1">
+                  ناشر
+                </label>
+                <input
+                  type="text"
+                  value={previewPublisher}
+                  onChange={(e) => setPreviewPublisher(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-bold text-[#253247] mb-1">نویسنده</label>
+                  <label className="block text-[11px] font-bold text-[#253247] mb-1">
+                    سال چاپ
+                  </label>
                   <input
                     type="text"
-                    value={quickAuthor}
-                    onChange={(e) => setQuickAuthor(e.target.value)}
-                    placeholder="اختیاری..."
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl"
+                    value={previewYear}
+                    onChange={(e) => setPreviewYear(e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-[#253247] mb-1">ناشر</label>
+                  <label className="block text-[11px] font-bold text-[#253247] mb-1">
+                    نوبت چاپ
+                  </label>
                   <input
                     type="text"
-                    value={quickPublisher}
-                    onChange={(e) => setQuickPublisher(e.target.value)}
-                    placeholder="نام ناشر..."
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl"
+                    value={previewEdition}
+                    onChange={(e) => setPreviewEdition(e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-[11px] font-bold text-[#253247] mb-1">
+                  گروه موضوعی (۶ دسته)
+                </label>
+                <select
+                  value={previewCategory}
+                  onChange={(e) => setPreviewCategory(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
+                >
+                  {SUBJECT_CATEGORIES.map((c) => (
+                    <option key={c.code} value={c.label}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-bold text-[#253247] mb-1">دسته موضوعی</label>
+                  <label className="block text-[11px] font-bold text-[#253247] mb-1">
+                    قفسه (SH-01..04)
+                  </label>
                   <select
-                    value={quickCategory}
-                    onChange={(e) => setQuickCategory(e.target.value)}
-                    className="w-full px-2 py-2 text-xs border border-slate-300 rounded-xl bg-white"
-                  >
-                    {SUBJECT_CATEGORIES.map((c) => (
-                      <option key={c.code} value={c.label}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-[#253247] mb-1">قفسه</label>
-                  <select
-                    value={quickShelf}
-                    onChange={(e) => setQuickShelf(e.target.value as ShelfCode)}
-                    className="w-full px-2 py-2 text-xs border border-slate-300 rounded-xl bg-white"
+                    value={previewShelf}
+                    onChange={(e) => setPreviewShelf(e.target.value as ShelfCode)}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
                   >
                     {SHELVES.map((s) => (
                       <option key={s.code} value={s.code}>
@@ -1525,11 +1394,13 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-[#253247] mb-1">طبقه</label>
+                  <label className="block text-[11px] font-bold text-[#253247] mb-1">
+                    طبقه از بالا (T01..06)
+                  </label>
                   <select
-                    value={quickLevel}
-                    onChange={(e) => setQuickLevel(e.target.value as LevelCode)}
-                    className="w-full px-2 py-2 text-xs border border-slate-300 rounded-xl bg-white"
+                    value={previewLevel}
+                    onChange={(e) => setPreviewLevel(e.target.value as LevelCode)}
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
                   >
                     {LEVELS.map((l) => (
                       <option key={l.code} value={l.code}>
@@ -1539,57 +1410,162 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                   </select>
                 </div>
               </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowQuickBookModal(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-100 text-xs font-bold"
-                >
-                  انصراف
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-[#1F4E79] text-white text-xs font-bold"
-                >
-                  ثبت کتاب در {quickShelf}-{quickLevel}
-                </button>
+            </div>
+
+            <div className="flex items-center justify-between bg-[#F5F7FA] px-3 py-2 rounded-xl text-xs">
+              <span>
+                کد محل خودکار ساخته‌شده: <strong className="font-mono text-[#1F4E79]">{previewShelf}-{previewLevel}</strong>
+              </span>
+              <span className="text-[#2E7D5B] font-bold flex items-center gap-1">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>آماده تأیید نهایی</span>
+              </span>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setShowVoiceModal(false)}
+                className="min-h-[42px] px-4 py-2 rounded-xl bg-slate-100 text-[#253247] text-xs font-bold cursor-pointer"
+              >
+                انصراف
+              </button>
+              <button
+                type="submit"
+                className="min-h-[42px] px-5 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white text-xs font-bold cursor-pointer"
+              >
+                تأیید پیش‌نمایش و ذخیره نهایی کتاب
+              </button>
+            </div>
+          </form>
+        </ModalWindow>
+      )}
+
+      {/* MODAL 2: Quick Manual Book Registration */}
+      {showQuickBookModal && (
+        <ModalWindow
+          onClose={() => setShowQuickBookModal(false)}
+          title="ثبت سریع کتاب و نسخه فیزیکی"
+          maxWidthClass="max-w-lg"
+        >
+          <form onSubmit={handleConfirmQuickBookSave} className="space-y-3">
+            <div>
+              <label className="block text-xs font-bold text-[#253247] mb-1">عنوان کتاب *</label>
+              <input
+                type="text"
+                required
+                value={quickTitle}
+                onChange={(e) => setQuickTitle(e.target.value)}
+                placeholder="نام دقیق کتاب روی جلد..."
+                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-[#253247] mb-1">نویسنده</label>
+                <input
+                  type="text"
+                  value={quickAuthor}
+                  onChange={(e) => setQuickAuthor(e.target.value)}
+                  placeholder="اختیاری..."
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl"
+                />
               </div>
-            </form>
-          </div>
-        </div>
+              <div>
+                <label className="block text-xs font-bold text-[#253247] mb-1">ناشر</label>
+                <input
+                  type="text"
+                  value={quickPublisher}
+                  onChange={(e) => setQuickPublisher(e.target.value)}
+                  placeholder="نام ناشر..."
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-xs font-bold text-[#253247] mb-1">دسته موضوعی</label>
+                <select
+                  value={quickCategory}
+                  onChange={(e) => setQuickCategory(e.target.value)}
+                  className="w-full px-2 py-2 text-xs border border-slate-300 rounded-xl bg-white"
+                >
+                  {SUBJECT_CATEGORIES.map((c) => (
+                    <option key={c.code} value={c.label}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-[#253247] mb-1">قفسه</label>
+                <select
+                  value={quickShelf}
+                  onChange={(e) => setQuickShelf(e.target.value as ShelfCode)}
+                  className="w-full px-2 py-2 text-xs border border-slate-300 rounded-xl bg-white"
+                >
+                  {SHELVES.map((s) => (
+                    <option key={s.code} value={s.code}>
+                      {s.code}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-[#253247] mb-1">طبقه</label>
+                <select
+                  value={quickLevel}
+                  onChange={(e) => setQuickLevel(e.target.value as LevelCode)}
+                  className="w-full px-2 py-2 text-xs border border-slate-300 rounded-xl bg-white"
+                >
+                  {LEVELS.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.code}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setShowQuickBookModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-100 text-xs font-bold cursor-pointer"
+              >
+                انصراف
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white text-xs font-bold cursor-pointer"
+              >
+                ثبت کتاب در {quickShelf}-{quickLevel}
+              </button>
+            </div>
+          </form>
+        </ModalWindow>
       )}
 
       {/* MODAL 3: Android & iOS PWA Installation Guide */}
       {showInstallGuideModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <h3 className="text-sm font-bold text-[#253247]">
-                راهنمای نصب برنامه روی صفحه اصلی گوشی اندروید (PWA)
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowInstallGuideModal(false)}
-                className="px-2.5 py-1 text-xs bg-slate-100 rounded-lg"
-              >
-                بستن
-              </button>
-            </div>
-            <div className="space-y-2.5 text-xs text-[#253247] leading-relaxed">
-              <p className="font-bold text-[#1F4E79]">در گوشی‌های اندروید (مرورگر Chrome):</p>
-              <ol className="list-decimal pr-5 space-y-1">
-                <li>روی دکمه منوی سه نقطه (⋮) در بالای مرورگر کروم بزنید.</li>
-                <li>گزینه <strong>«Install app»</strong> یا <strong>«افزودن به صفحه اصلی (Add to Home screen)»</strong> را انتخاب کنید.</li>
-                <li>آیکون «مرکز اسناد» به صفحه اصلی گوشی اضافه می‌شود و به صورت تمام‌صفحه و آفلاین کار می‌کند.</li>
-              </ol>
-              <p className="font-bold text-[#1F4E79] pt-2">در آیفون و آیپد (مرورگر Safari):</p>
-              <ol className="list-decimal pr-5 space-y-1">
-                <li>دکمه <strong>Share</strong> در نوار پایین سافاری را بزنید.</li>
-                <li>گزینه <strong>Add to Home Screen</strong> را انتخاب نمایید.</li>
-              </ol>
-            </div>
+        <ModalWindow
+          onClose={() => setShowInstallGuideModal(false)}
+          title="راهنمای نصب برنامه روی صفحه اصلی گوشی اندروید (PWA)"
+          maxWidthClass="max-w-md"
+        >
+          <div className="space-y-2.5 text-xs text-[#253247] leading-relaxed">
+            <p className="font-bold text-[#1F4E79]">در گوشی‌های اندروید (مرورگر Chrome):</p>
+            <ol className="list-decimal pr-5 space-y-1">
+              <li>روی دکمه منوی سه نقطه (⋮) در بالای مرورگر کروم بزنید.</li>
+              <li>گزینه <strong>«Install app»</strong> یا <strong>«افزودن به صفحه اصلی (Add to Home screen)»</strong> را انتخاب کنید.</li>
+              <li>آیکون «مرکز اسناد» به صفحه اصلی گوشی اضافه می‌شود و به صورت تمام‌صفحه و آفلاین کار می‌کند.</li>
+            </ol>
+            <p className="font-bold text-[#1F4E79] pt-2">در آیفون و آیپد (مرورگر Safari):</p>
+            <ol className="list-decimal pr-5 space-y-1">
+              <li>دکمه <strong>Share</strong> در نوار پایین سافاری را بزنید.</li>
+              <li>گزینه <strong>Add to Home Screen</strong> را انتخاب نمایید.</li>
+            </ol>
           </div>
-        </div>
+        </ModalWindow>
       )}
     </div>
   );

@@ -22,6 +22,7 @@ import {
 } from '../data/markazAsnadData';
 import { usePWAInstall } from '../utils/usePWAInstall';
 import { ComprehensiveDocViewer } from './ComprehensiveDocViewer';
+import { ModalWindow } from './ModalWindow';
 import {
   BackupInspectionResult,
   calculateCollectionCounts,
@@ -864,35 +865,25 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
       </div>
 
       {showInstallGuideModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <h3 className="text-sm font-bold text-[#253247]">
-                راهنمای نصب برنامه روی صفحه اصلی گوشی اندروید (PWA)
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowInstallGuideModal(false)}
-                className="px-2.5 py-1 text-xs bg-slate-100 rounded-lg"
-              >
-                بستن
-              </button>
-            </div>
-            <div className="space-y-2.5 text-xs text-[#253247] leading-relaxed">
-              <p className="font-bold text-[#1F4E79]">در گوشی‌های اندروید (مرورگر Chrome):</p>
-              <ol className="list-decimal pr-5 space-y-1">
-                <li>روی دکمه منوی سه نقطه (⋮) در بالای مرورگر کروم بزنید.</li>
-                <li>گزینه <strong>«Install app»</strong> یا <strong>«افزودن به صفحه اصلی (Add to Home screen)»</strong> را انتخاب کنید.</li>
-                <li>آیکون «مرکز اسناد» به صفحه اصلی گوشی اضافه می‌شود و به صورت تمام‌صفحه و آفلاین کار می‌کند.</li>
-              </ol>
-              <p className="font-bold text-[#1F4E79] pt-2">در آیفون و آیپد (مرورگر Safari):</p>
-              <ol className="list-decimal pr-5 space-y-1">
-                <li>دکمه <strong>Share</strong> در نوار پایین سافاری را بزنید.</li>
-                <li>گزینه <strong>Add to Home Screen</strong> را انتخاب نمایید.</li>
-              </ol>
-            </div>
+        <ModalWindow
+          onClose={() => setShowInstallGuideModal(false)}
+          title="راهنمای نصب برنامه روی صفحه اصلی گوشی اندروید (PWA)"
+          maxWidthClass="max-w-md"
+        >
+          <div className="space-y-2.5 text-xs text-[#253247] leading-relaxed">
+            <p className="font-bold text-[#1F4E79]">در گوشی‌های اندروید (مرورگر Chrome):</p>
+            <ol className="list-decimal pr-5 space-y-1">
+              <li>روی دکمه منوی سه نقطه (⋮) در بالای مرورگر کروم بزنید.</li>
+              <li>گزینه <strong>«Install app»</strong> یا <strong>«افزودن به صفحه اصلی (Add to Home screen)»</strong> را انتخاب کنید.</li>
+              <li>آیکون «مرکز اسناد» به صفحه اصلی گوشی اضافه می‌شود و به صورت تمام‌صفحه و آفلاین کار می‌کند.</li>
+            </ol>
+            <p className="font-bold text-[#1F4E79] pt-2">در آیفون و آیپد (مرورگر Safari):</p>
+            <ol className="list-decimal pr-5 space-y-1">
+              <li>دکمه <strong>Share</strong> در نوار پایین سافاری را بزنید.</li>
+              <li>گزینه <strong>Add to Home Screen</strong> را انتخاب نمایید.</li>
+            </ol>
           </div>
-        </div>
+        </ModalWindow>
       )}
 
       <ComprehensiveDocViewer

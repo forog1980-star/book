@@ -23,7 +23,8 @@ import {
   RefreshCw,
   LogOut,
   ShieldCheck,
-  FileSpreadsheet
+  FileSpreadsheet,
+  ArrowRight
 } from 'lucide-react';
 import {
   AuditLogEntry,
@@ -63,6 +64,8 @@ import { ResearchAndLinksTab } from './components/ResearchAndLinksTab';
 import { BackupAndExportTab } from './components/BackupAndExportTab';
 import { PilotTestAndReportTab } from './components/PilotTestAndReportTab';
 import { ComprehensiveDocViewer } from './components/ComprehensiveDocViewer';
+import { ModalWindow } from './components/ModalWindow';
+import { closeTopModalIfAny, popInnerBackStepIfAny } from './utils/navigationHistory';
 import { useOnlineStatus, usePWAInstall } from './utils/usePWAInstall';
 import {
   hydrateOperationalKey,
@@ -130,6 +133,61 @@ export default function App() {
   const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
   const [showHeaderInstallModal, setShowHeaderInstallModal] = useState<boolean>(false);
   const [showComprehensiveDocModal, setShowComprehensiveDocModal] = useState<boolean>(false);
+
+  // پشته تاریخچه مراحل برای بازگشت دو مرحله‌ای (اول بازگشت به مرحله قبل، سپس با دو بار کلیک خروج از برنامه)
+  const navHistoryRef = React.useRef<
+    Array<{
+      tab: MainMenuTab;
+      librarySubView: 'catalog' | 'shelves';
+      showPilotSubView: boolean;
+    }>
+  >([]);
+  const isPoppingHistoryRef = React.useRef<boolean>(false);
+  const prevNavSnapRef = React.useRef<{
+    tab: MainMenuTab;
+    librarySubView: 'catalog' | 'shelves';
+    showPilotSubView: boolean;
+  }>({
+    tab: 'home',
+    librarySubView: 'catalog',
+    showPilotSubView: false
+  });
+  const doubleBackExitArmedRef = React.useRef<boolean>(false);
+  const doubleBackTimerRef = React.useRef<number | null>(null);
+  const isAllowingExitRef = React.useRef<boolean>(false);
+
+  // ثبت خودکار تغییرات تب و زیربخش در پشته بازگشت
+  useEffect(() => {
+    const prev = prevNavSnapRef.current;
+    const changed =
+      prev.tab !== activeTab ||
+      prev.librarySubView !== librarySubView ||
+      prev.showPilotSubView !== showPilotSubView;
+
+    if (!changed) return;
+
+    // هر زمان کاربر جابه‌جا شد، شمارنده دو بار کلیک خروج ریست شود
+    doubleBackExitArmedRef.current = false;
+    if (doubleBackTimerRef.current) {
+      window.clearTimeout(doubleBackTimerRef.current);
+      doubleBackTimerRef.current = null;
+    }
+
+    if (!isPoppingHistoryRef.current) {
+      navHistoryRef.current.push({ ...prev });
+      if (navHistoryRef.current.length > 30) {
+        navHistoryRef.current.shift();
+      }
+    } else {
+      isPoppingHistoryRef.current = false;
+    }
+
+    prevNavSnapRef.current = {
+      tab: activeTab,
+      librarySubView,
+      showPilotSubView
+    };
+  }, [activeTab, librarySubView, showPilotSubView]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -1196,12 +1254,130 @@ export default function App() {
     }
   };
 
+  // تابع بازگشت به مرحله قبل (هم برای دکمه Back گوشی و هم دکمه بازگشت روی صفحه)
+  const handleStepBack = React.useCallback((): 'closed_modal' | 'stepped_back' | 'at_root' => {
+    // ۱. اگر پنجره/مودالی باز است، ابتدا همان پنجره بسته شود
+    if (closeTopModalIfAny()) {
+      doubleBackExitArmedRef.current = false;
+      return 'closed_modal';
+    }
+
+    // ۱.۵. اگر کشو یا مرحله داخلی در تب فعلی باز است، ابتدا به مرحله قبلی داخل همان تب برگردد
+    if (popInnerBackStepIfAny()) {
+      doubleBackExitArmedRef.current = false;
+      return 'stepped_back';
+    }
+
+    // ۲. اگر در صفحه پایان شیفت هستیم، به صفحه خانه برگردد
+    if (isShiftEnded) {
+      setIsShiftEnded(false);
+      setActiveTab('home');
+      doubleBackExitArmedRef.current = false;
+      return 'stepped_back';
+    }
+
+    // ۳. اگر در صفحه خانه عبارتی جست‌وجو شده است، ابتدا جست‌وجو پاک شود و به نمای اولیه خانه برگردد
+    if (activeTab === 'home' && homeGlobalQuery.trim() !== '') {
+      setHomeGlobalQuery('');
+      doubleBackExitArmedRef.current = false;
+      return 'stepped_back';
+    }
+
+    // ۴. اگر در پشته تاریخچه مرحله قبلی وجود دارد، یک مرحله به عقب برگردد
+    if (navHistoryRef.current.length > 0) {
+      const prevStep = navHistoryRef.current.pop()!;
+      isPoppingHistoryRef.current = true;
+      setActiveTab(prevStep.tab);
+      setLibrarySubView(prevStep.librarySubView);
+      setShowPilotSubView(prevStep.showPilotSubView);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      doubleBackExitArmedRef.current = false;
+      return 'stepped_back';
+    }
+
+    // ۵. اگر در تب غیر از خانه هستیم ولی پشته خالی است، به تب خانه برگردد
+    if (activeTab !== 'home') {
+      isPoppingHistoryRef.current = true;
+      setActiveTab('home');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      doubleBackExitArmedRef.current = false;
+      return 'stepped_back';
+    }
+
+    return 'at_root';
+  }, [activeTab, homeGlobalQuery, isShiftEnded]);
+
+  // مدیریت دکمه بازگشت (Back) گوشی و مرورگر به صورت دو مرحله‌ای:
+  // مرحله ۱: برگشت به مرحله قبل (بستن پنجره باز یا بازگشت به صفحه/تب قبلی)
+  // مرحله ۲: در صفحه اول، با بار اول هشدار می‌دهد و با بار دوم (دو بار کلیک) از برنامه خارج می‌شود
+  useEffect(() => {
+    try {
+      window.history.pushState({ markazGuard: true }, '', window.location.href);
+    } catch {
+      // ignore
+    }
+
+    const onPopState = () => {
+      if (isAllowingExitRef.current) {
+        return;
+      }
+
+      const result = handleStepBack();
+
+      if (result === 'closed_modal' || result === 'stepped_back') {
+        try {
+          window.history.pushState({ markazGuard: true }, '', window.location.href);
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
+      // در صفحه اصلی (Root) هستیم: بررسی دو بار کلیک برای خروج
+      if (doubleBackExitArmedRef.current) {
+        // بار دوم کلیک دکمه بازگشت -> خروج از کل برنامه
+        isAllowingExitRef.current = true;
+        if (doubleBackTimerRef.current) {
+          window.clearTimeout(doubleBackTimerRef.current);
+          doubleBackTimerRef.current = null;
+        }
+        window.history.back();
+        return;
+      }
+
+      // بار اول کلیک در صفحه اصلی -> عدم خروج و نمایش پیام راهنما برای کلیک دوم
+      doubleBackExitArmedRef.current = true;
+      setToast({
+        message: 'برای خروج کامل از برنامه، یک بار دیگر دکمه بازگشت (Back) را بزنید.',
+        type: 'warning'
+      });
+
+      if (doubleBackTimerRef.current) {
+        window.clearTimeout(doubleBackTimerRef.current);
+      }
+      doubleBackTimerRef.current = window.setTimeout(() => {
+        doubleBackExitArmedRef.current = false;
+      }, 3200);
+
+      try {
+        window.history.pushState({ markazGuard: true }, '', window.location.href);
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => {
+      window.removeEventListener('popstate', onPopState);
+    };
+  }, [handleStepBack]);
+
   return (
-    <div className="min-h-screen w-full max-w-full overflow-x-hidden flex flex-col bg-[#FDF8F2] text-[#332218] pb-20">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden flex flex-col bg-[#FDF8F2] text-[#332218] pb-24">
       {activeTab === 'home' ? (
         <>
           {/* هدر پهن صفحه خانه: آرم گلزار شهدای تهران در سمت راست + عنوان کامل سامانه با پهنای حداکثری */}
-          <header className="sticky top-0 z-30 w-full max-w-full bg-[#8C3B2B] text-white px-2.5 sm:px-8 py-3 sm:py-4 shadow-xs border-b border-[#702D20]">
+          <header className="sticky top-0 z-30 w-full max-w-full bg-[#8C3B2B] text-white px-2.5 sm:px-8 pt-[max(0.75rem,env(safe-area-inset-top,0px))] pb-3 sm:py-4 shadow-xs border-b border-[#702D20]">
             <div className="max-w-6xl w-full mx-auto flex items-center gap-2.5 sm:gap-4">
               {/* آرم گلزار شهدای تهران در سمت راست هدر */}
               <div className="w-12 h-14 sm:w-16 sm:h-20 rounded-xl bg-[#FDF8F2] border-2 border-[#E6D5C1] shadow-xs flex items-center justify-center shrink-0 overflow-hidden p-1">
@@ -1340,9 +1516,9 @@ export default function App() {
           </div>
         </>
       ) : (
-        /* هدر تمیز و متناسب سایر برگ‌ها: بدون شلوغی و با یک دکمه خروج فوق‌العاده ظریف و شکیل */
-        <header className="sticky top-0 z-30 w-full max-w-full bg-[#8C3B2B] text-white px-3 sm:px-8 py-2.5 sm:py-3.5 shadow-xs border-b border-[#702D20]">
-          <div className="max-w-6xl mx-auto flex items-center justify-between gap-3">
+        /* هدر تمیز و متناسب سایر برگ‌ها همراه با کلید بازگشت به مرحله قبل و کلید خروج */
+        <header className="sticky top-0 z-30 w-full max-w-full bg-[#8C3B2B] text-white px-3 sm:px-8 pt-[max(0.65rem,env(safe-area-inset-top,0px))] pb-2.5 sm:py-3.5 shadow-xs border-b border-[#702D20]">
+          <div className="max-w-6xl mx-auto flex items-center justify-between gap-2.5">
             <div className="min-w-0 flex-1">
               <h1 className="font-titr text-base sm:text-lg md:text-xl font-bold text-[#FDF8F2] leading-snug">
                 {TAB_HEADER_INFO[activeTab].title}
@@ -1354,8 +1530,18 @@ export default function App() {
               ) : null}
             </div>
 
-            {/* کلید خروج فوق‌العاده ظریف و کوچک (فقط یک آیکون خروج مینیمال بدون برهم زدن هدر) */}
-            <div className="flex items-center shrink-0">
+            {/* کلید بازگشت به مرحله قبل + کلید خروج با تأیید */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => handleStepBack()}
+                className="min-h-[32px] px-2.5 py-1 text-xs font-bold bg-white/15 hover:bg-white/25 text-white rounded-lg border border-white/25 shadow-xs inline-flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                title="بازگشت به مرحله قبل"
+              >
+                <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+                <span className="text-[10px] sm:text-xs">مرحله قبل</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setShowExitConfirmModal(true)}
@@ -1436,10 +1622,10 @@ export default function App() {
         </div>
       )}
 
-      {/* Toast Notification (شناور در بالای صفحه تا در هر بخش اسکرول‌شده بلافاصله دیده شود) */}
+      {/* Toast Notification (شناور در بالای صفحه با فاصله امن از نوار وضعیت آنتن و باتری گوشی) */}
       {toast && (
         <div
-          className={`fixed top-3 left-1/2 -translate-x-1/2 z-50 w-[94%] max-w-2xl px-4 py-3 text-xs sm:text-sm font-bold rounded-2xl border-2 shadow-2xl ${
+          className={`fixed top-[max(1rem,calc(env(safe-area-inset-top,0px)+0.75rem))] left-1/2 -translate-x-1/2 z-[120] w-[92%] max-w-2xl px-4 py-3 text-xs sm:text-sm font-bold rounded-2xl border-2 shadow-2xl ${
             toast.type === 'warning'
               ? 'bg-amber-100 border-amber-400 text-amber-950'
               : 'bg-[#2E7D5B] border-emerald-900 text-white'
@@ -2037,10 +2223,10 @@ export default function App() {
         </button>
       )}
 
-      {/* پنج برگه اصلی پایین صفحه همراه با آیکون‌هایشان (خانه، کتابخانه، شهدا، جست‌وجو، پژوهش) */}
+      {/* پنج برگه اصلی پایین صفحه همراه با آیکون‌هایشان (با فاصله امن از کلیدهای ناوبری پایین گوشی) */}
       <nav
         aria-label="پنج منوی اصلی پایین صفحه"
-        className="fixed bottom-0 inset-x-0 w-full max-w-full overflow-hidden z-40 bg-[#FDF8F2]/95 backdrop-blur-md border-t border-[#E6D5C1] shadow-sm"
+        className="fixed bottom-0 inset-x-0 w-full max-w-full overflow-hidden z-40 bg-[#FDF8F2]/95 backdrop-blur-md border-t border-[#E6D5C1] shadow-sm pb-[env(safe-area-inset-bottom,0px)]"
       >
         <div className="max-w-6xl mx-auto grid grid-cols-5 items-center h-16 px-1 sm:px-4">
           <button
@@ -2119,184 +2305,167 @@ export default function App() {
 
       {/* راهنمای نصب برنامه روی گوشی از طریق آیکون کوچک بالای صفحه خانه */}
       {showHeaderInstallModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <h3 className="text-sm font-bold text-[#253247]">
-                راهنمای نصب برنامه روی صفحه اصلی گوشی اندروید (PWA)
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowHeaderInstallModal(false)}
-                className="px-2.5 py-1 text-xs bg-slate-100 rounded-lg"
-              >
-                بستن
-              </button>
-            </div>
-            <div className="space-y-2.5 text-xs text-[#253247] leading-relaxed">
-              <p className="font-bold text-[#1F4E79]">در گوشی‌های اندروید (مرورگر Chrome):</p>
-              <ol className="list-decimal pr-5 space-y-1">
-                <li>روی دکمه منوی سه نقطه (⋮) در بالای مرورگر کروم بزنید.</li>
-                <li>گزینه <strong>«Install app»</strong> یا <strong>«افزودن به صفحه اصلی (Add to Home screen)»</strong> را انتخاب کنید.</li>
-                <li>آیکون «مرکز اسناد» به صفحه اصلی گوشی اضافه می‌شود و به صورت تمام‌صفحه و آفلاین کار می‌کند.</li>
-              </ol>
-              <p className="font-bold text-[#1F4E79] pt-2">در آیفون و آیپد (مرورگر Safari):</p>
-              <ol className="list-decimal pr-5 space-y-1">
-                <li>دکمه <strong>Share</strong> در نوار پایین سافاری را بزنید.</li>
-                <li>گزینه <strong>Add to Home Screen</strong> را انتخاب نمایید.</li>
-              </ol>
-            </div>
+        <ModalWindow
+          onClose={() => setShowHeaderInstallModal(false)}
+          title="راهنمای نصب برنامه روی صفحه اصلی گوشی اندروید (PWA)"
+          maxWidthClass="max-w-md"
+        >
+          <div className="space-y-2.5 text-xs text-[#253247] leading-relaxed">
+            <p className="font-bold text-[#1F4E79]">در گوشی‌های اندروید (مرورگر Chrome):</p>
+            <ol className="list-decimal pr-5 space-y-1">
+              <li>روی دکمه منوی سه نقطه (⋮) در بالای مرورگر کروم بزنید.</li>
+              <li>گزینه <strong>«Install app»</strong> یا <strong>«افزودن به صفحه اصلی (Add to Home screen)»</strong> را انتخاب کنید.</li>
+              <li>آیکون «مرکز اسناد» به صفحه اصلی گوشی اضافه می‌شود و به صورت تمام‌صفحه و آفلاین کار می‌کند.</li>
+            </ol>
+            <p className="font-bold text-[#1F4E79] pt-2">در آیفون و آیپد (مرورگر Safari):</p>
+            <ol className="list-decimal pr-5 space-y-1">
+              <li>دکمه <strong>Share</strong> در نوار پایین سافاری را بزنید.</li>
+              <li>گزینه <strong>Add to Home Screen</strong> را انتخاب نمایید.</li>
+            </ol>
           </div>
-        </div>
+        </ModalWindow>
       )}
 
       {/* پنجره هشدار و تأیید ذخیره‌سازی اطلاعات قبل از خروج (پایگاه book) */}
       {showExitConfirmModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-6 h-6 text-[#2E7D5B]" />
-                <h3 className="text-sm sm:text-base font-bold text-slate-900">
-                  تأیید ذخیره‌سازی اطلاعات و پایان شیفت کاری
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowExitConfirmModal(false)}
-                className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center text-xs cursor-pointer"
-              >
-                ✕
-              </button>
+        <ModalWindow
+          onClose={() => setShowExitConfirmModal(false)}
+          title="تأیید ذخیره‌سازی اطلاعات و پایان شیفت کاری"
+          maxWidthClass="max-w-lg"
+        >
+          <div className="flex items-center gap-2 border-b border-slate-200 pb-2.5">
+            <ShieldCheck className="w-6 h-6 text-[#2E7D5B] shrink-0" />
+            <h3 className="text-sm sm:text-base font-bold text-slate-900">
+              تأیید ذخیره‌سازی اطلاعات و پایان شیفت کاری
+            </h3>
+          </div>
+
+          {/* کارت گزارش وضعیت ذخیره در گوشی با عنوان book */}
+          <div className="bg-[#FAF3EA] border border-[#E6D5C1] rounded-xl p-3.5 space-y-2.5 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-[#5D4636]">محل و عنوان ثبت در گوشی:</span>
+              <span className="font-mono font-bold text-sm bg-white px-2 py-0.5 rounded border border-[#E6D5C1] text-[#8C3B2B]">
+                book (IndexedDB + localStorage)
+              </span>
             </div>
-
-            {/* کارت گزارش وضعیت ذخیره در گوشی با عنوان book */}
-            <div className="bg-[#FAF3EA] border border-[#E6D5C1] rounded-xl p-3.5 space-y-2.5 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-[#5D4636]">محل و عنوان ثبت در گوشی:</span>
-                <span className="font-mono font-bold text-sm bg-white px-2 py-0.5 rounded border border-[#E6D5C1] text-[#8C3B2B]">
-                  book (IndexedDB + localStorage)
+            <div className="flex items-center justify-between">
+              <span className="text-[#5D4636]">وضعیت واقعی ذخیره‌ساز محلی:</span>
+              {storageStatus === 'error' ? (
+                <span className="font-bold text-red-700">
+                  خطا در ذخیره‌سازی ({storageErrorMsg || 'نیازمند دانلود پشتیبان JSON'}) ⚠️
                 </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[#5D4636]">وضعیت واقعی ذخیره‌ساز محلی:</span>
-                {storageStatus === 'error' ? (
-                  <span className="font-bold text-red-700">
-                    خطا در ذخیره‌سازی ({storageErrorMsg || 'نیازمند دانلود پشتیبان JSON'}) ⚠️
-                  </span>
-                ) : storageStatus === 'saving' ? (
-                  <span className="font-bold text-amber-700">در حال ذخیره...</span>
-                ) : (
-                  <span className="font-bold text-[#2E7D5B]">تأییدشده و پایدار ✅</span>
-                )}
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[#5D4636]">کل عملیات و تغییرات ثبت‌شده در این نشست:</span>
-                <span className="font-bold text-[#2E7D5B] text-sm">
-                  {toPersianDigits(sessionEditsCount)} عملیات
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[#5D4636]">کتاب‌های ثبت‌شده قفسه / نسخه‌های فیزیکی CP:</span>
-                <span className="font-bold text-slate-800">
-                  {toPersianDigits(totalSavedCount)} کتاب / {toPersianDigits(bookCopies.length)} نسخه CP
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[#5D4636]">ارتباطات کتاب و شهید / شهدای اضافه‌شده:</span>
-                <span className="font-bold text-slate-800">
-                  {toPersianDigits(links.length)} ارتباط / {toPersianDigits(customMartyrs.length)} شهید
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[#5D4636]">آخرین زمان ذخیره در حافظه دستگاه:</span>
-                <span className="text-slate-700 font-mono">
-                  {lastSavedTime || 'لحظاتی پیش'}
-                </span>
-              </div>
+              ) : storageStatus === 'saving' ? (
+                <span className="font-bold text-amber-700">در حال ذخیره...</span>
+              ) : (
+                <span className="font-bold text-[#2E7D5B]">تأییدشده و پایدار ✅</span>
+              )}
             </div>
-
-            {storageStatus === 'error' ? (
-              <div className="bg-red-50 border border-red-300 rounded-xl p-3 text-xs text-red-950 flex items-start gap-2">
-                <AlertTriangle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
-                <p className="leading-relaxed font-semibold">
-                  هشدار: آخرین عملیات ذخیره‌سازی در حافظه مرورگر با خطا مواجه شده است. پیش از خروج حتماً روی دکمه «دریافت پشتیبان کامل سامانه (JSON)» کلیک کنید تا هیچ داده‌ای از دست نرود.
-                </p>
-              </div>
-            ) : (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-950 flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-[#2E7D5B] shrink-0 mt-0.5" />
-                <p className="leading-relaxed">
-                  کلیه ۱۱ مجموعه داده عملیاتی شما در پایگاه <strong>book</strong> (IndexedDB و localStorage) ذخیره شده است. توجه: برای <strong>پشتیبان کامل سامانه</strong> از خروجی JSON نسخه ۳ استفاده نمایید؛ خروجی اکسل صرفاً گزارش تخصصی ثبت‌های قفسه و نسخه‌های فیزیکی است.
-                </p>
-              </div>
-            )}
-
-            <p className="text-xs text-slate-700 font-semibold text-center">
-              آیا مایلید به شیفت کاری خود پایان دهید؟
-            </p>
-
-            {/* کلیدهای تصمیم‌گیری در پایان شیفت */}
-            <div className="space-y-2 pt-1">
-              {/* گزینه ۱: دریافت پشتیبان کامل JSON (هر ۱۱ مجموعه داده) و خروج */}
-              <button
-                type="button"
-                onClick={() => {
-                  const ok = handleFullJsonBackupDownload();
-                  if (ok) {
-                    setSessionEditsCount(0);
-                    setShowExitConfirmModal(false);
-                    setIsShiftEnded(true);
-                  }
-                }}
-                className="w-full min-h-[46px] px-4 py-2.5 bg-[#2E7D5B] hover:bg-[#236247] text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 transition-colors shadow-xs cursor-pointer"
-              >
-                <Download className="w-4 h-4 shrink-0" />
-                <span>دریافت پشتیبان کامل سامانه (JSON شامل هر ۱۱ مجموعه) و خروج (توصیه‌شده)</span>
-              </button>
-
-              {/* گزینه ۲: دریافت خروجی تخصصی اکسل قفسه و خروج */}
-              <button
-                type="button"
-                onClick={() => {
-                  handleQuickExcelExport();
-                  setSessionEditsCount(0);
-                  setShowExitConfirmModal(false);
-                  setIsShiftEnded(true);
-                }}
-                className="w-full min-h-[42px] px-4 py-2 bg-[#1F4E79] hover:bg-[#163858] text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
-              >
-                <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                <span>دریافت خروجی تخصصی اکسل (ثبت‌های قفسه و نسخه‌های CP) و خروج</span>
-              </button>
-
-              {/* گزینه ۳: خروج مستقیم در صورت تأیید سلامت ذخیره‌ساز */}
-              <button
-                type="button"
-                disabled={storageStatus === 'error'}
-                onClick={() => {
-                  setSessionEditsCount(0);
-                  setShowExitConfirmModal(false);
-                  setIsShiftEnded(true);
-                  showNotify('خروج با موفقیت ثبت شد. اطلاعات در پایگاه book در گوشی محفوظ است.');
-                }}
-                className="w-full min-h-[42px] px-4 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
-              >
-                <CheckCircle2 className="w-4 h-4 text-slate-500 shrink-0" />
-                <span>تأیید خروج بدون دانلود فایل (داده‌ها در حافظه دستگاه ذخیره است)</span>
-              </button>
-
-              {/* گزینه ۴: انصراف و بازگشت به کار */}
-              <button
-                type="button"
-                onClick={() => setShowExitConfirmModal(false)}
-                className="w-full min-h-[40px] px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium text-xs rounded-xl flex items-center justify-center transition-colors cursor-pointer"
-              >
-                انصراف و ادامه کار در برنامه
-              </button>
+            <div className="flex items-center justify-between">
+              <span className="text-[#5D4636]">کل عملیات و تغییرات ثبت‌شده در این نشست:</span>
+              <span className="font-bold text-[#2E7D5B] text-sm">
+                {toPersianDigits(sessionEditsCount)} عملیات
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[#5D4636]">کتاب‌های ثبت‌شده قفسه / نسخه‌های فیزیکی CP:</span>
+              <span className="font-bold text-slate-800">
+                {toPersianDigits(totalSavedCount)} کتاب / {toPersianDigits(bookCopies.length)} نسخه CP
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[#5D4636]">ارتباطات کتاب و شهید / شهدای اضافه‌شده:</span>
+              <span className="font-bold text-slate-800">
+                {toPersianDigits(links.length)} ارتباط / {toPersianDigits(customMartyrs.length)} شهید
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[#5D4636]">آخرین زمان ذخیره در حافظه دستگاه:</span>
+              <span className="text-slate-700 font-mono">
+                {lastSavedTime || 'لحظاتی پیش'}
+              </span>
             </div>
           </div>
-        </div>
+
+          {storageStatus === 'error' ? (
+            <div className="bg-red-50 border border-red-300 rounded-xl p-3 text-xs text-red-950 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
+              <p className="leading-relaxed font-semibold">
+                هشدار: آخرین عملیات ذخیره‌سازی در حافظه مرورگر با خطا مواجه شده است. پیش از خروج حتماً روی دکمه «دریافت پشتیبان کامل سامانه (JSON)» کلیک کنید تا هیچ داده‌ای از دست نرود.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-950 flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 text-[#2E7D5B] shrink-0 mt-0.5" />
+              <p className="leading-relaxed">
+                کلیه ۱۱ مجموعه داده عملیاتی شما در پایگاه <strong>book</strong> (IndexedDB و localStorage) ذخیره شده است. توجه: برای <strong>پشتیبان کامل سامانه</strong> از خروجی JSON نسخه ۳ استفاده نمایید؛ خروجی اکسل صرفاً گزارش تخصصی ثبت‌های قفسه و نسخه‌های فیزیکی است.
+              </p>
+            </div>
+          )}
+
+          <p className="text-xs text-slate-700 font-semibold text-center">
+            آیا مایلید به شیفت کاری خود پایان دهید؟
+          </p>
+
+          {/* کلیدهای تصمیم‌گیری در پایان شیفت */}
+          <div className="space-y-2 pt-1">
+            {/* گزینه ۱: دریافت پشتیبان کامل JSON (هر ۱۱ مجموعه داده) و خروج */}
+            <button
+              type="button"
+              onClick={() => {
+                const ok = handleFullJsonBackupDownload();
+                if (ok) {
+                  setSessionEditsCount(0);
+                  setShowExitConfirmModal(false);
+                  setIsShiftEnded(true);
+                }
+              }}
+              className="w-full min-h-[46px] px-4 py-2.5 bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 transition-colors shadow-xs cursor-pointer"
+            >
+              <Download className="w-4 h-4 shrink-0" />
+              <span>دریافت پشتیبان کامل سامانه (JSON شامل هر ۱۱ مجموعه) و خروج (توصیه‌شده)</span>
+            </button>
+
+            {/* گزینه ۲: دریافت خروجی تخصصی اکسل قفسه و خروج */}
+            <button
+              type="button"
+              onClick={() => {
+                handleQuickExcelExport();
+                setSessionEditsCount(0);
+                setShowExitConfirmModal(false);
+                setIsShiftEnded(true);
+              }}
+              className="w-full min-h-[42px] px-4 py-2 bg-[#6B3E26] hover:bg-[#54301D] text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
+            >
+              <FileSpreadsheet className="w-4 h-4 shrink-0" />
+              <span>دریافت خروجی تخصصی اکسل (ثبت‌های قفسه و نسخه‌های CP) و خروج</span>
+            </button>
+
+            {/* گزینه ۳: خروج مستقیم در صورت تأیید سلامت ذخیره‌ساز */}
+            <button
+              type="button"
+              disabled={storageStatus === 'error'}
+              onClick={() => {
+                setSessionEditsCount(0);
+                setShowExitConfirmModal(false);
+                setIsShiftEnded(true);
+                showNotify('خروج با موفقیت ثبت شد. اطلاعات در پایگاه book در گوشی محفوظ است.');
+              }}
+              className="w-full min-h-[42px] px-4 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
+            >
+              <CheckCircle2 className="w-4 h-4 text-slate-500 shrink-0" />
+              <span>تأیید خروج بدون دانلود فایل (داده‌ها در حافظه دستگاه ذخیره است)</span>
+            </button>
+
+            {/* گزینه ۴: انصراف و بازگشت به کار */}
+            <button
+              type="button"
+              onClick={() => setShowExitConfirmModal(false)}
+              className="w-full min-h-[40px] px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium text-xs rounded-xl flex items-center justify-center transition-colors cursor-pointer"
+            >
+              انصراف و ادامه کار در برنامه
+            </button>
+          </div>
+        </ModalWindow>
       )}
     </div>
   );

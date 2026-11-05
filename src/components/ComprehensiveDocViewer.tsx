@@ -20,6 +20,7 @@ import comprehensiveMainDocRaw from '../../public/assets/aistudio/Paste_November
 import technicalDocV02Raw from '../../public/assets/aistudio/_________-_________________________-20261015_bd46add9.md?raw';
 import executiveAndCodingDocRaw from '../../public/assets/aistudio/Paste_November_01__2026_-_9_21AM_6393e765?raw';
 import { toPersianDigits } from '../data/markazAsnadData';
+import { ModalWindow } from './ModalWindow';
 
 interface ComprehensiveDocViewerProps {
   isOpen: boolean;
@@ -549,17 +550,17 @@ export const ComprehensiveDocViewer: React.FC<ComprehensiveDocViewerProps> = ({
   const selectedSectionObj = sections.find((s) => s.id === selectedSectionId);
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/65 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto"
-      role="dialog"
-      aria-modal="true"
-      aria-label="مشاهده سند جامع کتابخانه مرکز اسناد گلزار شهدا"
+    <ModalWindow
+      onClose={onClose}
+      title="سند جامع و مستندات مرجع مرکز اسناد گلزار شهدا"
+      maxWidthClass="max-w-6xl"
+      contentClassName="flex-1 flex flex-col overflow-hidden bg-[#FDF8F2]"
     >
-      <div className="bg-[#FDF8F2] border-2 border-[#8C3B2B] rounded-2xl max-w-6xl w-full max-h-[95vh] flex flex-col shadow-2xl overflow-hidden">
+      <div className="bg-[#FDF8F2] w-full flex-1 flex flex-col overflow-hidden">
         {/* Modal Top Header */}
-        <div className="bg-[#8C3B2B] text-[#FDF8F2] px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="bg-[#8C3B2B] text-[#FDF8F2] px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#FDF8F2]/15 border border-[#FDF8F2]/30 flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-[#FDF8F2]/15 border border-[#FDF8F2]/30 flex items-center justify-center shrink-0">
               <BookOpen className="w-5 h-5 text-[#FDF8F2]" />
             </div>
             <div>
@@ -576,15 +577,6 @@ export const ComprehensiveDocViewer: React.FC<ComprehensiveDocViewerProps> = ({
               </p>
             </div>
           </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#FDF8F2]/15 hover:bg-[#FDF8F2]/25 text-[#FDF8F2] text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-            <span>بستن پنجره سند</span>
-          </button>
         </div>
 
         {/* Document Switcher & Action Bar */}
@@ -967,6 +959,6 @@ export const ComprehensiveDocViewer: React.FC<ComprehensiveDocViewerProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </ModalWindow>
   );
 };

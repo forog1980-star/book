@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Search,
@@ -26,6 +26,8 @@ import {
   SlidersHorizontal
 } from 'lucide-react';
 import { DepositoryAndExportHub } from './DepositoryAndExportHub';
+import { ModalWindow } from './ModalWindow';
+import { registerInnerBackStep } from '../utils/navigationHistory';
 import {
   BookCopyRecord,
   BookMartyrLinkRecord,
@@ -88,6 +90,15 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
   const [subView, setSubView] = useState<
     'links' | 'ghatat_sheets' | 'extracted' | 'pending567' | 'groups16' | 'publish_gateway' | 'depository'
   >('depository');
+
+  // ثبت زیربخش‌های پژوهش در پشته بازگشت تا کلید Back ابتدا به نمای اصلی انبار اسناد برگردد
+  useEffect(() => {
+    if (subView === 'depository') return;
+    return registerInnerBackStep('research-subview', () => {
+      setSubView('depository');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }, [subView]);
   const [ghatatActiveSheet, setGhatatActiveSheet] = useState<'one' | 'multi'>('one');
   const [ghatatQuery, setGhatatQuery] = useState('');
   const [ghatatPage, setGhatatPage] = useState<number>(1);
@@ -2155,167 +2166,162 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
           {/* فرم مودال بررسی و تکمیل اطلاعات رکورد انتخابی */}
           {activeReviewPv && (
-            <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-              <div className="bg-white rounded-2xl shadow-2xl border-2 border-[#1f4e79] w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden text-xs my-auto animate-in fade-in duration-200">
-                <div className="bg-[#1f4e79] text-white p-4 flex items-center justify-between shrink-0">
-                  <div className="space-y-0.5">
-                    <h3 className="text-sm font-bold flex items-center gap-2">
-                      <span>بررسی، رفع اشکال و تکمیل اطلاعات</span>
-                      <span className="font-mono bg-white/20 px-2 py-0.5 rounded text-xs" dir="ltr">
-                        {activeReviewPv.trackingId}
-                      </span>
-                    </h3>
-                    <p className="text-[11px] text-blue-100">
-                      شیت مبدأ: {activeReviewPv.mainSheet} · رکورد مرجع: {activeReviewPv.mainRecordId}
-                    </p>
+            <ModalWindow
+              onClose={() => setActiveReviewPv(null)}
+              title={`بررسی، رفع اشکال و تکمیل اطلاعات (${activeReviewPv.trackingId})`}
+              maxWidthClass="max-w-2xl"
+            >
+              <div className="bg-[#F6EFE6] border border-[#E2D2BE] rounded-xl p-3 flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <h3 className="text-xs sm:text-sm font-bold text-[#332218] flex items-center gap-2">
+                    <span>بررسی، رفع اشکال و تکمیل اطلاعات</span>
+                    <span className="font-mono bg-white border border-[#E2D2BE] px-2 py-0.5 rounded text-xs text-[#6B3E26]" dir="ltr">
+                      {activeReviewPv.trackingId}
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-[#78604E]">
+                    شیت مبدأ: {activeReviewPv.mainSheet} · رکورد مرجع: {activeReviewPv.mainRecordId}
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleSavePvReview} className="space-y-4">
+                {/* اطلاعات شناسنامه‌ای منبع */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5">
+                  <div className="text-slate-800 font-bold text-sm">
+                    کتاب: {activeReviewPv.bookTitle}{' '}
+                    <span className="text-xs font-normal text-slate-500">
+                      ({activeReviewPv.publisher})
+                    </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveReviewPv(null)}
-                    className="p-1 hover:bg-white/20 rounded-lg text-white"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
+                  {activeReviewPv.nameOrPhrase && (
+                    <div className="text-slate-700">
+                      عبارت ثبت‌شده در منبع: <strong className="text-[#1f4e79]">{activeReviewPv.nameOrPhrase}</strong>
+                    </div>
+                  )}
+                  <div className="text-amber-900 font-semibold pt-1 border-t border-slate-200">
+                    موضوع اشکال: {activeReviewPv.issueSubject}
+                  </div>
+                  <div className="text-slate-600">
+                    اقدام پیشنهادی کارشناس ارشد: {activeReviewPv.suggestedAction}
+                  </div>
                 </div>
 
-                <form onSubmit={handleSavePvReview} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
-                  {/* اطلاعات شناسنامه‌ای منبع */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5">
-                    <div className="text-slate-800 font-bold text-sm">
-                      کتاب: {activeReviewPv.bookTitle}{' '}
-                      <span className="text-xs font-normal text-slate-500">
-                        ({activeReviewPv.publisher})
-                      </span>
-                    </div>
-                    {activeReviewPv.nameOrPhrase && (
-                      <div className="text-slate-700">
-                        عبارت ثبت‌شده در منبع: <strong className="text-[#1f4e79]">{activeReviewPv.nameOrPhrase}</strong>
-                      </div>
-                    )}
-                    <div className="text-amber-900 font-semibold pt-1 border-t border-slate-200">
-                      موضوع اشکال: {activeReviewPv.issueSubject}
-                    </div>
-                    <div className="text-slate-600">
-                      اقدام پیشنهادی کارشناس ارشد: {activeReviewPv.suggestedAction}
-                    </div>
+                {/* فیلدهای تکمیل اطلاعات */}
+                <div className="space-y-3">
+                  <div>
+                    <label className="block font-bold text-slate-800 mb-1">
+                      نام شهید مستند و اصلاح‌شده *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={pvMartyrName}
+                      onChange={(e) => setPvMartyrName(e.target.value)}
+                      placeholder="نام و نام خانوادگی شهید..."
+                      className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-slate-900"
+                    />
                   </div>
 
-                  {/* فیلدهای تکمیل اطلاعات */}
-                  <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block font-bold text-slate-800 mb-1">
-                        نام شهید مستند و اصلاح‌شده *
+                        شماره صفحه در کتاب (ارجاع صفحه) *
                       </label>
                       <input
                         type="text"
                         required
-                        value={pvMartyrName}
-                        onChange={(e) => setPvMartyrName(e.target.value)}
-                        placeholder="نام و نام خانوادگی شهید..."
-                        className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-slate-900"
+                        value={pvPageRef}
+                        onChange={(e) => setPvPageRef(e.target.value)}
+                        placeholder="مثال: صص ۱۴-۱۸ یا ص ۴۲"
+                        className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl tabular-nums"
                       />
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block font-bold text-slate-800 mb-1">
-                          شماره صفحه در کتاب (ارجاع صفحه) *
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={pvPageRef}
-                          onChange={(e) => setPvPageRef(e.target.value)}
-                          placeholder="مثال: صص ۱۴-۱۸ یا ص ۴۲"
-                          className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl tabular-nums"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block font-bold text-slate-800 mb-1">
-                          تصمیم نهایی کارشناس *
-                        </label>
-                        <select
-                          value={pvTargetStatus}
-                          onChange={(e) => setPvTargetStatus(e.target.value)}
-                          className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-[#1f4e79]"
-                        >
-                          <option value="approved_to_links">
-                            تکمیل و تأیید شد (انتقال به پیوندهای معتبر کتاب و شهید)
-                          </option>
-                          <option value="reviewed_no_change">بررسی شد - بدون نیاز به تغییر</option>
-                          <option value="needs_source">نیازمند منبع تکمیلی / استخراج مجدد</option>
-                          <option value="rejected">رد پیوند (فاقد ارتباط معتبر)</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2">
-                      <div>
-                        <label className="block font-medium text-slate-700 mb-1">قطعه مزار</label>
-                        <input
-                          type="text"
-                          value={pvGravePiece}
-                          onChange={(e) => setPvGravePiece(e.target.value)}
-                          placeholder="مثال: 26"
-                          className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
-                        />
-                      </div>
-                      <div>
-                        <label className="block font-medium text-slate-700 mb-1">ردیف مزار</label>
-                        <input
-                          type="text"
-                          value={pvGraveRow}
-                          onChange={(e) => setPvGraveRow(e.target.value)}
-                          placeholder="مثال: 12"
-                          className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
-                        />
-                      </div>
-                      <div>
-                        <label className="block font-medium text-slate-700 mb-1">شماره قبر</label>
-                        <input
-                          type="text"
-                          value={pvGraveNumber}
-                          onChange={(e) => setPvGraveNumber(e.target.value)}
-                          placeholder="مثال: 5"
-                          className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
-                        />
-                      </div>
                     </div>
 
                     <div>
-                      <label className="block font-medium text-slate-700 mb-1">
-                        یادداشت و دلیل تصمیم کارشناسی:
+                      <label className="block font-bold text-slate-800 mb-1">
+                        تصمیم نهایی کارشناس *
                       </label>
+                      <select
+                        value={pvTargetStatus}
+                        onChange={(e) => setPvTargetStatus(e.target.value)}
+                        className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-[#1f4e79]"
+                      >
+                        <option value="approved_to_links">
+                          تکمیل و تأیید شد (انتقال به پیوندهای معتبر کتاب و شهید)
+                        </option>
+                        <option value="reviewed_no_change">بررسی شد - بدون نیاز به تغییر</option>
+                        <option value="needs_source">نیازمند منبع تکمیلی / استخراج مجدد</option>
+                        <option value="rejected">رد پیوند (فاقد ارتباط معتبر)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block font-medium text-slate-700 mb-1">قطعه مزار</label>
                       <input
                         type="text"
-                        value={pvReviewerNote}
-                        onChange={(e) => setPvReviewerNote(e.target.value)}
-                        placeholder="توضیح درباره صحت منبع، تطبیق با گلزار یا مستندات صفحه..."
-                        className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl"
+                        value={pvGravePiece}
+                        onChange={(e) => setPvGravePiece(e.target.value)}
+                        placeholder="مثال: 26"
+                        className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-medium text-slate-700 mb-1">ردیف مزار</label>
+                      <input
+                        type="text"
+                        value={pvGraveRow}
+                        onChange={(e) => setPvGraveRow(e.target.value)}
+                        placeholder="مثال: 12"
+                        className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-medium text-slate-700 mb-1">شماره قبر</label>
+                      <input
+                        type="text"
+                        value={pvGraveNumber}
+                        onChange={(e) => setPvGraveNumber(e.target.value)}
+                        placeholder="مثال: 5"
+                        className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
                       />
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
-                    <button
-                      type="button"
-                      onClick={() => setActiveReviewPv(null)}
-                      className="min-h-[42px] px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold"
-                    >
-                      انصراف
-                    </button>
-                    <button
-                      type="submit"
-                      className="min-h-[42px] px-5 py-2 bg-[#1f4e79] hover:bg-[#163a5b] text-white rounded-xl font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
-                    >
-                      <Check className="w-4 h-4" />
-                      <span>ثبت نهایی و ذخیره در پرونده</span>
-                    </button>
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">
+                      یادداشت و دلیل تصمیم کارشناسی:
+                    </label>
+                    <input
+                      type="text"
+                      value={pvReviewerNote}
+                      onChange={(e) => setPvReviewerNote(e.target.value)}
+                      placeholder="توضیح درباره صحت منبع، تطبیق با گلزار یا مستندات صفحه..."
+                      className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl"
+                    />
                   </div>
-                </form>
-              </div>
-            </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setActiveReviewPv(null)}
+                    className="min-h-[42px] px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold cursor-pointer"
+                  >
+                    انصراف
+                  </button>
+                  <button
+                    type="submit"
+                    className="min-h-[42px] px-5 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>ثبت نهایی و ذخیره در پرونده</span>
+                  </button>
+                </div>
+              </form>
+            </ModalWindow>
           )}
 
           {/* لیست رکوردهای ۵۶۷ مورد */}

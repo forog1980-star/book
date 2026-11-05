@@ -36,6 +36,7 @@ import {
   toPersianDigits
 } from '../data/markazAsnadData';
 import { generateUniqueCopyId, generateUniqueOutsideBookId } from '../utils/idGenerator';
+import { registerInnerBackStep } from '../utils/navigationHistory';
 
 interface QuickInventoryTabProps {
   catalogRows: ReferenceCatalogRow[];
@@ -191,6 +192,19 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       }
     }
   }, [initialSearchQuery, onClearInitialSearchQuery]);
+
+  // ثبت کشوی باز کتاب یا فرم ثبت کتاب جدید در پشته بازگشت (Back)
+  useEffect(() => {
+    if (!showSection3Drawer && !showOutsideForm) return;
+    return registerInnerBackStep('quick-inventory-drawer', () => {
+      if (showOutsideForm) {
+        setShowOutsideForm(false);
+      } else if (showSection3Drawer) {
+        setShowSection3Drawer(false);
+        setSelectedRow(null);
+      }
+    });
+  }, [showSection3Drawer, showOutsideForm]);
 
   // Helper to infer columns from headers of «فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx»
   const inferColumnsFromHeaders = (hdrs: string[]) => {

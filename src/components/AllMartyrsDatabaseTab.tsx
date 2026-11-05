@@ -26,6 +26,8 @@ import {
 } from '../data/markazAsnadData';
 import { generateUniqueLinkId, generateUniqueMartyrId } from '../utils/idGenerator';
 import { doesLinkMatchMartyrRecord } from '../data/soorehMehrResearch';
+import { ModalWindow } from './ModalWindow';
+import { registerInnerBackStep } from '../utils/navigationHistory';
 
 export interface NormalizedDate {
   day: string;
@@ -559,6 +561,18 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
     setActiveResults(res);
   };
 
+  // ثبت وضعیت جست‌وجوی فعال شهدا در پشته بازگشت تا کلید Back ابتدا نتایج جست‌وجو را ببندد
+  useEffect(() => {
+    if (!hasSearched) return;
+    return registerInnerBackStep('martyrs-active-search', () => {
+      setQueryText('');
+      setSelectedField('all');
+      setExtraFilters([]);
+      setActiveResults([]);
+      setHasSearched(false);
+    });
+  }, [hasSearched]);
+
   const handleFilterMartyrsWithLinkedBooks = () => {
     if (!records.length) return;
     const matched = records.filter((r) =>
@@ -1051,97 +1065,87 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
 
       {/* Link Martyr to Library Book Modal */}
       {linkingRecord && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <h3 className="font-bold text-sm sm:text-base text-slate-900">
-                اتصال شهید به کتاب در کتابخانه مرکز اسناد
-              </h3>
+        <ModalWindow
+          onClose={() => setLinkingRecord(null)}
+          title="اتصال شهید به کتاب در کتابخانه مرکز اسناد"
+          maxWidthClass="max-w-lg"
+          initialDesktopOffset={inspectedRecord ? { x: -36, y: 28 } : undefined}
+        >
+          <div className="bg-[#edf4fa] rounded-xl p-3 text-xs space-y-1">
+            <div className="font-bold text-sm text-[#1f4e79]">
+              {[linkingRecord.first_name, linkingRecord.last_name].filter(Boolean).join(' ') ||
+                'شهید گمنام'}
+            </div>
+            <div>
+              نام پدر: {linkingRecord.father_name || '—'} · قطعه{' '}
+              {toPersianDigits(linkingRecord.grave_piece || 'عمومی')} · ردیف{' '}
+              {toPersianDigits(linkingRecord.grave_row || '—')} · شماره{' '}
+              {toPersianDigits(linkingRecord.grave_number || '—')}
+            </div>
+          </div>
+
+          <form onSubmit={handleSaveMartyrBookLink} className="space-y-3 text-xs">
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">
+                انتخاب کتاب از فهرست کتابخانه:
+              </label>
+              <select
+                value={selectedBookForLink}
+                onChange={(e) => setSelectedBookForLink(e.target.value)}
+                className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl"
+              >
+                {catalogRows.map((b) => (
+                  <option key={b.rowKey} value={b.tempBookId}>
+                    {b.tempBookId} — {b.titleRaw} ({b.publisherRaw})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">
+                شماره صفحه یا بازه صفحات در کتاب (عین منبع):
+              </label>
+              <input
+                type="text"
+                value={linkPageRef}
+                onChange={(e) => setLinkPageRef(e.target.value)}
+                placeholder="مثال: ص 114 تا 120 یا کل کتاب"
+                className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">
+                یادداشت کارشناس / نوع مطلب (خاطره، وصیت‌نامه، زندگی‌نامه):
+              </label>
+              <input
+                type="text"
+                value={linkNote}
+                onChange={(e) => setLinkNote(e.target.value)}
+                placeholder="توضیح کوتاه..."
+                className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setLinkingRecord(null)}
-                className="text-xs text-slate-500 hover:text-slate-900"
+                className="min-h-[40px] px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-semibold cursor-pointer"
               >
-                بستن
+                انصراف
+              </button>
+              <button
+                type="submit"
+                className="min-h-[40px] px-5 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>ثبت پیوند کتاب و شهید</span>
               </button>
             </div>
-
-            <div className="bg-[#edf4fa] rounded-xl p-3 text-xs space-y-1">
-              <div className="font-bold text-sm text-[#1f4e79]">
-                {[linkingRecord.first_name, linkingRecord.last_name].filter(Boolean).join(' ') ||
-                  'شهید گمنام'}
-              </div>
-              <div>
-                نام پدر: {linkingRecord.father_name || '—'} · قطعه{' '}
-                {toPersianDigits(linkingRecord.grave_piece || 'عمومی')} · ردیف{' '}
-                {toPersianDigits(linkingRecord.grave_row || '—')} · شماره{' '}
-                {toPersianDigits(linkingRecord.grave_number || '—')}
-              </div>
-            </div>
-
-            <form onSubmit={handleSaveMartyrBookLink} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  انتخاب کتاب از فهرست کتابخانه:
-                </label>
-                <select
-                  value={selectedBookForLink}
-                  onChange={(e) => setSelectedBookForLink(e.target.value)}
-                  className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl"
-                >
-                  {catalogRows.map((b) => (
-                    <option key={b.rowKey} value={b.tempBookId}>
-                      {b.tempBookId} — {b.titleRaw} ({b.publisherRaw})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  شماره صفحه یا بازه صفحات در کتاب (عین منبع):
-                </label>
-                <input
-                  type="text"
-                  value={linkPageRef}
-                  onChange={(e) => setLinkPageRef(e.target.value)}
-                  placeholder="مثال: ص 114 تا 120 یا کل کتاب"
-                  className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  یادداشت کارشناس / نوع مطلب (خاطره، وصیت‌نامه، زندگی‌نامه):
-                </label>
-                <input
-                  type="text"
-                  value={linkNote}
-                  onChange={(e) => setLinkNote(e.target.value)}
-                  placeholder="توضیح کوتاه..."
-                  className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setLinkingRecord(null)}
-                  className="min-h-[40px] px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-semibold"
-                >
-                  انصراف
-                </button>
-                <button
-                  type="submit"
-                  className="min-h-[40px] px-5 py-2 bg-[#1f4e79] text-white rounded-xl font-bold inline-flex items-center gap-1.5"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>ثبت پیوند کتاب و شهید</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+          </form>
+        </ModalWindow>
       )}
 
       {/* پیام راهنما پیش از جست‌وجو (به جای نمایش پیش‌فرض ۶۰ مورد) */}
@@ -1335,763 +1339,733 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
 
       {/* Full Martyr Detail Modal */}
       {inspectedRecord && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-xl text-xs">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <div>
-                <span className="text-slate-500 block">پرونده بانک جامع شهدا</span>
-                <h3 className="text-base font-bold text-slate-900 mt-0.5">
-                  {[inspectedRecord.first_name, inspectedRecord.last_name]
-                    .filter(Boolean)
-                    .join(' ') || 'شهید گمنام'}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setInspectedRecord(null)}
-                className="px-3 py-1.5 bg-slate-100 rounded-lg text-slate-700 font-semibold"
-              >
-                بستن
-              </button>
+        <ModalWindow
+          onClose={() => setInspectedRecord(null)}
+          title={`پرونده بانک جامع شهدا: ${
+            [inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' ') ||
+            'شهید گمنام'
+          }`}
+          maxWidthClass="max-w-lg"
+        >
+          <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+            <div>
+              <span className="text-slate-500 block text-[11px]">پرونده بانک جامع شهدا</span>
+              <h3 className="text-base font-bold text-slate-900 mt-0.5">
+                {[inspectedRecord.first_name, inspectedRecord.last_name]
+                  .filter(Boolean)
+                  .join(' ') || 'شهید گمنام'}
+              </h3>
             </div>
+          </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-50 p-2.5 rounded-xl">
-                <span className="text-slate-500 block">نام پدر</span>
-                <strong className="text-slate-900">{inspectedRecord.father_name || '—'}</strong>
-              </div>
-              <div className="bg-slate-50 p-2.5 rounded-xl">
-                <span className="text-slate-500 block">تاریخ تولد</span>
-                <strong className="text-slate-900 tabular-nums">
-                  {toPersianDigits(inspectedRecord.birth_date.display || '—')}
-                </strong>
-              </div>
-              <div className="bg-slate-50 p-2.5 rounded-xl">
-                <span className="text-slate-500 block">تاریخ شهادت</span>
-                <strong className="text-slate-900 tabular-nums">
-                  {toPersianDigits(inspectedRecord.death_date.display || '—')}
-                </strong>
-              </div>
-              <div className="bg-slate-50 p-2.5 rounded-xl">
-                <span className="text-slate-500 block">سن در زمان شهادت</span>
-                <strong className="text-slate-900 tabular-nums">
-                  {toPersianDigits(inspectedRecord.age_display || '—')}
-                </strong>
-              </div>
-              <div className="bg-slate-50 p-2.5 rounded-xl">
-                <span className="text-slate-500 block">عملیات / دسته‌بندی</span>
-                <strong className="text-slate-900">
-                  {[inspectedRecord.martyrdom_operation, inspectedRecord.martyrdom_category]
-                    .filter(Boolean)
-                    .join(' · ') || '—'}
-                </strong>
-              </div>
-              <div className="bg-slate-50 p-2.5 rounded-xl">
-                <span className="text-slate-500 block">منطقه / محل شهادت</span>
-                <strong className="text-slate-900">
-                  {inspectedRecord.martyrdom_location || '—'}
-                </strong>
-              </div>
-              <div className="col-span-2 bg-[#edf4fa] p-3 rounded-xl text-[#162b3b]">
-                <span className="text-slate-500 block">مختصات مزار در بهشت زهرا (س):</span>
-                <strong className="text-sm font-bold block mt-0.5 tabular-nums">
-                  {inspectedRecord.source === 'outside'
-                    ? 'قطعات عمومی خارج از گلزار'
-                    : `قطعه ${toPersianDigits(inspectedRecord.grave_piece || '—')}`}{' '}
-                  · ردیف {toPersianDigits(inspectedRecord.grave_row || '—')} · شماره{' '}
-                  {toPersianDigits(inspectedRecord.grave_number || '—')}
-                </strong>
-              </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <div className="bg-slate-50 p-2.5 rounded-xl">
+              <span className="text-slate-500 block">نام پدر</span>
+              <strong className="text-slate-900">{inspectedRecord.father_name || '—'}</strong>
             </div>
+            <div className="bg-slate-50 p-2.5 rounded-xl">
+              <span className="text-slate-500 block">تاریخ تولد</span>
+              <strong className="text-slate-900 tabular-nums">
+                {toPersianDigits(inspectedRecord.birth_date.display || '—')}
+              </strong>
+            </div>
+            <div className="bg-slate-50 p-2.5 rounded-xl">
+              <span className="text-slate-500 block">تاریخ شهادت</span>
+              <strong className="text-slate-900 tabular-nums">
+                {toPersianDigits(inspectedRecord.death_date.display || '—')}
+              </strong>
+            </div>
+            <div className="bg-slate-50 p-2.5 rounded-xl">
+              <span className="text-slate-500 block">سن در زمان شهادت</span>
+              <strong className="text-slate-900 tabular-nums">
+                {toPersianDigits(inspectedRecord.age_display || '—')}
+              </strong>
+            </div>
+            <div className="bg-slate-50 p-2.5 rounded-xl">
+              <span className="text-slate-500 block">عملیات / دسته‌بندی</span>
+              <strong className="text-slate-900">
+                {[inspectedRecord.martyrdom_operation, inspectedRecord.martyrdom_category]
+                  .filter(Boolean)
+                  .join(' · ') || '—'}
+              </strong>
+            </div>
+            <div className="bg-slate-50 p-2.5 rounded-xl">
+              <span className="text-slate-500 block">منطقه / محل شهادت</span>
+              <strong className="text-slate-900">
+                {inspectedRecord.martyrdom_location || '—'}
+              </strong>
+            </div>
+            <div className="col-span-2 bg-[#edf4fa] p-3 rounded-xl text-[#162b3b]">
+              <span className="text-slate-500 block">مختصات مزار در بهشت زهرا (س):</span>
+              <strong className="text-sm font-bold block mt-0.5 tabular-nums">
+                {inspectedRecord.source === 'outside'
+                  ? 'قطعات عمومی خارج از گلزار'
+                  : `قطعه ${toPersianDigits(inspectedRecord.grave_piece || '—')}`}{' '}
+                · ردیف {toPersianDigits(inspectedRecord.grave_row || '—')} · شماره{' '}
+                {toPersianDigits(inspectedRecord.grave_number || '—')}
+              </strong>
+            </div>
+          </div>
 
-            {/* Linked Books & Extracted Research Passages for this Martyr */}
-            {(() => {
-              const martyrLinks = getMartyrLinkedBooks(inspectedRecord);
-              const confirmedM = martyrLinks.filter(
-                (l) => l.reviewStatus.includes('تأیید') || l.reviewStatus.includes('پژوهش اصلی')
+          {/* Linked Books & Extracted Research Passages for this Martyr */}
+          {(() => {
+            const martyrLinks = getMartyrLinkedBooks(inspectedRecord);
+            const confirmedM = martyrLinks.filter(
+              (l) => l.reviewStatus.includes('تأیید') || l.reviewStatus.includes('پژوهش اصلی')
+            );
+            const pendingM = martyrLinks.filter(
+              (l) => !l.reviewStatus.includes('تأیید') && !l.reviewStatus.includes('پژوهش اصلی')
+            );
+            const mName = cleanText(
+              [inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' ')
+            );
+            const martyrExtracts = extractedItems.filter((ex) => {
+              if (mName && cleanText(ex.martyrNameRaw).includes(mName)) return true;
+              return martyrLinks.some(
+                (lnk) =>
+                  lnk.tempBookId &&
+                  ex.tempBookId === lnk.tempBookId &&
+                  cleanText(ex.martyrNameRaw) === cleanText(lnk.martyrNameRaw)
               );
-              const pendingM = martyrLinks.filter(
-                (l) => !l.reviewStatus.includes('تأیید') && !l.reviewStatus.includes('پژوهش اصلی')
-              );
-              const mName = cleanText(
-                [inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' ')
-              );
-              const martyrExtracts = extractedItems.filter((ex) => {
-                if (mName && cleanText(ex.martyrNameRaw).includes(mName)) return true;
-                return martyrLinks.some(
-                  (lnk) =>
-                    lnk.tempBookId &&
-                    ex.tempBookId === lnk.tempBookId &&
-                    cleanText(ex.martyrNameRaw) === cleanText(lnk.martyrNameRaw)
-                );
-              });
+            });
 
-              return (
-                <div className="space-y-2.5 border-t border-slate-200 pt-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-[#1F4E79] flex items-center gap-1">
-                      <BookOpen className="w-4 h-4" />
-                      <span>
-                        کتاب‌ها و مطالب پژوهشی مرتبط ({toPersianDigits(confirmedM.length)} بررسی/تأییدشده ·{' '}
-                        {toPersianDigits(pendingM.length)} نیازمند بررسی):
-                      </span>
+            return (
+              <div className="space-y-2.5 border-t border-slate-200 pt-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[#1F4E79] flex items-center gap-1">
+                    <BookOpen className="w-4 h-4" />
+                    <span>
+                      کتاب‌ها و مطالب پژوهشی مرتبط ({toPersianDigits(confirmedM.length)} بررسی/تأییدشده ·{' '}
+                      {toPersianDigits(pendingM.length)} نیازمند بررسی):
                     </span>
-                  </div>
+                  </span>
+                </div>
 
-                  {martyrLinks.length === 0 && martyrExtracts.length === 0 ? (
-                    <div className="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-xl">
-                      هنوز کتابی در فهرست فعلی به این شهید متصل نشده است. می‌توانید از دکمه «جست‌وجوی هوشمند کتاب‌های جدید» یا «اتصال به کتاب» استفاده کنید.
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5 max-h-56 overflow-y-auto">
-                      {martyrLinks.map((lnk) => (
-                        <div
-                          key={lnk.id}
-                          className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div>
-                              <strong className="text-slate-900">
-                                کتاب «{lnk.bookTitleRaw}»{' '}
-                                {lnk.tempBookId ? `(${lnk.tempBookId})` : ''}
+                {martyrLinks.length === 0 && martyrExtracts.length === 0 ? (
+                  <div className="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-xl">
+                    هنوز کتابی در فهرست فعلی به این شهید متصل نشده است. می‌توانید از دکمه «جست‌وجوی هوشمند کتاب‌های جدید» یا «اتصال به کتاب» استفاده کنید.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {martyrLinks.map((lnk) => (
+                      <div
+                        key={lnk.id}
+                        className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <strong className="text-slate-900">
+                              کتاب «{lnk.bookTitleRaw}»{' '}
+                              {lnk.tempBookId ? `(${lnk.tempBookId})` : ''}
+                            </strong>
+                            <span className="text-slate-600 mr-1.5">
+                              ({lnk.publisherRaw || 'سوره مهر'} · صفحه:{' '}
+                              <strong className="text-[#8C3B2B]">
+                                {toPersianDigits(lnk.pageReferenceRaw || 'ثبت‌نشده')}
                               </strong>
-                              <span className="text-slate-600 mr-1.5">
-                                ({lnk.publisherRaw || 'سوره مهر'} · صفحه:{' '}
-                                <strong className="text-[#8C3B2B]">
-                                  {toPersianDigits(lnk.pageReferenceRaw || 'ثبت‌نشده')}
-                                </strong>
-                                )
-                              </span>
-                            </div>
-                            <span className="text-[10.5px] font-bold text-[#1F4E79] bg-blue-50 border border-blue-200 px-2 py-0.5 rounded shrink-0">
-                              {lnk.reviewStatus}
+                              )
                             </span>
                           </div>
-                          {lnk.sourceDescriptionRaw && (
-                            <div className="text-[11px] text-slate-700">
-                              شرح و موضوع در پژوهش: {lnk.sourceDescriptionRaw}
-                            </div>
-                          )}
-                          <div className="text-[10px] text-slate-500">
-                            منبع: {lnk.sourceFile} ({lnk.sourceSheet} · ردیف {toPersianDigits(lnk.sourceExcelRow)})
-                          </div>
+                          <span className="text-[10.5px] font-bold text-[#1F4E79] bg-blue-50 border border-blue-200 px-2 py-0.5 rounded shrink-0">
+                            {lnk.reviewStatus}
+                          </span>
                         </div>
-                      ))}
-                      {martyrExtracts.map((ex) => (
-                        <div
-                          key={ex.id}
-                          className="bg-emerald-50/70 border border-emerald-200 rounded-lg p-2 space-y-0.5"
-                        >
-                          <div className="font-bold text-[#2E7D5B]">
-                            [{ex.contentType}] {ex.passageTitle} (صفحه {toPersianDigits(ex.pageReferenceRaw)})
-                          </div>
+                        {lnk.sourceDescriptionRaw && (
                           <div className="text-[11px] text-slate-700">
-                            {ex.extractedText}
+                            شرح و موضوع در پژوهش: {lnk.sourceDescriptionRaw}
                           </div>
+                        )}
+                        <div className="text-[10px] text-slate-500">
+                          منبع: {lnk.sourceFile} ({lnk.sourceSheet} · ردیف {toPersianDigits(lnk.sourceExcelRow)})
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+                      </div>
+                    ))}
+                    {martyrExtracts.map((ex) => (
+                      <div
+                        key={ex.id}
+                        className="bg-emerald-50/70 border border-emerald-200 rounded-lg p-2 space-y-0.5"
+                      >
+                        <div className="font-bold text-[#2E7D5B]">
+                          [{ex.contentType}] {ex.passageTitle} (صفحه {toPersianDigits(ex.pageReferenceRaw)})
+                        </div>
+                        <div className="text-[11px] text-slate-700">
+                          {ex.extractedText}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
-            {/* جست‌وجوی مستقیم اینترنتی و پایگاه‌های کتابشناسی آنلاین */}
-            <div className="bg-[#FAF3EA] border border-[#E6D5C1] rounded-xl p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-[#8C3B2B] flex items-center gap-1.5 text-xs">
-                  <Globe className="w-3.5 h-3.5" />
-                  <span>کاوش در اینترنت و پایگاه‌های آنلاین برای «{[inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' ') || 'شهید'}»</span>
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2 text-[11px]">
-                <a
-                  href={`https://www.google.com/search?q=${encodeURIComponent('کتاب "شهید ' + ([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' ') || '') + '"')}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
-                >
-                  <ExternalLink className="w-3 h-3 text-blue-600" />
-                  <span>گوگل (کتاب و زندگینامه)</span>
-                </a>
-                <a
-                  href={`https://ketab.ir/search?query=${encodeURIComponent([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' '))}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
-                >
-                  <ExternalLink className="w-3 h-3 text-emerald-600" />
-                  <span>خانه کتاب و ادبیات (Ketab.ir)</span>
-                </a>
-                <a
-                  href={`http://opac.nlai.ir/opac-prod/bibliographic/searchCalc.do?action=search&bibData.title=&bibData.author=${encodeURIComponent([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' '))}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
-                >
-                  <ExternalLink className="w-3 h-3 text-amber-700" />
-                  <span>کتابخانه ملی (OPAC NLAI)</span>
-                </a>
-                <a
-                  href={`https://www.noorlib.ir/fa/search?q=${encodeURIComponent([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' '))}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
-                >
-                  <ExternalLink className="w-3 h-3 text-indigo-600" />
-                  <span>پایگاه تخصصی نور (NoorLib)</span>
-                </a>
-              </div>
+          {/* جست‌وجوی مستقیم اینترنتی و پایگاه‌های کتابشناسی آنلاین */}
+          <div className="bg-[#FAF3EA] border border-[#E6D5C1] rounded-xl p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-[#8C3B2B] flex items-center gap-1.5 text-xs">
+                <Globe className="w-3.5 h-3.5" />
+                <span>کاوش در اینترنت و پایگاه‌های آنلاین برای «{[inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' ') || 'شهید'}»</span>
+              </span>
             </div>
+            <div className="flex flex-wrap gap-2 text-[11px]">
+              <a
+                href={`https://www.google.com/search?q=${encodeURIComponent('کتاب "شهید ' + ([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' ') || '') + '"')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+              >
+                <ExternalLink className="w-3 h-3 text-blue-600" />
+                <span>گوگل (کتاب و زندگینامه)</span>
+              </a>
+              <a
+                href={`https://ketab.ir/search?query=${encodeURIComponent([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' '))}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+              >
+                <ExternalLink className="w-3 h-3 text-emerald-600" />
+                <span>خانه کتاب و ادبیات (Ketab.ir)</span>
+              </a>
+              <a
+                href={`http://opac.nlai.ir/opac-prod/bibliographic/searchCalc.do?action=search&bibData.title=&bibData.author=${encodeURIComponent([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' '))}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+              >
+                <ExternalLink className="w-3 h-3 text-amber-700" />
+                <span>کتابخانه ملی (OPAC NLAI)</span>
+              </a>
+              <a
+                href={`https://www.noorlib.ir/fa/search?q=${encodeURIComponent([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' '))}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+              >
+                <ExternalLink className="w-3 h-3 text-indigo-600" />
+                <span>پایگاه تخصصی نور (NoorLib)</span>
+              </a>
+            </div>
+          </div>
 
-            <div className="flex flex-wrap justify-end gap-2 pt-2">
-              {onNavigateToSmartSearch && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const name = [inspectedRecord.first_name, inspectedRecord.last_name]
-                      .filter(Boolean)
-                      .join(' ');
-                    setInspectedRecord(null);
-                    onNavigateToSmartSearch(name);
-                  }}
-                  className="min-h-[40px] px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-[#C58A2B] border border-amber-200 rounded-xl font-bold inline-flex items-center gap-1.5"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  <span>انتقال به جست‌وجوی هوشمند کتاب‌های جدید</span>
-                </button>
-              )}
-
+          <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-slate-200">
+            {onNavigateToSmartSearch && (
               <button
                 type="button"
                 onClick={() => {
-                  const r = inspectedRecord;
+                  const name = [inspectedRecord.first_name, inspectedRecord.last_name]
+                    .filter(Boolean)
+                    .join(' ');
                   setInspectedRecord(null);
-                  setLinkingRecord(r);
+                  onNavigateToSmartSearch(name);
                 }}
-                className="min-h-[40px] px-4 py-2 bg-[#1f4e79] text-white rounded-xl font-bold inline-flex items-center gap-1.5"
+                className="min-h-[40px] px-3.5 py-2 bg-[#F6EFE6] hover:bg-[#EFE4D6] text-[#6B3E26] border border-[#E2D2BE] rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer"
               >
-                <Link2 className="w-4 h-4" />
-                <span>اتصال این شهید به کتاب در کتابخانه</span>
+                <Sparkles className="w-4 h-4" />
+                <span>انتقال به جست‌وجوی هوشمند کتاب‌های جدید</span>
               </button>
-            </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                // باز کردن پنجره دوم (اتصال به کتاب) با حفظ امکان جابه‌جایی روی صفحه لپ‌تاپ و بازگشت به جزئیات شهید
+                setLinkingRecord(inspectedRecord);
+              }}
+              className="min-h-[40px] px-4 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <Link2 className="w-4 h-4" />
+              <span>اتصال این شهید به کتاب در کتابخانه</span>
+            </button>
           </div>
-        </div>
+        </ModalWindow>
       )}
 
       {/* New Custom Martyr Registration Modal (Section 7.3) */}
       {showNewMartyrModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-xl w-full p-5 space-y-4 shadow-xl text-xs my-8">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <div>
-                <h3 className="text-sm sm:text-base font-bold text-[#253247]">
-                  ثبت پرونده مستقل شهید (همراه با نام‌های جایگزین و نشانی دقیق مزار)
-                </h3>
-                <p className="text-[11px] text-[#697586] mt-0.5">
-                  شناسه داخلی مستقل تولید می‌شود و مقادیر متنی یا دارای صفر ابتدایی در قطعه/ردیف/شماره مزار عیناً حفظ می‌گردند
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowNewMartyrModal(false)}
-                className="px-3 py-1.5 bg-slate-100 rounded-lg font-semibold"
-              >
-                بستن
-              </button>
-            </div>
+        <ModalWindow
+          onClose={() => setShowNewMartyrModal(false)}
+          title="ثبت پرونده مستقل شهید (همراه با نام‌های جایگزین و نشانی دقیق مزار)"
+          maxWidthClass="max-w-xl"
+        >
+          <p className="text-[11px] text-[#697586]">
+            شناسه داخلی مستقل تولید می‌شود و مقادیر متنی یا دارای صفر ابتدایی در قطعه/ردیف/شماره مزار عیناً حفظ می‌گردند
+          </p>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!newFirstName.trim() && !newLastName.trim()) {
-                  onNotify('لطفاً نام یا نام خانوادگی شهید را وارد کنید.', 'warning');
-                  return;
-                }
-                const full = `${newFirstName.trim()} ${newLastName.trim()}`.trim();
-                const id = generateUniqueMartyrId(customMartyrs.map((m) => ({ id: m.martyrId })));
-                const newRec: CustomMartyrRecord = {
-                  martyrId: id,
-                  firstName: newFirstName.trim(),
-                  lastName: newLastName.trim(),
-                  fullName: full,
-                  alternativeNames: newAltNames
-                    .split(/[،,]/)
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                  externalSystemId: newExtId.trim(),
-                  identityVerificationStatus: newIdentityStatus,
-                  informationSource: newInfoSource.trim(),
-                  description: newDescription.trim(),
-                  gravePiece: newPiece.trim(),
-                  graveRow: newRow.trim(),
-                  graveNumber: newGraveNum.trim(),
-                  graveDisplayAddress: `قطعه ${newPiece.trim() || '—'} · ردیف ${
-                    newRow.trim() || '—'
-                  } · شماره ${newGraveNum.trim() || '—'}`,
-                  graveSource: newGraveSource.trim(),
-                  graveVerificationStatus: newGraveStatus,
-                  createdAt: new Intl.DateTimeFormat('fa-IR').format(new Date())
-                };
-                if (onAddCustomMartyr) {
-                  onAddCustomMartyr(newRec);
-                }
-                setShowNewMartyrModal(false);
-                setNewFirstName('');
-                setNewLastName('');
-                setNewAltNames('');
-                setNewPiece('');
-                setNewRow('');
-                setNewGraveNum('');
-                onNotify(`پرونده مستقل شهید «${full}» با شناسه داخلی ${id} ثبت شد.`);
-              }}
-              className="space-y-3"
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-[#253247] mb-1">نام *</label>
-                  <input
-                    type="text"
-                    required
-                    value={newFirstName}
-                    onChange={(e) => setNewFirstName(e.target.value)}
-                    placeholder="مثلاً: محمد ابراهیم"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-[#253247] mb-1">نام خانوادگی *</label>
-                  <input
-                    type="text"
-                    required
-                    value={newLastName}
-                    onChange={(e) => setNewLastName(e.target.value)}
-                    placeholder="مثلاً: همت"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                  />
-                </div>
-              </div>
-
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!newFirstName.trim() && !newLastName.trim()) {
+                onNotify('لطفاً نام یا نام خانوادگی شهید را وارد کنید.', 'warning');
+                return;
+              }
+              const full = `${newFirstName.trim()} ${newLastName.trim()}`.trim();
+              const id = generateUniqueMartyrId(customMartyrs.map((m) => ({ id: m.martyrId })));
+              const newRec: CustomMartyrRecord = {
+                martyrId: id,
+                firstName: newFirstName.trim(),
+                lastName: newLastName.trim(),
+                fullName: full,
+                alternativeNames: newAltNames
+                  .split(/[،,]/)
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+                externalSystemId: newExtId.trim(),
+                identityVerificationStatus: newIdentityStatus,
+                informationSource: newInfoSource.trim(),
+                description: newDescription.trim(),
+                gravePiece: newPiece.trim(),
+                graveRow: newRow.trim(),
+                graveNumber: newGraveNum.trim(),
+                graveDisplayAddress: `قطعه ${newPiece.trim() || '—'} · ردیف ${
+                  newRow.trim() || '—'
+                } · شماره ${newGraveNum.trim() || '—'}`,
+                graveSource: newGraveSource.trim(),
+                graveVerificationStatus: newGraveStatus,
+                createdAt: new Intl.DateTimeFormat('fa-IR').format(new Date())
+              };
+              if (onAddCustomMartyr) {
+                onAddCustomMartyr(newRec);
+              }
+              setShowNewMartyrModal(false);
+              setNewFirstName('');
+              setNewLastName('');
+              setNewAltNames('');
+              setNewPiece('');
+              setNewRow('');
+              setNewGraveNum('');
+              onNotify(`پرونده مستقل شهید «${full}» با شناسه داخلی ${id} ثبت شد.`);
+            }}
+            className="space-y-3"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block font-bold text-[#253247] mb-1">
-                  نام‌های جایگزین و اشکال مختلف نوشتاری (جداشده با ویرگول):
-                </label>
+                <label className="block font-bold text-[#253247] mb-1">نام *</label>
                 <input
                   type="text"
-                  value={newAltNames}
-                  onChange={(e) => setNewAltNames(e.target.value)}
-                  placeholder="مثلاً: حاج ابراهیم همت، سردار همت، همت محمدابراهیم"
+                  required
+                  value={newFirstName}
+                  onChange={(e) => setNewFirstName(e.target.value)}
+                  placeholder="مثلاً: محمد ابراهیم"
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl"
                 />
               </div>
-
-              <div className="grid grid-cols-3 gap-2.5 bg-[#F5F7FA] p-3 rounded-xl border border-slate-200">
-                <div>
-                  <label className="block font-bold text-[#253247] mb-1">
-                    قطعه (متن/عدد خام)
-                  </label>
-                  <input
-                    type="text"
-                    value={newPiece}
-                    onChange={(e) => setNewPiece(e.target.value)}
-                    placeholder="مثلاً: 24 یا غ تهرانی"
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-[#253247] mb-1">
-                    ردیف (با حفظ صفر اول)
-                  </label>
-                  <input
-                    type="text"
-                    value={newRow}
-                    onChange={(e) => setNewRow(e.target.value)}
-                    placeholder="مثلاً: 04 یا 14"
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-[#253247] mb-1">
-                    شماره مزار
-                  </label>
-                  <input
-                    type="text"
-                    value={newGraveNum}
-                    onChange={(e) => setNewGraveNum(e.target.value)}
-                    placeholder="مثلاً: 08 یا 12الف"
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
-                  />
-                </div>
+              <div>
+                <label className="block font-bold text-[#253247] mb-1">نام خانوادگی *</label>
+                <input
+                  type="text"
+                  required
+                  value={newLastName}
+                  onChange={(e) => setNewLastName(e.target.value)}
+                  placeholder="مثلاً: همت"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl"
+                />
               </div>
+            </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-[#253247] mb-1">وضعیت بررسی هویت</label>
-                  <select
-                    value={newIdentityStatus}
-                    onChange={(e) =>
-                      setNewIdentityStatus(
-                        e.target.value as CustomMartyrRecord['identityVerificationStatus']
-                      )
-                    }
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white"
-                  >
-                    <option value="تأییدشده">تأییدشده</option>
-                    <option value="نیازمند بررسی">نیازمند بررسی</option>
-                    <option value="بررسی‌نشده">بررسی‌نشده</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-[#253247] mb-1">وضعیت تأیید مزار</label>
-                  <select
-                    value={newGraveStatus}
-                    onChange={(e) =>
-                      setNewGraveStatus(
-                        e.target.value as CustomMartyrRecord['graveVerificationStatus']
-                      )
-                    }
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white"
-                  >
-                    <option value="تأییدشده میدانی/سند">تأییدشده میدانی/سند</option>
-                    <option value="نیازمند تطبیق مزار">نیازمند تطبیق مزار</option>
-                    <option value="یادبود / غیرتهرانی">یادبود / غیرتهرانی</option>
-                  </select>
-                </div>
-              </div>
+            <div>
+              <label className="block font-bold text-[#253247] mb-1">
+                نام‌های جایگزین و اشکال مختلف نوشتاری (جداشده با ویرگول):
+              </label>
+              <input
+                type="text"
+                value={newAltNames}
+                onChange={(e) => setNewAltNames(e.target.value)}
+                placeholder="مثلاً: حاج ابراهیم همت، سردار همت، همت محمدابراهیم"
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl"
+              />
+            </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-[#253247] mb-1">
-                    منشأ اطلاعات هویت و مزار
-                  </label>
-                  <input
-                    type="text"
-                    value={newGraveSource}
-                    onChange={(e) => setNewGraveSource(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-[#253247] mb-1">
-                    شناسه سامانه‌های دیگر (در صورت تأیید)
-                  </label>
-                  <input
-                    type="text"
-                    value={newExtId}
-                    onChange={(e) => setNewExtId(e.target.value)}
-                    placeholder="جعل نشود؛ در صورت نامعلوم بودن خالی بماند"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowNewMartyrModal(false)}
-                  className="px-4 py-2 bg-slate-100 rounded-xl font-semibold"
-                >
-                  انصراف
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-[#1F4E79] text-white rounded-xl font-bold cursor-pointer"
-                >
-                  ثبت پرونده شهید
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* مودال حذف پرونده مستقل ثبت‌شده */}
-      {deletingCustomMartyr && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-xl border border-rose-200">
-            <div className="flex items-center gap-2.5 text-rose-700">
-              <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center shrink-0">
-                <Trash2 className="w-5 h-5 text-rose-600" />
+            <div className="grid grid-cols-3 gap-2.5 bg-[#F5F7FA] p-3 rounded-xl border border-slate-200">
+              <div>
+                <label className="block font-bold text-[#253247] mb-1">
+                  قطعه (متن/عدد خام)
+                </label>
+                <input
+                  type="text"
+                  value={newPiece}
+                  onChange={(e) => setNewPiece(e.target.value)}
+                  placeholder="مثلاً: 24 یا غ تهرانی"
+                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
+                />
               </div>
               <div>
-                <h3 className="font-bold text-sm sm:text-base text-rose-900">
-                  تأیید حذف پرونده شهید
-                </h3>
-                <span className="text-xs text-rose-600 font-mono" dir="ltr">
-                  {deletingCustomMartyr.martyrId}
-                </span>
+                <label className="block font-bold text-[#253247] mb-1">
+                  ردیف (با حفظ صفر اول)
+                </label>
+                <input
+                  type="text"
+                  value={newRow}
+                  onChange={(e) => setNewRow(e.target.value)}
+                  placeholder="مثلاً: 04 یا 14"
+                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-[#253247] mb-1">
+                  شماره مزار
+                </label>
+                <input
+                  type="text"
+                  value={newGraveNum}
+                  onChange={(e) => setNewGraveNum(e.target.value)}
+                  placeholder="مثلاً: 08 یا 12الف"
+                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
+                />
               </div>
             </div>
 
-            <div className="bg-rose-50/70 border border-rose-100 rounded-xl p-3 text-xs text-rose-950 space-y-1.5 leading-relaxed">
-              <p>
-                آیا از حذف پرونده شهید مستقل{' '}
-                <strong className="text-rose-900 font-bold">«{deletingCustomMartyr.fullName}»</strong>{' '}
-                اطمینان دارید؟
-              </p>
-              <div className="text-[11px] text-slate-600">
-                نشانی مزار: {deletingCustomMartyr.graveDisplayAddress || 'فاقد نشانی'}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-[#253247] mb-1">وضعیت بررسی هویت</label>
+                <select
+                  value={newIdentityStatus}
+                  onChange={(e) =>
+                    setNewIdentityStatus(
+                      e.target.value as CustomMartyrRecord['identityVerificationStatus']
+                    )
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white"
+                >
+                  <option value="تأییدشده">تأییدشده</option>
+                  <option value="نیازمند بررسی">نیازمند بررسی</option>
+                  <option value="بررسی‌نشده">بررسی‌نشده</option>
+                </select>
               </div>
-              <p className="text-[11px] text-rose-700 font-medium pt-1">
-                ⚠️ این عملیات پرونده را از حافظه محلی این دستگاه (پایگاه book) پاک می‌کند.
-              </p>
+              <div>
+                <label className="block font-bold text-[#253247] mb-1">وضعیت تأیید مزار</label>
+                <select
+                  value={newGraveStatus}
+                  onChange={(e) =>
+                    setNewGraveStatus(
+                      e.target.value as CustomMartyrRecord['graveVerificationStatus']
+                    )
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white"
+                >
+                  <option value="تأییدشده میدانی/سند">تأییدشده میدانی/سند</option>
+                  <option value="نیازمند تطبیق مزار">نیازمند تطبیق مزار</option>
+                  <option value="یادبود / غیرتهرانی">یادبود / غیرتهرانی</option>
+                </select>
+              </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-[#253247] mb-1">
+                  منشأ اطلاعات هویت و مزار
+                </label>
+                <input
+                  type="text"
+                  value={newGraveSource}
+                  onChange={(e) => setNewGraveSource(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-[#253247] mb-1">
+                  شناسه سامانه‌های دیگر (در صورت تأیید)
+                </label>
+                <input
+                  type="text"
+                  value={newExtId}
+                  onChange={(e) => setNewExtId(e.target.value)}
+                  placeholder="جعل نشود؛ در صورت نامعلوم بودن خالی بماند"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
               <button
                 type="button"
-                onClick={() => setDeletingCustomMartyr(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
+                onClick={() => setShowNewMartyrModal(false)}
+                className="px-4 py-2 bg-slate-100 rounded-xl font-semibold cursor-pointer"
               >
                 انصراف
               </button>
               <button
-                type="button"
-                onClick={() => {
-                  if (onDeleteCustomMartyr) {
-                    onDeleteCustomMartyr(deletingCustomMartyr.martyrId);
-                    onNotify(
-                      `پرونده شهید «${deletingCustomMartyr.fullName}» با شناسه ${deletingCustomMartyr.martyrId} با موفقیت حذف شد.`,
-                      'success'
-                    );
-                  }
-                  setDeletingCustomMartyr(null);
-                }}
-                className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+                type="submit"
+                className="px-5 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold cursor-pointer"
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>بله، حذف شود</span>
+                ثبت پرونده شهید
               </button>
             </div>
+          </form>
+        </ModalWindow>
+      )}
+
+      {/* مودال حذف پرونده مستقل ثبت‌شده */}
+      {deletingCustomMartyr && (
+        <ModalWindow
+          onClose={() => setDeletingCustomMartyr(null)}
+          title={`تأیید حذف پرونده شهید (${deletingCustomMartyr.martyrId})`}
+          maxWidthClass="max-w-md"
+        >
+          <div className="flex items-center gap-2.5 text-rose-700">
+            <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center shrink-0">
+              <Trash2 className="w-5 h-5 text-rose-600" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm sm:text-base text-rose-900">
+                تأیید حذف پرونده شهید
+              </h3>
+              <span className="text-xs text-rose-600 font-mono" dir="ltr">
+                {deletingCustomMartyr.martyrId}
+              </span>
+            </div>
           </div>
-        </div>
+
+          <div className="bg-rose-50/70 border border-rose-100 rounded-xl p-3 text-xs text-rose-950 space-y-1.5 leading-relaxed">
+            <p>
+              آیا از حذف پرونده شهید مستقل{' '}
+              <strong className="text-rose-900 font-bold">«{deletingCustomMartyr.fullName}»</strong>{' '}
+              اطمینان دارید؟
+            </p>
+            <div className="text-[11px] text-slate-600">
+              نشانی مزار: {deletingCustomMartyr.graveDisplayAddress || 'فاقد نشانی'}
+            </div>
+            <p className="text-[11px] text-rose-700 font-medium pt-1">
+              ⚠️ این عملیات پرونده را از حافظه محلی این دستگاه (پایگاه book) پاک می‌کند.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={() => setDeletingCustomMartyr(null)}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
+            >
+              انصراف
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (onDeleteCustomMartyr) {
+                  onDeleteCustomMartyr(deletingCustomMartyr.martyrId);
+                  onNotify(
+                    `پرونده شهید «${deletingCustomMartyr.fullName}» با شناسه ${deletingCustomMartyr.martyrId} با موفقیت حذف شد.`,
+                    'success'
+                  );
+                }
+                setDeletingCustomMartyr(null);
+              }}
+              className="px-5 py-2 bg-[#A63A3A] hover:bg-[#872D2D] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>بله، حذف شود</span>
+            </button>
+          </div>
+        </ModalWindow>
       )}
 
       {/* مودال ویرایش و صحت‌سنجی کارشناسی پرونده شهید */}
       {editingCustomMartyr && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-5 space-y-4 shadow-2xl border border-slate-200 my-8">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <div className="flex items-center gap-2">
-                <Edit3 className="w-5 h-5 text-[#1F4E79]" />
-                <h3 className="font-bold text-base text-[#253247]">
-                  ویرایش و صحت‌سنجی پرونده شهید
-                </h3>
-                <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded text-[#1F4E79]" dir="ltr">
-                  {editingCustomMartyr.martyrId}
-                </span>
+        <ModalWindow
+          onClose={() => setEditingCustomMartyr(null)}
+          title={`ویرایش و صحت‌سنجی پرونده شهید (${editingCustomMartyr.martyrId})`}
+          maxWidthClass="max-w-xl"
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!editingCustomMartyr.fullName.trim()) {
+                onNotify('نام شهید نباید خالی باشد.', 'warning');
+                return;
+              }
+              if (onUpdateCustomMartyr) {
+                onUpdateCustomMartyr(editingCustomMartyr);
+                onNotify(`مشخصات و وضعیت پرونده شهید «${editingCustomMartyr.fullName}» به‌روزرسانی شد.`, 'success');
+              }
+              setEditingCustomMartyr(null);
+            }}
+            className="space-y-3.5 text-xs"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-[#253247] mb-1">نام</label>
+                <input
+                  type="text"
+                  value={editingCustomMartyr.firstName}
+                  onChange={(e) => {
+                    const f = e.target.value;
+                    setEditingCustomMartyr({
+                      ...editingCustomMartyr,
+                      firstName: f,
+                      fullName: `${f} ${editingCustomMartyr.lastName}`.trim()
+                    });
+                  }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white"
+                />
               </div>
+              <div>
+                <label className="block font-bold text-[#253247] mb-1">نام خانوادگی</label>
+                <input
+                  type="text"
+                  value={editingCustomMartyr.lastName}
+                  onChange={(e) => {
+                    const l = e.target.value;
+                    setEditingCustomMartyr({
+                      ...editingCustomMartyr,
+                      lastName: l,
+                      fullName: `${editingCustomMartyr.firstName} ${l}`.trim()
+                    });
+                  }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-bold text-[#253247] mb-1">
+                نام‌های جایگزین و اشکال مختلف نوشتاری (جداشده با ویرگول):
+              </label>
+              <input
+                type="text"
+                value={editingCustomMartyr.alternativeNames.join(' ، ')}
+                onChange={(e) =>
+                  setEditingCustomMartyr({
+                    ...editingCustomMartyr,
+                    alternativeNames: e.target.value
+                      .split(/[،,]/)
+                      .map((s) => s.trim())
+                      .filter(Boolean)
+                  })
+                }
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white"
+              />
+            </div>
+
+            {/* بخش مزار */}
+            <div className="bg-[#F5F7FA] p-3 rounded-xl border border-slate-200 space-y-2">
+              <div className="font-bold text-slate-700">نشانی مزار در گلزار شهدا:</div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">قطعه</label>
+                  <input
+                    type="text"
+                    value={editingCustomMartyr.gravePiece}
+                    onChange={(e) => {
+                      const p = e.target.value;
+                      setEditingCustomMartyr({
+                        ...editingCustomMartyr,
+                        gravePiece: p,
+                        graveDisplayAddress: `قطعه ${p || '—'} · ردیف ${editingCustomMartyr.graveRow || '—'} · شماره ${editingCustomMartyr.graveNumber || '—'}`
+                      });
+                    }}
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">ردیف</label>
+                  <input
+                    type="text"
+                    value={editingCustomMartyr.graveRow}
+                    onChange={(e) => {
+                      const r = e.target.value;
+                      setEditingCustomMartyr({
+                        ...editingCustomMartyr,
+                        graveRow: r,
+                        graveDisplayAddress: `قطعه ${editingCustomMartyr.gravePiece || '—'} · ردیف ${r || '—'} · شماره ${editingCustomMartyr.graveNumber || '—'}`
+                      });
+                    }}
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">شماره قبر</label>
+                  <input
+                    type="text"
+                    value={editingCustomMartyr.graveNumber}
+                    onChange={(e) => {
+                      const n = e.target.value;
+                      setEditingCustomMartyr({
+                        ...editingCustomMartyr,
+                        graveNumber: n,
+                        graveDisplayAddress: `قطعه ${editingCustomMartyr.gravePiece || '—'} · ردیف ${editingCustomMartyr.graveRow || '—'} · شماره ${n || '—'}`
+                      });
+                    }}
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* تعیین وضعیت صحت‌سنجی */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-[#253247] mb-1">
+                  وضعیت صحت‌سنجی هویت *
+                </label>
+                <select
+                  value={editingCustomMartyr.identityVerificationStatus}
+                  onChange={(e) =>
+                    setEditingCustomMartyr({
+                      ...editingCustomMartyr,
+                      identityVerificationStatus: e.target.value as CustomMartyrRecord['identityVerificationStatus']
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white font-semibold text-slate-800"
+                >
+                  <option value="تأییدشده">تأییدشده (معتبر در اسناد گلزار)</option>
+                  <option value="نیازمند بررسی">نیازمند بررسی و استعلام</option>
+                  <option value="بررسی‌نشده">بررسی‌نشده (ثبت اولیه)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block font-bold text-[#253247] mb-1">
+                  وضعیت صحت‌سنجی مزار *
+                </label>
+                <select
+                  value={editingCustomMartyr.graveVerificationStatus}
+                  onChange={(e) =>
+                    setEditingCustomMartyr({
+                      ...editingCustomMartyr,
+                      graveVerificationStatus: e.target.value as CustomMartyrRecord['graveVerificationStatus']
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white font-semibold text-slate-800"
+                >
+                  <option value="تأییدشده میدانی/سند">تأییدشده میدانی/سند</option>
+                  <option value="نیازمند تطبیق مزار">نیازمند تطبیق مزار</option>
+                  <option value="یادبود / غیرتهرانی">یادبود / غیرتهرانی</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-bold text-[#253247] mb-1">توضیحات و یادداشت کارشناس:</label>
+              <textarea
+                rows={2}
+                value={editingCustomMartyr.description || ''}
+                onChange={(e) =>
+                  setEditingCustomMartyr({
+                    ...editingCustomMartyr,
+                    description: e.target.value
+                  })
+                }
+                placeholder="یادداشت‌های تکمیلی، نحوه شهادت یا نکات مرتبط با پرونده..."
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setEditingCustomMartyr(null)}
-                className="px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-semibold cursor-pointer"
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold cursor-pointer"
               >
-                بستن
+                انصراف
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>ذخیره تغییرات و وضعیت</span>
               </button>
             </div>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!editingCustomMartyr.fullName.trim()) {
-                  onNotify('نام شهید نباید خالی باشد.', 'warning');
-                  return;
-                }
-                if (onUpdateCustomMartyr) {
-                  onUpdateCustomMartyr(editingCustomMartyr);
-                  onNotify(`مشخصات و وضعیت پرونده شهید «${editingCustomMartyr.fullName}» به‌روزرسانی شد.`, 'success');
-                }
-                setEditingCustomMartyr(null);
-              }}
-              className="space-y-3.5 text-xs"
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-[#253247] mb-1">نام</label>
-                  <input
-                    type="text"
-                    value={editingCustomMartyr.firstName}
-                    onChange={(e) => {
-                      const f = e.target.value;
-                      setEditingCustomMartyr({
-                        ...editingCustomMartyr,
-                        firstName: f,
-                        fullName: `${f} ${editingCustomMartyr.lastName}`.trim()
-                      });
-                    }}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-[#253247] mb-1">نام خانوادگی</label>
-                  <input
-                    type="text"
-                    value={editingCustomMartyr.lastName}
-                    onChange={(e) => {
-                      const l = e.target.value;
-                      setEditingCustomMartyr({
-                        ...editingCustomMartyr,
-                        lastName: l,
-                        fullName: `${editingCustomMartyr.firstName} ${l}`.trim()
-                      });
-                    }}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-[#253247] mb-1">
-                  نام‌های جایگزین و اشکال مختلف نوشتاری (جداشده با ویرگول):
-                </label>
-                <input
-                  type="text"
-                  value={editingCustomMartyr.alternativeNames.join(' ، ')}
-                  onChange={(e) =>
-                    setEditingCustomMartyr({
-                      ...editingCustomMartyr,
-                      alternativeNames: e.target.value
-                        .split(/[،,]/)
-                        .map((s) => s.trim())
-                        .filter(Boolean)
-                    })
-                  }
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white"
-                />
-              </div>
-
-              {/* بخش مزار */}
-              <div className="bg-[#F5F7FA] p-3 rounded-xl border border-slate-200 space-y-2">
-                <div className="font-bold text-slate-700">نشانی مزار در گلزار شهدا:</div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-600 mb-1">قطعه</label>
-                    <input
-                      type="text"
-                      value={editingCustomMartyr.gravePiece}
-                      onChange={(e) => {
-                        const p = e.target.value;
-                        setEditingCustomMartyr({
-                          ...editingCustomMartyr,
-                          gravePiece: p,
-                          graveDisplayAddress: `قطعه ${p || '—'} · ردیف ${editingCustomMartyr.graveRow || '—'} · شماره ${editingCustomMartyr.graveNumber || '—'}`
-                        });
-                      }}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-600 mb-1">ردیف</label>
-                    <input
-                      type="text"
-                      value={editingCustomMartyr.graveRow}
-                      onChange={(e) => {
-                        const r = e.target.value;
-                        setEditingCustomMartyr({
-                          ...editingCustomMartyr,
-                          graveRow: r,
-                          graveDisplayAddress: `قطعه ${editingCustomMartyr.gravePiece || '—'} · ردیف ${r || '—'} · شماره ${editingCustomMartyr.graveNumber || '—'}`
-                        });
-                      }}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-600 mb-1">شماره قبر</label>
-                    <input
-                      type="text"
-                      value={editingCustomMartyr.graveNumber}
-                      onChange={(e) => {
-                        const n = e.target.value;
-                        setEditingCustomMartyr({
-                          ...editingCustomMartyr,
-                          graveNumber: n,
-                          graveDisplayAddress: `قطعه ${editingCustomMartyr.gravePiece || '—'} · ردیف ${editingCustomMartyr.graveRow || '—'} · شماره ${n || '—'}`
-                        });
-                      }}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* تعیین وضعیت صحت‌سنجی */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-[#253247] mb-1">
-                    وضعیت صحت‌سنجی هویت *
-                  </label>
-                  <select
-                    value={editingCustomMartyr.identityVerificationStatus}
-                    onChange={(e) =>
-                      setEditingCustomMartyr({
-                        ...editingCustomMartyr,
-                        identityVerificationStatus: e.target.value as CustomMartyrRecord['identityVerificationStatus']
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white font-semibold text-slate-800"
-                  >
-                    <option value="تأییدشده">تأییدشده (معتبر در اسناد گلزار)</option>
-                    <option value="نیازمند بررسی">نیازمند بررسی و استعلام</option>
-                    <option value="بررسی‌نشده">بررسی‌نشده (ثبت اولیه)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-[#253247] mb-1">
-                    وضعیت صحت‌سنجی مزار *
-                  </label>
-                  <select
-                    value={editingCustomMartyr.graveVerificationStatus}
-                    onChange={(e) =>
-                      setEditingCustomMartyr({
-                        ...editingCustomMartyr,
-                        graveVerificationStatus: e.target.value as CustomMartyrRecord['graveVerificationStatus']
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white font-semibold text-slate-800"
-                  >
-                    <option value="تأییدشده میدانی/سند">تأییدشده میدانی/سند</option>
-                    <option value="نیازمند تطبیق مزار">نیازمند تطبیق مزار</option>
-                    <option value="یادبود / غیرتهرانی">یادبود / غیرتهرانی</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-[#253247] mb-1">توضیحات و یادداشت کارشناس:</label>
-                <textarea
-                  rows={2}
-                  value={editingCustomMartyr.description || ''}
-                  onChange={(e) =>
-                    setEditingCustomMartyr({
-                      ...editingCustomMartyr,
-                      description: e.target.value
-                    })
-                  }
-                  placeholder="یادداشت‌های تکمیلی، نحوه شهادت یا نکات مرتبط با پرونده..."
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setEditingCustomMartyr(null)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold cursor-pointer"
-                >
-                  انصراف
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-[#1F4E79] hover:bg-[#163a5b] text-white rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>ذخیره تغییرات و وضعیت</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+          </form>
+        </ModalWindow>
       )}
     </div>
   );
