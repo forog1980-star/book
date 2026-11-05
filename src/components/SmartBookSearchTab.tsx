@@ -282,7 +282,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
   onNotify
 }) => {
   const [twoWayQuery, setTwoWayQuery] = useState(initialMartyrQuery || '');
-  const [twoWaySourceFilter, setTwoWaySourceFilter] = useState<'all' | 'sooreh' | 'golzar'>('all');
+  const [twoWaySourceFilter, setTwoWaySourceFilter] = useState<'all' | 'sooreh' | 'golzar' | 'golzar_single' | 'golzar_multi'>('all');
   const [selectedMartyrName, setSelectedMartyrName] = useState(initialMartyrQuery || '');
   const [customAltNames, setCustomAltNames] = useState('');
   const [rejectedHistory, setRejectedHistory] = useState<RejectedSuggestionHistory[]>(loadRejectedHistory);
@@ -355,6 +355,8 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
     for (const lnk of validResearchLinks) {
       if (twoWaySourceFilter === 'sooreh' && !lnk.sourceFile?.includes('لیست کتابهای')) continue;
       if (twoWaySourceFilter === 'golzar' && !lnk.sourceFile?.includes('قطعات شهدا')) continue;
+      if (twoWaySourceFilter === 'golzar_single' && lnk.sourceSheet !== 'یک شهید') continue;
+      if (twoWaySourceFilter === 'golzar_multi' && lnk.sourceSheet !== 'چند شهید') continue;
 
       const key = lnk.tempBookId || `${normalizePersianText(lnk.bookTitleRaw)}::${normalizePersianText(lnk.publisherRaw)}`;
       let grp = groupsMap.get(key);
@@ -1493,14 +1495,14 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold">
-            <span className="px-2.5 py-1 rounded-lg bg-[#FAF2E8] text-[#8C3B2B] border border-[#E6D5C1]">
-              ردیف‌های پژوهش سوره مهر: {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalResearchRows)} ردیف
+            <span className="px-2.5 py-1 rounded-lg bg-[#FAF5EE] text-[#6B3E26] border border-[#E2D2BE]">
+              پژوهش سوره مهر: {toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalBookMartyrRelations)} ارتباط
             </span>
-            <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-[#1F4E79] border border-blue-200">
-              ارتباط‌های فعال کتاب و شهید: {toPersianDigits(validResearchLinks.length)} ارتباط ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalBookMartyrRelations)} سوره مهر + {toPersianDigits(validResearchLinks.length - SOOREH_MEHR_RESEARCH_STATS.totalBookMartyrRelations)} قطعات شهدا)
+            <span className="px-2.5 py-1 rounded-lg bg-[#FAF5EE] text-[#332218] border border-[#E2D2BE]">
+              قطعات شهدا: شیت یک شهید (۳۹) + شیت چند شهید (۱۹۸) = ۲۳۷ ارتباط
             </span>
-            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-[#2E7D5B] border border-emerald-200">
-              مطالب استخراج‌شده: {toPersianDigits(extractedItems.length)} مورد
+            <span className="px-2.5 py-1 rounded-lg bg-[#FAF5EE] text-[#5C4636] border border-[#E2D2BE]">
+              کل پیوندهای فعال: {toPersianDigits(validResearchLinks.length)} ارتباط
             </span>
           </div>
         </div>
@@ -1508,25 +1510,31 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
         {/* کادر جست‌وجوی دوطرفه + فیلتر منبع */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
           <div className="md:col-span-8 relative">
-            <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-4 h-4 text-[#6E5846] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="search"
               value={twoWayQuery}
               onChange={(e) => setTwoWayQuery(e.target.value)}
-              placeholder="عنوان کتاب (مثلاً: یک محسن عزیز، یادداشت های ناتمام) یا نام شهید (مثلاً: جعفر جنگروی، علی سمندریان، وزوایی)..."
-              className="w-full min-h-[46px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-[#FDF8F2] border border-[#E6D5C1] rounded-xl text-slate-900 focus:bg-white focus:outline-none focus:border-[#8C3B2B]"
+              placeholder="عنوان کتاب (مثلاً: یک محسن عزیز، آخرین نامه) یا نام شهید (مثلاً: جعفر جنگروی، ابراهیم هادی، وزوایی)..."
+              className="w-full min-h-[46px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-[#FAF5EE] border border-[#D8C7B2] rounded-xl text-[#332218] focus:bg-white focus:outline-none focus:border-[#6B3E26]"
             />
           </div>
 
           <div className="md:col-span-3">
             <select
               value={twoWaySourceFilter}
-              onChange={(e) => setTwoWaySourceFilter(e.target.value as 'all' | 'sooreh' | 'golzar')}
-              className="w-full min-h-[46px] px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl font-bold text-slate-800"
+              onChange={(e) =>
+                setTwoWaySourceFilter(
+                  e.target.value as 'all' | 'sooreh' | 'golzar' | 'golzar_single' | 'golzar_multi'
+                )
+              }
+              className="w-full min-h-[46px] px-3 py-2 text-xs bg-white border border-[#D8C7B2] rounded-xl font-bold text-[#332218]"
             >
               <option value="all">همه منابع پژوهشی ({toPersianDigits(validResearchLinks.length)} ارتباط)</option>
-              <option value="sooreh">فقط منبع سوره مهر ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalBookMartyrRelations)} ارتباط)</option>
-              <option value="golzar">فقط منبع قطعات شهدا (۲۳۷ ارتباط)</option>
+              <option value="golzar">کل اکسل قطعات شهدا (۲۳۷ ارتباط)</option>
+              <option value="golzar_single">قطعات شهدا — شیت یک شهید (۳۹ ارتباط)</option>
+              <option value="golzar_multi">قطعات شهدا — شیت چند شهید (۱۹۸ ارتباط)</option>
+              <option value="sooreh">پژوهش سوره مهر ({toPersianDigits(SOOREH_MEHR_RESEARCH_STATS.totalBookMartyrRelations)} ارتباط)</option>
             </select>
           </div>
 
@@ -1538,7 +1546,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                 setTwoWaySourceFilter('all');
               }}
               title="پاک‌سازی جست‌وجوی دوطرفه"
-              className="w-full min-h-[46px] px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center cursor-pointer"
+              className="w-full min-h-[46px] px-3 bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#5C4636] border border-[#D8C7B2] font-bold text-xs rounded-xl flex items-center justify-center cursor-pointer"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
@@ -1768,16 +1776,16 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
             </div>
 
             {/* ابزار کاوش مستقیم در منابع اینترنتی، کتابشناسی، مقالات و ناشران تخصصی دفاع مقدس */}
-            <div className="bg-[#FAF3EA] border border-[#E6D5C1] rounded-xl p-3 space-y-3">
+            <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3 space-y-3">
               <div className="flex items-center justify-between gap-2">
-                <div className="text-xs font-bold text-[#8C3B2B] flex items-center gap-1.5">
-                  <Globe className="w-4 h-4 text-[#8C3B2B]" />
+                <div className="text-xs font-bold text-[#6B3E26] flex items-center gap-1.5">
+                  <Globe className="w-4 h-4 text-[#6B3E26]" />
                   <span>درگاه‌های استعلام دستی بیرونی برای «{selectedMartyrName || 'شهید'}» (باز شدن در تب جدید):</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowPublishersModal(true)}
-                  className="px-2.5 py-1 bg-[#8C3B2B] hover:bg-[#702D20] text-white text-[11px] font-bold rounded-lg inline-flex items-center gap-1 cursor-pointer transition-colors shadow-xs"
+                  className="px-2.5 py-1 bg-[#6B3E26] hover:bg-[#56311E] text-white text-[11px] font-bold rounded-lg inline-flex items-center gap-1 cursor-pointer transition-colors shadow-xs"
                 >
                   <Building2 className="w-3.5 h-3.5" />
                   <span>۱۸ انتشارات تخصصی دفاع مقدس</span>
@@ -1786,8 +1794,8 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
 
               {/* بخش ۱: کتاب‌ها و اسناد کتابشناسی */}
               <div className="space-y-1">
-                <div className="text-[10px] font-bold text-slate-600 flex items-center gap-1">
-                  <BookOpen className="w-3 h-3 text-[#1F4E79]" />
+                <div className="text-[10px] font-bold text-[#5C4636] flex items-center gap-1">
+                  <BookOpen className="w-3 h-3 text-[#6B3E26]" />
                   <span>پایگاه‌های کتابشناسی و اسناد:</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5 text-[11px]">
@@ -1795,45 +1803,45 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     href={`https://www.google.com/search?q=${encodeURIComponent('کتاب "شهید ' + selectedMartyrName + '"')}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                    className="px-2.5 py-1 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center gap-1 font-semibold"
                   >
-                    <ExternalLink className="w-3 h-3 text-blue-600" />
+                    <ExternalLink className="w-3 h-3 text-[#6B3E26]" />
                     <span>گوگل</span>
                   </a>
                   <a
                     href={`https://ketab.ir/search?query=${encodeURIComponent(selectedMartyrName)}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                    className="px-2.5 py-1 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center gap-1 font-semibold"
                   >
-                    <ExternalLink className="w-3 h-3 text-emerald-600" />
+                    <ExternalLink className="w-3 h-3 text-[#6B3E26]" />
                     <span>خانه کتاب (Ketab.ir)</span>
                   </a>
                   <a
                     href={`http://opac.nlai.ir/opac-prod/bibliographic/searchCalc.do?action=search&bibData.title=&bibData.author=${encodeURIComponent(selectedMartyrName)}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                    className="px-2.5 py-1 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center gap-1 font-semibold"
                   >
-                    <ExternalLink className="w-3 h-3 text-amber-700" />
+                    <ExternalLink className="w-3 h-3 text-[#6B3E26]" />
                     <span>کتابخانه ملی (NLAI)</span>
                   </a>
                   <a
                     href={`https://www.noorlib.ir/fa/search?q=${encodeURIComponent(selectedMartyrName)}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                    className="px-2.5 py-1 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center gap-1 font-semibold"
                   >
-                    <ExternalLink className="w-3 h-3 text-indigo-600" />
+                    <ExternalLink className="w-3 h-3 text-[#6B3E26]" />
                     <span>پایگاه نور (NoorLib)</span>
                   </a>
                 </div>
               </div>
 
               {/* بخش ۲: مقاله‌ها و نشریات پژوهشی (مگیران، نورمگز، سیویلیکا) */}
-              <div className="space-y-1 pt-1 border-t border-[#E6D5C1]/60">
-                <div className="text-[10px] font-bold text-slate-600 flex items-center gap-1">
-                  <Newspaper className="w-3 h-3 text-[#2E7D5B]" />
+              <div className="space-y-1 pt-1 border-t border-[#E2D2BE]">
+                <div className="text-[10px] font-bold text-[#5C4636] flex items-center gap-1">
+                  <Newspaper className="w-3 h-3 text-[#6B3E26]" />
                   <span>پایگاه‌های معتبر مقالات و نشریات:</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5 text-[11px]">
@@ -1842,9 +1850,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     target="_blank"
                     rel="noopener noreferrer"
                     title="پایگاه اطلاعات نشریات کشور (مگیران)"
-                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                    className="px-2.5 py-1 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center gap-1 font-semibold"
                   >
-                    <ExternalLink className="w-3 h-3 text-teal-600" />
+                    <ExternalLink className="w-3 h-3 text-[#6B3E26]" />
                     <span>مگیران (Magiran)</span>
                   </a>
                   <a
@@ -1852,9 +1860,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     target="_blank"
                     rel="noopener noreferrer"
                     title="پایگاه مجلات تخصصی نور (نورمگز)"
-                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                    className="px-2.5 py-1 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center gap-1 font-semibold"
                   >
-                    <ExternalLink className="w-3 h-3 text-cyan-600" />
+                    <ExternalLink className="w-3 h-3 text-[#6B3E26]" />
                     <span>نورمگز (NoorMags)</span>
                   </a>
                   <a
@@ -1862,9 +1870,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     target="_blank"
                     rel="noopener noreferrer"
                     title="مرجع مقالات و همایش‌های علمی (سیویلیکا)"
-                    className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                    className="px-2.5 py-1 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center gap-1 font-semibold"
                   >
-                    <ExternalLink className="w-3 h-3 text-orange-600" />
+                    <ExternalLink className="w-3 h-3 text-[#6B3E26]" />
                     <span>سیویلیکا (Civilica)</span>
                   </a>
                 </div>
@@ -1874,7 +1882,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
             <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
               <button
                 type="submit"
-                className="w-full sm:w-auto min-h-[42px] px-5 py-2 rounded-xl bg-[#1F4E79] hover:bg-[#163a5b] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                className="w-full sm:w-auto min-h-[42px] px-5 py-2 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors"
               >
                 <Sparkles className="w-4 h-4" />
                 <span>اجرای تطبیق هوشمند و افزودن به صف بررسی کارشناس</span>

@@ -86,8 +86,10 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
   onNotify
 }) => {
   const [subView, setSubView] = useState<
-    'links' | 'extracted' | 'pending567' | 'groups16' | 'publish_gateway' | 'depository'
+    'links' | 'ghatat_sheets' | 'extracted' | 'pending567' | 'groups16' | 'publish_gateway' | 'depository'
   >('depository');
+  const [ghatatActiveSheet, setGhatatActiveSheet] = useState<'one' | 'multi' | 'graves'>('one');
+  const [ghatatQuery, setGhatatQuery] = useState('');
   const [deskMode, setDeskMode] = useState<'streamlined' | 'detailed'>('streamlined');
   const [hideArchivedGroups, setHideArchivedGroups] = useState<boolean>(() => {
     try {
@@ -799,108 +801,71 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
   return (
     <div className="space-y-5">
-      {/* Sub-navigation Switcher for all Specialist Modules */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+      {/* Sub-navigation Switcher — پالت یکدست کرم و قهوه‌ای شکلاتی (بدون تب شلوغ ۵۶۷ مورد نیازمند بررسی) */}
+      <div className="bg-white border border-[#E2D2BE] rounded-2xl p-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#EFE4D6] pb-2.5">
           <div>
-            <h2 className="text-base font-bold text-slate-900 flex flex-wrap items-center gap-1.5">
-              <span>میز تخصصی کارشناسان مرکز اسناد</span>
-              <span className="text-xs font-normal text-slate-500">
-                (سامانه جامع پیوند کتاب و شهید، ارزیابی شیت‌ها و دپوی اسناد)
+            <h2 className="text-base font-bold text-[#332218] flex flex-wrap items-center gap-1.5">
+              <span>پژوهش و پیوند کتاب‌ها با شهدای گلزار تهران</span>
+              <span className="text-xs font-normal text-[#78604E]">
+                (تطبیق ۲۸٬۳۶۸ شهید گلزار با ۹۸۰ کتاب، اکسل «قطعات شهدا» و پژوهش سوره مهر)
               </span>
             </h2>
-          </div>
-
-          {/* Mode Toggle: Streamlined / Detailed Desk */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setDeskMode((prev) => (prev === 'streamlined' ? 'detailed' : 'streamlined'))}
-              className="px-3 py-1.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-xs font-bold text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5 text-[#1f4e79]" />
-              <span>
-                {deskMode === 'streamlined'
-                  ? 'نمای ساده و خلوت (پیش‌فرض)'
-                  : 'نمای کامل همه شیت‌ها'}
-              </span>
-            </button>
-
-            {hideArchivedGroups && (
-              <button
-                type="button"
-                onClick={() => {
-                  setHideArchivedGroups(false);
-                  try {
-                    localStorage.removeItem('book_hide_archived_groups');
-                  } catch {
-                    // ignore
-                  }
-                  onNotify('شیت ۱۶ گروه چندشهیدی از حالت بایگانی خارج شد.');
-                }}
-                className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-medium flex items-center gap-1 cursor-pointer"
-                title="نمایش مجدد ۱۶ گروه چندشهیدی"
-              >
-                <Eye className="w-3.5 h-3.5" />
-                <span>بازیابی ۱۶ گروه</span>
-              </button>
-            )}
           </div>
         </div>
 
         {/* Tab Buttons Grid */}
-        <div className="flex flex-wrap gap-2 p-1 bg-slate-100 rounded-xl text-xs">
-          {/* 1. MASTER DEPOSITORY & 2-WAY EXPORT (Prominent Hub) */}
+        <div className="flex flex-wrap gap-2 p-1.5 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs">
+          {/* 1. MASTER DEPOSITORY & 2-WAY EXPORT (آبی ملایم و روشن) */}
           <button
             type="button"
             onClick={() => {
               setSubView('depository');
             }}
-            className={`min-h-[44px] px-4 py-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 flex-1 min-w-[180px] ${
+            className={`min-h-[42px] px-4 py-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 flex-1 min-w-[180px] cursor-pointer ${
               subView === 'depository'
-                ? 'bg-gradient-to-r from-[#173a5a] to-[#1f4e79] text-white shadow-sm ring-2 ring-emerald-500/50'
-                : 'bg-emerald-50 text-[#1a6348] border border-emerald-300 hover:bg-emerald-100 font-extrabold'
+                ? 'bg-[#2B547E] text-white shadow-2xs'
+                : 'bg-[#EDF4FB] text-[#1E3A5F] border border-[#C2D8EC] hover:bg-[#E1EEF9]'
             }`}
           >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>مرکز دپو و خروجی نهایی (دوسویه)</span>
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-600 text-white font-mono">
-              اکسل/JSON
-            </span>
+            <FileSpreadsheet className="w-4 h-4 shrink-0" />
+            <span>خروجی دوسویه اسناد (شهید ↔ کتاب)</span>
           </button>
 
-          {/* 2. Core Links */}
+          {/* 2. قطعات شهدا (یک شهید، چند شهید، آدرس مزار) */}
+          <button
+            type="button"
+            onClick={() => {
+              setSubView('ghatat_sheets');
+            }}
+            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[170px] cursor-pointer ${
+              subView === 'ghatat_sheets'
+                ? 'bg-[#6B3E26] text-white shadow-2xs'
+                : 'text-[#332218] hover:bg-[#EFE4D6] bg-white border border-[#E2D2BE]'
+            }`}
+          >
+            <BookOpen className="w-4 h-4 shrink-0" />
+            <span>اکسل قطعات شهدا (یک شهید · چند شهید · آدرس مزار)</span>
+          </button>
+
+          {/* 3. Core Links (فقط پیوندهای دارای نام مشخص شهید — بدون موارد ستاره‌دار) */}
           <button
             type="button"
             onClick={() => {
               setSubView('links');
+              setStatusFilter('named_only');
               setVisibleLimit(60);
             }}
-            className={`min-h-[44px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[140px] ${
+            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[140px] cursor-pointer ${
               subView === 'links'
-                ? 'bg-[#1f4e79] text-white shadow-xs'
-                : 'text-slate-700 hover:text-slate-900 bg-white/60'
+                ? 'bg-[#6B3E26] text-white shadow-2xs'
+                : 'text-[#332218] hover:bg-[#EFE4D6] bg-white border border-[#E2D2BE]'
             }`}
           >
             <Link2 className="w-4 h-4 shrink-0" />
-            <span>ارتباط کتاب و شهید ({toPersianDigits(links.length)})</span>
-          </button>
-
-          {/* 3. Pending Reviews (567) */}
-          <button
-            type="button"
-            onClick={() => {
-              setSubView('pending567');
-              setVisibleLimit(60);
-            }}
-            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[140px] ${
-              subView === 'pending567'
-                ? 'bg-[#1f4e79] text-white shadow-xs'
-                : 'text-slate-700 hover:text-slate-900 bg-white/60'
-            }`}
-          >
-            <AlertCircle className="w-4 h-4 shrink-0 text-amber-500" />
-            <span>نیازمند بررسی ({toPersianDigits(pendingReviews.length)})</span>
+            <span>
+              ثبت و مدیریت پیوندها ({toPersianDigits(links.filter((l) => l.martyrNameRaw && l.martyrNameRaw !== '*').length)})
+            </span>
           </button>
 
           {/* 4. Extracted Items */}
@@ -910,44 +875,28 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
               setSubView('extracted');
               setVisibleLimit(60);
             }}
-            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[140px] ${
+            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[140px] cursor-pointer ${
               subView === 'extracted'
-                ? 'bg-[#1f4e79] text-white shadow-xs'
-                : 'text-slate-700 hover:text-slate-900 bg-white/60'
+                ? 'bg-[#6B3E26] text-white shadow-2xs'
+                : 'text-[#332218] hover:bg-[#EFE4D6] bg-white border border-[#E2D2BE]'
             }`}
           >
             <FileText className="w-4 h-4 shrink-0" />
-            <span>مطالب استخراج‌شده ({toPersianDigits(extractedItems.length)})</span>
+            <span>مطالب و صفحات استخراج‌شده ({toPersianDigits(extractedItems.length)})</span>
           </button>
 
-
-          {((deskMode === 'detailed' && !hideArchivedGroups) || subView === 'groups16') && (
-            <button
-              type="button"
-              onClick={() => setSubView('groups16')}
-              className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[130px] ${
-                subView === 'groups16'
-                  ? 'bg-[#1f4e79] text-white shadow-xs'
-                  : 'text-slate-700 hover:text-slate-900 bg-white/60'
-              }`}
-            >
-              <ClipboardCheck className="w-4 h-4 shrink-0" />
-              <span>۱۶ گروه چندشهیدی</span>
-            </button>
-          )}
-
-          {/* Publishing Gateway */}
+          {/* 5. Publishing Gateway */}
           <button
             type="button"
             onClick={() => setSubView('publish_gateway')}
-            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[150px] ${
+            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[140px] cursor-pointer ${
               subView === 'publish_gateway'
-                ? 'bg-[#2E7D5B] text-white shadow-xs'
-                : 'text-[#2E7D5B] hover:bg-emerald-50 bg-emerald-50/50'
+                ? 'bg-[#2E6F40] text-white shadow-2xs'
+                : 'text-[#2E6F40] hover:bg-[#EAF4EC] bg-white border border-[#C6DFCD]'
             }`}
           >
             <Download className="w-4 h-4 shrink-0" />
-            <span>دروازه انتشار رسمی</span>
+            <span>خروجی انتشار سایت</span>
           </button>
         </div>
       </div>
@@ -2805,6 +2754,228 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
           </div>
         </div>
       )}
+
+      {/* SubView: اکسل قطعات شهدا (هر ۳ شیت: یک شهید، چند شهید، آدرس مزار) */}
+      {subView === 'ghatat_sheets' && (() => {
+        const qNorm = normalizePersianText(ghatatQuery);
+        const oneMartyrRows = links.filter((l) => {
+          if (l.sourceSheet !== 'یک شهید') return false;
+          if (!qNorm) return true;
+          return normalizePersianText(
+            `${l.martyrNameRaw} ${l.bookTitleRaw} ${l.alternativeTitle || ''} ${l.publisherRaw} ${l.sourceDescriptionRaw} ${l.gravePieceRaw}`
+          ).includes(qNorm);
+        });
+        const multiMartyrRows = links.filter((l) => {
+          if (l.sourceSheet !== 'چند شهید') return false;
+          if (!qNorm) return true;
+          return normalizePersianText(
+            `${l.martyrNameRaw} ${l.bookTitleRaw} ${l.publisherRaw} ${l.sourceDescriptionRaw} ${l.gravePieceRaw}`
+          ).includes(qNorm);
+        });
+        const graveAddressRows = workbookMartyrs.filter((m) => {
+          if (!qNorm) return true;
+          return normalizePersianText(
+            `${m.fullNameSearch} ${m.piece} ${m.graveRow} ${m.graveNumber}`
+          ).includes(qNorm);
+        });
+
+        const handleExportGhatatExcel = () => {
+          const wb = XLSX.utils.book_new();
+          const ws1 = XLSX.utils.json_to_sheet(
+            links
+              .filter((l) => l.sourceSheet === 'یک شهید')
+              .map((l, idx) => ({
+                'ردیف': idx + 1,
+                'انتشارات': l.publisherRaw,
+                'عنوان کتاب': l.bookTitleRaw,
+                'عنوان دیگر': l.alternativeTitle || '',
+                'توضیحات': l.sourceDescriptionRaw,
+                'نام و نام خانوادگی شهید': l.martyrNameRaw,
+                'قطعه': l.gravePieceRaw,
+                'ردیف مزار': l.graveRowRaw,
+                'شماره': l.graveNumberRaw,
+                'شناسه کتاب در مخزن': l.tempBookId
+              }))
+          );
+          const ws2 = XLSX.utils.json_to_sheet(
+            links
+              .filter((l) => l.sourceSheet === 'چند شهید')
+              .map((l, idx) => ({
+                'ردیف': idx + 1,
+                'انتشارات': l.publisherRaw,
+                'عنوان کتاب': l.bookTitleRaw,
+                'توضیحات': l.sourceDescriptionRaw,
+                'نام و نام خانوادگی شهید': l.martyrNameRaw,
+                'قطعه': l.gravePieceRaw,
+                'ردیف مزار': l.graveRowRaw,
+                'شماره': l.graveNumberRaw,
+                'شناسه کتاب در مخزن': l.tempBookId
+              }))
+          );
+          const ws3 = XLSX.utils.json_to_sheet(
+            workbookMartyrs.map((m, idx) => ({
+              'ردیف': idx + 1,
+              'نام': m.firstNameRaw,
+              'نام خانوادگی': m.lastNameRaw,
+              'نام کامل شهید': m.fullNameSearch,
+              'قطعه': m.piece,
+              'ردیف مزار': m.graveRow,
+              'شماره مزار': m.graveNumber
+            }))
+          );
+          XLSX.utils.book_append_sheet(wb, ws1, 'یک شهید');
+          XLSX.utils.book_append_sheet(wb, ws2, 'چند شهید');
+          XLSX.utils.book_append_sheet(wb, ws3, 'آدرس مزار');
+          XLSX.writeFile(wb, `قطعات-شهدا-سه-شیت-${new Date().toISOString().slice(0, 10)}.xlsx`);
+          onNotify('فایل اکسل «قطعات شهدا» شامل هر ۳ شیت (یک شهید، چند شهید، آدرس مزار) دانلود شد.');
+        };
+
+        return (
+          <div className="bg-white border border-[#E2D2BE] rounded-2xl p-4 sm:p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EFE4D6] pb-3">
+              <div>
+                <h3 className="text-base font-bold text-[#332218]">
+                  فایل مرجع «قطعات شهدا.xlsx» — تفکیک‌شده در سه شیت اصلی
+                </h3>
+                <p className="text-xs text-[#78604E] mt-0.5">
+                  شیت اول: هر کتاب برای یک شهید (۳۹ مورد) · شیت دوم: یک کتاب برای چند شهید مانند «آخرین نامه» (۱۹۸ مورد) · شیت سوم: آدرس مزار شهدا (۱۹۶ مورد)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleExportGhatatExcel}
+                className="min-h-[40px] px-4 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs flex items-center gap-1.5 shrink-0 cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                <span>دانلود اکسل ۳ شیت قطعات شهدا (.xlsx)</span>
+              </button>
+            </div>
+
+            {/* انتخابگر ۳ شیت قطعات شهدا + جست‌وجو */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-1.5 p-1 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setGhatatActiveSheet('one')}
+                  className={`px-3.5 py-2 rounded-lg transition-colors cursor-pointer ${
+                    ghatatActiveSheet === 'one'
+                      ? 'bg-[#6B3E26] text-white'
+                      : 'text-[#5C4033] hover:bg-[#EFE4D6]'
+                  }`}
+                >
+                  ۱. شیت «یک شهید» ({toPersianDigits(oneMartyrRows.length)})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGhatatActiveSheet('multi')}
+                  className={`px-3.5 py-2 rounded-lg transition-colors cursor-pointer ${
+                    ghatatActiveSheet === 'multi'
+                      ? 'bg-[#6B3E26] text-white'
+                      : 'text-[#5C4033] hover:bg-[#EFE4D6]'
+                  }`}
+                >
+                  ۲. شیت «چند شهید» ({toPersianDigits(multiMartyrRows.length)})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGhatatActiveSheet('graves')}
+                  className={`px-3.5 py-2 rounded-lg transition-colors cursor-pointer ${
+                    ghatatActiveSheet === 'graves'
+                      ? 'bg-[#6B3E26] text-white'
+                      : 'text-[#5C4033] hover:bg-[#EFE4D6]'
+                  }`}
+                >
+                  ۳. شیت «آدرس مزار» ({toPersianDigits(graveAddressRows.length)})
+                </button>
+              </div>
+
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 text-[#78604E] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="search"
+                  value={ghatatQuery}
+                  onChange={(e) => setGhatatQuery(e.target.value)}
+                  placeholder="جست‌وجوی نام شهید، عنوان کتاب (مثلاً آخرین نامه، با مرام)، ناشر یا قطعه..."
+                  className="w-full min-h-[40px] pr-10 pl-3 py-2 text-xs bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl focus:bg-white focus:outline-none focus:border-[#6B3E26]"
+                />
+              </div>
+            </div>
+
+            {/* جدول شیت ۱ یا ۲ */}
+            {(ghatatActiveSheet === 'one' || ghatatActiveSheet === 'multi') && (
+              <div className="overflow-x-auto border border-[#E2D2BE] rounded-xl">
+                <table className="w-full text-xs text-right border-collapse">
+                  <thead>
+                    <tr className="bg-[#F6EFE6] text-[#332218] border-b border-[#E2D2BE] font-bold">
+                      <th className="py-2.5 px-3 w-12 text-center">ردیف</th>
+                      <th className="py-2.5 px-3">انتشارات</th>
+                      <th className="py-2.5 px-3">عنوان کتاب</th>
+                      <th className="py-2.5 px-3">توضیحات</th>
+                      <th className="py-2.5 px-3">نام و نام خانوادگی شهید</th>
+                      <th className="py-2.5 px-3 text-center">قطعه</th>
+                      <th className="py-2.5 px-3 text-center">ردیف</th>
+                      <th className="py-2.5 px-3 text-center">شماره</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EFE4D6]">
+                    {(ghatatActiveSheet === 'one' ? oneMartyrRows : multiMartyrRows).map((row, idx) => (
+                      <tr key={row.id} className="hover:bg-[#FAF5EE]">
+                        <td className="py-2 px-3 text-center font-mono text-[#78604E]">
+                          {toPersianDigits(idx + 1)}
+                        </td>
+                        <td className="py-2 px-3 text-[#5C4033]">{row.publisherRaw || '—'}</td>
+                        <td className="py-2 px-3 font-bold text-[#6B3E26]">
+                          {row.bookTitleRaw}
+                          {row.alternativeTitle ? ` (${row.alternativeTitle})` : ''}
+                        </td>
+                        <td className="py-2 px-3 text-[#332218]">{row.sourceDescriptionRaw || '—'}</td>
+                        <td className="py-2 px-3 font-bold text-[#332218]">{row.martyrNameRaw}</td>
+                        <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(row.gravePieceRaw || '—')}</td>
+                        <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(row.graveRowRaw || '—')}</td>
+                        <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(row.graveNumberRaw || '—')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* جدول شیت ۳: آدرس مزار */}
+            {ghatatActiveSheet === 'graves' && (
+              <div className="overflow-x-auto border border-[#E2D2BE] rounded-xl">
+                <table className="w-full text-xs text-right border-collapse">
+                  <thead>
+                    <tr className="bg-[#F6EFE6] text-[#332218] border-b border-[#E2D2BE] font-bold">
+                      <th className="py-2.5 px-3 w-12 text-center">ردیف</th>
+                      <th className="py-2.5 px-3">نام</th>
+                      <th className="py-2.5 px-3">نام خانوادگی</th>
+                      <th className="py-2.5 px-3">نام کامل شهید</th>
+                      <th className="py-2.5 px-3 text-center">قطعه مزار</th>
+                      <th className="py-2.5 px-3 text-center">ردیف مزار</th>
+                      <th className="py-2.5 px-3 text-center">شماره مزار</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EFE4D6]">
+                    {graveAddressRows.map((m, idx) => (
+                      <tr key={m.tempPersonId} className="hover:bg-[#FAF5EE]">
+                        <td className="py-2 px-3 text-center font-mono text-[#78604E]">
+                          {toPersianDigits(idx + 1)}
+                        </td>
+                        <td className="py-2 px-3 text-[#332218]">{m.firstNameRaw}</td>
+                        <td className="py-2 px-3 text-[#332218]">{m.lastNameRaw}</td>
+                        <td className="py-2 px-3 font-bold text-[#6B3E26]">{m.fullNameSearch}</td>
+                        <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(m.piece || '—')}</td>
+                        <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(m.graveRow || '—')}</td>
+                        <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(m.graveNumber || '—')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* SubView: Master Depository and 2-Way Final Export Hub */}
       {subView === 'depository' && (

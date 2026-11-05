@@ -495,7 +495,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             <button
               type="button"
               onClick={() => setShowQuickBookModal(true)}
-              className="min-h-[44px] px-4 py-2 rounded-xl bg-[#1F4E79] hover:bg-[#173b5c] text-white text-xs font-bold flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
+              className="min-h-[44px] px-4 py-2 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs font-bold flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" />
               <span>ثبت سریع کتاب</span>
@@ -504,9 +504,9 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             <button
               type="button"
               onClick={openVoiceRegistrationModal}
-              className="min-h-[44px] px-4 py-2 rounded-xl bg-[#2E7D5B] hover:bg-[#246348] text-white text-xs font-bold flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
+              className="min-h-[44px] px-4 py-2 rounded-xl bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] text-xs font-bold flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer"
             >
-              <Mic className="w-4 h-4" />
+              <Mic className="w-4 h-4 text-[#6B3E26]" />
               <span>ثبت صوتی اطلاعات کنار قفسه</span>
             </button>
           </div>
@@ -514,24 +514,24 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
 
         {/* پیام تأیید فوری پس از ثبت سریع یا صوتی کتاب */}
         {lastSavedNotice && (
-          <div className="bg-emerald-50 border-2 border-emerald-400 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs text-emerald-950">
+          <div className="bg-[#EDF6F0] border-2 border-[#A8D5B5] rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs text-[#1E4D2B]">
             <div className="flex items-start gap-2.5">
-              <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-5 h-5 text-[#2E6F40] shrink-0 mt-0.5" />
               <div className="space-y-1">
-                <div className="font-bold text-sm text-emerald-900">
+                <div className="font-bold text-sm text-[#1E4D2B]">
                   ✅ کتاب «{lastSavedNotice.title}» با موفقیت در حافظه دستگاه ثبت شد!
                 </div>
-                <div className="flex flex-wrap items-center gap-2 text-[11px] text-emerald-800">
-                  <span className="font-mono bg-white px-2 py-0.5 rounded border border-emerald-300">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#1E4D2B]">
+                  <span className="font-mono bg-white px-2 py-0.5 rounded border border-[#A8D5B5]">
                     شناسه: {lastSavedNotice.tempBookId}
                   </span>
-                  <span className="font-mono bg-white px-2 py-0.5 rounded border border-emerald-300">
+                  <span className="font-mono bg-white px-2 py-0.5 rounded border border-[#A8D5B5]">
                     نسخه: {lastSavedNotice.copyId}
                   </span>
-                  <span className="font-mono bg-white px-2 py-0.5 rounded border border-emerald-300">
+                  <span className="font-mono bg-white px-2 py-0.5 rounded border border-[#A8D5B5]">
                     محل: {lastSavedNotice.location}
                   </span>
-                  <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-bold">
+                  <span className="px-2 py-0.5 rounded bg-[#FAF5EE] text-[#6B3E26] border border-[#D8C7B2] font-bold">
                     ⏳ خارج از فهرست اولیه (۹۸۰ کتاب) — در انتظار تأیید کارشناس
                   </span>
                 </div>
@@ -547,14 +547,14 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                     onNavigateTab('library');
                   }
                 }}
-                className="px-3 py-1.5 rounded-lg bg-[#1F4E79] text-white font-bold text-xs hover:bg-[#163a5b] cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-[#6B3E26] text-white font-bold text-xs hover:bg-[#56311E] cursor-pointer"
               >
                 مشاهده در کتابخانه ←
               </button>
               <button
                 type="button"
                 onClick={() => setLastSavedNotice(null)}
-                className="px-2.5 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-900 text-xs cursor-pointer"
+                className="px-2.5 py-1.5 rounded-lg bg-white border border-[#D8C7B2] text-[#332218] text-xs cursor-pointer"
               >
                 بستن پیام
               </button>
@@ -591,27 +591,27 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
           }}
           className="relative"
         >
-          <Search className="w-5 h-5 text-[#697586] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <Search className="w-5 h-5 text-[#6E5846] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={globalQuery}
             onChange={(e) => setGlobalQuery(e.target.value)}
             placeholder="جست‌وجوی سریع عنوان کتاب (از ۹۸۰ کتاب اولیه یا ثبت‌های جدید)، نام شهید، ناشر یا کد..."
-            className="w-full min-h-[48px] pr-11 pl-28 py-2.5 text-sm bg-[#F5F7FA] border border-slate-300 rounded-xl focus:outline-none focus:border-[#1F4E79] focus:bg-white text-[#253247]"
+            className="w-full min-h-[48px] pr-11 pl-28 py-2.5 text-sm bg-[#FAF5EE] border border-[#D8C7B2] rounded-xl focus:outline-none focus:border-[#6B3E26] focus:bg-white text-[#332218]"
           />
           <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
             {globalQuery && (
               <button
                 type="button"
                 onClick={() => setGlobalQuery('')}
-                className="px-2 py-1 text-xs text-[#697586] hover:text-[#253247] bg-amber-100/70 rounded-lg cursor-pointer"
+                className="px-2 py-1 text-xs text-[#6E5846] hover:text-[#332218] bg-[#F3E9DC] rounded-lg cursor-pointer"
               >
                 پاک‌کردن
               </button>
             )}
             <button
               type="submit"
-              className="px-3 py-1.5 text-xs font-bold bg-[#1F4E79] text-white rounded-lg hover:bg-[#173b5c] transition-colors cursor-pointer"
+              className="px-3 py-1.5 text-xs font-bold bg-[#6B3E26] text-white rounded-lg hover:bg-[#56311E] transition-colors cursor-pointer"
             >
               جست‌وجو ↵
             </button>
@@ -620,12 +620,12 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
 
         {/* Global Search Instant Results Drawer */}
         {searchResults && (
-          <div id="global-search-results-box" className="bg-[#F5F7FA] border border-slate-200 rounded-xl p-4 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#697586]">
+          <div id="global-search-results-box" className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-4 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#5C4636]">
               <span>
-                نتایج جست‌وجوی سراسری برای «<strong className="text-[#253247]">{globalQuery}</strong>» (با رفتن به تب‌ها و بازگشت، این جست‌وجو حفظ می‌شود):
+                نتایج جست‌وجوی سراسری برای «<strong className="text-[#332218]">{globalQuery}</strong>» (با رفتن به تب‌ها و بازگشت، این جست‌وجو حفظ می‌شود):
               </span>
-              <span className="tabular-nums font-bold text-[#1F4E79]">
+              <span className="tabular-nums font-bold text-[#6B3E26]">
                 {toPersianDigits(searchResults.matchedBooks.length)} کتاب ·{' '}
                 {toPersianDigits(searchResults.matchedMartyrs.length)} شهید ·{' '}
                 {toPersianDigits(searchResults.matchedLinks.length)} ارتباط پژوهشی
@@ -634,9 +634,9 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Matched Books */}
-              <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
+              <div className="bg-white border border-[#E2D2BE] rounded-xl p-3 space-y-2">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-bold text-[#1F4E79]">
+                  <h3 className="text-xs font-bold text-[#6B3E26]">
                     کتاب‌های منطبق در فهرست ({toPersianDigits(searchResults.matchedBooks.length)})
                   </h3>
                   <button
@@ -648,15 +648,15 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                         onNavigateTab('library');
                       }
                     }}
-                    className="text-[11px] text-[#1F4E79] font-bold hover:underline cursor-pointer"
+                    className="text-[11px] text-[#6B3E26] font-bold hover:underline cursor-pointer"
                   >
                     مشاهده این جست‌وجو در کتابخانه ←
                   </button>
                 </div>
                 {searchResults.matchedBooks.length === 0 ? (
-                  <p className="text-xs text-[#697586] py-2">کتابی با این عبارت یافت نشد.</p>
+                  <p className="text-xs text-[#6E5846] py-2">کتابی با این عبارت یافت نشد.</p>
                 ) : (
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y divide-[#EFE5D8]">
                     {searchResults.matchedBooks.map((b) => {
                       const extBook = b as ReferenceCatalogRow & {
                         isOutsideInitialList?: boolean;
@@ -668,12 +668,12 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                           <div className="flex items-start justify-between gap-2">
                             <div className="space-y-1">
                               <div>
-                                <span className="font-bold text-[#253247]">{b.titleRaw}</span>
-                                <span className="text-[#697586] mr-2">
+                                <span className="font-bold text-[#332218]">{b.titleRaw}</span>
+                                <span className="text-[#6E5846] mr-2">
                                   · {b.publisherRaw || 'ناشر ثبت‌نشده'} · {b.tempBookId}
                                 </span>
                                 {b.locationRaw && (
-                                  <span className="font-mono text-[11px] text-[#1F4E79] mr-1.5">
+                                  <span className="font-mono text-[11px] text-[#6B3E26] mr-1.5">
                                     ({b.locationRaw})
                                   </span>
                                 )}
@@ -681,18 +681,18 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                               <div>
                                 {extBook.isOutsideInitialList ? (
                                   extBook.isExpertApproved ? (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 text-[10.5px] font-bold">
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#EDF6F0] text-[#1E4D2B] border border-[#A8D5B5] text-[10.5px] font-bold">
                                       <ShieldCheck className="w-3 h-3" />
                                       <span>ثبت جدید (خارج از فهرست اولیه ۹۸۰ کتاب) — تأییدشده توسط کارشناس</span>
                                     </span>
                                   ) : (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-300 text-[10.5px] font-bold">
-                                      <AlertTriangle className="w-3 h-3 text-amber-700" />
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#FAF5EE] text-[#6B3E26] border border-[#D8C7B2] text-[10.5px] font-bold">
+                                      <AlertTriangle className="w-3 h-3 text-[#6B3E26]" />
                                       <span>ثبت‌شده — هنوز توسط کارشناس تأیید نشده (خارج از فهرست اولیه ۹۸۰ کتاب)</span>
                                     </span>
                                   )
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]">
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#FAF5EE] text-[#5C4636] text-[10px]">
                                     موجود در فهرست اولیه (۹۸۰ کتاب)
                                   </span>
                                 )}
@@ -703,7 +703,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => onApproveOutsideBook(extBook.auditKey!)}
-                                  className="px-2 py-1 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg cursor-pointer"
+                                  className="px-2 py-1 text-[11px] bg-[#2E6F40] hover:bg-[#245832] text-white font-bold rounded-lg cursor-pointer"
                                   title="تأیید کارشناسی این کتاب"
                                 >
                                   ✓ تأیید کارشناس
@@ -718,7 +718,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                                     onNavigateTab('library');
                                   }
                                 }}
-                                className="px-2.5 py-1 text-[11px] bg-[#EAF1F7] hover:bg-blue-100 text-[#1F4E79] font-bold rounded-lg shrink-0 cursor-pointer"
+                                className="px-2.5 py-1 text-[11px] bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#6B3E26] border border-[#D8C7B2] font-bold rounded-lg shrink-0 cursor-pointer"
                               >
                                 پرونده کتاب
                               </button>
@@ -726,7 +726,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => onDeleteAuditRecord(extBook.auditKey!)}
-                                  className="p-1 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                                  className="p-1 text-[#A63A3A] hover:bg-[#FDF0F0] rounded-lg cursor-pointer"
                                   title="حذف این رکورد ثبت‌شده"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -742,43 +742,43 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
               </div>
 
               {/* Matched Martyrs & Links */}
-              <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
+              <div className="bg-white border border-[#E2D2BE] rounded-xl p-3 space-y-2">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-bold text-[#2E7D5B]">پرونده شهدا و ارتباط‌های پژوهشی</h3>
+                  <h3 className="text-xs font-bold text-[#6B3E26]">پرونده شهدا و ارتباط‌های پژوهشی</h3>
                   <button
                     type="button"
                     onClick={() => onNavigateTab('martyrs')}
-                    className="text-[11px] text-[#2E7D5B] font-bold hover:underline cursor-pointer"
+                    className="text-[11px] text-[#6B3E26] font-bold hover:underline cursor-pointer"
                   >
                     مشاهده در منوی شهدا ←
                   </button>
                 </div>
                 {searchResults.matchedMartyrs.length === 0 &&
                 searchResults.matchedLinks.length === 0 ? (
-                  <p className="text-xs text-[#697586] py-2">
+                  <p className="text-xs text-[#6E5846] py-2">
                     شهید یا ارتباط پژوهشی با عبارت «{globalQuery}» ثبت نشده است.
                   </p>
                 ) : (
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y divide-[#EFE5D8]">
                     {searchResults.matchedMartyrs.slice(0, 4).map((m) => (
                       <div
                         key={m.tempPersonId}
                         className="py-2 flex items-center justify-between gap-2 text-xs"
                       >
                         <div>
-                          <span className="font-bold text-[#253247]">{m.fullNameSearch}</span>
-                          <span className="text-[#697586] mr-2">
+                          <span className="font-bold text-[#332218]">{m.fullNameSearch}</span>
+                          <span className="text-[#6E5846] mr-2">
                             · قطعه {m.piece || '—'} ردیف {m.graveRow || '—'} شماره{' '}
                             {m.graveNumber || '—'}
                           </span>
-                          <span className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mr-1.5">
-                            {m.sourceSheet === 'پرونده شهدا' ? 'پرونده ثبت‌شده' : 'نمونه شیت اولیه (۱۹۶ شهید)'}
+                          <span className="text-[10px] text-[#5C4636] bg-[#FAF5EE] border border-[#E2D2BE] rounded px-1.5 py-0.5 mr-1.5">
+                            {m.sourceSheet === 'پرونده شهدا' ? 'پرونده ثبت‌شده' : 'شیت آدرس مزار (۱۹۶ شهید)'}
                           </span>
                         </div>
                         <button
                           type="button"
                           onClick={() => onNavigateTab('martyrs')}
-                          className="px-2 py-1 text-[11px] bg-emerald-50 text-[#2E7D5B] font-bold rounded-lg shrink-0 cursor-pointer"
+                          className="px-2 py-1 text-[11px] bg-[#FAF5EE] text-[#6B3E26] border border-[#D8C7B2] font-bold rounded-lg shrink-0 cursor-pointer"
                         >
                           پرونده شهید
                         </button>
@@ -787,15 +787,15 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                     {searchResults.matchedLinks.slice(0, 4).map((l) => (
                       <div key={l.id} className="py-2 flex items-center justify-between gap-2 text-xs">
                         <div>
-                          <span className="font-bold text-[#253247]">{l.martyrNameRaw}</span>
-                          <span className="text-[#697586] mr-2">
+                          <span className="font-bold text-[#332218]">{l.martyrNameRaw}</span>
+                          <span className="text-[#6E5846] mr-2">
                             ← کتاب «{l.bookTitleRaw}» {l.pageReferenceRaw ? `(${l.pageReferenceRaw})` : ''}
                           </span>
                         </div>
                         <button
                           type="button"
                           onClick={() => onNavigateTab('research')}
-                          className="px-2 py-1 text-[11px] bg-amber-50 text-[#C58A2B] font-bold rounded-lg shrink-0 cursor-pointer"
+                          className="px-2 py-1 text-[11px] bg-[#FAF5EE] text-[#6B3E26] border border-[#D8C7B2] font-bold rounded-lg shrink-0 cursor-pointer"
                         >
                           بررسی ارتباط
                         </button>
@@ -810,13 +810,13 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
 
         {/* فهرست کتاب‌های ثبت‌شده جدید در خانه (خارج از فهرست اولیه ۹۸۰ کتاب) برای رؤیت فوری و تأیید کارشناس */}
         {outsideRegisteredBooks.length > 0 && (
-          <div className="bg-[#FAF3EA] border border-[#E6D5C1] rounded-xl p-3.5 space-y-2.5">
+          <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3.5 space-y-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-[#8C3B2B]" />
+                <BookOpen className="w-4 h-4 text-[#6B3E26]" />
                 <h3 className="text-xs sm:text-sm font-bold text-[#332218]">
                   کتاب‌های ثبت‌شده جدید توسط شما (خارج از فهرست اولیه ۹۸۰ کتاب):{' '}
-                  <span className="text-[#8C3B2B]">{toPersianDigits(outsideRegisteredBooks.length)} مورد</span>
+                  <span className="text-[#6B3E26]">{toPersianDigits(outsideRegisteredBooks.length)} مورد</span>
                 </h3>
               </div>
               <button
@@ -828,7 +828,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                     onNavigateTab('library');
                   }
                 }}
-                className="text-xs font-bold text-[#1F4E79] hover:underline cursor-pointer"
+                className="text-xs font-bold text-[#6B3E26] hover:underline cursor-pointer"
               >
                 مدیریت در بخش کتابخانه ←
               </button>
@@ -840,16 +840,16 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                 return (
                   <div
                     key={rec.key}
-                    className="bg-white border border-[#E6D5C1] rounded-xl p-3 flex flex-col justify-between gap-2 text-xs shadow-2xs"
+                    className="bg-white border border-[#E2D2BE] rounded-xl p-3 flex flex-col justify-between gap-2 text-xs shadow-2xs"
                   >
                     <div className="space-y-1">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-bold text-slate-900 text-sm">{rec.title}</span>
-                        <span className="font-mono text-[11px] text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200" dir="ltr">
+                        <span className="font-bold text-[#332218] text-sm">{rec.title}</span>
+                        <span className="font-mono text-[11px] text-[#5C4636] bg-[#FAF5EE] px-2 py-0.5 rounded border border-[#E2D2BE]" dir="ltr">
                           {rec.tempBookId} · {rec.location || 'بدون محل'}
                         </span>
                       </div>
-                      <div className="text-slate-600 text-[11px]">
+                      <div className="text-[#5C4636] text-[11px]">
                         {[
                           rec.author && `نویسنده: ${rec.author}`,
                           rec.publisher && `ناشر: ${rec.publisher}`,
@@ -861,15 +861,15 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-slate-100">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-[#EFE5D8]">
                       {isApproved ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-300 text-[10.5px] font-bold">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#EDF6F0] text-[#1E4D2B] border border-[#A8D5B5] text-[10.5px] font-bold">
                           <ShieldCheck className="w-3.5 h-3.5" />
                           <span>تأییدشده توسط کارشناس (خارج از ۹۸۰ کتاب اولیه)</span>
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-300 text-[10.5px] font-bold">
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#FAF5EE] text-[#6B3E26] border border-[#D8C7B2] text-[10.5px] font-bold">
+                          <AlertTriangle className="w-3.5 h-3.5 text-[#6B3E26]" />
                           <span>ثبت‌شده — هنوز توسط کارشناس تأیید نشده (خارج از فهرست اولیه)</span>
                         </span>
                       )}
@@ -879,7 +879,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                           <button
                             type="button"
                             onClick={() => onApproveOutsideBook(rec.key)}
-                            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg bg-[#2E6F40] hover:bg-[#245832] text-white font-bold text-[11px] cursor-pointer"
                           >
                             ✓ تأیید کارشناس
                           </button>
@@ -893,7 +893,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                               onNavigateTab('library');
                             }
                           }}
-                          className="px-2 py-1 rounded-lg bg-[#EAF1F7] text-[#1F4E79] font-bold text-[11px] cursor-pointer"
+                          className="px-2 py-1 rounded-lg bg-[#FAF5EE] text-[#6B3E26] border border-[#D8C7B2] font-bold text-[11px] cursor-pointer"
                         >
                           کتابخانه
                         </button>
@@ -901,7 +901,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                           <button
                             type="button"
                             onClick={() => onDeleteAuditRecord(rec.key)}
-                            className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer"
+                            className="p-1 rounded-lg text-[#A63A3A] hover:bg-[#FDF0F0] cursor-pointer"
                             title="حذف این رکورد (مناسب حذف رکوردهای تستی)"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -917,48 +917,50 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
         )}
       </section>
 
-      {/* مرکز دپو و خروجی نهایی اسناد (کارت اختصاصی دسترسی سریع در صفحه اول خانه) */}
-      <section className="bg-gradient-to-r from-[#173a5a] via-[#1f4e79] to-[#253247] text-white rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
+      {/* مرکز دپو و خروجی دوسویه اسناد در پژوهش (با رنگ آبی ملایم و روشن متمایز از بقیه صفحه) */}
+      <section className="depository-soft-blue rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-1">
-            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[11px] font-bold">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>مرکز دپو و انبار جامع پیوندهای دوسویه کتاب–شهید</span>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-white text-[#23538A] border border-[#B8D2EC] text-[11px] font-bold">
+              <Sparkles className="w-3.5 h-3.5 text-[#23538A]" />
+              <span>خروجی دوسویه اسناد در پژوهش (ارتباط ۲۸٬۳۶۸ شهید با ۹۸۰ کتاب)</span>
             </div>
-            <h3 className="text-base font-bold text-white">
-              خروجی‌های نهایی تعیین‌تکلیف‌شده (بر پایه نام شهید و بر پایه کتاب)
+            <h3 className="text-base font-bold text-[#1E3A5F]">
+              انبار جامع پیوندهای کتاب–شهید (شیت‌های یک شهید، چند شهید، آدرس مزار و پژوهش سوره مهر)
             </h3>
-            <p className="text-xs text-slate-200 max-w-2xl leading-relaxed">
-              ارتباط دوطرفه کتاب‌ها و پرونده‌های شهدا با قابلیت دریافت بسته اکسل ۴ شیته جامع (.xlsx)، خروجی JSON و CSV جهت گزارش‌دهی به مدیران و وب‌سایت.
+            <p className="text-xs text-[#2B4C73] max-w-2xl leading-relaxed">
+              تطبیق دوطرفه فهرست کتاب‌ها و پرونده شهدا به همراه فایل «قطعات شهدا.xlsx» (شیت یک شهید: ۳۹ مورد، شیت چند شهید: ۱۹۸ مورد، شیت آدرس مزار: ۱۹۶ مورد) و خروجی مستقیم اکسل.
             </p>
           </div>
 
           <button
             type="button"
             onClick={() => onNavigateTab('research')}
-            className="min-h-[44px] px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl inline-flex items-center justify-center gap-2 shadow-md transition-all shrink-0 cursor-pointer"
+            className="min-h-[44px] px-4 py-2 bg-[#2E6F40] hover:bg-[#245832] text-white font-bold text-xs rounded-xl inline-flex items-center justify-center gap-2 shadow-xs transition-all shrink-0 cursor-pointer"
           >
             <FileSpreadsheet className="w-4 h-4" />
-            <span>ورود به مرکز دپو و دریافت خروجی اکسل ←</span>
+            <span>ورود به خروجی دوسویه اسناد و اکسل ←</span>
           </button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-white/10 text-xs">
-          <div className="bg-white/10 rounded-lg p-2 backdrop-blur-xs">
-            <span className="text-slate-300 text-[11px]">پیوندهای ثبت‌شده:</span>
-            <span className="font-bold tabular-nums block text-white text-sm mt-0.5">{toPersianDigits(links.length)} پیوند</span>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#C2D8EC] text-xs">
+          <div className="bg-white/90 border border-[#C2D8EC] rounded-lg p-2.5">
+            <span className="text-[#4A6B8C] text-[11px]">پیوندهای دارای نام شهید:</span>
+            <span className="font-bold tabular-nums block text-[#1E3A5F] text-sm mt-0.5">
+              {toPersianDigits(links.filter((l) => Boolean(l.martyrNameRaw) && l.martyrNameRaw !== '*').length)} پیوند فعال
+            </span>
           </div>
-          <div className="bg-white/10 rounded-lg p-2 backdrop-blur-xs">
-            <span className="text-slate-300 text-[11px]">موارد نیازمند بررسی:</span>
-            <span className="font-bold tabular-nums block text-amber-300 text-sm mt-0.5">{toPersianDigits(pendingReviews.length)} مورد</span>
+          <div className="bg-white/90 border border-[#C2D8EC] rounded-lg p-2.5">
+            <span className="text-[#4A6B8C] text-[11px]">اکسل قطعات شهدا (یک و چند شهید):</span>
+            <span className="font-bold tabular-nums block text-[#1E3A5F] text-sm mt-0.5">۲۳۷ ارتباط (۳۹ + ۱۹۸)</span>
           </div>
-          <div className="bg-white/10 rounded-lg p-2 backdrop-blur-xs">
-            <span className="text-slate-300 text-[11px]">مطالب استخراج‌شده:</span>
-            <span className="font-bold tabular-nums block text-emerald-300 text-sm mt-0.5">{toPersianDigits(extractedItems.length)} قطعه</span>
+          <div className="bg-white/90 border border-[#C2D8EC] rounded-lg p-2.5">
+            <span className="text-[#4A6B8C] text-[11px]">شیت آدرس مزار قطعات شهدا:</span>
+            <span className="font-bold tabular-nums block text-[#1E3A5F] text-sm mt-0.5">۱۹۶ شهید با مزار</span>
           </div>
-          <div className="bg-white/10 rounded-lg p-2 backdrop-blur-xs">
-            <span className="text-slate-300 text-[11px]">بانک رسمی شهدا:</span>
-            <span className="font-bold tabular-nums block text-cyan-300 text-sm mt-0.5">۲۸٬۳۶۸ شهید گلزار</span>
+          <div className="bg-white/90 border border-[#C2D8EC] rounded-lg p-2.5">
+            <span className="text-[#4A6B8C] text-[11px]">بانک جامع شهدا و کتاب‌ها:</span>
+            <span className="font-bold tabular-nums block text-[#1E3A5F] text-sm mt-0.5">۲۸٬۳۶۸ شهید · ۹۸۰ کتاب</span>
           </div>
         </div>
       </section>

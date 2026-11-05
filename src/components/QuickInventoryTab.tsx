@@ -1010,24 +1010,24 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* نوار خلاصه آمار بالای کتابخانه + دکمه مستقیم ثبت کتاب جدید در کتابخانه */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+      {/* نوار خلاصه آمار بالای کتابخانه + دکمه مستقیم ثبت کتاب جدید در کتابخانه (با پالت یکدست کرم و قهوه‌ای) */}
+      <div className="bg-white border border-[#E2D2BE] rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 flex-1">
-          <div className="bg-[#F5F7FA] border border-slate-200/80 rounded-xl px-3 py-2 text-center">
-            <span className="text-[10.5px] text-slate-500 block">فهرست اولیه اکسل</span>
-            <strong className="text-base sm:text-lg font-bold text-slate-900 tabular-nums">
+          <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl px-3 py-2 text-center">
+            <span className="text-[10.5px] text-[#6E5846] block">فهرست اولیه اکسل</span>
+            <strong className="text-base sm:text-lg font-bold text-[#332218] tabular-nums">
               {toPersianDigits(totalCatalogCount)} کتاب
             </strong>
           </div>
-          <div className="bg-[#F5F7FA] border border-slate-200/80 rounded-xl px-3 py-2 text-center">
-            <span className="text-[10.5px] text-slate-500 block">کل ثبت‌های میدانی</span>
-            <strong className="text-base sm:text-lg font-bold text-[#1f4e79] tabular-nums">
+          <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl px-3 py-2 text-center">
+            <span className="text-[10.5px] text-[#6E5846] block">کل ثبت‌های میدانی</span>
+            <strong className="text-base sm:text-lg font-bold text-[#332218] tabular-nums">
               {toPersianDigits(totalSavedCount)} مورد
             </strong>
           </div>
-          <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl px-3 py-2 text-center">
-            <span className="text-[10.5px] text-emerald-800 block">تأییدشده در قفسه</span>
-            <strong className="text-base sm:text-lg font-bold text-emerald-700 tabular-nums">
+          <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl px-3 py-2 text-center">
+            <span className="text-[10.5px] text-[#6E5846] block">تأییدشده در قفسه</span>
+            <strong className="text-base sm:text-lg font-bold text-[#332218] tabular-nums">
               {toPersianDigits(verifiedCount)} جلد
             </strong>
           </div>
@@ -1039,21 +1039,21 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
             }}
             className={`rounded-xl px-3 py-2 text-center border transition-colors cursor-pointer ${
               auditFilter === 'outside_excel'
-                ? 'bg-amber-600 text-white border-amber-700'
-                : 'bg-amber-50/80 border-amber-200 hover:bg-amber-100/80'
+                ? 'bg-[#6B3E26] text-white border-[#6B3E26]'
+                : 'bg-[#FAF5EE] border-[#E2D2BE] hover:bg-[#F3E9DC]'
             }`}
             title="کلیک برای فیلتر کتاب‌های ثبت‌شده خارج از فهرست اولیه"
           >
             <span
               className={`text-[10.5px] block ${
-                auditFilter === 'outside_excel' ? 'text-amber-100' : 'text-amber-900'
+                auditFilter === 'outside_excel' ? 'text-[#F5EFE6]' : 'text-[#6E5846]'
               }`}
             >
               ثبت جدید (خارج از ۹۸۰ کتاب)
             </span>
             <strong
               className={`text-base sm:text-lg font-bold tabular-nums ${
-                auditFilter === 'outside_excel' ? 'text-white' : 'text-amber-800'
+                auditFilter === 'outside_excel' ? 'text-white' : 'text-[#332218]'
               }`}
             >
               {toPersianDigits(outsideCount)} مورد
@@ -1071,7 +1071,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
               el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }, 60);
           }}
-          className="min-h-[46px] px-4 py-2.5 bg-[#8C3B2B] hover:bg-[#702D20] text-white font-bold text-xs sm:text-sm rounded-xl inline-flex items-center justify-center gap-2 shadow-xs shrink-0 cursor-pointer transition-colors"
+          className="min-h-[46px] px-4 py-2.5 bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-xs sm:text-sm rounded-xl inline-flex items-center justify-center gap-2 shadow-xs shrink-0 cursor-pointer transition-colors"
         >
           <PlusCircle className="w-4 h-4 shrink-0" />
           <span>＋ ثبت کتاب جدید (خارج از فهرست)</span>
@@ -1080,24 +1080,24 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
 
       {/* بنر تأیید ثبت کتاب جدید در صورت ثبت موفق */}
       {lastOutsideSavedBanner && (
-        <div className="bg-emerald-50 border-2 border-emerald-400 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs text-emerald-950 shadow-xs">
+        <div className="bg-[#EDF6F0] border-2 border-[#A8D5B5] rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs text-[#1E4D2B] shadow-xs">
           <div className="flex items-start gap-2.5">
-            <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+            <CheckCircle2 className="w-5 h-5 text-[#2E6F40] shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <div className="font-bold text-sm text-emerald-900">
+              <div className="font-bold text-sm text-[#1E4D2B]">
                 ✅ کتاب جدید «{lastOutsideSavedBanner.title}» با موفقیت ثبت شد و به ابتدای لیست کتاب‌ها اضافه گردید!
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-[11px] text-emerald-800">
-                <span className="font-mono bg-white px-2 py-0.5 rounded border border-emerald-300">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#1E4D2B]">
+                <span className="font-mono bg-white px-2 py-0.5 rounded border border-[#A8D5B5]">
                   شناسه موقت: {lastOutsideSavedBanner.tempBookId}
                 </span>
-                <span className="font-mono bg-white px-2 py-0.5 rounded border border-emerald-300">
+                <span className="font-mono bg-white px-2 py-0.5 rounded border border-[#A8D5B5]">
                   نسخه: {lastOutsideSavedBanner.copyId}
                 </span>
-                <span className="font-mono bg-white px-2 py-0.5 rounded border border-emerald-300">
+                <span className="font-mono bg-white px-2 py-0.5 rounded border border-[#A8D5B5]">
                   محل: {lastOutsideSavedBanner.location}
                 </span>
-                <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-bold">
+                <span className="px-2 py-0.5 rounded bg-[#FAF5EE] text-[#6B3E26] border border-[#D8C7B2] font-bold">
                   ⏳ خارج از فهرست اولیه (۹۸۰ کتاب) — در انتظار تأیید کارشناس
                 </span>
               </div>
@@ -1110,14 +1110,14 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                 setSearchQuery(lastOutsideSavedBanner.title);
                 setAuditFilter('all');
               }}
-              className="px-3 py-1.5 rounded-lg bg-[#1F4E79] text-white font-bold text-xs cursor-pointer"
+              className="px-3 py-1.5 rounded-lg bg-[#6B3E26] text-white font-bold text-xs cursor-pointer"
             >
               نمایش در لیست جست‌وجو
             </button>
             <button
               type="button"
               onClick={() => setLastOutsideSavedBanner(null)}
-              className="px-2.5 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-900 text-xs cursor-pointer"
+              className="px-2.5 py-1.5 rounded-lg bg-white border border-[#D8C7B2] text-[#332218] text-xs cursor-pointer"
             >
               بستن پیام
             </button>
@@ -1126,19 +1126,19 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       )}
 
       {/* بخش ۱ (کشویی و جمع‌وجور): فهرست مرجع اکسل */}
-      <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+      <section className="bg-white border border-[#E2D2BE] rounded-2xl overflow-hidden">
         <button
           type="button"
           onClick={() => setShowExcelLoaderSection((prev) => !prev)}
-          className="w-full px-4 py-3 flex items-center justify-between gap-2 text-right hover:bg-slate-50 transition-colors cursor-pointer"
+          className="w-full px-4 py-3 flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] transition-colors cursor-pointer"
         >
           <div className="flex flex-wrap items-center gap-2">
-            <FileSpreadsheet className="w-4 h-4 text-[#1f4e79] shrink-0" />
-            <h2 className="text-xs sm:text-sm font-bold text-slate-900">
+            <FileSpreadsheet className="w-4 h-4 text-[#6B3E26] shrink-0" />
+            <h2 className="text-xs sm:text-sm font-bold text-[#332218]">
               ۱. فهرست مرجع اکسل ({loadedFileName} — {toPersianDigits(totalCatalogCount)} کتاب)
             </h2>
           </div>
-          <span className="text-xs font-semibold text-[#1f4e79] inline-flex items-center gap-1 shrink-0">
+          <span className="text-xs font-semibold text-[#6B3E26] inline-flex items-center gap-1 shrink-0">
             <span>{showExcelLoaderSection ? 'بستن کشو' : 'بارگذاری فایل / تنظیم ستون‌ها'}</span>
             {showExcelLoaderSection ? (
               <ChevronUp className="w-4 h-4" />
