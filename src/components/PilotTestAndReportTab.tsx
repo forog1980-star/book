@@ -43,6 +43,7 @@ import {
   generateUniqueMartyrId,
   generateUniqueSuggestionId
 } from '../utils/idGenerator';
+import comprehensiveTechAndSoftwareReportRaw from '../../docs/گزارش-جامع-فنی-و-معرفی-کامل-نرم-افزار.md?raw';
 
 interface PilotTestAndReportTabProps {
   catalogRows: ReferenceCatalogRow[];
@@ -88,7 +89,7 @@ export const PilotTestAndReportTab: React.FC<PilotTestAndReportTabProps> = ({
   onLoadSample20PilotRecords,
   onNotify
 }) => {
-  const [reportType, setReportType] = useState<'daily' | 'technical'>('daily');
+  const [reportType, setReportType] = useState<'daily' | 'technical' | 'comprehensive'>('comprehensive');
   const [officialMartyrCounts, setOfficialMartyrCounts] = useState<{
     golzar: number;
     outside: number;
@@ -681,6 +682,10 @@ export const PilotTestAndReportTab: React.FC<PilotTestAndReportTabProps> = ({
   }, []);
 
   const generatedMarkdown = useMemo(() => {
+    if (reportType === 'comprehensive') {
+      return comprehensiveTechAndSoftwareReportRaw;
+    }
+
     const approvedGroupsCount = multiMartyrGroups.filter(
       (g) => g.decisionStatus === 'تأیید'
     ).length;
@@ -778,7 +783,9 @@ ${DECISION_LEDGER_ITEMS.map(
 
   const downloadReportFile = () => {
     const filename =
-      reportType === 'daily'
+      reportType === 'comprehensive'
+        ? `گزارش-جامع-فنی-و-معرفی-کامل-نرم-افزار-${todayJalali.replace(/\//g, '-')}.md`
+        : reportType === 'daily'
         ? `گزارش روزانه کتابخانه - ${todayJalali.replace(/\//g, '-')}.md`
         : `گزارش فنی کتابخانه مرکز اسناد - ${todayJalali.replace(/\//g, '-')}.md`;
     const blob = new Blob(['\uFEFF', generatedMarkdown], {
@@ -935,22 +942,31 @@ ${DECISION_LEDGER_ITEMS.map(
         </div>
       </div>
 
-      {/* Section 2: Automated Daily & Technical Report Generator */}
+      {/* Section 2: Automated Daily, Technical & Comprehensive Software Report Generator */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">
           <div>
             <div className="flex items-center gap-2">
               <ClipboardList className="w-5 h-5 text-[#1f4e79]" />
               <h3 className="text-base font-bold text-slate-900">
-                تولید خودکار «گزارش روزانه» و «گزارش فنی» از داده‌های واقعی ثبت‌شده
+                بخش گزارش‌ها: «گزارش جامع فنی و معرفی کامل نرم‌افزار»، «گزارش روزانه» و «گزارش فنی ابزار»
               </h3>
             </div>
             <p className="text-xs text-slate-600 mt-1">
-              در پایان هر نوبت کاری می‌توانید متن Markdown گزارش روزانه و فنی را با آمار واقعی همین نشست دریافت کنید.
+              مشاهده، کپی و دانلود مستقیم گزارش جامع فنی همگام‌سازی و معرفی کامل سامانه، گزارش روزانه و گزارش فنی.
             </p>
           </div>
 
-          <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl text-xs shrink-0">
+          <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 rounded-xl text-xs shrink-0">
+            <button
+              type="button"
+              onClick={() => setReportType('comprehensive')}
+              className={`min-h-[38px] px-3 py-1.5 rounded-lg font-bold transition-colors ${
+                reportType === 'comprehensive' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+              }`}
+            >
+              گزارش جامع فنی و معرفی کامل نرم‌افزار
+            </button>
             <button
               type="button"
               onClick={() => setReportType('daily')}

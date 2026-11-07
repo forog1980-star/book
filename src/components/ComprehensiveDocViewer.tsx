@@ -19,6 +19,7 @@ import {
 import comprehensiveMainDocRaw from '../../public/assets/aistudio/Paste_November_01__2026_-_12_18PM_fa153256?raw';
 import technicalDocV02Raw from '../../public/assets/aistudio/_________-_________________________-20261015_bd46add9.md?raw';
 import executiveAndCodingDocRaw from '../../public/assets/aistudio/Paste_November_01__2026_-_9_21AM_6393e765?raw';
+import comprehensiveTechAndSoftwareReportRaw from '../../docs/گزارش-جامع-فنی-و-معرفی-کامل-نرم-افزار.md?raw';
 import { toPersianDigits } from '../data/markazAsnadData';
 import { ModalWindow } from './ModalWindow';
 
@@ -29,7 +30,12 @@ interface ComprehensiveDocViewerProps {
 }
 
 interface DocTabItem {
-  id: 'main-23-chapters' | 'tech-v02' | 'coding-and-exec' | 'sooreh-mehr-recovery-report';
+  id:
+    | 'comprehensive-tech-and-software-report'
+    | 'main-23-chapters'
+    | 'tech-v02'
+    | 'coding-and-exec'
+    | 'sooreh-mehr-recovery-report';
   title: string;
   subtitle: string;
   badge: string;
@@ -114,6 +120,14 @@ const SOOREH_MEHR_RECOVERY_REPORT_MD = `# گزارش بازیابی و ورود 
 `;
 
 const DOC_TABS: DocTabItem[] = [
+  {
+    id: 'comprehensive-tech-and-software-report',
+    title: 'گزارش جامع فنی همگام‌سازی و معرفی کامل سامانه کتابخانه و پژوهش مرکز اسناد',
+    subtitle: 'معرفی کامل ۵ منوی اصلی، معماری Local-First، تراکنش اتمیک ۶ مجموعه در IndexedDB، همگام‌سازی WebRTC و چرخه ۷ مرحله‌ای ACK',
+    badge: 'گزارش جامع فنی و معرفی سامانه',
+    content: comprehensiveTechAndSoftwareReportRaw,
+    fileName: 'گزارش-جامع-فنی-و-معرفی-کامل-نرم-افزار.md'
+  },
   {
     id: 'sooreh-mehr-recovery-report',
     title: 'گزارش بازیابی و ورود اطلاعات پژوهشی کتاب‌ها و شهدای مرتبط ـ منبع سوره مهر',
