@@ -1,4 +1,4 @@
-import { detectDefaultDeviceRole } from './pairingService';
+import { detectDefaultDeviceRole, generateCryptoRandomToken } from './pairingService';
 import {
   DeviceSyncRole,
   RecordSyncMeta,
@@ -18,7 +18,7 @@ export function getOrCreateLocalDeviceId(): string {
   try {
     const existing = localStorage.getItem(DEVICE_ID_KEY);
     if (existing) return existing;
-    const rand = Math.random().toString(36).slice(2, 10).toUpperCase();
+    const rand = generateCryptoRandomToken(8);
     const created = `DEV_${rand}_${Date.now().toString(36).toUpperCase()}`;
     localStorage.setItem(DEVICE_ID_KEY, created);
     return created;
@@ -89,7 +89,7 @@ export function saveBaselineChangeMap(map: Record<string, string>): void {
 
 /**
  * بایگانی رکوردهای حذف‌شده نرم (Soft-Delete Archive) برای تضمین عدم حذف فیزیکی خودکار
- * و امکان بازیابی کامل در هر زمان (بند ۱۲ بخش چهارم)
+ * و امکان بازیابی کامل در هر زمان
  */
 export function loadSoftDeletedArchive(): Record<string, SyncRecordEnvelope> {
   try {
@@ -150,6 +150,11 @@ export function loadAppliedPackageIds(): string[] {
     // ignore
   }
   return [];
+}
+
+export function hasPackageBeenApplied(packageId: string): boolean {
+  if (!packageId) return false;
+  return loadAppliedPackageIds().includes(packageId);
 }
 
 export function recordAppliedPackageId(packageId: string): void {

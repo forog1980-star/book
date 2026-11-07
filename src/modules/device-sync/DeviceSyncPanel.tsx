@@ -33,6 +33,7 @@ import {
 import {
   buildPairingQrValue,
   generateSecurePairingCode,
+  maskSessionIdForDisplay,
   normalizePairingCode,
 } from './pairingService';
 import { DirectWebRtcSessionManager } from './peerConnection';
@@ -42,6 +43,7 @@ import {
   createSyncTransferPackage,
   extractLocalEnvelopesMap,
   markPackageSentInBaseline,
+  restoreRecordIntoDataset,
 } from './syncEngine';
 import {
   appendTransferHistory,
@@ -49,7 +51,6 @@ import {
   getSavedDeviceRole,
   loadSoftDeletedArchive,
   loadTransferHistory,
-  restoreSoftDeletedRecord,
   saveDeviceRole,
 } from './syncStorage';
 import {
@@ -188,7 +189,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     sessionManagerRef.current = mgr;
 
     return () => {
-      mgr.closeConnection(false);
+      mgr.dispose();
     };
   }, [localDeviceId]);
 
@@ -244,6 +245,15 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     }
     setPeerDeviceInfo(null);
     setGeneratedPairingCode('');
+  };
+
+  const handleCancelPairing = async () => {
+    if (sessionManagerRef.current) {
+      await sessionManagerRef.current.cancelPairing();
+    }
+    setPeerDeviceInfo(null);
+    setGeneratedPairingCode('');
+    setShowQrModal(false);
   };
 
   // ارسال بسته اطلاعات از طریق کانال مستقیم WebRTC
@@ -399,23 +409,20 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
   };
 
   const handleRestoreSoftDeleted = (compKey: string) => {
-    const restored = restoreSoftDeletedRecord(compKey);
-    if (!restored) return;
+    const result = restoreRecordIntoDataset(
+      compKey,
+      dataset,
+      localDeviceId,
+      localRole
+    );
+    if (!result.restored || !result.restoredEnvelope) return;
     setSoftDeletedArchive(loadSoftDeletedArchive());
 
-    if (restored.meta.collection === 'auditRecords') {
-      const rec = restored.data as FieldAuditRecord;
-      onApplySyncedDataset(
-        {
-          ...dataset,
-          auditRecords: {
-            ...dataset.auditRecords,
-            [restored.meta.recordId]: rec,
-          },
-        },
-        `رکورد «${restored.titleSummary}» از بایگانی حذف نرم بازیابی شد.`
-      );
-    }
+    const colLabel = SYNC_COLLECTION_LABELS[result.restoredEnvelope.meta.collection];
+    onApplySyncedDataset(
+      result.nextDataset,
+      `رکورد «${result.restoredEnvelope.titleSummary}» (${colLabel}) با موفقیت از بایگانی حذف نرم به مجموعه اصلی بازیابی شد.`
+    );
   };
 
   const localEnvelopesCount = useMemo(() => {
@@ -487,7 +494,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         </div>
         {signalingCleanedSessionId && (
           <span className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-900 font-bold text-[11px] shrink-0">
-            پیام‌های موقت Signaling جلسه ({signalingCleanedSessionId.slice(0, 12)}...) از Firebase پاک شد
+            پیام‌های موقت Signaling نشست ({maskSessionIdForDisplay(signalingCleanedSessionId)}) از Firebase پاک شد
           </span>
         )}
       </div>
@@ -619,6 +626,17 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               >
                 <QrCode className="w-3.5 h-3.5" />
                 <span>{showQrModal ? 'بستن QR Code' : 'نمایش QR Code'}</span>
+              </button>
+            )}
+
+            {(status === 'pairing' || status === 'connecting') && (
+              <button
+                type="button"
+                onClick={() => void handleCancelPairing()}
+                className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-900 border border-rose-300 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                <span>انصراف از جفت‌سازی و پاک‌سازی نشست</span>
               </button>
             )}
           </div>
@@ -895,6 +913,15 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               </button>
             </div>
           </div>
+
+          {pendingPreviewReport.isReplayPackage && (
+            <div className="rounded-xl bg-amber-100 border border-amber-400 px-3 py-2 text-xs font-bold text-amber-950 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>
+                توجه (جلوگیری از Replay): بسته با شناسه {pendingPreviewReport.packageId} قبلاً در این دستگاه بررسی و اعمال شده است؛ رکوردهای تکراری در بخش «یکسان و بدون تغییر» قرار گرفته‌اند و هیچ رکورد تکراری ایجاد نخواهد شد.
+              </span>
+            </div>
+          )}
 
           {/* خلاصه آماری تغییرات بسته */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">

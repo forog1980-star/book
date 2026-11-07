@@ -1,11 +1,20 @@
+import { canonicalizeRecordData } from './conflictResolver';
 import { computeDeterministicHash } from './pairingService';
-import { DeviceSyncRole, SyncTransferPackage } from './types';
+import {
+  DeviceSyncRole,
+  SUPPORTED_SYNC_PROTOCOL_VERSION,
+  SyncTransferPackage,
+} from './types';
 
-const CHUNK_SIZE_CHARS = 12000; // ۱۲ کیلوبایت برای اطمینان کامل از عبور در تمام مرورگرهای اندروید و دسکتاپ
+export const CHUNK_SIZE_CHARS = 12000; // ۱۲ کیلوبایت در هر قطعه برای عبور امن در تمامی مرورگرها
+export const MAX_TOTAL_CHUNKS = 500; // سقف مجاز تعداد قطعات در یک بسته
+export const MAX_PACKAGE_CHARS = 5_000_000; // سقف مجاز حجم رشته بسته (۵ مگابایت کاراکتر)
+export const MAX_RECORDS_PER_PACKAGE = 10_000; // سقف مجاز تعداد رکورد در یک بسته
 
 export type WireMessage =
   | {
       type: 'HELLO_HANDSHAKE';
+      protocolVersion: number;
       deviceId: string;
       deviceRole: DeviceSyncRole;
       timestampMs: number;
@@ -16,6 +25,7 @@ export type WireMessage =
     }
   | {
       type: 'TRANSFER_START';
+      protocolVersion: number;
       packageId: string;
       senderRole: DeviceSyncRole;
       totalChunks: number;
@@ -43,6 +53,7 @@ export type WireMessage =
     };
 
 export interface IncomingTransferBuffer {
+  protocolVersion: number;
   packageId: string;
   senderRole: DeviceSyncRole;
   totalChunks: number;
@@ -54,16 +65,83 @@ export interface IncomingTransferBuffer {
 }
 
 /**
- * تبدیل یک بسته همگام‌سازی به آرایه‌ای از پیام‌های تکهتکه (Chunked) برای ارسال امن در DataChannel
+ * بررسی اولیه معتبر بودن پیام شروع انتقال (TRANSFER_START) از نظر نسخه پروتکل و محدودیت‌های اندازه
+ */
+export function validateTransferStartFrame(
+  msg: Extract<WireMessage, { type: 'TRANSFER_START' }>
+): { ok: true } | { ok: false; error: string } {
+  const version = msg.protocolVersion ?? 1;
+  if (version !== SUPPORTED_SYNC_PROTOCOL_VERSION) {
+    return {
+      ok: false,
+      error: `نسخه پروتکل همگام‌سازی دستگاه مقابل (${version}) با نسخه این دستگاه (${SUPPORTED_SYNC_PROTOCOL_VERSION}) سازگار نیست.`,
+    };
+  }
+  if (!msg.packageId || typeof msg.packageId !== 'string' || msg.packageId.length > 96) {
+    return { ok: false, error: 'شناسه بسته انتقالی نامعتبر است.' };
+  }
+  if (
+    !Number.isInteger(msg.totalChunks) ||
+    msg.totalChunks <= 0 ||
+    msg.totalChunks > MAX_TOTAL_CHUNKS
+  ) {
+    return {
+      ok: false,
+      error: `تعداد قطعات بسته (${msg.totalChunks}) خارج از محدوده مجاز (۱ تا ${MAX_TOTAL_CHUNKS}) است.`,
+    };
+  }
+  if (
+    !Number.isInteger(msg.totalChars) ||
+    msg.totalChars <= 0 ||
+    msg.totalChars > MAX_PACKAGE_CHARS
+  ) {
+    return {
+      ok: false,
+      error: `حجم بسته انتقالی (${msg.totalChars} کاراکتر) خارج از سقف مجاز است.`,
+    };
+  }
+  if (
+    !Number.isInteger(msg.recordCount) ||
+    msg.recordCount < 0 ||
+    msg.recordCount > MAX_RECORDS_PER_PACKAGE
+  ) {
+    return {
+      ok: false,
+      error: `تعداد رکوردهای اعلام‌شده (${msg.recordCount}) خارج از محدوده مجاز است.`,
+    };
+  }
+  if (!msg.payloadChecksum || !msg.payloadChecksum.startsWith('SHA256_')) {
+    return {
+      ok: false,
+      error: 'فرمت هش امنیتی SHA-256 در هدر بسته نامعتبر است.',
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * تبدیل یک بسته همگام‌سازی به آرایه‌ای از پیام‌های تکه‌تکه (Chunked) با هش یکپارچگی SHA-256
  */
 export function buildTransferWireFrames(pkg: SyncTransferPackage): WireMessage[] {
   const serialized = JSON.stringify(pkg);
+  if (serialized.length > MAX_PACKAGE_CHARS) {
+    throw new Error(
+      `حجم بسته (${serialized.length} کاراکتر) بیش از سقف مجاز (${MAX_PACKAGE_CHARS}) است.`
+    );
+  }
+
   const checksum = computeDeterministicHash(serialized);
   const totalChunks = Math.max(1, Math.ceil(serialized.length / CHUNK_SIZE_CHARS));
+  if (totalChunks > MAX_TOTAL_CHUNKS) {
+    throw new Error(
+      `تعداد قطعات بسته (${totalChunks}) بیش از سقف مجاز (${MAX_TOTAL_CHUNKS}) است.`
+    );
+  }
 
   const frames: WireMessage[] = [
     {
       type: 'TRANSFER_START',
+      protocolVersion: pkg.protocolVersion || SUPPORTED_SYNC_PROTOCOL_VERSION,
       packageId: pkg.packageId,
       senderRole: pkg.senderRole,
       totalChunks,
@@ -94,12 +172,27 @@ export function buildTransferWireFrames(pkg: SyncTransferPackage): WireMessage[]
 }
 
 /**
- * بازسازی و اعتبارسنجی بسته دریافتی در سمت گیرنده.
- * اگر حتی یک قطعه (Chunk) ناقص باشد یا چک‌سام مطابقت نداشته باشد، خطا برمی‌گرداند و داده ناقص هرگز اعمال نمی‌شود.
+ * بازسازی و اعتبارسنجی رمزنگاری‌شده (SHA-256) بسته دریافتی در سمت گیرنده.
+ * اگر حتی یک قطعه ناقص باشد، طول رشته متفاوت باشد، یا هش SHA-256 بیرونی یا درونی دستکاری شده باشد،
+ * بسته کاملاً رد می‌شود و هیچ داده‌ای اعمال نمی‌گردد.
  */
 export function assembleAndVerifyTransferBuffer(
   buffer: IncomingTransferBuffer
 ): { ok: true; pkg: SyncTransferPackage } | { ok: false; error: string } {
+  if ((buffer.protocolVersion ?? 1) !== SUPPORTED_SYNC_PROTOCOL_VERSION) {
+    return {
+      ok: false,
+      error: `عدم سازگاری نسخه پروتکل بسته (${buffer.protocolVersion}).`,
+    };
+  }
+
+  if (buffer.totalChunks <= 0 || buffer.totalChunks > MAX_TOTAL_CHUNKS) {
+    return {
+      ok: false,
+      error: `تعداد کل قطعات بسته (${buffer.totalChunks}) نامعتبر یا خارج از سقف مجاز است.`,
+    };
+  }
+
   if (buffer.receivedChunks.size !== buffer.totalChunks) {
     return {
       ok: false,
@@ -123,7 +216,7 @@ export function assembleAndVerifyTransferBuffer(
   if (fullSerialized.length !== buffer.totalChars) {
     return {
       ok: false,
-      error: 'طول داده دریافتی با بسته اصلی مطابقت ندارد (احتمال قطع ارتباط در حین ارسال).',
+      error: 'طول داده دریافتی با بسته اصلی مطابقت ندارد (احتمال قطع ارتباط یا دستکاری در حین ارسال).',
     };
   }
 
@@ -131,7 +224,7 @@ export function assembleAndVerifyTransferBuffer(
   if (actualChecksum !== buffer.expectedChecksum) {
     return {
       ok: false,
-      error: 'عدم تطابق چک‌سام امنیتی بسته (Checksum Mismatch). بسته ناقص یا مخدوش رد شد.',
+      error: 'عدم تطابق هش یکپارچگی SHA-256 بسته (Checksum Mismatch). بسته ناقص یا دستکاری‌شده رد شد.',
     };
   }
 
@@ -140,6 +233,51 @@ export function assembleAndVerifyTransferBuffer(
     if (!parsed || !parsed.packageId || !Array.isArray(parsed.envelopes)) {
       return { ok: false, error: 'ساختار بسته دریافتی نامعتبر است.' };
     }
+    if (parsed.protocolVersion !== SUPPORTED_SYNC_PROTOCOL_VERSION) {
+      return {
+        ok: false,
+        error: `نسخه پروتکل داخل بسته (${parsed.protocolVersion}) پشتیبانی نمی‌شود.`,
+      };
+    }
+    if (parsed.envelopes.length !== parsed.recordCount || parsed.recordCount !== buffer.recordCount) {
+      return {
+        ok: false,
+        error: 'تعداد رکوردهای داخل بسته با هدر بسته مطابقت ندارد. بسته رد شد.',
+      };
+    }
+
+    // ۱. اعتبارسنجی هش SHA-256 محتوای تک‌تک رکوردها در برابر changeId ثبت‌شده در متادیتای رکورد
+    for (const env of parsed.envelopes) {
+      if (!env || !env.meta || !env.meta.collection || !env.meta.recordId || !env.meta.changeId) {
+        return { ok: false, error: 'متادیتای یکی از رکوردهای بسته ناقص یا نامعتبر است.' };
+      }
+      if (!env.meta.softDeleted) {
+        const canonical = canonicalizeRecordData(env.data);
+        const expectedRecordHash = computeDeterministicHash(
+          `${env.meta.collection}:${env.meta.recordId}:${canonical}`
+        );
+        if (env.meta.changeId !== expectedRecordHash) {
+          return {
+            ok: false,
+            error: `عدم تطابق هش یکپارچگی SHA-256 در محتوای رکورد «${env.meta.recordId}». بسته دستکاری‌شده رد شد.`,
+          };
+        }
+      }
+    }
+
+    // ۲. اعتبارسنجی هش SHA-256 کلی رکوردهای بسته (payloadChecksum)
+    const expectedInnerDigest = computeDeterministicHash(
+      parsed.envelopes
+        .map((e) => `${e.meta.collection}:${e.meta.recordId}:${e.meta.changeId}`)
+        .join('|')
+    );
+    if (parsed.payloadChecksum !== expectedInnerDigest) {
+      return {
+        ok: false,
+        error: 'عدم تطابق هش SHA-256 درونی رکوردهای بسته. بسته دستکاری‌شده رد شد.',
+      };
+    }
+
     return { ok: true, pkg: parsed };
   } catch {
     return { ok: false, error: 'خطا در رمزگشایی JSON بسته دریافتی.' };

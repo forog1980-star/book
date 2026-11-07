@@ -1,21 +1,20 @@
-# Security Specification: Ephemeral WebRTC Signaling Only
+# Security Specification: Ephemeral WebRTC Signaling Only (v2 — Hardened)
 
-## 1. Data Invariants
-1. **Zero Library Content in Cloud**: Firestore MUST NEVER store books, martyrs, research links, shelf locations, backups, or any user content. Only the `/webrtc_signaling_sessions/{sessionId}` path is permitted, and its fields are strictly constrained by `hasOnly(...)` to SDP/ICE signaling properties.
-2. **No Session Enumeration (`allow list: if false`)**: No client can ever list or query `/webrtc_signaling_sessions`. Access is restricted to `get`, `create`, `update`, and `delete` on an exact, unguessable `sessionId` (`12..64` chars matching `^[A-Za-z0-9_\-]{12,64}$`).
-3. **Mandatory Expiration Window**: Every signaling session must specify `expiresAtMs > createdAtMs` and `expiresAtMs <= createdAtMs + 600000` (maximum 10 minutes TTL).
-4. **Immutable Session Identity**: `sessionId`, `pairingCodeDigest`, `hostDeviceRole`, and `createdAtMs` cannot be altered after creation.
+## 1. Data & Security Invariants
+1. **Zero Library Content in Cloud**: Firestore MUST NEVER store books, martyrs, research links, shelf locations, backups, or any user content. Only `/webrtc_signaling_sessions/{sessionId}` is permitted, constrained by `keys().hasOnly(...)` exclusively to SDP/ICE signaling properties.
+2. **One-Way SHA-256 Session Identifier**: `sessionId` is derived via domain-separated `SHA-256("MARKAZ_ASNAD_SIGNAL_SESSION_V2:" + pairingCode)` (`^SESS_[0-9a-f]{48}$`). The pairing code is NEVER stored in plaintext inside `sessionId`.
+3. **Authentication & Session Ownership (`hostUid` / `peerUid`)**:
+   - Every signaling operation requires `request.auth != null` (Anonymous Authentication).
+   - `create` binds `hostUid == request.auth.uid`.
+   - The first peer to submit an answer locks `peerUid == request.auth.uid`. Once `peerUid` and `answerSdp` are set, no third party can read, overwrite, or hijack the session.
+   - `offerSdp` and `offerType` are strictly immutable after creation (peer cannot tamper with host's SDP Offer).
+   - `delete` is restricted solely to `hostUid` or `peerUid`.
+4. **Server-Side Expiration Enforcement**:
+   - `create`, `get`, and `update` all validate `request.time.toMillis() < expiresAtMs`, and `expiresAtMs <= createdAtMs + 600000` (max 10 minutes).
+5. **No Session Enumeration (`allow list: if false`)**: No client can list or query `/webrtc_signaling_sessions`.
 
-## 2. The "Dirty Dozen" Payloads (All Must Return `PERMISSION_DENIED`)
-1. **Library Book Injection**: `{ sessionId: "SESSION_123456", bookTitle: "کتاب تست", auditRecords: {} }` -> Rejected by strict `keys().hasOnly(...)`.
-2. **Martyr Data Injection**: `{ sessionId: "SESSION_123456", martyrs: [{ fullName: "..." }] }` -> Rejected by strict `keys().hasOnly(...)`.
-3. **Collection Enumeration**: `getDocs(collection(db, "webrtc_signaling_sessions"))` -> Rejected because `allow list: if false;`.
-4. **Short/Guessable Session ID**: `doc(db, "webrtc_signaling_sessions", "1234")` -> Rejected by `isValidSessionId(sessionId)` requiring 12–64 chars.
-5. **Path Poisoning / Oversized ID**: 2KB string in `{sessionId}` -> Rejected by `isValidSessionId`.
-6. **Denial-of-Wallet Oversized SDP**: `offerSdp` of 500KB -> Rejected by `offerSdp.size() <= 24000`.
-7. **Infinite TTL Session**: `expiresAtMs: createdAtMs + 86400000` -> Rejected by `expiresAtMs <= createdAtMs + 600000`.
-8. **Invalid Status Value**: `status: "hacked"` -> Rejected by enum check `status in ['waiting-for-peer', 'offer-ready', 'answer-ready', 'connected', 'closed', 'expired']`.
-9. **Mutating Immutable `createdAtMs` on Update**: Changing `createdAtMs` -> Rejected by `incoming().createdAtMs == existing().createdAtMs`.
-10. **Mutating `pairingCodeDigest` on Update**: Changing `pairingCodeDigest` -> Rejected by `incoming().pairingCodeDigest == existing().pairingCodeDigest`.
-11. **Writing to Arbitrary Collection (`/books/1` or `/users/1`)**: Rejected by global default-deny `match /{document=**} { allow read, write: if false; }`.
-12. **Type Poisoning (`offerSdp: 12345`)**: Rejected by `data.offerSdp is string`.
+## 2. Deployment & Console Prerequisite (Rule 7)
+To activate `request.auth` enforcement in production:
+1. Enable **Anonymous Authentication** in Firebase Console -> Authentication -> Sign-in method -> Anonymous.
+2. Deploy the updated `firestore.rules` to the Firebase project (`analog-market-8lvvl`).
+*(Per Rule 6 & Rule 7 of the engineering directive, these cloud changes are NOT deployed automatically and await explicit owner approval.)*

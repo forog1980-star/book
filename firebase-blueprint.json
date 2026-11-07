@@ -7,21 +7,34 @@
       "properties": {
         "sessionId": {
           "type": "string",
-          "description": "High-entropy random session identifier derived from pairing code.",
-          "minLength": 12,
-          "maxLength": 64,
-          "pattern": "^[A-Za-z0-9_\\-]{12,64}$"
+          "description": "SHA-256 derived one-way session identifier (SESS_ + 48 hex chars).",
+          "minLength": 53,
+          "maxLength": 53,
+          "pattern": "^SESS_[0-9a-f]{48}$"
         },
         "pairingCodeDigest": {
           "type": "string",
-          "description": "Verification digest of the temporary pairing code.",
-          "minLength": 8,
-          "maxLength": 128
+          "description": "Domain-separated SHA-256 verification digest of the temporary pairing code.",
+          "minLength": 71,
+          "maxLength": 71,
+          "pattern": "^SHA256_[0-9a-f]{64}$"
         },
         "hostDeviceRole": {
           "type": "string",
           "description": "Role of the initiator device (phone-primary or pc-companion).",
           "enum": ["phone-primary", "pc-companion"]
+        },
+        "hostUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the session host device.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "peerUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the joining peer device (locked upon first claim).",
+          "minLength": 1,
+          "maxLength": 128
         },
         "status": {
           "type": "string",
@@ -31,21 +44,23 @@
         "offerType": {
           "type": "string",
           "description": "SDP offer type (offer).",
-          "maxLength": 16
+          "enum": ["offer"]
         },
         "offerSdp": {
           "type": "string",
           "description": "WebRTC SDP Offer string (network negotiation only, zero library content).",
+          "minLength": 10,
           "maxLength": 24000
         },
         "answerType": {
           "type": "string",
           "description": "SDP answer type (answer).",
-          "maxLength": 16
+          "enum": ["answer"]
         },
         "answerSdp": {
           "type": "string",
           "description": "WebRTC SDP Answer string (network negotiation only, zero library content).",
+          "minLength": 10,
           "maxLength": 24000
         },
         "hostCandidatesJson": {
@@ -75,6 +90,7 @@
         "sessionId",
         "pairingCodeDigest",
         "hostDeviceRole",
+        "hostUid",
         "status",
         "offerType",
         "offerSdp",

@@ -6,6 +6,8 @@ import {
   PendingReviewItem,
 } from '../../data/markazAsnadData';
 
+export const SUPPORTED_SYNC_PROTOCOL_VERSION = 1;
+
 export type DeviceSyncRole = 'phone-primary' | 'pc-companion';
 
 export type ConnectionUiStatus =
@@ -65,7 +67,7 @@ export interface SyncRecordEnvelope<T = unknown> {
 
 export interface SyncTransferPackage {
   packageId: string;
-  protocolVersion: 1;
+  protocolVersion: number;
   senderDeviceId: string;
   senderRole: DeviceSyncRole;
   createdAtMs: number;
@@ -99,9 +101,11 @@ export interface SyncDiffItem {
 
 export interface SyncPreviewReport {
   packageId: string;
+  protocolVersion: number;
   senderRole: DeviceSyncRole;
   receiverRole: DeviceSyncRole;
   analyzedAtMs: number;
+  isReplayPackage: boolean;
   newItems: SyncDiffItem[];
   modifiedItems: SyncDiffItem[];
   softDeleteItems: SyncDiffItem[];

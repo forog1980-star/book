@@ -11,13 +11,15 @@ import {
   buildResolvedEnvelopeFromConflict,
   canonicalizeRecordData,
 } from './conflictResolver';
-import { computeDeterministicHash } from './pairingService';
+import { computeDeterministicHash, generateCryptoRandomToken } from './pairingService';
 import {
+  hasPackageBeenApplied,
   loadBaselineChangeMap,
   loadRecordMetaMap,
   loadSoftDeletedArchive,
   markRecordSoftDeleted,
   recordAppliedPackageId,
+  restoreSoftDeletedRecord,
   saveBaselineChangeMap,
   saveRecordMetaMap,
 } from './syncStorage';
@@ -25,6 +27,7 @@ import {
   DeviceSyncRole,
   OperationalSyncDataset,
   RecordSyncMeta,
+  SUPPORTED_SYNC_PROTOCOL_VERSION,
   SyncCollectionName,
   SyncConflictItem,
   SyncDiffItem,
@@ -36,7 +39,15 @@ import {
 const DEFAULT_INITIAL_COPY_IDS = new Set(INITIAL_BOOK_COPIES.map((c) => c.copyId));
 const DEFAULT_INITIAL_LINK_IDS = new Set(INITIAL_BOOK_MARTYR_LINKS.map((l) => l.id));
 
-function getCompositeKey(collection: SyncCollectionName, recordId: string): string {
+const VALID_COLLECTIONS = new Set<SyncCollectionName>([
+  'auditRecords',
+  'bookCopies',
+  'customMartyrs',
+  'links',
+  'pendingReviews',
+]);
+
+export function getCompositeKey(collection: SyncCollectionName, recordId: string): string {
   return `${collection}:${recordId}`;
 }
 
@@ -71,7 +82,7 @@ function buildOrUpdateMeta(
     };
   }
 
-  if (prevMeta.changeId !== currentChangeId) {
+  if (prevMeta.changeId !== currentChangeId || prevMeta.softDeleted) {
     return {
       ...prevMeta,
       updatedAtMs: explicitTs > prevMeta.updatedAtMs ? explicitTs : now,
@@ -80,6 +91,7 @@ function buildOrUpdateMeta(
       lastModifiedByDevice: localDeviceId,
       lastModifiedRole: localRole,
       softDeleted: false,
+      deletedAtMs: undefined,
     };
   }
 
@@ -87,7 +99,7 @@ function buildOrUpdateMeta(
 }
 
 /**
- * استخراج تمام رکوردهای عملیاتی دستگاه همراه با شناسه‌های پایدار و متادیتای استاندارد
+ * استخراج تمام رکوردهای عملیاتی دستگاه همراه با شناسه‌های پایدار و متادیتای استاندارد (SHA-256)
  */
 export function extractLocalEnvelopesMap(
   dataset: OperationalSyncDataset,
@@ -241,7 +253,7 @@ export function extractLocalEnvelopesMap(
 }
 
 /**
- * ساخت بسته انتقالی استاندارد (SyncTransferPackage) برای ارسال به دستگاه مقابل
+ * ساخت بسته انتقالی استاندارد (SyncTransferPackage) با شناسه تصادفی رمزنگاری‌شده و چک‌سام SHA-256
  */
 export function createSyncTransferPackage(params: {
   dataset: OperationalSyncDataset;
@@ -276,7 +288,7 @@ export function createSyncTransferPackage(params: {
   }
 
   const now = Date.now();
-  const randSuffix = Math.random().toString(36).slice(2, 7).toUpperCase();
+  const randSuffix = generateCryptoRandomToken(6);
   const packageId = `PKG_${now}_${randSuffix}`;
 
   const bodyDigest = computeDeterministicHash(
@@ -285,7 +297,7 @@ export function createSyncTransferPackage(params: {
 
   return {
     packageId,
-    protocolVersion: 1,
+    protocolVersion: SUPPORTED_SYNC_PROTOCOL_VERSION,
     senderDeviceId: params.localDeviceId,
     senderRole: params.localRole,
     createdAtMs: now,
@@ -297,12 +309,7 @@ export function createSyncTransferPackage(params: {
 }
 
 /**
- * تحلیل بسته دریافتی و دسته‌بندی تغییرات به:
- * - رکوردهای جدید (newItems)
- * - رکوردهای ویرایش‌شده بدون تعارض (modifiedItems)
- * - رکوردهای حذف‌شده نرم (softDeleteItems)
- * - رکوردهای بدون تغییر / تکراری (unchangedItems - تضمین Idempotency)
- * - تعارض‌ها (conflicts - بدون حل خودکار، نیازمند تصمیم صریح کاربر)
+ * تحلیل بسته دریافتی و دسته‌بندی تغییرات همراه با تشخیص Replay بسته تکراری
  */
 export function analyzeIncomingPackage(
   pkg: SyncTransferPackage,
@@ -310,6 +317,14 @@ export function analyzeIncomingPackage(
   localDeviceId: string,
   localRole: DeviceSyncRole
 ): SyncPreviewReport {
+  if ((pkg.protocolVersion ?? 1) !== SUPPORTED_SYNC_PROTOCOL_VERSION) {
+    throw new Error(
+      `نسخه پروتکل بسته دریافتی (${pkg.protocolVersion}) با نسخه این دستگاه (${SUPPORTED_SYNC_PROTOCOL_VERSION}) سازگار نیست.`
+    );
+  }
+
+  const isReplayPackage = hasPackageBeenApplied(pkg.packageId);
+
   const localMap = extractLocalEnvelopesMap(
     localDataset,
     localDeviceId,
@@ -353,7 +368,7 @@ export function analyzeIncomingPackage(
       continue;
     }
 
-    // ۲. اگر رکورد دریافتی و رکورد محلی دقیقاً یکسان هستند (تضمین Idempotency بند ۱۱)
+    // ۲. اگر رکورد دریافتی و رکورد محلی دقیقاً یکسان هستند (تضمین Idempotency)
     if (
       localEnv.meta.changeId === incomingEnv.meta.changeId &&
       Boolean(localEnv.meta.softDeleted) === Boolean(incomingEnv.meta.softDeleted)
@@ -381,7 +396,6 @@ export function analyzeIncomingPackage(
           localEnvelope: localEnv,
         });
       } else {
-        // در یک دستگاه ویرایش شده و در دستگاه دیگر حذف شده -> تعارض!
         const phoneEnv = localRole === 'phone-primary' ? localEnv : incomingEnv;
         const pcEnv = localRole === 'pc-companion' ? localEnv : incomingEnv;
         conflicts.push({
@@ -396,10 +410,7 @@ export function analyzeIncomingPackage(
       continue;
     }
 
-    // ۴. هر دو دستگاه نسخه فعالی از این رکورد دارند اما محتوایشان متفاوت است:
-    // اگر نسخه محلی از آخرین همگام‌سازی تغییر نکرده باشد (localChangeId === baselineChangeId)،
-    // یعنی فقط دستگاه فرستنده آن را ویرایش کرده است -> ویرایش بدون تعارض.
-    // در غیر این صورت (هر دو دستگاه رکورد را تغییر داده‌اند) -> تعارض صریح!
+    // ۴. هر دو دستگاه نسخه فعالی از این رکورد دارند اما محتوایشان متفاوت است
     if (baselineChangeId && localEnv.meta.changeId === baselineChangeId) {
       modifiedItems.push({
         collection,
@@ -425,9 +436,11 @@ export function analyzeIncomingPackage(
 
   return {
     packageId: pkg.packageId,
+    protocolVersion: pkg.protocolVersion || SUPPORTED_SYNC_PROTOCOL_VERSION,
     senderRole: pkg.senderRole,
     receiverRole: localRole,
     analyzedAtMs: Date.now(),
+    isReplayPackage,
     newItems,
     modifiedItems,
     softDeleteItems,
@@ -476,6 +489,7 @@ export function applyApprovedSyncReport(
     metaMap[compKey] = {
       ...env.meta,
       softDeleted: false,
+      deletedAtMs: undefined,
     };
     baselineMap[compKey] = env.meta.changeId;
 
@@ -484,16 +498,16 @@ export function applyApprovedSyncReport(
       nextAudit[recordId] = { ...rec, key: recordId };
     } else if (collection === 'bookCopies') {
       const cp = env.data as BookCopyRecord;
-      nextCopiesMap.set(recordId, cp);
+      nextCopiesMap.set(recordId, { ...cp, copyId: recordId });
     } else if (collection === 'customMartyrs') {
       const m = env.data as CustomMartyrRecord;
-      nextMartyrsMap.set(recordId, m);
+      nextMartyrsMap.set(recordId, { ...m, martyrId: recordId });
     } else if (collection === 'links') {
       const l = env.data as BookMartyrLinkRecord;
-      nextLinksMap.set(recordId, l);
+      nextLinksMap.set(recordId, { ...l, id: recordId });
     } else if (collection === 'pendingReviews') {
       const pv = env.data as PendingReviewItem;
-      nextPendingMap.set(recordId, pv);
+      nextPendingMap.set(recordId, { ...pv, trackingId: recordId });
     }
   };
 
@@ -507,7 +521,7 @@ export function applyApprovedSyncReport(
     applySingleEnvelope(item.incomingEnvelope);
   }
 
-  // ۳. اعمال رکوردهای بدون تغییر در خط مبنا (برای ثبت baselineChangeId در اولین همگام‌سازی)
+  // ۳. اعمال رکوردهای بدون تغییر در خط مبنا
   for (const item of report.unchangedItems) {
     const compKey = getCompositeKey(item.collection, item.recordId);
     baselineMap[compKey] = item.incomingEnvelope.meta.changeId;
@@ -520,6 +534,13 @@ export function applyApprovedSyncReport(
     }
     const compKey = getCompositeKey(item.collection, item.recordId);
     baselineMap[compKey] = item.incomingEnvelope.meta.changeId;
+    if (metaMap[compKey]) {
+      metaMap[compKey] = {
+        ...metaMap[compKey],
+        softDeleted: true,
+        deletedAtMs: Date.now(),
+      };
+    }
 
     if (item.collection === 'auditRecords') {
       delete nextAudit[item.recordId];
@@ -556,6 +577,131 @@ export function applyApprovedSyncReport(
     appliedModifiedCount: report.modifiedItems.length,
     appliedSoftDeleteCount: report.softDeleteItems.length,
     resolvedConflictCount: report.conflicts.length,
+  };
+}
+
+/**
+ * بازیابی ایمن و اتمیک رکورد حذف‌شده نرم برای هر ۵ مجموعه عملیاتی
+ * (رفع ایراد چهارم ممیزی: پشتیبانی یکسان از auditRecords, bookCopies, customMartyrs, links, pendingReviews،
+ * حفظ شناسه رکورد، جلوگیری از حذف ناخواسته نسخه آرشیوی پیش از بازیابی، و جلوگیری از ایجاد رکورد تکراری)
+ */
+export function restoreRecordIntoDataset(
+  compKey: string,
+  currentDataset: OperationalSyncDataset,
+  localDeviceId: string,
+  localRole: DeviceSyncRole
+): {
+  restored: boolean;
+  restoredEnvelope: SyncRecordEnvelope | null;
+  nextDataset: OperationalSyncDataset;
+  alreadyExistedInActive: boolean;
+} {
+  const archive = loadSoftDeletedArchive();
+  const archivedEnv = archive[compKey];
+
+  if (
+    !archivedEnv ||
+    !archivedEnv.meta ||
+    !archivedEnv.meta.recordId ||
+    !VALID_COLLECTIONS.has(archivedEnv.meta.collection) ||
+    !archivedEnv.data ||
+    typeof archivedEnv.data !== 'object'
+  ) {
+    return {
+      restored: false,
+      restoredEnvelope: null,
+      nextDataset: currentDataset,
+      alreadyExistedInActive: false,
+    };
+  }
+
+  const { collection, recordId } = archivedEnv.meta;
+  let alreadyExistedInActive = false;
+
+  const nextAudit: Record<string, FieldAuditRecord> = { ...(currentDataset.auditRecords || {}) };
+  const nextCopiesMap = new Map<string, BookCopyRecord>(
+    (currentDataset.bookCopies || []).map((c) => [c.copyId, c])
+  );
+  const nextMartyrsMap = new Map<string, CustomMartyrRecord>(
+    (currentDataset.customMartyrs || []).map((m) => [m.martyrId, m])
+  );
+  const nextLinksMap = new Map<string, BookMartyrLinkRecord>(
+    (currentDataset.links || []).map((l) => [l.id, l])
+  );
+  const nextPendingMap = new Map<string, PendingReviewItem>(
+    (currentDataset.pendingReviews || []).map((p) => [p.trackingId, p])
+  );
+
+  if (collection === 'auditRecords') {
+    alreadyExistedInActive = Boolean(nextAudit[recordId]);
+    const rec = archivedEnv.data as FieldAuditRecord;
+    nextAudit[recordId] = { ...rec, key: recordId };
+  } else if (collection === 'bookCopies') {
+    alreadyExistedInActive = nextCopiesMap.has(recordId);
+    const cp = archivedEnv.data as BookCopyRecord;
+    nextCopiesMap.set(recordId, { ...cp, copyId: recordId });
+  } else if (collection === 'customMartyrs') {
+    alreadyExistedInActive = nextMartyrsMap.has(recordId);
+    const m = archivedEnv.data as CustomMartyrRecord;
+    nextMartyrsMap.set(recordId, { ...m, martyrId: recordId });
+  } else if (collection === 'links') {
+    alreadyExistedInActive = nextLinksMap.has(recordId);
+    const l = archivedEnv.data as BookMartyrLinkRecord;
+    nextLinksMap.set(recordId, { ...l, id: recordId });
+  } else if (collection === 'pendingReviews') {
+    alreadyExistedInActive = nextPendingMap.has(recordId);
+    const pv = archivedEnv.data as PendingReviewItem;
+    nextPendingMap.set(recordId, { ...pv, trackingId: recordId });
+  }
+
+  const nextDataset: OperationalSyncDataset = {
+    auditRecords: nextAudit,
+    bookCopies: Array.from(nextCopiesMap.values()),
+    customMartyrs: Array.from(nextMartyrsMap.values()),
+    links: Array.from(nextLinksMap.values()),
+    pendingReviews: Array.from(nextPendingMap.values()),
+  };
+
+  // تنها پس از اطمینان از درج موفق در Dataset اصلی، رکورد از بایگانی حذف نرم خارج می‌شود
+  const popped = restoreSoftDeletedRecord(compKey);
+  if (!popped) {
+    return {
+      restored: false,
+      restoredEnvelope: null,
+      nextDataset: currentDataset,
+      alreadyExistedInActive,
+    };
+  }
+
+  const canonical = canonicalizeRecordData(popped.data);
+  const freshChangeId = computeDeterministicHash(`${collection}:${recordId}:${canonical}`);
+  const now = Date.now();
+
+  const updatedEnvelope: SyncRecordEnvelope = {
+    ...popped,
+    meta: {
+      ...popped.meta,
+      recordId,
+      collection,
+      softDeleted: false,
+      deletedAtMs: undefined,
+      updatedAtMs: now,
+      revision: (popped.meta.revision || 1) + 1,
+      changeId: freshChangeId,
+      lastModifiedByDevice: localDeviceId,
+      lastModifiedRole: localRole,
+    },
+  };
+
+  const metaMap = loadRecordMetaMap();
+  metaMap[compKey] = updatedEnvelope.meta;
+  saveRecordMetaMap(metaMap);
+
+  return {
+    restored: true,
+    restoredEnvelope: updatedEnvelope,
+    nextDataset,
+    alreadyExistedInActive,
   };
 }
 

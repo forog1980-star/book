@@ -1,0 +1,97 @@
+{
+  "entities": {
+    "WebRtcSignalingSession": {
+      "title": "WebRtcSignalingSession",
+      "description": "Ephemeral WebRTC signaling session for pairing Android phone and PC without storing any library content.",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "description": "High-entropy random session identifier derived from pairing code.",
+          "minLength": 12,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_\\-]{12,64}$"
+        },
+        "pairingCodeDigest": {
+          "type": "string",
+          "description": "Verification digest of the temporary pairing code.",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "hostDeviceRole": {
+          "type": "string",
+          "description": "Role of the initiator device (phone-primary or pc-companion).",
+          "enum": ["phone-primary", "pc-companion"]
+        },
+        "status": {
+          "type": "string",
+          "description": "Current signaling state.",
+          "enum": ["waiting-for-peer", "offer-ready", "answer-ready", "connected", "closed", "expired"]
+        },
+        "offerType": {
+          "type": "string",
+          "description": "SDP offer type (offer).",
+          "maxLength": 16
+        },
+        "offerSdp": {
+          "type": "string",
+          "description": "WebRTC SDP Offer string (network negotiation only, zero library content).",
+          "maxLength": 24000
+        },
+        "answerType": {
+          "type": "string",
+          "description": "SDP answer type (answer).",
+          "maxLength": 16
+        },
+        "answerSdp": {
+          "type": "string",
+          "description": "WebRTC SDP Answer string (network negotiation only, zero library content).",
+          "maxLength": 24000
+        },
+        "hostCandidatesJson": {
+          "type": "string",
+          "description": "Bounded JSON array of ICE candidates from host device.",
+          "maxLength": 32000
+        },
+        "peerCandidatesJson": {
+          "type": "string",
+          "description": "Bounded JSON array of ICE candidates from joining device.",
+          "maxLength": 32000
+        },
+        "createdAtMs": {
+          "type": "number",
+          "description": "Creation epoch timestamp in milliseconds."
+        },
+        "expiresAtMs": {
+          "type": "number",
+          "description": "Expiration epoch timestamp in milliseconds (max 10 minutes after creation)."
+        },
+        "updatedAtMs": {
+          "type": "number",
+          "description": "Last signaling update timestamp in milliseconds."
+        }
+      },
+      "required": [
+        "sessionId",
+        "pairingCodeDigest",
+        "hostDeviceRole",
+        "status",
+        "offerType",
+        "offerSdp",
+        "hostCandidatesJson",
+        "peerCandidatesJson",
+        "createdAtMs",
+        "expiresAtMs",
+        "updatedAtMs"
+      ]
+    }
+  },
+  "firestore": {
+    "/webrtc_signaling_sessions/{sessionId}": {
+      "schema": {
+        "$ref": "#/entities/WebRtcSignalingSession"
+      },
+      "description": "Temporary signaling documents used exclusively for WebRTC SDP and ICE negotiation between Phone and PC."
+    }
+  }
+}

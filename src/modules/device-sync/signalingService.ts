@@ -1,5 +1,5 @@
 import { getApps, initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, signInAnonymously } from 'firebase/auth';
 import {
   deleteDoc,
   doc,
@@ -8,10 +8,11 @@ import {
   getFirestore,
   onSnapshot,
   setDoc,
-   Unsubscribe,
+  Unsubscribe,
   updateDoc,
 } from 'firebase/firestore';
 import firebaseConfig from '../../../firebase-applet-config.json';
+import { maskSessionIdForDisplay } from './pairingService';
 import { DeviceSyncRole } from './types';
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
@@ -36,40 +37,33 @@ export interface FirestoreErrorInfo {
   path: string | null;
   authInfo: {
     userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
     isAnonymous?: boolean | null;
-    tenantId?: string | null;
-    providerInfo?: {
-      providerId?: string | null;
-      email?: string | null;
-    }[];
   };
 }
 
+/**
+ * ثبت خطای ساختاریافته بدون افشای کد جفت‌سازی، ایمیل یا اطلاعات محرمانه کاربر در لاگ‌ها
+ */
 export function handleFirestoreError(
   error: unknown,
   operationType: OperationType,
-  path: string | null
+  sessionIdOrPath: string | null
 ): never {
+  const maskedPath = sessionIdOrPath
+    ? `${SIGNALING_COLLECTION}/${maskSessionIdForDisplay(
+        sessionIdOrPath.replace(`${SIGNALING_COLLECTION}/`, '')
+      )}`
+    : null;
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: signalingAuth.currentUser?.uid,
-      email: signalingAuth.currentUser?.email,
-      emailVerified: signalingAuth.currentUser?.emailVerified,
-      isAnonymous: signalingAuth.currentUser?.isAnonymous,
-      tenantId: signalingAuth.currentUser?.tenantId,
-      providerInfo:
-        signalingAuth.currentUser?.providerData?.map((provider) => ({
-          providerId: provider.providerId,
-          email: provider.email,
-        })) || [],
+      userId: signalingAuth.currentUser?.uid || null,
+      isAnonymous: signalingAuth.currentUser?.isAnonymous ?? null,
     },
     operationType,
-    path,
+    path: maskedPath,
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  console.error('Signaling Firestore Error:', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
 
@@ -77,6 +71,8 @@ export interface WebRtcSignalingDocument {
   sessionId: string;
   pairingCodeDigest: string;
   hostDeviceRole: DeviceSyncRole;
+  hostUid?: string;
+  peerUid?: string;
   status:
     | 'waiting-for-peer'
     | 'offer-ready'
@@ -99,6 +95,8 @@ const ALLOWED_SIGNALING_KEYS = new Set([
   'sessionId',
   'pairingCodeDigest',
   'hostDeviceRole',
+  'hostUid',
+  'peerUid',
   'status',
   'offerType',
   'offerSdp',
@@ -125,10 +123,25 @@ export function assertSignalingOnlyPayload(payload: Record<string, unknown>): vo
   }
 }
 
-export async function testSignalingConnection(): Promise<boolean> {
-  const testPath = `${SIGNALING_COLLECTION}/CONN_PROBE_SESSION_0001`;
+/**
+ * احراز هویت ناشناس برای قفل کردن مالکیت نشست (hostUid / peerUid) در صورت فعال بودن در کنسول Firebase
+ */
+export async function ensureSignalingAuth(): Promise<string | null> {
   try {
-    await getDocFromServer(doc(signalingDb, SIGNALING_COLLECTION, 'CONN_PROBE_SESSION_0001'));
+    if (signalingAuth.currentUser?.uid) {
+      return signalingAuth.currentUser.uid;
+    }
+    const cred = await signInAnonymously(signalingAuth);
+    return cred.user?.uid || null;
+  } catch {
+    // اگر Anonymous Auth هنوز در کنسول Firebase توسط مالک پروژه فعال نشده باشد، بدون خطا ادامه می‌دهد
+    return signalingAuth.currentUser?.uid || null;
+  }
+}
+
+export async function testSignalingConnection(): Promise<boolean> {
+  try {
+    await getDocFromServer(doc(signalingDb, SIGNALING_COLLECTION, 'SESS_CONN_PROBE_00000001'));
     return true;
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
@@ -139,8 +152,10 @@ export async function testSignalingConnection(): Promise<boolean> {
   }
 }
 
-// اجرای تست اتصال اولیه طبق الزامات مهارت Firebase
-void testSignalingConnection();
+function isPermissionDeniedError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes('permission-denied') || msg.includes('PERMISSION_DENIED');
+}
 
 export async function createSignalingOfferSession(params: {
   sessionId: string;
@@ -149,8 +164,9 @@ export async function createSignalingOfferSession(params: {
   offerSdp: string;
   hostCandidates: RTCIceCandidateInit[];
 }): Promise<WebRtcSignalingDocument> {
+  const uid = await ensureSignalingAuth();
   const now = Date.now();
-  const sessionDoc: WebRtcSignalingDocument = {
+  const baseDoc: WebRtcSignalingDocument = {
     sessionId: params.sessionId.slice(0, 64),
     pairingCodeDigest: params.pairingCodeDigest.slice(0, 128),
     hostDeviceRole: params.hostDeviceRole,
@@ -164,21 +180,31 @@ export async function createSignalingOfferSession(params: {
     updatedAtMs: now,
   };
 
-  assertSignalingOnlyPayload(sessionDoc as unknown as Record<string, unknown>);
-  const path = `${SIGNALING_COLLECTION}/${params.sessionId}`;
+  const docWithAuth: WebRtcSignalingDocument = uid ? { ...baseDoc, hostUid: uid } : baseDoc;
+  assertSignalingOnlyPayload(docWithAuth as unknown as Record<string, unknown>);
 
   try {
-    await setDoc(doc(signalingDb, SIGNALING_COLLECTION, params.sessionId), sessionDoc);
-    return sessionDoc;
+    await setDoc(doc(signalingDb, SIGNALING_COLLECTION, params.sessionId), docWithAuth);
+    return docWithAuth;
   } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
+    // سازگاری با قواعد قبلی مستقر در ابر تا زمان تأیید انتشار قواعد جدید توسط مالک پروژه
+    if (uid && isPermissionDeniedError(error)) {
+      try {
+        assertSignalingOnlyPayload(baseDoc as unknown as Record<string, unknown>);
+        await setDoc(doc(signalingDb, SIGNALING_COLLECTION, params.sessionId), baseDoc);
+        return baseDoc;
+      } catch (retryErr) {
+        handleFirestoreError(retryErr, OperationType.CREATE, params.sessionId);
+      }
+    }
+    handleFirestoreError(error, OperationType.CREATE, params.sessionId);
   }
 }
 
 export async function fetchSignalingSession(
   sessionId: string
 ): Promise<WebRtcSignalingDocument | null> {
-  const path = `${SIGNALING_COLLECTION}/${sessionId}`;
+  await ensureSignalingAuth();
   try {
     const snap = await getDoc(doc(signalingDb, SIGNALING_COLLECTION, sessionId));
     if (!snap.exists()) {
@@ -190,9 +216,21 @@ export async function fetchSignalingSession(
       await cleanupSignalingSession(sessionId);
       return null;
     }
+    // جلوگیری از استفاده مجدد غیرمجاز از نشست قبلاً مصرف‌شده یا بسته‌شده
+    if (
+      data.status === 'connected' ||
+      data.status === 'closed' ||
+      data.status === 'expired' ||
+      Boolean(data.answerSdp)
+    ) {
+      throw new Error('این نشست جفت‌سازی قبلاً استفاده یا بسته شده است. لطفاً کد جدیدی تولید کنید.');
+    }
     return data;
   } catch (error) {
-    handleFirestoreError(error, OperationType.GET, path);
+    if (error instanceof Error && error.message.includes('قبلاً استفاده یا بسته شده')) {
+      throw error;
+    }
+    handleFirestoreError(error, OperationType.GET, sessionId);
   }
 }
 
@@ -201,8 +239,8 @@ export async function submitSignalingAnswer(params: {
   answerSdp: string;
   peerCandidates: RTCIceCandidateInit[];
 }): Promise<void> {
-  const path = `${SIGNALING_COLLECTION}/${params.sessionId}`;
-  const updatePayload = {
+  const uid = await ensureSignalingAuth();
+  const basePayload: Record<string, unknown> = {
     status: 'answer-ready',
     answerType: 'answer',
     answerSdp: params.answerSdp.slice(0, 24000),
@@ -210,11 +248,22 @@ export async function submitSignalingAnswer(params: {
     updatedAtMs: Date.now(),
   };
 
-  assertSignalingOnlyPayload(updatePayload);
+  const payloadWithAuth = uid ? { ...basePayload, peerUid: uid } : basePayload;
+  assertSignalingOnlyPayload(payloadWithAuth);
+
   try {
-    await updateDoc(doc(signalingDb, SIGNALING_COLLECTION, params.sessionId), updatePayload);
+    await updateDoc(doc(signalingDb, SIGNALING_COLLECTION, params.sessionId), payloadWithAuth);
   } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
+    if (uid && isPermissionDeniedError(error)) {
+      try {
+        assertSignalingOnlyPayload(basePayload);
+        await updateDoc(doc(signalingDb, SIGNALING_COLLECTION, params.sessionId), basePayload);
+        return;
+      } catch (retryErr) {
+        handleFirestoreError(retryErr, OperationType.UPDATE, params.sessionId);
+      }
+    }
+    handleFirestoreError(error, OperationType.UPDATE, params.sessionId);
   }
 }
 
@@ -223,7 +272,6 @@ export async function updateSignalingCandidates(params: {
   isHost: boolean;
   candidates: RTCIceCandidateInit[];
 }): Promise<void> {
-  const path = `${SIGNALING_COLLECTION}/${params.sessionId}`;
   const jsonStr = JSON.stringify(params.candidates || []).slice(0, 32000);
   const updatePayload = params.isHost
     ? { hostCandidatesJson: jsonStr, updatedAtMs: Date.now() }
@@ -242,7 +290,6 @@ export function subscribeToSignalingSession(
   onUpdate: (docData: WebRtcSignalingDocument | null) => void,
   onError?: (err: Error) => void
 ): Unsubscribe {
-  const path = `${SIGNALING_COLLECTION}/${sessionId}`;
   return onSnapshot(
     doc(signalingDb, SIGNALING_COLLECTION, sessionId),
     (snapshot) => {
@@ -260,7 +307,7 @@ export function subscribeToSignalingSession(
     },
     (error) => {
       try {
-        handleFirestoreError(error, OperationType.GET, path);
+        handleFirestoreError(error, OperationType.GET, sessionId);
       } catch (formattedErr) {
         if (onError && formattedErr instanceof Error) {
           onError(formattedErr);
@@ -271,7 +318,7 @@ export function subscribeToSignalingSession(
 }
 
 /**
- * حذف فوری و کامل سند موقت Signaling از Firestore پس از برقراری اتصال WebRTC یا پایان جلسه
+ * حذف فوری و کامل سند موقت Signaling از Firestore پس از برقراری اتصال WebRTC، خطا، تایم‌اوت یا پایان جلسه
  */
 export async function cleanupSignalingSession(sessionId: string): Promise<boolean> {
   if (!sessionId) return false;
