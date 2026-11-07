@@ -21,6 +21,22 @@ export interface StorageSaveResult {
   error?: string;
 }
 
+export interface BatchStorageSaveEntry<T = unknown> {
+  key: string;
+  value: T;
+}
+
+export interface BatchStorageSaveResult {
+  ok: boolean;
+  keys: string[];
+  idbSaved: boolean;
+  localSaved: boolean;
+  updatedAt: number;
+  failedKey?: string;
+  error?: string;
+  warning?: string;
+}
+
 export interface StorageEnvelope<T> {
   __envelopeVersion: 2;
   updatedAt: number;
@@ -42,10 +58,17 @@ export const OPERATIONAL_STORAGE_KEYS = {
   userRole: 'book_user_role_v1',
 } as const;
 
+let lastIssuedTimestamp = 0;
+
 function getLocalTimestampMap(): Record<string, number> {
   try {
     const raw = localStorage.getItem(META_STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, number>;
+      }
+    }
   } catch {
     // ignore
   }
@@ -67,13 +90,56 @@ export function getLocalKeyTimestamp(key: string): number {
   return map[key] || 0;
 }
 
+/**
+ * تولید زمان‌بندی اکیداً صعودی (Monotonic Timestamp) تا در صورت انجام دو ذخیره در یک میلی‌ثانیه،
+ * نسخه جدید همواره updatedAt بزرگ‌تری نسبت به نسخه قبلی داشته باشد.
+ */
+function nextMonotonicTimestamp(explicitTimestamp?: number, targetKeys?: string[]): number {
+  if (typeof explicitTimestamp === 'number' && explicitTimestamp > 0) {
+    lastIssuedTimestamp = Math.max(lastIssuedTimestamp, explicitTimestamp);
+    return explicitTimestamp;
+  }
+  const map = getLocalTimestampMap();
+  let maxExisting = lastIssuedTimestamp;
+  const keysToCheck = targetKeys && targetKeys.length > 0 ? targetKeys : Object.keys(map);
+  for (const k of keysToCheck) {
+    const ts = Number(map[k] || 0);
+    if (ts > maxExisting) {
+      maxExisting = ts;
+    }
+  }
+  const now = Date.now();
+  const nextTs = now > maxExisting ? now : maxExisting + 1;
+  lastIssuedTimestamp = nextTs;
+  return nextTs;
+}
+
+function getIndexedDbFactory(): IDBFactory | null {
+  if (typeof window !== 'undefined' && 'indexedDB' in window && window.indexedDB) {
+    return window.indexedDB;
+  }
+  if (
+    typeof globalThis !== 'undefined' &&
+    'indexedDB' in globalThis &&
+    (globalThis as unknown as { indexedDB?: IDBFactory }).indexedDB
+  ) {
+    return (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
+  }
+  return null;
+}
+
+export function isIndexedDbAvailable(): boolean {
+  return getIndexedDbFactory() !== null;
+}
+
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    if (typeof window === 'undefined' || !('indexedDB' in window)) {
+    const idbFactory = getIndexedDbFactory();
+    if (!idbFactory) {
       reject(new Error('IndexedDB is not supported in this browser environment'));
       return;
     }
-    const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+    const request = idbFactory.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
@@ -103,7 +169,7 @@ export async function idbSetItemWithStatus<T>(
   value: T,
   explicitTimestamp?: number
 ): Promise<{ ok: boolean; updatedAt: number; error?: string }> {
-  const updatedAt = explicitTimestamp || Date.now();
+  const updatedAt = nextMonotonicTimestamp(explicitTimestamp, [key]);
   const recordCount = Array.isArray(value)
     ? value.length
     : value && typeof value === 'object'
@@ -122,7 +188,17 @@ export async function idbSetItemWithStatus<T>(
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
-      store.put(envelope, key);
+      const req = store.put(envelope, key);
+      req.onerror = (ev) => {
+        if (ev && typeof ev.stopPropagation === 'function') {
+          ev.stopPropagation();
+        }
+        try {
+          tx.abort();
+        } catch {
+          // ignore
+        }
+      };
       tx.oncomplete = () => {
         db.close();
         resolve();
@@ -131,11 +207,137 @@ export async function idbSetItemWithStatus<T>(
         db.close();
         reject(tx.error || new Error(`IndexedDB write transaction failed for ${key}`));
       };
+      tx.onabort = () => {
+        db.close();
+        reject(tx.error || new Error(`IndexedDB write transaction aborted for ${key}`));
+      };
     });
     return { ok: true, updatedAt };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, updatedAt, error: msg };
+  }
+}
+
+/**
+ * ذخیره اتمیک چند کلید در یک تراکنش واحد IndexedDB (readwrite روی app_state_store):
+ * - تمام مجموعه‌ها با یک updatedAt مشترک در یک تراکنش نوشته می‌شوند.
+ * - اگر نوشتن هر یک از کلیدها خطا بدهد یا استثنا رخ دهد، کل تراکنش Abort شده و هیچ‌یک از کلیدها در IndexedDB تغییر نمی‌کند.
+ */
+export async function idbSetBatchWithStatus(
+  entries: BatchStorageSaveEntry[],
+  explicitTimestamp?: number
+): Promise<{ ok: boolean; updatedAt: number; failedKey?: string; error?: string }> {
+  const keys = Array.isArray(entries) ? entries.map((e) => e?.key || '') : [];
+  const updatedAt = nextMonotonicTimestamp(explicitTimestamp, keys);
+
+  if (!entries || entries.length === 0) {
+    return { ok: true, updatedAt };
+  }
+
+  const prepared: Array<{ key: string; envelope: StorageEnvelope<unknown> }> = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry.key !== 'string' || !entry.key.trim() || entry.value === undefined) {
+      return {
+        ok: false,
+        updatedAt,
+        failedKey: entry?.key || 'UNKNOWN_KEY',
+        error: `کلید یا مقدار نامعتبر برای تراکنش IndexedDB (${entry?.key || 'UNKNOWN_KEY'})`,
+      };
+    }
+    const value = entry.value;
+    const recordCount = Array.isArray(value)
+      ? value.length
+      : value && typeof value === 'object'
+      ? Object.keys(value as object).length
+      : 1;
+    prepared.push({
+      key: entry.key,
+      envelope: {
+        __envelopeVersion: 2,
+        updatedAt,
+        recordCount,
+        data: value,
+      },
+    });
+  }
+
+  let failedKey: string | undefined;
+  let requestErrorMsg: string | undefined;
+
+  try {
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      let settled = false;
+
+      tx.oncomplete = () => {
+        if (settled) return;
+        settled = true;
+        db.close();
+        resolve();
+      };
+
+      tx.onerror = () => {
+        if (settled) return;
+        settled = true;
+        const errText =
+          requestErrorMsg ||
+          tx.error?.message ||
+          `خطا در تراکنش چندکلیدی IndexedDB${failedKey ? ` (کلید: ${failedKey})` : ''}`;
+        db.close();
+        reject(new Error(errText));
+      };
+
+      tx.onabort = () => {
+        if (settled) return;
+        settled = true;
+        const errText =
+          requestErrorMsg ||
+          tx.error?.message ||
+          `لغو و بازگردانی (Abort) تراکنش چندکلیدی IndexedDB${failedKey ? ` (کلید: ${failedKey})` : ''}`;
+        db.close();
+        reject(new Error(errText));
+      };
+
+      for (const item of prepared) {
+        try {
+          const req = store.put(item.envelope, item.key);
+          req.onerror = (ev) => {
+            if (!failedKey) {
+              failedKey = item.key;
+            }
+            requestErrorMsg =
+              req.error?.message || `خطا در ذخیره کلید ${item.key} در تراکنش IndexedDB`;
+            if (ev && typeof ev.stopPropagation === 'function') {
+              ev.stopPropagation();
+            }
+            try {
+              tx.abort();
+            } catch {
+              // ignore if already aborting
+            }
+          };
+        } catch (putErr) {
+          if (!failedKey) {
+            failedKey = item.key;
+          }
+          requestErrorMsg = putErr instanceof Error ? putErr.message : String(putErr);
+          try {
+            tx.abort();
+          } catch {
+            // ignore
+          }
+          break;
+        }
+      }
+    });
+
+    return { ok: true, updatedAt };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, updatedAt, failedKey, error: msg };
   }
 }
 
@@ -193,9 +395,18 @@ export async function saveOperationalData<T>(
   value: T,
   explicitTimestamp?: number
 ): Promise<StorageSaveResult> {
-  const updatedAt = explicitTimestamp || Date.now();
+  const updatedAt = nextMonotonicTimestamp(explicitTimestamp, [key]);
   let localSaved = false;
   let localError: string | undefined;
+
+  let prevLocalVal: string | null = null;
+  let prevMetaRaw: string | null = null;
+  try {
+    prevLocalVal = localStorage.getItem(key);
+    prevMetaRaw = localStorage.getItem(META_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
 
   try {
     localStorage.setItem(key, JSON.stringify(value));
@@ -203,6 +414,20 @@ export async function saveOperationalData<T>(
     localSaved = true;
   } catch (err) {
     localError = err instanceof Error ? err.message : String(err);
+    try {
+      if (prevLocalVal === null) {
+        localStorage.removeItem(key);
+      } else {
+        localStorage.setItem(key, prevLocalVal);
+      }
+      if (prevMetaRaw === null) {
+        localStorage.removeItem(META_STORAGE_KEY);
+      } else {
+        localStorage.setItem(META_STORAGE_KEY, prevMetaRaw);
+      }
+    } catch {
+      // ignore
+    }
   }
 
   const idbRes = await idbSetItemWithStatus(key, value, updatedAt);
@@ -226,9 +451,201 @@ export async function saveOperationalData<T>(
 }
 
 /**
- * بازیابی هوشمند یک کلید در شروع برنامه (بند ۴ و ۵ دستور جامع):
- * - اگر هر دو منبع داده دارند، داده‌ای که updatedAt جدیدتری دارد انتخاب می‌شود (نه صرفاً طول بیشتر!)
- * - اگر یک منبع خالی است و منبع دیگر داده دارد، منبع دارای داده انتخاب و همگام‌سازی می‌شود
+ * ذخیره هماهنگ و اتمیک چند مجموعه عملیاتی (auditRecords, bookCopies, customMartyrs, links, pendingReviews, extractedItems):
+ * ۱. پیش‌اعتبارسنجی و سریال‌سازی تمام مجموعه‌ها پیش از هرگونه تغییر در حافظه
+ * ۲. اجرای یک تراکنش واحد و اتمیک IndexedDB (idbSetBatchWithStatus) برای تمام کلیدها با یک updatedAt مشترک؛
+ *    در صورت شکست تراکنش یا شکست هر یک از کلیدها در IndexedDB، کل تراکنش Abort شده و هیچ تغییری در IndexedDB و localStorage اعمال نمی‌شود (ok: false).
+ * ۳. در صورت موفقیت تراکنش IndexedDB، ذخیره هماهنگ در localStorage انجام می‌شود؛ اگر ذخیره هر کلید در localStorage شکست بخورد،
+ *    تمام تغییرات localStorage به Snapshot قبلی Rollback می‌شود تا داده نیمه‌کاره یا timestamp نامعتبر در localStorage باقی نماند،
+ *    در حالی که نسخه کامل و اتمیک در IndexedDB با updatedAt جدیدتر محفوظ است و در Refresh بعدی انتخاب خواهد شد.
+ */
+export async function saveOperationalDataBatchAtomic(
+  entries: BatchStorageSaveEntry[],
+  explicitTimestamp?: number
+): Promise<BatchStorageSaveResult> {
+  const keys = Array.isArray(entries) ? entries.map((e) => e?.key || '') : [];
+  const updatedAt = nextMonotonicTimestamp(explicitTimestamp, keys);
+
+  if (!entries || entries.length === 0) {
+    return {
+      ok: true,
+      keys: [],
+      idbSaved: true,
+      localSaved: true,
+      updatedAt,
+    };
+  }
+
+  // ۱. پیش‌اعتبارسنجی و سریال‌سازی تمام مجموعه‌ها پیش از دست زدن به حافظه
+  const serializedEntries: Array<{ key: string; json: string; value: unknown }> = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry.key !== 'string' || !entry.key.trim() || entry.value === undefined) {
+      return {
+        ok: false,
+        keys,
+        idbSaved: false,
+        localSaved: false,
+        updatedAt,
+        failedKey: entry?.key || 'UNKNOWN_KEY',
+        error: `داده نامعتبر برای کلید ${entry?.key || 'UNKNOWN_KEY'}؛ عملیات ذخیره دسته‌ای متوقف شد.`,
+      };
+    }
+    try {
+      const json = JSON.stringify(entry.value);
+      if (typeof json !== 'string') {
+        return {
+          ok: false,
+          keys,
+          idbSaved: false,
+          localSaved: false,
+          updatedAt,
+          failedKey: entry.key,
+          error: `سریال‌سازی JSON برای کلید ${entry.key} ناموفق بود.`,
+        };
+      }
+      serializedEntries.push({ key: entry.key, json, value: entry.value });
+    } catch (serErr) {
+      return {
+        ok: false,
+        keys,
+        idbSaved: false,
+        localSaved: false,
+        updatedAt,
+        failedKey: entry.key,
+        error: `خطای سریال‌سازی در کلید ${entry.key}: ${
+          serErr instanceof Error ? serErr.message : String(serErr)
+        }`,
+      };
+    }
+  }
+
+  // ۲. تهیه تصویر پشتیبان (Snapshot) از وضعیت قبلی localStorage برای Rollback اتمیک در صورت خطا
+  const prevLocalValues = new Map<string, string | null>();
+  for (const item of serializedEntries) {
+    try {
+      prevLocalValues.set(item.key, localStorage.getItem(item.key));
+    } catch {
+      prevLocalValues.set(item.key, null);
+    }
+  }
+  let prevMetaRaw: string | null = null;
+  try {
+    prevMetaRaw = localStorage.getItem(META_STORAGE_KEY);
+  } catch {
+    prevMetaRaw = null;
+  }
+
+  const rollbackLocalStorage = () => {
+    for (const [k, prevVal] of prevLocalValues.entries()) {
+      try {
+        if (prevVal === null) {
+          localStorage.removeItem(k);
+        } else {
+          localStorage.setItem(k, prevVal);
+        }
+      } catch {
+        // ignore rollback error
+      }
+    }
+    try {
+      if (prevMetaRaw === null) {
+        localStorage.removeItem(META_STORAGE_KEY);
+      } else {
+        localStorage.setItem(META_STORAGE_KEY, prevMetaRaw);
+      }
+    } catch {
+      // ignore rollback error
+    }
+  };
+
+  const hasIdb = isIndexedDbAvailable();
+  let idbSaved = false;
+  let idbError: string | undefined;
+  let idbFailedKey: string | undefined;
+
+  // ۳. اگر IndexedDB در محیط فعال است، ابتدا تراکنش اتمیک چندکلیدی IndexedDB اجرا می‌شود
+  if (hasIdb) {
+    const idbRes = await idbSetBatchWithStatus(entries, updatedAt);
+    idbSaved = idbRes.ok;
+    idbError = idbRes.error;
+    idbFailedKey = idbRes.failedKey;
+
+    if (!idbSaved) {
+      rollbackLocalStorage();
+      return {
+        ok: false,
+        keys,
+        idbSaved: false,
+        localSaved: false,
+        updatedAt,
+        failedKey: idbFailedKey,
+        error: `خطا در تراکنش اتمیک IndexedDB (${idbError || 'نامشخص'})؛ هیچ‌یک از مجموعه‌ها تغییر نکرد.`,
+      };
+    }
+  }
+
+  // ۴. ذخیره هماهنگ در localStorage (همراه با Rollback کامل localStorage در صورت شکست هر یک از کلیدها)
+  let localSaved = false;
+  let localError: string | undefined;
+  let localFailedKey: string | undefined;
+
+  try {
+    const nextMetaMap = getLocalTimestampMap();
+    for (const item of serializedEntries) {
+      localFailedKey = item.key;
+      localStorage.setItem(item.key, item.json);
+      nextMetaMap[item.key] = updatedAt;
+    }
+    localFailedKey = META_STORAGE_KEY;
+    localStorage.setItem(META_STORAGE_KEY, JSON.stringify(nextMetaMap));
+    localFailedKey = undefined;
+    localSaved = true;
+  } catch (locErr) {
+    localError = locErr instanceof Error ? locErr.message : String(locErr);
+    rollbackLocalStorage();
+  }
+
+  if (hasIdb) {
+    return {
+      ok: true,
+      keys,
+      idbSaved: true,
+      localSaved,
+      updatedAt,
+      warning: !localSaved
+        ? `ذخیره اتمیک در IndexedDB موفق بود، اما پشتیبان localStorage با خطا مواجه شد و به نسخه پایدار قبلی بازگردانده شد (${localError})`
+        : undefined,
+    };
+  }
+
+  if (!localSaved) {
+    return {
+      ok: false,
+      keys,
+      idbSaved: false,
+      localSaved: false,
+      updatedAt,
+      failedKey: localFailedKey,
+      error: `خطا در ذخیره هماهنگ localStorage در کلید ${localFailedKey || 'نامشخص'} (${
+        localError || 'نامشخص'
+      })؛ تمام مجموعه‌ها به نسخه قبلی بازگردانی شدند.`,
+    };
+  }
+
+  return {
+    ok: true,
+    keys,
+    idbSaved: false,
+    localSaved: true,
+    updatedAt,
+  };
+}
+
+/**
+ * بازیابی هوشمند یک کلید در شروع برنامه (بند ۴ و ۵ دستور جامع + اصلاح حفاظت از نسخه اتمیک IndexedDB):
+ * - اگر هر دو منبع داده دارند، داده‌ای که updatedAt جدیدتری دارد انتخاب می‌شود
+ * - اگر ذخیره اتمیک در IndexedDB موفق بوده ولی پشتیبان localStorage ناموفق بوده (یا هر دو دارای timestamp معتبر برابر باشند)،
+ *   نسخه تراکنشی IndexedDB انتخاب می‌شود تا هرگز نسخه قدیمی یا ناقص localStorage انتخاب نگردد
  * - هرگز داده جدیدتر localStorage با داده قدیمی‌تر IndexedDB بازنویسی نمی‌شود
  */
 export async function hydrateOperationalKey<T>(
@@ -241,13 +658,22 @@ export async function hydrateOperationalKey<T>(
   try {
     const raw = localStorage.getItem(key);
     if (raw) {
-      localVal = JSON.parse(raw) as T;
-      if (!localUpdatedAt) {
-        localUpdatedAt = 1;
+      const parsed = JSON.parse(raw) as T;
+      if (parsed !== null && parsed !== undefined) {
+        localVal = parsed;
+        if (!localUpdatedAt) {
+          localUpdatedAt = 1;
+        }
+      } else {
+        localVal = null;
+        localUpdatedAt = 0;
       }
+    } else {
+      localUpdatedAt = 0;
     }
   } catch {
     localVal = null;
+    localUpdatedAt = 0;
   }
 
   const idbEnv = await idbGetEnvelope<T>(key);
@@ -255,13 +681,15 @@ export async function hydrateOperationalKey<T>(
   const idbUpdatedAt = idbEnv.updatedAt;
 
   if (localVal !== null && idbVal !== null) {
-    // اگر زمان‌بندی مشخص است، نسخه جدیدتر برنده است
-    if (idbUpdatedAt > localUpdatedAt) {
-      try {
-        localStorage.setItem(key, JSON.stringify(idbVal));
-        setLocalTimestamp(key, idbUpdatedAt);
-      } catch {
-        // ignore quota
+    // اگر IndexedDB دارای timestamp جدیدتر یا مساوی معتبر (> 1) است، نسخه تراکنشی IndexedDB برنده است
+    if (idbUpdatedAt > localUpdatedAt || (idbUpdatedAt > 1 && idbUpdatedAt === localUpdatedAt)) {
+      if (idbUpdatedAt > localUpdatedAt) {
+        try {
+          localStorage.setItem(key, JSON.stringify(idbVal));
+          setLocalTimestamp(key, idbUpdatedAt);
+        } catch {
+          // ignore quota
+        }
       }
       return { value: idbVal, source: 'indexedDB', updatedAt: idbUpdatedAt };
     }
@@ -274,7 +702,7 @@ export async function hydrateOperationalKey<T>(
     // اگر هر دو از نسخه قدیمی بدون timestamp هستند (updatedAt === 1)
     if (Array.isArray(idbVal) && Array.isArray(localVal)) {
       const chosen = idbVal.length >= localVal.length ? idbVal : localVal;
-      const now = Date.now();
+      const now = nextMonotonicTimestamp(undefined, [key]);
       setLocalTimestamp(key, now);
       await idbSetItemWithStatus(key, chosen, now);
       return {
@@ -284,11 +712,32 @@ export async function hydrateOperationalKey<T>(
       };
     }
 
-    return { value: localVal, source: 'localStorage', updatedAt: localUpdatedAt };
+    if (
+      idbVal &&
+      localVal &&
+      typeof idbVal === 'object' &&
+      typeof localVal === 'object' &&
+      !Array.isArray(idbVal) &&
+      !Array.isArray(localVal)
+    ) {
+      const idbKeysCount = Object.keys(idbVal as object).length;
+      const localKeysCount = Object.keys(localVal as object).length;
+      const chosen = idbKeysCount >= localKeysCount ? idbVal : localVal;
+      const now = nextMonotonicTimestamp(undefined, [key]);
+      setLocalTimestamp(key, now);
+      await idbSetItemWithStatus(key, chosen, now);
+      return {
+        value: chosen,
+        source: idbKeysCount >= localKeysCount ? 'indexedDB' : 'localStorage',
+        updatedAt: now,
+      };
+    }
+
+    return { value: idbVal, source: 'indexedDB', updatedAt: idbUpdatedAt };
   }
 
   if (idbVal !== null && localVal === null) {
-    const ts = idbUpdatedAt || Date.now();
+    const ts = idbUpdatedAt || nextMonotonicTimestamp(undefined, [key]);
     try {
       localStorage.setItem(key, JSON.stringify(idbVal));
       setLocalTimestamp(key, ts);
@@ -299,7 +748,7 @@ export async function hydrateOperationalKey<T>(
   }
 
   if (localVal !== null && idbVal === null) {
-    const ts = localUpdatedAt || Date.now();
+    const ts = localUpdatedAt || nextMonotonicTimestamp(undefined, [key]);
     setLocalTimestamp(key, ts);
     await idbSetItemWithStatus(key, localVal, ts);
     return { value: localVal, source: 'localStorage', updatedAt: ts };

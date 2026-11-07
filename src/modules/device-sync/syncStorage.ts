@@ -50,9 +50,17 @@ export function saveDeviceRole(role: DeviceSyncRole): void {
 export function loadRecordMetaMap(): Record<string, RecordSyncMeta> {
   try {
     const raw = localStorage.getItem(RECORD_META_MAP_KEY);
-    if (raw) return JSON.parse(raw) || {};
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        return parsed;
+      }
+    }
   } catch {
     // ignore
+  }
+  if (inMemoryIdbFallbackActive && Object.keys(inMemoryRecordMetaFallback).length > 0) {
+    return { ...inMemoryRecordMetaFallback };
   }
   return {};
 }
@@ -60,6 +68,7 @@ export function loadRecordMetaMap(): Record<string, RecordSyncMeta> {
 export function saveRecordMetaMap(map: Record<string, RecordSyncMeta>): boolean {
   try {
     localStorage.setItem(RECORD_META_MAP_KEY, JSON.stringify(map));
+    inMemoryRecordMetaFallback = { ...map };
     return true;
   } catch {
     return false;
@@ -73,9 +82,17 @@ export function saveRecordMetaMap(map: Record<string, RecordSyncMeta>): boolean 
 export function loadBaselineChangeMap(): Record<string, string> {
   try {
     const raw = localStorage.getItem(BASELINE_CHANGE_MAP_KEY);
-    if (raw) return JSON.parse(raw) || {};
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        return parsed;
+      }
+    }
   } catch {
     // ignore
+  }
+  if (inMemoryIdbFallbackActive && Object.keys(inMemoryBaselineFallback).length > 0) {
+    return { ...inMemoryBaselineFallback };
   }
   return {};
 }
@@ -83,10 +100,18 @@ export function loadBaselineChangeMap(): Record<string, string> {
 export function saveBaselineChangeMap(map: Record<string, string>): boolean {
   try {
     localStorage.setItem(BASELINE_CHANGE_MAP_KEY, JSON.stringify(map));
+    inMemoryBaselineFallback = { ...map };
     return true;
   } catch {
     return false;
   }
+}
+
+export function resetSyncMetadataFallbackForTesting(): void {
+  inMemoryIdbFallbackActive = false;
+  inMemoryRecordMetaFallback = {};
+  inMemoryBaselineFallback = {};
+  inMemoryAppliedPackagesFallback = [];
 }
 
 /**
@@ -148,9 +173,17 @@ export function restoreSoftDeletedRecord(compositeKey: string): SyncRecordEnvelo
 export function loadAppliedPackageIds(): string[] {
   try {
     const raw = localStorage.getItem(APPLIED_PACKAGES_KEY);
-    if (raw) return JSON.parse(raw) || [];
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
   } catch {
     // ignore
+  }
+  if (inMemoryIdbFallbackActive && inMemoryAppliedPackagesFallback.length > 0) {
+    return [...inMemoryAppliedPackagesFallback];
   }
   return [];
 }
@@ -166,10 +199,97 @@ export function recordAppliedPackageId(packageId: string): boolean {
     if (!list.includes(packageId)) {
       const next = [packageId, ...list].slice(0, 200);
       localStorage.setItem(APPLIED_PACKAGES_KEY, JSON.stringify(next));
+      inMemoryAppliedPackagesFallback = next;
     }
     return true;
   } catch {
     return false;
+  }
+}
+
+let inMemoryIdbFallbackActive = false;
+let inMemoryRecordMetaFallback: Record<string, RecordSyncMeta> = {};
+let inMemoryBaselineFallback: Record<string, string> = {};
+let inMemoryAppliedPackagesFallback: string[] = [];
+
+/**
+ * ثبت اتمیک متادیتای همگام‌سازی (recordMeta، baseline و appliedPackages) همراه با Rollback کامل در صورت خطا:
+ * - اگر نوشتن هر یک از ۳ کلید در localStorage با خطا مواجه شود، تمام کلیدهای متادیتا در localStorage به نسخه قبلی بازگردانده می‌شوند.
+ * - اگر ذخیره اتمیک Dataset در IndexedDB موفق بوده ولی localStorage پر شده باشد (allowInMemoryFallback: true)،
+ *   وضعیت متادیتا در حافظه نشست حفظ می‌شود تا عملیات همگام‌سازی بدون خطای کاذب تکمیل گردد.
+ */
+export function commitSyncMetadataAtomically(params: {
+  recordMetaMap: Record<string, RecordSyncMeta>;
+  baselineChangeMap: Record<string, string>;
+  packageId: string;
+  allowInMemoryFallback?: boolean;
+}): { ok: boolean; localSaved: boolean; error?: string } {
+  let prevMetaRaw: string | null = null;
+  let prevBaselineRaw: string | null = null;
+  let prevAppliedRaw: string | null = null;
+
+  try {
+    prevMetaRaw = localStorage.getItem(RECORD_META_MAP_KEY);
+    prevBaselineRaw = localStorage.getItem(BASELINE_CHANGE_MAP_KEY);
+    prevAppliedRaw = localStorage.getItem(APPLIED_PACKAGES_KEY);
+  } catch {
+    // ignore
+  }
+
+  const currentApplied = loadAppliedPackageIds();
+  const nextApplied =
+    params.packageId && !currentApplied.includes(params.packageId)
+      ? [params.packageId, ...currentApplied].slice(0, 200)
+      : currentApplied;
+
+  try {
+    localStorage.setItem(RECORD_META_MAP_KEY, JSON.stringify(params.recordMetaMap));
+    localStorage.setItem(BASELINE_CHANGE_MAP_KEY, JSON.stringify(params.baselineChangeMap));
+    localStorage.setItem(APPLIED_PACKAGES_KEY, JSON.stringify(nextApplied));
+
+    inMemoryIdbFallbackActive = false;
+    inMemoryRecordMetaFallback = { ...params.recordMetaMap };
+    inMemoryBaselineFallback = { ...params.baselineChangeMap };
+    inMemoryAppliedPackagesFallback = [...nextApplied];
+    return { ok: true, localSaved: true };
+  } catch (err) {
+    // بازگردانی کامل هر ۳ کلید در localStorage به وضعیت پیش از تراکنش
+    try {
+      if (prevMetaRaw === null) {
+        localStorage.removeItem(RECORD_META_MAP_KEY);
+      } else {
+        localStorage.setItem(RECORD_META_MAP_KEY, prevMetaRaw);
+      }
+      if (prevBaselineRaw === null) {
+        localStorage.removeItem(BASELINE_CHANGE_MAP_KEY);
+      } else {
+        localStorage.setItem(BASELINE_CHANGE_MAP_KEY, prevBaselineRaw);
+      }
+      if (prevAppliedRaw === null) {
+        localStorage.removeItem(APPLIED_PACKAGES_KEY);
+      } else {
+        localStorage.setItem(APPLIED_PACKAGES_KEY, prevAppliedRaw);
+      }
+    } catch {
+      // ignore rollback error
+    }
+
+    if (params.allowInMemoryFallback) {
+      inMemoryIdbFallbackActive = true;
+      inMemoryRecordMetaFallback = { ...params.recordMetaMap };
+      inMemoryBaselineFallback = { ...params.baselineChangeMap };
+      inMemoryAppliedPackagesFallback = [...nextApplied];
+      return { ok: true, localSaved: false };
+    }
+
+    return {
+      ok: false,
+      localSaved: false,
+      error:
+        err instanceof Error
+          ? `خطا در ذخیره متادیتای همگام‌سازی در حافظه محلی: ${err.message}`
+          : 'ذخیره پایدار متادیتای همگام‌سازی یا خط مبنا در حافظه محلی با خطا مواجه شد.',
+    };
   }
 }
 

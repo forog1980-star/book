@@ -2,14 +2,20 @@ import {
   BookCopyRecord,
   BookMartyrLinkRecord,
   CustomMartyrRecord,
+  ExtractedContentItem,
   FieldAuditRecord,
   INITIAL_BOOK_COPIES,
   INITIAL_BOOK_MARTYR_LINKS,
   PendingReviewItem,
 } from '../../data/markazAsnadData';
 import {
+  buildSorehMehrExtractedItems,
+  enrichLinksWithSorehMehrResearch,
+} from '../../data/soorehMehrResearch';
+import {
+  hydrateOperationalKey,
   OPERATIONAL_STORAGE_KEYS,
-  saveOperationalData,
+  saveOperationalDataBatchAtomic,
 } from '../../utils/indexedDbStorage';
 import {
   buildResolvedEnvelopeFromConflict,
@@ -18,12 +24,12 @@ import {
 } from './conflictResolver';
 import { computeDeterministicHash, generateCryptoRandomToken } from './pairingService';
 import {
+  commitSyncMetadataAtomically,
   hasPackageBeenApplied,
   loadBaselineChangeMap,
   loadRecordMetaMap,
   loadSoftDeletedArchive,
   markRecordSoftDeleted,
-  recordAppliedPackageId,
   restoreSoftDeletedRecord,
   saveBaselineChangeMap,
   saveRecordMetaMap,
@@ -1052,7 +1058,7 @@ export function applyApprovedSyncReport(
   resolvedConflictCount: number;
   unresolvedConflictCount: number;
   unchangedCount: number;
-  commitMetadata: () => { ok: boolean; error?: string };
+  commitMetadata: (metaOpts?: { allowInMemoryFallback?: boolean }) => { ok: boolean; error?: string };
 } {
   const nextAudit: Record<string, FieldAuditRecord> = { ...(currentDataset.auditRecords || {}) };
   const nextCopiesMap = new Map<string, BookCopyRecord>(
@@ -1181,17 +1187,15 @@ export function applyApprovedSyncReport(
     }
   }
 
-  const commitMetadata = (): { ok: boolean; error?: string } => {
-    const savedMeta = saveRecordMetaMap(metaMap);
-    const savedBaseline = saveBaselineChangeMap(baselineMap);
-    const savedPkg = recordAppliedPackageId(report.packageId);
-    if (!savedMeta || !savedBaseline || !savedPkg) {
-      return {
-        ok: false,
-        error: 'ذخیره پایدار متادیتای همگام‌سازی یا خط مبنا در حافظه محلی با خطا مواجه شد.',
-      };
-    }
-    return { ok: true };
+  const commitMetadata = (metaOpts?: {
+    allowInMemoryFallback?: boolean;
+  }): { ok: boolean; error?: string } => {
+    return commitSyncMetadataAtomically({
+      recordMetaMap: metaMap,
+      baselineChangeMap: baselineMap,
+      packageId: report.packageId,
+      allowInMemoryFallback: metaOpts?.allowInMemoryFallback,
+    });
   };
 
   if (!options?.deferMetadataCommit) {
@@ -1217,44 +1221,90 @@ export function applyApprovedSyncReport(
 }
 
 /**
- * ذخیره پایدار ۵ مجموعه عملیاتی Dataset همگام‌سازی در حافظه محلی (localStorage + IndexedDB)
- * و بازگرداندن وضعیت واقعی موفقیت یا شکست ذخیره‌سازی (اصلاح دوم).
+ * ذخیره پایدار و هماهنگ هر ۶ مجموعه عملیاتی مقصد (auditRecords, bookCopies, customMartyrs, links, pendingReviews, extractedItems)
+ * در یک تراکنش اتمیک IndexedDB همراه با حفاظت زمان‌بندی و Rollback کامل در localStorage.
  */
 export async function persistSyncedDatasetDurably(
-  dataset: OperationalSyncDataset
-): Promise<{ ok: boolean; error?: string }> {
+  dataset: OperationalSyncDataset,
+  options?: {
+    existingExtractedItems?: ExtractedContentItem[];
+    explicitTimestamp?: number;
+  }
+): Promise<{
+  ok: boolean;
+  idbSaved?: boolean;
+  localSaved?: boolean;
+  updatedAt?: number;
+  failedKey?: string;
+  error?: string;
+  warning?: string;
+}> {
   try {
-    const results = await Promise.all([
-      saveOperationalData(OPERATIONAL_STORAGE_KEYS.auditRecords, dataset.auditRecords),
-      saveOperationalData(OPERATIONAL_STORAGE_KEYS.bookCopies, dataset.bookCopies),
-      saveOperationalData(OPERATIONAL_STORAGE_KEYS.customMartyrs, dataset.customMartyrs),
-      saveOperationalData(OPERATIONAL_STORAGE_KEYS.links, dataset.links),
-      saveOperationalData(OPERATIONAL_STORAGE_KEYS.pendingReviews, dataset.pendingReviews),
-    ]);
-    const failed = results.find((r) => !r.ok);
-    if (failed) {
+    const enrichedLinks = enrichLinksWithSorehMehrResearch(dataset.links || []);
+    let baseExtracted: ExtractedContentItem[] = options?.existingExtractedItems || [];
+    if (!options?.existingExtractedItems) {
+      try {
+        const hydExt = await hydrateOperationalKey<ExtractedContentItem[]>(
+          OPERATIONAL_STORAGE_KEYS.extractedItems,
+          []
+        );
+        if (Array.isArray(hydExt.value)) {
+          baseExtracted = hydExt.value;
+        }
+      } catch {
+        baseExtracted = [];
+      }
+    }
+    const nextExtracted = buildSorehMehrExtractedItems(enrichedLinks, baseExtracted);
+
+    const batchRes = await saveOperationalDataBatchAtomic(
+      [
+        { key: OPERATIONAL_STORAGE_KEYS.auditRecords, value: dataset.auditRecords },
+        { key: OPERATIONAL_STORAGE_KEYS.bookCopies, value: dataset.bookCopies },
+        { key: OPERATIONAL_STORAGE_KEYS.customMartyrs, value: dataset.customMartyrs },
+        { key: OPERATIONAL_STORAGE_KEYS.links, value: enrichedLinks },
+        { key: OPERATIONAL_STORAGE_KEYS.pendingReviews, value: dataset.pendingReviews },
+        { key: OPERATIONAL_STORAGE_KEYS.extractedItems, value: nextExtracted },
+      ],
+      options?.explicitTimestamp
+    );
+
+    if (!batchRes.ok) {
       return {
         ok: false,
-        error: failed.error || `خطا در ذخیره پایدار مجموعه ${failed.key}`,
+        idbSaved: batchRes.idbSaved,
+        localSaved: batchRes.localSaved,
+        updatedAt: batchRes.updatedAt,
+        failedKey: batchRes.failedKey,
+        error: batchRes.error || 'خطا در ذخیره اتمیک مجموعه‌های عملیاتی همگام‌سازی در مقصد.',
       };
     }
-    return { ok: true };
+
+    return {
+      ok: true,
+      idbSaved: batchRes.idbSaved,
+      localSaved: batchRes.localSaved,
+      updatedAt: batchRes.updatedAt,
+      warning: batchRes.warning,
+    };
   } catch (err) {
     return {
       ok: false,
+      idbSaved: false,
+      localSaved: false,
       error: err instanceof Error ? err.message : String(err),
     };
   }
 }
 
 /**
- * اجرای کامل و ترتیبی چرخه دریافت، تحلیل، اعمال در مقصد، ذخیره پایدار محلی و تولید TRANSFER_ACK (اصلاح دوم):
+ * اجرای کامل و ترتیبی چرخه دریافت، تحلیل، اعمال در مقصد، ذخیره پایدار محلی و تولید TRANSFER_ACK (اصلاح دوم + ذخیره اتمیک ۶ مجموعه):
  * ۱. تحلیل و ادغام غیرمخرب بسته دریافتی
  * ۲. ساخت Dataset جدید در حافظه بدون ثبت زودهنگام Baseline مقصد
- * ۳. ذخیره پایدار در حافظه محلی مقصد (از طریق کالبک اپلیکیشن و/یا لایه ذخیره‌سازی پایدار)
+ * ۳. ذخیره پایدار و هماهنگ در حافظه محلی مقصد (هر ۶ مجموعه عملیاتی در یک تراکنش اتمیک IndexedDB)
  * ۴. ثبت متادیتای همگام‌سازی و شناسه بسته اعمال‌شده صرفاً در صورت موفقیت ذخیره پایدار
  * ۵. تولید TRANSFER_ACK با ok: true, applied: true فقط در صورت موفقیت کامل مراحل فوق؛
- *    در صورت شکست ذخیره محلی، تولید TRANSFER_ACK با ok: false, applied: false بدون تغییر Baseline.
+ *    در صورت شکست ذخیره هر یک از مجموعه‌ها، تولید TRANSFER_ACK با ok: false, applied: false بدون تغییر Baseline.
  */
 export async function executeDurableSyncPackageApplication(params: {
   pkg: SyncTransferPackage;
@@ -1265,9 +1315,13 @@ export async function executeDurableSyncPackageApplication(params: {
     nextDataset: OperationalSyncDataset,
     summaryMessage: string
   ) =>
-    | Promise<boolean | { ok: boolean; error?: string } | void>
+    | Promise<
+        | boolean
+        | { ok: boolean; idbSaved?: boolean; localSaved?: boolean; error?: string }
+        | void
+      >
     | boolean
-    | { ok: boolean; error?: string }
+    | { ok: boolean; idbSaved?: boolean; localSaved?: boolean; error?: string }
     | void;
   buildSummaryMessage?: (counts: {
     appliedNewCount: number;
@@ -1324,6 +1378,8 @@ export async function executeDurableSyncPackageApplication(params: {
       : `همگام‌سازی انجام شد: ${applied.appliedNewCount} جدید، ${applied.appliedModifiedCount} ویرایش، ${report.conflicts.length} تعارض.`;
 
     let handledByCustomPersist = false;
+    let idbSavedConfirmed = false;
+
     if (params.onPersistDataset) {
       const customRes = await params.onPersistDataset(applied.nextDataset, summaryMessage);
       if (customRes === false) {
@@ -1359,6 +1415,9 @@ export async function executeDurableSyncPackageApplication(params: {
           };
         }
         handledByCustomPersist = true;
+        if ('idbSaved' in customRes && customRes.idbSaved === true) {
+          idbSavedConfirmed = true;
+        }
       }
     }
 
@@ -1380,9 +1439,14 @@ export async function executeDurableSyncPackageApplication(params: {
           },
         };
       }
+      if (storageRes.idbSaved === true) {
+        idbSavedConfirmed = true;
+      }
     }
 
-    const metaCommitRes = applied.commitMetadata();
+    const metaCommitRes = applied.commitMetadata({
+      allowInMemoryFallback: idbSavedConfirmed,
+    });
     if (!metaCommitRes.ok) {
       const errText =
         metaCommitRes.error || 'خطا در ثبت پایدار متادیتای همگام‌سازی در مقصد.';

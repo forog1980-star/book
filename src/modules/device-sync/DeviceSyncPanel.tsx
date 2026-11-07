@@ -713,8 +713,8 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     setEditingConflictId(null);
   };
 
-  // اعمال تصمیم کاربر برای تعارض‌های ثبت‌شده
-  const handleConfirmAndApplyPreview = () => {
+  // اعمال تصمیم کاربر برای تعارض‌های ثبت‌شده پس از اطمینان از ذخیره پایدار و هماهنگ
+  const handleConfirmAndApplyPreview = async () => {
     if (!pendingPreviewReport) return;
     if (!areAllConflictsResolved(pendingPreviewReport.conflicts)) {
       return;
@@ -724,17 +724,38 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
       pendingPreviewReport,
       datasetRef.current,
       localDeviceId,
-      localRole
+      localRole,
+      { deferMetadataCommit: true }
     );
-    datasetRef.current = result.nextDataset;
 
     const summaryText = `تصمیم شما برای ${toPersianDigits(
       result.resolvedConflictCount
     )} مورد تعارض اعمال شد.`;
 
+    const persistRes = await onApplySyncedDataset(result.nextDataset, summaryText);
+    if (
+      persistRes === false ||
+      (persistRes && typeof persistRes === 'object' && 'ok' in persistRes && persistRes.ok !== true)
+    ) {
+      const errText =
+        persistRes && typeof persistRes === 'object' && 'error' in persistRes && persistRes.error
+          ? persistRes.error
+          : 'خطا در ذخیره پایدار تصمیم تعارض‌ها؛ هیچ داده‌ای تغییر نکرد.';
+      setStatus('connection-error');
+      setStatusMessage(errText);
+      return;
+    }
+
+    const idbConfirmed = Boolean(
+      persistRes &&
+        typeof persistRes === 'object' &&
+        'idbSaved' in persistRes &&
+        (persistRes as { idbSaved?: boolean }).idbSaved === true
+    );
+    result.commitMetadata({ allowInMemoryFallback: idbConfirmed });
+    datasetRef.current = result.nextDataset;
     setPendingPreviewReport(null);
     setStatusMessage(summaryText);
-    onApplySyncedDataset(result.nextDataset, summaryText);
   };
 
   const handleRejectIncomingPreview = () => {

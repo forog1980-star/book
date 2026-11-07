@@ -72,7 +72,8 @@ import { useOnlineStatus, usePWAInstall } from './utils/usePWAInstall';
 import {
   hydrateOperationalKey,
   OPERATIONAL_STORAGE_KEYS,
-  saveOperationalData
+  saveOperationalData,
+  saveOperationalDataBatchAtomic
 } from './utils/indexedDbStorage';
 import { generateUniqueLogId } from './utils/idGenerator';
 import {
@@ -801,28 +802,33 @@ export default function App() {
   const handleApplyP2PSyncedDataset = async (
     nextDataset: OperationalSyncDataset,
     summaryMessage: string
-  ): Promise<{ ok: boolean; error?: string }> => {
+  ): Promise<{ ok: boolean; idbSaved?: boolean; localSaved?: boolean; error?: string }> => {
     const enrichedNextLinks = enrichLinksWithSorehMehrResearch(nextDataset.links);
     const nextExtracted = buildSorehMehrExtractedItems(enrichedNextLinks, extractedItems);
 
     setStorageStatus('saving');
-    const saveResults = await Promise.all([
-      saveOperationalData(AUDIT_STORAGE_KEY, nextDataset.auditRecords),
-      saveOperationalData(COPIES_STORAGE_KEY, nextDataset.bookCopies),
-      saveOperationalData(CUSTOM_MARTYRS_STORAGE_KEY, nextDataset.customMartyrs),
-      saveOperationalData(LINKS_STORAGE_KEY, enrichedNextLinks),
-      saveOperationalData(EXTRACTED_STORAGE_KEY, nextExtracted),
-      saveOperationalData(PENDING_REVIEWS_STORAGE_KEY, nextDataset.pendingReviews),
+    const batchRes = await saveOperationalDataBatchAtomic([
+      { key: AUDIT_STORAGE_KEY, value: nextDataset.auditRecords },
+      { key: COPIES_STORAGE_KEY, value: nextDataset.bookCopies },
+      { key: CUSTOM_MARTYRS_STORAGE_KEY, value: nextDataset.customMartyrs },
+      { key: LINKS_STORAGE_KEY, value: enrichedNextLinks },
+      { key: PENDING_REVIEWS_STORAGE_KEY, value: nextDataset.pendingReviews },
+      { key: EXTRACTED_STORAGE_KEY, value: nextExtracted },
     ]);
 
-    const failedSave = saveResults.find((res) => !res.ok);
-    if (failedSave) {
+    if (!batchRes.ok) {
       const errText =
-        failedSave.error || 'خطا در ذخیره‌سازی پایدار اطلاعات همگام‌سازی در حافظه محلی دستگاه مقصد.';
+        batchRes.error ||
+        'خطا در ذخیره‌سازی پایدار و هماهنگ اطلاعات همگام‌سازی در حافظه محلی دستگاه مقصد.';
       setStorageStatus('error');
       setStorageErrorMsg(errText);
       showNotify(errText, 'warning');
-      return { ok: false, error: errText };
+      return {
+        ok: false,
+        idbSaved: batchRes.idbSaved,
+        localSaved: batchRes.localSaved,
+        error: errText,
+      };
     }
 
     setStorageStatus('saved');
@@ -836,7 +842,11 @@ export default function App() {
     markSessionModification();
     appendAuditLog('تغییر وضعیت پیگیری', 'WEBRTC-P2P-SYNC', summaryMessage);
     showNotify(summaryMessage);
-    return { ok: true };
+    return {
+      ok: true,
+      idbSaved: batchRes.idbSaved,
+      localSaved: batchRes.localSaved,
+    };
   };
 
   // Handlers for Workbook & Sheet Loading
