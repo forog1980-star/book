@@ -2,7 +2,7 @@
 // بازطراحی‌شده طبق بند ۱۷ دستور جامع برای ایزوله‌سازی کامل از زیربرنامه /book/library-research/
 const CACHE_PREFIX = 'markaz-asnad-main-book-';
 const LEGACY_PREFIX = 'markaz-asnad-pwa-';
-const CACHE_NAME = 'markaz-asnad-main-book-v7';
+const CACHE_NAME = 'markaz-asnad-main-book-v8';
 
 const PRECACHE_ASSETS = [
   './',

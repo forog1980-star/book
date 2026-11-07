@@ -1,0 +1,108 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net: Default-deny all collections and documents
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidSessionId(id) {
+      return id is string && id.size() >= 12 && id.size() <= 64 && id.matches('^[A-Za-z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidSignalingSession(data, sessionId) {
+      return data.keys().hasAll([
+          'sessionId',
+          'pairingCodeDigest',
+          'hostDeviceRole',
+          'status',
+          'offerType',
+          'offerSdp',
+          'hostCandidatesJson',
+          'peerCandidatesJson',
+          'createdAtMs',
+          'expiresAtMs',
+          'updatedAtMs'
+        ])
+        && data.keys().hasOnly([
+          'sessionId',
+          'pairingCodeDigest',
+          'hostDeviceRole',
+          'status',
+          'offerType',
+          'offerSdp',
+          'answerType',
+          'answerSdp',
+          'hostCandidatesJson',
+          'peerCandidatesJson',
+          'createdAtMs',
+          'expiresAtMs',
+          'updatedAtMs'
+        ])
+        && data.sessionId == sessionId
+        && data.pairingCodeDigest is string && data.pairingCodeDigest.size() >= 8 && data.pairingCodeDigest.size() <= 128
+        && data.hostDeviceRole is string && (data.hostDeviceRole == 'phone-primary' || data.hostDeviceRole == 'pc-companion')
+        && data.status is string && (
+          data.status == 'waiting-for-peer' ||
+          data.status == 'offer-ready' ||
+          data.status == 'answer-ready' ||
+          data.status == 'connected' ||
+          data.status == 'closed' ||
+          data.status == 'expired'
+        )
+        && data.offerType is string && data.offerType.size() <= 16
+        && data.offerSdp is string && data.offerSdp.size() <= 24000
+        && (!('answerType' in data) || (data.answerType is string && data.answerType.size() <= 16))
+        && (!('answerSdp' in data) || (data.answerSdp is string && data.answerSdp.size() <= 24000))
+        && data.hostCandidatesJson is string && data.hostCandidatesJson.size() <= 32000
+        && data.peerCandidatesJson is string && data.peerCandidatesJson.size() <= 32000
+        && data.createdAtMs is number && data.createdAtMs > 0
+        && data.expiresAtMs is number && data.expiresAtMs > data.createdAtMs && data.expiresAtMs <= data.createdAtMs + 600000
+        && data.updatedAtMs is number && data.updatedAtMs >= data.createdAtMs;
+    }
+
+    // Ephemeral WebRTC Signaling Collection ONLY (Zero library content allowed)
+    match /webrtc_signaling_sessions/{sessionId} {
+      // Strictly forbid listing/querying sessions so no one can enumerate active pairing codes
+      allow list: if false;
+
+      // Only a client knowing the exact unguessable sessionId can read the signaling document
+      allow get: if isValidSessionId(sessionId);
+
+      // Creating a temporary signaling session (max 10 minutes TTL)
+      allow create: if isValidSessionId(sessionId)
+        && isValidSignalingSession(incoming(), sessionId);
+
+      // Updating SDP / ICE candidates or status within the same immutable session
+      allow update: if isValidSessionId(sessionId)
+        && isValidSignalingSession(incoming(), sessionId)
+        && incoming().sessionId == existing().sessionId
+        && incoming().pairingCodeDigest == existing().pairingCodeDigest
+        && incoming().hostDeviceRole == existing().hostDeviceRole
+        && incoming().createdAtMs == existing().createdAtMs
+        && incoming().expiresAtMs == existing().expiresAtMs
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'status',
+          'offerType',
+          'offerSdp',
+          'answerType',
+          'answerSdp',
+          'hostCandidatesJson',
+          'peerCandidatesJson',
+          'updatedAtMs'
+        ]);
+
+      // Immediate cleanup after WebRTC DataChannel is established or session ends
+      allow delete: if isValidSessionId(sessionId);
+    }
+  }
+}

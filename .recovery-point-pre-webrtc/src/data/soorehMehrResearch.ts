@@ -1,0 +1,536 @@
+import {
+  BookMartyrLinkRecord,
+  ExtractedContentItem,
+  ExtractedContentType,
+  ExtractedReviewStatus,
+  ReferenceCatalogRow,
+  normalizePersianText
+} from './markazAsnadData';
+
+/**
+ * آمار مستند و قطعی استخراج‌شده از فایل واقعی «لیست کتابهای و شهدای مرتبط.xlsx» (منبع سوره مهر - شیت Sheet2)
+ * آرشیو منبع در مخزن: /public/data/sooreh_mehr_book_martyr_research.json
+ * و /public/assets/aistudio/_________________________________________07c5a7ec.json
+ */
+export const SOOREH_MEHR_RESEARCH_STATS = {
+  sourceFileName: 'لیست کتابهای و شهدای مرتبط.xlsx',
+  sourceSheetName: 'Sheet2',
+  archiveJsonPath: '/data/sooreh_mehr_book_martyr_research.json',
+  rawAssetPath: '/assets/aistudio/_________________________________________07c5a7ec.json',
+  headers: [
+    'ردیف',
+    'انتشارات',
+    'عنوان کتاب',
+    'توضیحات',
+    'نام و نام خانوادگی شهید',
+    'قطعه',
+    'ردیف',
+    'شماره',
+    'شماره صفحه'
+  ],
+  // ۱. تعداد کل ردیف‌های شیت
+  totalRowsWithHeaderAndTrailing: 602,
+  totalRowsWithHeader: 600,
+  totalResearchRows: 599,
+
+  // ۲. تعداد کتاب‌های یکتای حاضر در فایل
+  uniqueBooksByRowId: 413, // BK-0001 تا BK-0413 (۴۱۳ عنوان سوره مهر در فهرست کتاب‌ها)
+  uniqueBookTitlesRaw: 415, // ۴۱۵ رشته عنوان خام در ستون C (به دلیل تفکیک جلد ۱ و ۲ سیزده در هفت و Drag-Fill فرکانس ۱۱۶۱ تا ۱۱۶۳)
+  booksWithMartyrOrPhrase: 197, // ۱۹۷ کتاب دارای نام شهید یا عبارت گروهی (۱۳۹ کتاب با نام شهید مشخص + ۵۸ کتاب فقط با عبارت گروهی)
+  booksWithSpecificNamedMartyr: 139,
+  booksWithOnlyGroupPhrase: 58,
+  booksWithStarOrEmpty: 220, // ۲۲۰ ردیف کتاب با علامت * (۲۱۲ مورد) یا خالی (۸ مورد) بدون استخراج نام شهید
+
+  // ۳. تعداد شهدای یکتای حاضر در فایل
+  uniqueNamedMartyrsCount: 236, // ۲۳۶ نام شهید یکتا در میان ۳۰۳ ارتباط فردی سوره مهر
+
+  // ۴. تعداد کل ارتباط‌های کتاب–شهید
+  totalBookMartyrRelations: 379, // کل ردیف‌های غیر * و غیرخالی (۳۰۳ شهید مشخص + ۷۶ عبارت گروهی)
+  namedMartyrRelationsCount: 303, // ۳۰۳ ارتباط با نام شهید مشخص
+  groupPhraseRelationsCount: 76, // ۷۶ ارتباط دارای عبارت گروهی/توضیحی (مانند «و چند شهید غیر تهرانی»)
+
+  // ۵. تعداد کتاب‌های تطبیق‌یافته با کاتالوگ ۹۸۰ کتاب
+  catalogMatchedBooksCount: 413, // هر ۴۱۳ کتاب سوره مهر با BK-0001 تا BK-0413 متناظر است
+  catalogExactMatchedBooksCount: 405, // ۴۰۵ کتاب با تطابق دقیق عنوان
+  catalogNormalizedOrCandidateBooksCount: 8, // ۸ کتاب (۱۸ ردیف) با تطابق نرمال‌شده/دو جلدی/Drag-Fill یا کاندید بررسی
+
+  // ۶. تعداد کتاب‌های تطبیق‌نیافته با کاتالوگ
+  catalogUnmatchedBooksCount: 0, // در فایل سوره مهر ۰ کتاب خارج از کاتالوگ ۴۱۳ کتاب سوره مهر است (شیت بر پایه همان ۴۱۳ ردیف ساخته شده است)
+  strictlyUnmatchedBeforeNormalizationBooksCount: 8, // قبل از نرمال‌سازی فاصله/نیم‌فاصله، تفکیک جلد و رفع Drag-Fill اکسل
+
+  // ۷. تعداد ارتباط‌های قطعی، احتمالی و نیازمند بررسی کارشناسی
+  definiteRelationsCount: 190, // ۱۹۰ ارتباط فردی دارای تطابق قطعی کتاب + تطابق دقیق قطعه/ردیف/شماره در بانک ۲۸٬۳۶۸ شهید گلزار
+  probableRelationsCount: 89, // ۳۴ ارتباط منطبق با نام و قطعه در گلزار + ۵۵ ارتباط شهدای غیرتهرانی/جاویدالاثر/۷۲تن دارای کتاب و شرح کامل
+  needsExpertReviewRelationsCount: 100, // ۲۴ ارتباط فردی نیازمند بازبینی مزار/عنوان (مثل شاید/شهید پیش از اذان صبح) + ۷۶ عبارت گروهی نیازمند تفکیک نام
+
+  // ۸. تعداد رکوردهای تکراری واقعی در برابر تکرارهای ظاهری ناشی از چندشهیدی بودن کتاب
+  multiMartyrBooksCount: 42, // ۴۲ کتاب دارای بیش از یک ردیف شهید هستند
+  multiMartyrApparentRepeatRowsCount: 184, // ۱۸۴ ردیف تکرار ظاهری عنوان کتاب در اکسل به دلیل معرفی چند شهید در یک کتاب
+  trueDuplicateRelationsCount: 0 // ۰ رکورد تکراری واقعی (تنها زوج هم‌نام بدون شهید «نیمکت‌های سوخته» ردیف ۳۸۳ و ۳۸۴ دو جلد متفاوت BK-0383 و BK-0384 هستند)
+};
+
+/**
+ * فهرست ۸ کتاب (۱۸ ردیف) در شیت سوره مهر که تفاوت نگارشی، دوجلدی یا Drag-Fill اکسل با کاتالوگ داشتند
+ */
+export const SOOREH_MEHR_NORMALIZED_BOOK_MAPPINGS: Record<
+  string,
+  {
+    tempBookId: string;
+    catalogTitle: string;
+    alternativeTitle: string;
+    matchType: 'exact_normalized' | 'volume_split' | 'excel_drag_fill' | 'duplicate_title_disambiguated' | 'candidate_review';
+    note: string;
+  }
+> = {
+  'RL-0155': {
+    tempBookId: 'BK-0095',
+    catalogTitle: 'تلگراف چی پنج ستاره',
+    alternativeTitle: 'تلگرافچی پنج ستاره',
+    matchType: 'exact_normalized',
+    note: 'تطبیق با BK-0095 پس از یکسان‌سازی فاصله در «تلگراف چی / تلگرافچی».'
+  },
+  'RL-0330': {
+    tempBookId: 'BK-0219',
+    catalogTitle: 'سروده های بی تکرار',
+    alternativeTitle: 'سرودهای بی تکرار',
+    matchType: 'candidate_review',
+    note: 'کاندید تطبیق با BK-0219 («سروده های بی تکرار» در کاتالوگ در برابر «سرودهای بی تکرار» در شیت پژوهش).'
+  },
+  'RL-0345': {
+    tempBookId: 'BK-0230',
+    catalogTitle: 'سیزده در هفت (جلد اول-جلد دوم)',
+    alternativeTitle: 'سیزده در هفت (جلد اول)',
+    matchType: 'volume_split',
+    note: 'در کاتالوگ به صورت یک رکورد دوجلدی (BK-0230) ثبت شده و در شیت پژوهش به تفکیک جلد اول و دوم استخراج شده است.'
+  },
+  'RL-0346': {
+    tempBookId: 'BK-0230',
+    catalogTitle: 'سیزده در هفت (جلد اول-جلد دوم)',
+    alternativeTitle: 'سیزده در هفت (جلد اول)',
+    matchType: 'volume_split',
+    note: 'جلد اول مجموعه BK-0230.'
+  },
+  'RL-0347': {
+    tempBookId: 'BK-0230',
+    catalogTitle: 'سیزده در هفت (جلد اول-جلد دوم)',
+    alternativeTitle: 'سیزده در هفت (جلد اول)',
+    matchType: 'volume_split',
+    note: 'جلد اول مجموعه BK-0230.'
+  },
+  'RL-0348': {
+    tempBookId: 'BK-0230',
+    catalogTitle: 'سیزده در هفت (جلد اول-جلد دوم)',
+    alternativeTitle: 'سیزده در هفت (جلد اول)',
+    matchType: 'volume_split',
+    note: 'جلد اول مجموعه BK-0230.'
+  },
+  'RL-0349': {
+    tempBookId: 'BK-0230',
+    catalogTitle: 'سیزده در هفت (جلد اول-جلد دوم)',
+    alternativeTitle: 'سیزده در هفت (جلد اول)',
+    matchType: 'volume_split',
+    note: 'جلد اول مجموعه BK-0230 (عبارت گروهی).'
+  },
+  'RL-0350': {
+    tempBookId: 'BK-0230',
+    catalogTitle: 'سیزده در هفت (جلد اول-جلد دوم)',
+    alternativeTitle: 'سیزده در هفت (جلد دوم)',
+    matchType: 'volume_split',
+    note: 'جلد دوم مجموعه BK-0230.'
+  },
+  'RL-0351': {
+    tempBookId: 'BK-0230',
+    catalogTitle: 'سیزده در هفت (جلد اول-جلد دوم)',
+    alternativeTitle: 'سیزده در هفت (جلد دوم)',
+    matchType: 'volume_split',
+    note: 'جلد دوم مجموعه BK-0230 (عبارت گروهی).'
+  },
+  'RL-0356': {
+    tempBookId: 'BK-0235',
+    catalogTitle: 'شب خاطره',
+    alternativeTitle: 'شب خاطره (دفتر سوم)',
+    matchType: 'duplicate_title_disambiguated',
+    note: 'ابهام‌زدایی از دو کتاب هم‌نام «شب خاطره» بر اساس توضیحات «دفتر سوم / ۱۴ خاطره از زبان رزمندگان لشکر ۲۷» (BK-0235).'
+  },
+  'RL-0357': {
+    tempBookId: 'BK-0235',
+    catalogTitle: 'شب خاطره',
+    alternativeTitle: 'شب خاطره (دفتر سوم)',
+    matchType: 'duplicate_title_disambiguated',
+    note: 'ابهام‌زدایی بر اساس توضیحات «دفتر سوم» (BK-0235).'
+  },
+  'RL-0358': {
+    tempBookId: 'BK-0236',
+    catalogTitle: 'شب خاطره',
+    alternativeTitle: 'شب خاطره (دفتر اول)',
+    matchType: 'duplicate_title_disambiguated',
+    note: 'ابهام‌زدایی بر اساس توضیحات «دفتر اول / ۱۵ خاطره از زبان رزمندگان گردان حنظله» (BK-0236).'
+  },
+  'RL-0369': {
+    tempBookId: 'BK-0246',
+    catalogTitle: 'شهید پیش از اذان صبح',
+    alternativeTitle: 'شاید پیش از اذان صبح',
+    matchType: 'candidate_review',
+    note: 'در شیت سوره مهر «شاید پیش از اذان صبح» و در کاتالوگ «شهید پیش از اذان صبح» با توضیح یکسان «روایت‌هایی از زندگی شهید حاج قاسم سلیمانی» ثبت شده؛ بدون بازنویسی خودکار عنوان کاتالوگ در صف بررسی کارشناسی نگه داشته شد.'
+  },
+  'RL-0398': {
+    tempBookId: 'BK-0265',
+    catalogTitle: 'فرکانس 1160',
+    alternativeTitle: 'فرکانس 1161 (Drag-Fill اکسل برای فرکانس 1160)',
+    matchType: 'excel_drag_fill',
+    note: 'ردیف ۳۹۹ اکسل با ردیف کتاب ۲۶۵ و توضیح «اینجا آبادان؛ صدای مقاومت و ایستادگی» ادامه کتاب «فرکانس 1160» (BK-0265) است که در اکسل با Drag-Fill به 1161 تغییر یافته بود.'
+  },
+  'RL-0399': {
+    tempBookId: 'BK-0265',
+    catalogTitle: 'فرکانس 1160',
+    alternativeTitle: 'فرکانس 1162 (Drag-Fill اکسل برای فرکانس 1160)',
+    matchType: 'excel_drag_fill',
+    note: 'ردیف ۴۰۰ اکسل با ردیف کتاب ۲۶۵ ادامه کتاب «فرکانس 1160» (BK-0265) است.'
+  },
+  'RL-0400': {
+    tempBookId: 'BK-0265',
+    catalogTitle: 'فرکانس 1160',
+    alternativeTitle: 'فرکانس 1163 (Drag-Fill اکسل برای فرکانس 1160)',
+    matchType: 'excel_drag_fill',
+    note: 'ردیف ۴۰۱ اکسل با ردیف کتاب ۲۶۵ ادامه کتاب «فرکانس 1160» (BK-0265) است.'
+  },
+  'RL-0525': {
+    tempBookId: 'BK-0383',
+    catalogTitle: 'نیمکت های سوخته',
+    alternativeTitle: 'نیمکت های سوخته (جلد اول - میانه / زینبیه)',
+    matchType: 'duplicate_title_disambiguated',
+    note: 'تطبیق با BK-0383 بر اساس ردیف ۳۸۳ و توضیحات «جلد اول . میانه / زینبیه».'
+  },
+  'RL-0526': {
+    tempBookId: 'BK-0384',
+    catalogTitle: 'نیمکت های سوخته',
+    alternativeTitle: 'نیمکت های سوخته (مدارس بروجرد، بهبهان، کرمانشاه و ایلام)',
+    matchType: 'duplicate_title_disambiguated',
+    note: 'تطبیق با BK-0384 بر اساس ردیف ۳۸۴ و توضیحات «مدارس بروجرد، بهبهان، کرمانشاه و ایلام».'
+  }
+};
+
+/**
+ * ۵ تطبیق نرمال‌شده در شیت «قطعات شهدا.xlsx» که تنها تفاوت فاصله یا پیشوند «نشر» داشتند
+ */
+const GOLZAR_SHEET_NORMALIZED_BOOK_MAPPINGS: Record<string, string> = {
+  'RL-0607': 'BK-0536', // نوزده، صفر، چهار -> نوزده،صفر،چهار (بیست و هفت)
+  'RL-0627': 'BK-0974', // تویی که نمیشناختمت -> تویی که نمی شناختمت (فاتحان)
+  'RL-0630': 'BK-0733', // من اینجا نمی مانم (نشر یازهرا)
+  'RL-0632': 'BK-0716', // چمران مظلوم بود (نشر یازهرا)
+  'RL-0633': 'BK-0706' // با دست های خالی (نشر یازهرا)
+};
+
+/**
+ * نرمال‌سازی فشرده نام شهید یا عنوان کتاب برای تطبیق مقاوم در برابر نیم‌فاصله، فاصله، ی/ئ و اله/الله
+ */
+export function compactPersianForMatch(input: unknown): string {
+  const base = normalizePersianText(input);
+  if (!base) return '';
+  return base
+    .replace(/الله/g, 'اله')
+    .replace(/[^\p{L}\p{N}]/gu, '')
+    .trim();
+}
+
+/**
+ * حذف القاب متداول از ابتدای نام شهید برای تطبیق دقیق نام فردی (مانند «شهید حاج جعفر جنگروی» <-> «محمد جعفر جنگروی»)
+ */
+export function stripMartyrTitles(name: unknown): string {
+  const norm = normalizePersianText(name);
+  if (!norm) return '';
+  return norm
+    .replace(/^(شهید|سردار|حاج|دکتر|مهندس|امام|آیت الله|ایت الله|حجت الاسلام|سرلشکر|سپهبد|امیر|جاویدالاثر|جاوید الاثر|آقا|اقا)\s+/g, '')
+    .replace(/^(شهید|سردار|حاج|دکتر|مهندس)\s+/g, '')
+    .replace(/الله/g, 'اله')
+    .trim();
+}
+
+/**
+ * غنی‌سازی و تکمیل پیوندهای بارگذاری‌شده از کارپوشه با اطلاعات تطبیق‌یافته «لیست کتابهای و شهدای مرتبط.xlsx»
+ * - حفظ تفکیک میان «بررسی‌شده در پژوهش اصلی» و «تأییدشده کارشناسی»
+ * - اتصال ردیف‌های دوجلدی و Drag-Fill به شناسه BK متناظر با حفظ عنوان خام در alternativeTitle
+ */
+export function enrichLinksWithSorehMehrResearch(
+  rawLinks: BookMartyrLinkRecord[]
+): BookMartyrLinkRecord[] {
+  return rawLinks.map((lnk) => {
+    const mapped = SOOREH_MEHR_NORMALIZED_BOOK_MAPPINGS[lnk.id];
+    const golzarMappedId = GOLZAR_SHEET_NORMALIZED_BOOK_MAPPINGS[lnk.id];
+
+    let tempBookId = lnk.tempBookId || mapped?.tempBookId || golzarMappedId || '';
+    let bookTitleRaw = lnk.bookTitleRaw;
+    let alternativeTitle = lnk.alternativeTitle || '';
+    let reviewerNote = lnk.reviewerNote || '';
+    let reviewStatus = lnk.reviewStatus || 'بررسی‌نشده';
+
+    if (mapped) {
+      if (!alternativeTitle && bookTitleRaw !== mapped.catalogTitle) {
+        alternativeTitle = mapped.alternativeTitle;
+      }
+      if (mapped.matchType === 'excel_drag_fill') {
+        bookTitleRaw = mapped.catalogTitle;
+      }
+      if (!reviewerNote.includes(mapped.note)) {
+        reviewerNote = reviewerNote ? `${reviewerNote} | ${mapped.note}` : mapped.note;
+      }
+      if (mapped.matchType === 'candidate_review' && reviewStatus === 'بررسی‌نشده') {
+        reviewStatus = 'نیازمند بررسی کارشناسی';
+      }
+    }
+
+    // تفکیک وضعیت «بررسی‌شده در پژوهش اصلی» از «بررسی‌نشده» برای رکوردهای کامل پژوهشگر سوره مهر و قطعات شهدا
+    const hasValidMartyr =
+      Boolean(lnk.martyrNameRaw) &&
+      lnk.martyrNameRaw !== '*' &&
+      !lnk.isGroupPhrase;
+
+    if (hasValidMartyr && reviewStatus === 'بررسی‌نشده') {
+      reviewStatus = 'بررسی‌شده در پژوهش اصلی';
+    }
+
+    return {
+      ...lnk,
+      tempBookId,
+      bookTitleRaw,
+      alternativeTitle,
+      reviewStatus,
+      reviewerNote
+    };
+  });
+}
+
+/**
+ * تشخیص نوع مطلب پژوهشی از روی توضیحات کتاب و ارجاع صفحه در فایل سوره مهر
+ */
+function inferExtractedContentType(desc: string, pageRef: string): ExtractedContentType {
+  const combined = normalizePersianText(`${desc} ${pageRef}`);
+  if (combined.includes('وصیت')) return 'وصیت‌نامه';
+  if (combined.includes('نامه')) return 'نامه';
+  if (combined.includes('مصاحبه') || combined.includes('گفتگو') || combined.includes('گفت و گو')) return 'مصاحبه';
+  if (combined.includes('زندگی') || combined.includes('کل کتاب')) return 'زندگی‌نامه';
+  if (combined.includes('عملیات') || combined.includes('لشکر') || combined.includes('گردان')) return 'روایت عملیات';
+  if (combined.includes('سند') || combined.includes('روزشمار') || combined.includes('اطلس')) return 'سند تاریخی';
+  if (combined.includes('پژوهش') || combined.includes('پدیدار')) return 'تحلیل و پژوهش';
+  if (combined.includes('خاطره') || combined.includes('خاطرات')) return 'خاطره';
+  return 'معرفی شخصیت';
+}
+
+/**
+ * استخراج بازه صفحه شروع و پایان از عبارت خام شماره صفحه (با حفظ کامل pageReferenceRaw)
+ */
+function parsePageRangeRaw(pageRefRaw: string): { start?: string; end?: string } {
+  if (!pageRefRaw) return {};
+  const normalized = normalizePersianText(pageRefRaw);
+  const rangeMatch = normalized.match(/^(\d+)\s*تا\s*(\d+)$/);
+  if (rangeMatch) {
+    return { start: rangeMatch[1], end: rangeMatch[2] };
+  }
+  const singleMatch = normalized.match(/^(\d+)$/);
+  if (singleMatch) {
+    return { start: singleMatch[1], end: singleMatch[1] };
+  }
+  const multiNums = normalized.match(/\d+/g);
+  if (multiNums && multiNums.length >= 1) {
+    return {
+      start: multiNums[0],
+      end: multiNums[multiNums.length - 1]
+    };
+  }
+  return {};
+}
+
+/**
+ * ساخت فهرست کامل «مطالب استخراج‌شده و ارجاعات صفحه» (extracted_items)
+ * از تمامی ۳۰۳ ارتباط شهید مشخص در فایل «لیست کتابهای و شهدای مرتبط.xlsx» (منبع سوره مهر)
+ * به همراه رکوردهای اولیه و رکوردهای ثبت‌شده توسط کاربر بدون ایجاد تکرار
+ */
+export function buildSorehMehrExtractedItems(
+  enrichedLinks: BookMartyrLinkRecord[] = [],
+  existingItems: ExtractedContentItem[] = []
+): ExtractedContentItem[] {
+  const byId = new Map<string, ExtractedContentItem>();
+  for (const item of Array.isArray(existingItems) ? existingItems : []) {
+    if (item?.id) byId.set(item.id, item);
+  }
+
+  let smCounter = 1;
+  for (const lnk of enrichedLinks) {
+    // فقط ردیف‌های دارای نام شهید مشخص (غیر از * و خالی) از فایل سوره مهر
+    if (!lnk.martyrNameRaw || lnk.martyrNameRaw === '*') continue;
+    if (!lnk.sourceFile?.includes('لیست کتابهای و شهدای مرتبط')) continue;
+    if (lnk.isGroupPhrase) continue;
+
+    const itemId = `EX-SM-${String(smCounter).padStart(4, '0')}`;
+    smCounter++;
+
+    if (byId.has(itemId)) continue;
+
+    const { start, end } = parsePageRangeRaw(lnk.pageReferenceRaw);
+    const contentType = inferExtractedContentType(
+      lnk.sourceDescriptionRaw || '',
+      lnk.pageReferenceRaw || ''
+    );
+
+    const graveParts = [
+      lnk.gravePieceRaw ? `قطعه ${lnk.gravePieceRaw}` : '',
+      lnk.graveRowRaw ? `ردیف ${lnk.graveRowRaw}` : '',
+      lnk.graveNumberRaw ? `شماره ${lnk.graveNumberRaw}` : ''
+    ].filter(Boolean);
+    const graveSummary = graveParts.length > 0 ? graveParts.join('، ') : 'ثبت‌نشده در شیت سوره مهر';
+
+    const pageSummary = lnk.pageReferenceRaw
+      ? `ارجاع صفحه ثبت‌شده توسط پژوهشگر: «${lnk.pageReferenceRaw}»`
+      : 'ارجاع صفحه در شیت منبع خالی است';
+
+    const descSummary = lnk.sourceDescriptionRaw
+      ? `توضیحات کتاب در پژوهش سوره مهر: «${lnk.sourceDescriptionRaw}».`
+      : 'بدون توضیح فرعی در ستون توضیحات شیت سوره مهر.';
+
+    const extractedStatus: ExtractedReviewStatus =
+      lnk.reviewStatus === 'تأییدشده کارشناسی'
+        ? 'تأییدشده کارشناسی'
+        : lnk.reviewStatus.includes('نیازمند')
+        ? 'نیازمند بررسی'
+        : 'بررسی‌شده در پژوهش اصلی';
+
+    byId.set(itemId, {
+      id: itemId,
+      tempBookId: lnk.tempBookId || '',
+      bookTitleRaw: lnk.bookTitleRaw,
+      publisherRaw: lnk.publisherRaw || 'سوره مهر',
+      martyrNameRaw: lnk.martyrNameRaw,
+      gravePieceRaw: lnk.gravePieceRaw || '',
+      pageReferenceRaw: lnk.pageReferenceRaw || 'ثبت‌نشده در منبع',
+      pageStartNormalized: start,
+      pageEndNormalized: end,
+      contentType,
+      passageTitle: lnk.sourceDescriptionRaw
+        ? `${lnk.sourceDescriptionRaw} — ارتباط با شهید ${lnk.martyrNameRaw}`
+        : `مطلب پژوهشی مرتبط با شهید ${lnk.martyrNameRaw} در کتاب «${lnk.bookTitleRaw}»`,
+      extractedText: `${descSummary} نام شهید مرتبط: «${lnk.martyrNameRaw}» (${graveSummary}). ${pageSummary}.`,
+      keywords: [
+        lnk.martyrNameRaw,
+        lnk.bookTitleRaw,
+        lnk.publisherRaw || 'سوره مهر',
+        contentType
+      ].filter(Boolean),
+      researcherNote:
+        lnk.reviewerNote ||
+        `استخراج‌شده از ${lnk.sourceFile} (${lnk.sourceSheet}، ردیف ${lnk.sourceExcelRow}) — شناسه پیوند: ${lnk.id}`,
+      reviewStatus: extractedStatus,
+      recordedBy: 'پژوهشگر لیست کتاب‌ها و شهدای مرتبط (سوره مهر)',
+      reviewedBy: extractedStatus === 'تأییدشده کارشناسی' ? 'کارشناس مرکز اسناد' : '',
+      sourceFile: lnk.sourceFile || 'لیست کتابهای و شهدای مرتبط.xlsx',
+      sourceSheet: lnk.sourceSheet || 'Sheet2',
+      sourceRow: lnk.sourceExcelRow || '',
+      updatedAt: '۱۴۰۵/۰۸/۱۳'
+    });
+  }
+
+  return Array.from(byId.values());
+}
+
+/**
+ * بررسی تطابق دوطرفه یک رکورد پیوند (BookMartyrLinkRecord) با یک پرونده شهید از بانک ۲۸٬۳۶۸ شهید گلزار
+ * پشتیبانی از:
+ * ۱. تطابق دقیق مختصات مزار (قطعه + ردیف + شماره) همراه با هم‌پوشانی نام یا نام خانوادگی (مانند «جعفر جنگروی» <-> «محمد جعفر جنگروی»)
+ * ۲. تطابق نام کامل نرمال‌شده (با یکسان‌سازی ی/ئ و اله/الله، مانند «محسن وزوایی» <-> «محسن وزوائی»)
+ * ۳. تطابق نام و نام خانوادگی همراه با قطعه مزار یکسان (وقتی ردیف مزار در یکی از دو منبع اختلاف جزئی دارد، مانند قطعه ۲۶ شماره ۵۱ یا قطعه ۲۴ شماره ۲۰/۲۵)
+ */
+export function doesLinkMatchMartyrRecord(
+  link: BookMartyrLinkRecord,
+  martyr: {
+    first_name?: string;
+    last_name?: string;
+    fullName?: string;
+    grave_piece?: string;
+    grave_row?: string;
+    grave_number?: string;
+  }
+): boolean {
+  if (!link.martyrNameRaw || link.martyrNameRaw === '*' || link.isGroupPhrase) {
+    return false;
+  }
+
+  const mFull = martyr.fullName || `${martyr.first_name || ''} ${martyr.last_name || ''}`.trim();
+  const linkClean = stripMartyrTitles(link.martyrNameRaw);
+  const martyrClean = stripMartyrTitles(mFull);
+  const linkCompact = compactPersianForMatch(linkClean);
+  const martyrCompact = compactPersianForMatch(martyrClean);
+  const lastCompact = compactPersianForMatch(martyr.last_name || '');
+  const firstCompact = compactPersianForMatch(martyr.first_name || '');
+
+  if (!linkCompact || !martyrCompact) return false;
+
+  const lp = normalizePersianText(link.gravePieceRaw);
+  const lr = normalizePersianText(link.graveRowRaw);
+  const ln = normalizePersianText(link.graveNumberRaw);
+
+  const mp = normalizePersianText(martyr.grave_piece);
+  const mr = normalizePersianText(martyr.grave_row);
+  const mn = normalizePersianText(martyr.grave_number);
+
+  const isNumericPiece = /^\d+$/.test(lp) && /^\d+$/.test(mp);
+
+  // ۱. تطابق کامل نام نرمال‌شده
+  if (linkCompact === martyrCompact) {
+    // اگر هر دو قطعه عددی دارند، قطعه باید یکسان باشد تا تشابه اسمی بین قطعات مختلف قاطی نشود
+    if (isNumericPiece && lp !== mp) return false;
+    return true;
+  }
+
+  // ۲. تطابق مختصات دقیق مزار (قطعه + ردیف + شماره) + اشتراک نام خانوادگی یا نام
+  if (isNumericPiece && lp === mp && lr && mr && lr === mr && ln && mn && ln === mn) {
+    if (
+      (lastCompact && linkCompact.includes(lastCompact)) ||
+      (firstCompact && linkCompact.includes(firstCompact)) ||
+      martyrCompact.includes(linkCompact) ||
+      linkCompact.includes(martyrCompact)
+    ) {
+      return true;
+    }
+  }
+
+  // ۳. تطابق قطعه + شماره مزار + نام خانوادگی و بخش نام (مثل محمد جعفر جنگروی در قطعه 26 شماره 51 یا سیدمحمد شکری در قطعه 26 شماره 21)
+  if (
+    isNumericPiece &&
+    lp === mp &&
+    ln &&
+    mn &&
+    ln === mn &&
+    lastCompact.length >= 3 &&
+    linkCompact.endsWith(lastCompact) &&
+    (martyrCompact.includes(linkCompact) || linkCompact.includes(martyrCompact))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * بررسی تطابق یک رکورد پیوند با یک ردیف کاتالوگ کتاب (بر اساس شناسه BK یا عنوان نرمال‌شده)
+ */
+export function doesLinkMatchCatalogBook(
+  link: BookMartyrLinkRecord,
+  book: ReferenceCatalogRow
+): boolean {
+  if (!link.martyrNameRaw || link.martyrNameRaw === '*') return false;
+  if (link.tempBookId && book.tempBookId && link.tempBookId === book.tempBookId) {
+    return true;
+  }
+  const bTitleCompact = compactPersianForMatch(book.titleRaw);
+  const lTitleCompact = compactPersianForMatch(link.bookTitleRaw);
+  const lAltCompact = compactPersianForMatch(link.alternativeTitle || '');
+  if (!bTitleCompact) return false;
+
+  if (bTitleCompact === lTitleCompact || (lAltCompact && bTitleCompact === lAltCompact)) {
+    const bPub = compactPersianForMatch(book.publisherRaw);
+    const lPub = compactPersianForMatch(link.publisherRaw);
+    if (!bPub || !lPub || bPub.includes(lPub) || lPub.includes(bPub)) {
+      return true;
+    }
+  }
+  return false;
+}

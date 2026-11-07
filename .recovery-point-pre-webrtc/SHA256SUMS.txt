@@ -1,0 +1,6 @@
+0e5b0b45419a4f0dda4e9e11981e1b765ef1ab90822bb30cf0b3a32cb27fadeb  /app/applet/package.json
+8ccc9284e221d221d7d59f56b9744f6e866abc1eebe5acb07217887481f9848d  /app/applet/server.ts
+869cbb5452cdc6d510cf8a176351cb122642dc2e3558f2806e93dcfc29c7ca92  /app/applet/src/App.tsx
+bb41d5d1f4db594e4ba650e7929af168a8df7c0d316521d77236026c260ef747  /app/applet/src/utils/centralServerSync.ts
+4a5a50c4e276fb0af29402181efed4db80d1c9ff13e306594a2b887459ba0711  /app/applet/src/utils/indexedDbStorage.ts
+d1e57dc29c4d935bc69fc6d365f189470a33d0bb4f6b32041c2ab7b863a6e8fb  /app/applet/src/utils/backupService.ts

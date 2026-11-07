@@ -1,0 +1,277 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'B Titr';
+  src: local('B Titr'), local('BTitrBold'), local('Titr');
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --font-sans: 'Vazirmatn', system-ui, -apple-system, sans-serif;
+    --font-titr: 'B Titr', 'Lalezar', 'Vazirmatn', sans-serif;
+    --font-serif: 'B Titr', 'Lalezar', 'Amiri', Georgia, serif;
+    --font-mono: 'JetBrains Mono', 'Vazirmatn', monospace;
+
+    /* پالت رنگی یکپارچه مرکز اسناد: نخودی/کرم، قهوه‌ای شکلاتی، سبز تأیید، قرمز آجری حذف، آبی ملایم خروجی اسناد */
+    --bg-cream: #FDF8F2;
+    --bg-card: #FFFFFF;
+    --bg-sand: #F6EFE6;
+    --bg-sand-hover: #EFE4D6;
+    --border-warm: #E2D2BE;
+    --text-espresso: #332218;
+    --text-chocolate: #5C4033;
+    --text-muted: #78604E;
+    --brand-chocolate: #6B3E26;
+    --brand-chocolate-hover: #54301D;
+    --action-confirm: #2E6F40;
+    --action-confirm-hover: #235632;
+    --action-danger: #A63A3A;
+    --action-danger-hover: #872D2D;
+    --depository-blue-bg: #EDF4FB;
+    --depository-blue-border: #C5D9ED;
+    --depository-blue-text: #1E3A5F;
+  }
+
+  html,
+  body,
+  #root {
+    max-width: 100%;
+    overflow-x: hidden;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: 'Vazirmatn', var(--font-sans);
+    background-color: var(--bg-cream);
+    color: var(--text-espresso);
+    font-feature-settings: "kern" 1;
+  }
+
+  h1,
+  h2,
+  h3,
+  .font-titr,
+  .font-editorial {
+    font-family: 'B Titr', 'Lalezar', 'Vazirmatn', sans-serif;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1.45;
+  }
+}
+
+/* استایل کارت‌های صفحه خانه و بخش آمار تفصیلی با پالت کرم و قهوه‌ای شکلاتی */
+.home-hero {
+  background: linear-gradient(135deg, #FFFFFF 0%, #FAF3EA 100%);
+  border: 1px solid #E2D2BE;
+}
+
+.home-section-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.65rem;
+  background-color: #FFFFFF;
+  border: 1px solid #E2D2BE;
+  border-radius: 1rem;
+  padding: 1rem;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(51, 34, 24, 0.04);
+}
+
+.home-section-card:hover {
+  background-color: #F6EFE6;
+  border-color: #6B3E26;
+  transform: translateY(-2px);
+}
+
+.home-section-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  background-color: #F6EFE6;
+  color: #6B3E26;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.home-section-title {
+  font-family: 'B Titr', 'Lalezar', 'Vazirmatn', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #332218;
+  display: block;
+}
+
+.home-section-note {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: #78604E;
+  display: block;
+}
+
+.home-section-open {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #6B3E26;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.home-statistics {
+  background-color: #FFFFFF;
+  border: 1px solid #E2D2BE;
+  border-radius: 1rem;
+  padding: 0.75rem 1rem;
+}
+
+.home-statistics > summary {
+  cursor: pointer;
+  font-family: 'B Titr', 'Lalezar', 'Vazirmatn', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #5C4033;
+  padding: 0.35rem 0;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.home-statistics > summary::after {
+  content: '▼ نمایش / بستن';
+  font-family: 'Vazirmatn', sans-serif;
+  font-size: 0.72rem;
+  background-color: #F6EFE6;
+  color: #5C4033;
+  padding: 0.25rem 0.65rem;
+  border-radius: 0.5rem;
+}
+
+/* هماهنگ‌سازی کامل پالت رنگی در سراسر سامانه:
+   ۱. رنگ پایه و ناوبری: قهوه‌ای شکلاتی (#6B3E26) و کرم نخودی (#F6EFE6)
+   ۲. رنگ ذخیره و تأیید: سبز یشمی (#2E6F40)
+   ۳. رنگ حذف و رد: قرمز آجری (#A63A3A)
+   ۴. رنگ بخش خروجی دوسویه اسناد: آبی ملایم روشن (#EDF4FB)
+*/
+.bg-\[\#1F4E79\],
+.bg-\[\#1f4e79\],
+.bg-\[\#8C3B2B\] {
+  background-color: #6B3E26 !important;
+}
+
+.hover\:bg-\[\#173b5c\]:hover,
+.hover\:bg-\[\#163a5b\]:hover,
+.hover\:bg-\[\#163858\]:hover,
+.hover\:bg-\[\#702D20\]:hover {
+  background-color: #54301D !important;
+}
+
+.text-\[\#1F4E79\],
+.text-\[\#1f4e79\],
+.text-\[\#8C3B2B\] {
+  color: #6B3E26 !important;
+}
+
+.border-\[\#1F4E79\],
+.border-\[\#1f4e79\],
+.border-\[\#8C3B2B\] {
+  border-color: #6B3E26 !important;
+}
+
+.bg-\[\#F5F7FA\],
+.bg-slate-50,
+.bg-slate-100 {
+  background-color: #FAF5EE !important;
+}
+
+.bg-\[\#EAF1F7\],
+.bg-\[\#EAF1F7\]\/60,
+.bg-\[\#EAF1F7\]\/70,
+.bg-\[\#EAF1F7\]\/80,
+.bg-\[\#edf4fa\],
+.bg-\[\#f2f7fb\],
+.bg-\[\#F5E6D3\] {
+  background-color: #F3E9DC !important;
+}
+
+.text-\[\#253247\],
+.text-slate-900,
+.text-slate-800,
+.text-\[\#162b3b\] {
+  color: #332218 !important;
+}
+
+.text-\[\#697586\],
+.text-slate-600,
+.text-slate-500 {
+  color: #78604E !important;
+}
+
+.border-slate-200,
+.border-slate-300,
+.border-\[\#b8d0e8\],
+.border-\[\#c9dced\],
+.border-\[\#E6D5C1\] {
+  border-color: #E2D2BE !important;
+}
+
+/* کلیدهای ذخیره و تأیید: سبز سنگین و یکدست (#2E6F40) */
+.bg-\[\#2E7D5B\],
+.bg-emerald-600,
+.bg-emerald-700 {
+  background-color: #2E6F40 !important;
+}
+
+.hover\:bg-\[\#246348\]:hover,
+.hover\:bg-\[\#236347\]:hover,
+.hover\:bg-\[\#236247\]:hover,
+.hover\:bg-emerald-700:hover,
+.hover\:bg-emerald-500:hover {
+  background-color: #235632 !important;
+}
+
+.text-\[\#2E7D5B\],
+.text-emerald-700,
+.text-emerald-800 {
+  color: #2E6F40 !important;
+}
+
+/* کلیدهای رد و حذف: قرمز آجری متضاد (#A63A3A) */
+.bg-\[\#B94A48\],
+.bg-rose-600,
+.bg-red-600 {
+  background-color: #A63A3A !important;
+}
+
+.hover\:bg-\[\#993b39\]:hover,
+.hover\:bg-rose-700:hover,
+.hover\:bg-red-700:hover {
+  background-color: #872D2D !important;
+}
+
+.text-\[\#B94A48\],
+.text-rose-600,
+.text-rose-700 {
+  color: #A63A3A !important;
+}
+
+/* بخش متمایز خروجی دوسویه اسناد: آبی ملایم و روشن */
+.depository-soft-blue {
+  background: linear-gradient(135deg, #F2F7FC 0%, #E6F0FA 100%) !important;
+  border: 1px solid #C2D8EC !important;
+  color: #1E3A5F !important;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.balance-text {
+  text-wrap: balance;
+}
