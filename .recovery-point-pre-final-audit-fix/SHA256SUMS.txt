@@ -1,0 +1,14 @@
+39824883b17a27a508a977bc43779c00930a5929ca6346f3e1e2122e31cfec61  .recovery-point-pre-final-audit-fix/src/modules/device-sync/DeviceSyncPanel.tsx
+6cedd77558635358ef080030554c25fd6dd77c900a7f5c7e9fb369f8c70a3e43  .recovery-point-pre-final-audit-fix/src/modules/device-sync/conflictResolver.ts
+e158f6683cc8c3ac5468da0efb9fd43d35b1ce5c9a90a68e9b351ffd4fc010c5  .recovery-point-pre-final-audit-fix/src/modules/device-sync/index.ts
+3d3c988846f9a945c9e907bd42c1c8c82f79c4ab0122eb3cccdf66f9b34bc798  .recovery-point-pre-final-audit-fix/src/modules/device-sync/pairingService.ts
+ff722a692db249f71432b9bd2b75baca0913a8c66c1e1d86d492bdf097efd0fa  .recovery-point-pre-final-audit-fix/src/modules/device-sync/peerConnection.ts
+e933e3c349e081378c988630ded35f6da571daee3c3496ff5edc2c0ebf462fc6  .recovery-point-pre-final-audit-fix/src/modules/device-sync/signalingService.ts
+3f2f7441d1094341d9560dd32cdb3cdbe3df5bcca4f74f7ed7d0435dc53dbe82  .recovery-point-pre-final-audit-fix/src/modules/device-sync/syncEngine.ts
+2bd96300819c52b051c7a01052aef270c8d598a1dde9547e33358efa7fa42007  .recovery-point-pre-final-audit-fix/src/modules/device-sync/syncStorage.ts
+96568ef85138f1590e653112b0329a85909879d4981235703a9e2d60e4372f43  .recovery-point-pre-final-audit-fix/src/modules/device-sync/transferProtocol.ts
+c83ba5f69872f77ffcfbed195589ca847f782477f267756291463163006d3bb5  .recovery-point-pre-final-audit-fix/src/modules/device-sync/types.ts
+64bdaa4e8954c39b3286d3120fa38c819add1800a88f8b5b07d8a7db6013d980  .recovery-point-pre-final-audit-fix/firestore.rules
+1f4313cbff7db88561042c51fe50683c46747421aa8e7a493068c740d0909dd5  .recovery-point-pre-final-audit-fix/firebase-blueprint.json
+a58525706550c7d95042f40f5a3cb66c7349af79822f3916ba44627dad0de7a6  .recovery-point-pre-final-audit-fix/security_spec.md
+d42a45b5bf773e2e558830a528ecac5e2d3d30972ff1d28b143e159780b98a57  .recovery-point-pre-final-audit-fix/DEVICE_SYNC_SECURITY_AUDIT_AND_FIX_REPORT.md

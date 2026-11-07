@@ -581,9 +581,10 @@ export function applyApprovedSyncReport(
 }
 
 /**
- * بازیابی ایمن و اتمیک رکورد حذف‌شده نرم برای هر ۵ مجموعه عملیاتی
- * (رفع ایراد چهارم ممیزی: پشتیبانی یکسان از auditRecords, bookCopies, customMartyrs, links, pendingReviews،
- * حفظ شناسه رکورد، جلوگیری از حذف ناخواسته نسخه آرشیوی پیش از بازیابی، و جلوگیری از ایجاد رکورد تکراری)
+ * بازیابی ایمن و مرحله‌ای (با بازگردانی خودکار در صورت بروز خطا) رکورد حذف‌شده نرم برای هر ۵ مجموعه عملیاتی:
+ * پشتیبانی یکسان از auditRecords, bookCopies, customMartyrs, links, pendingReviews،
+ * حفظ شناسه رکورد، درج در مجموعه اصلی پیش از حذف از آرشیو، و بازگردانی (Rollback) به آرشیو در صورت خطای ذخیره‌سازی متادیتا.
+ * (توجه معماری: از آنجا که ذخیره‌سازی در چند کلید مجزای localStorage و حافظه React انجام می‌شود، این عملیات مرحله‌ای با بازگردانی است و تراکنش ACID پایگاه داده نیست.)
  */
 export function restoreRecordIntoDataset(
   compKey: string,
@@ -662,7 +663,7 @@ export function restoreRecordIntoDataset(
     pendingReviews: Array.from(nextPendingMap.values()),
   };
 
-  // تنها پس از اطمینان از درج موفق در Dataset اصلی، رکورد از بایگانی حذف نرم خارج می‌شود
+  // تنها پس از ساخت موفق Dataset جدید، رکورد از بایگانی حذف نرم خارج می‌شود
   const popped = restoreSoftDeletedRecord(compKey);
   if (!popped) {
     return {
@@ -673,36 +674,47 @@ export function restoreRecordIntoDataset(
     };
   }
 
-  const canonical = canonicalizeRecordData(popped.data);
-  const freshChangeId = computeDeterministicHash(`${collection}:${recordId}:${canonical}`);
-  const now = Date.now();
+  try {
+    const canonical = canonicalizeRecordData(popped.data);
+    const freshChangeId = computeDeterministicHash(`${collection}:${recordId}:${canonical}`);
+    const now = Date.now();
 
-  const updatedEnvelope: SyncRecordEnvelope = {
-    ...popped,
-    meta: {
-      ...popped.meta,
-      recordId,
-      collection,
-      softDeleted: false,
-      deletedAtMs: undefined,
-      updatedAtMs: now,
-      revision: (popped.meta.revision || 1) + 1,
-      changeId: freshChangeId,
-      lastModifiedByDevice: localDeviceId,
-      lastModifiedRole: localRole,
-    },
-  };
+    const updatedEnvelope: SyncRecordEnvelope = {
+      ...popped,
+      meta: {
+        ...popped.meta,
+        recordId,
+        collection,
+        softDeleted: false,
+        deletedAtMs: undefined,
+        updatedAtMs: now,
+        revision: (popped.meta.revision || 1) + 1,
+        changeId: freshChangeId,
+        lastModifiedByDevice: localDeviceId,
+        lastModifiedRole: localRole,
+      },
+    };
 
-  const metaMap = loadRecordMetaMap();
-  metaMap[compKey] = updatedEnvelope.meta;
-  saveRecordMetaMap(metaMap);
+    const metaMap = loadRecordMetaMap();
+    metaMap[compKey] = updatedEnvelope.meta;
+    saveRecordMetaMap(metaMap);
 
-  return {
-    restored: true,
-    restoredEnvelope: updatedEnvelope,
-    nextDataset,
-    alreadyExistedInActive,
-  };
+    return {
+      restored: true,
+      restoredEnvelope: updatedEnvelope,
+      nextDataset,
+      alreadyExistedInActive,
+    };
+  } catch {
+    // بازگردانی (Rollback) نسخه آرشیوی در صورت بروز خطای غیرمنتظره هنگام به‌روزرسانی متادیتا
+    markRecordSoftDeleted(archivedEnv);
+    return {
+      restored: false,
+      restoredEnvelope: null,
+      nextDataset: currentDataset,
+      alreadyExistedInActive,
+    };
+  }
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   getDocFromServer,
   getFirestore,
   onSnapshot,
+  runTransaction,
   setDoc,
   Unsubscribe,
   updateDoc,
@@ -199,6 +200,89 @@ export async function createSignalingOfferSession(params: {
   }
 }
 
+/**
+ * قفل اتمیک و یک‌بارمصرف peerUid به محض اسکن QR در گوشی با استفاده از تراکنش Firestore (runTransaction):
+ * تضمین می‌کند هیچ دستگاه ثالثی نتواند در فاصله بین اسکن QR و فشردن دکمه تأیید روی گوشی، نشست را تصاحب کند.
+ */
+export async function claimAndInspectSignalingSession(
+  sessionId: string,
+  expectedPairingDigest: string
+): Promise<WebRtcSignalingDocument> {
+  if (!isValidSignalingSessionId(sessionId)) {
+    throw new Error('شناسه نشست اسکن‌شده نامعتبر است.');
+  }
+
+  const uid = await ensureSignalingAuth();
+  const sessionRef = doc(signalingDb, SIGNALING_COLLECTION, sessionId);
+
+  try {
+    return await runTransaction(signalingDb, async (tx) => {
+      const snap = await tx.get(sessionRef);
+      if (!snap.exists()) {
+        throw new Error('SESSION_NOT_FOUND_OR_EXPIRED');
+      }
+
+      const data = snap.data() as WebRtcSignalingDocument;
+      if (Date.now() > data.expiresAtMs || Date.now() > data.createdAtMs + SESSION_TTL_MS) {
+        throw new Error('SESSION_NOT_FOUND_OR_EXPIRED');
+      }
+
+      if (
+        data.status === 'connected' ||
+        data.status === 'closed' ||
+        data.status === 'expired' ||
+        data.status === 'answer-ready' ||
+        Boolean(data.answerSdp)
+      ) {
+        throw new Error('SESSION_ALREADY_CONSUMED');
+      }
+
+      if (data.peerUid && data.peerUid !== uid) {
+        throw new Error('SESSION_ALREADY_CLAIMED_BY_ANOTHER_PEER');
+      }
+
+      if (data.pairingCodeDigest !== expectedPairingDigest) {
+        throw new Error('SESSION_DIGEST_MISMATCH');
+      }
+
+      const claimUpdate: Record<string, unknown> = {
+        peerUid: uid,
+        status: 'waiting-for-peer',
+        updatedAtMs: Date.now(),
+      };
+      assertSignalingOnlyPayload(claimUpdate);
+      tx.update(sessionRef, claimUpdate);
+
+      return {
+        ...data,
+        peerUid: uid,
+        status: 'waiting-for-peer',
+      };
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'SESSION_NOT_FOUND_OR_EXPIRED') {
+        await cleanupSignalingSession(sessionId);
+        throw new Error('نشست فعالی برای این QR Code یافت نشد یا مهلت ۱۰ دقیقه‌ای آن منقضی شده است.');
+      }
+      if (error.message === 'SESSION_ALREADY_CONSUMED') {
+        throw new Error(
+          'این QR Code و نشست جفت‌سازی یک‌بارمصرف بوده و قبلاً استفاده یا بسته شده است. لطفاً در لپ‌تاپ QR جدیدی تولید کنید.'
+        );
+      }
+      if (error.message === 'SESSION_ALREADY_CLAIMED_BY_ANOTHER_PEER') {
+        throw new Error(
+          'این نشست قبلاً توسط دستگاه دیگری قفل شده است؛ جهت امنیت، در لپ‌تاپ QR جدید تولید نمایید.'
+        );
+      }
+      if (error.message === 'SESSION_DIGEST_MISMATCH') {
+        throw new Error('عدم تطابق هش یکپارچگی SHA-256 کد نشست؛ درخواست اتصال مسدود شد.');
+      }
+    }
+    handleFirestoreError(error, OperationType.UPDATE, sessionId);
+  }
+}
+
 export async function fetchSignalingSession(
   sessionId: string
 ): Promise<WebRtcSignalingDocument | null> {
@@ -206,14 +290,14 @@ export async function fetchSignalingSession(
     throw new Error('شناسه نشست اسکن‌شده نامعتبر است.');
   }
 
-  await ensureSignalingAuth();
+  const uid = await ensureSignalingAuth();
   try {
     const snap = await getDoc(doc(signalingDb, SIGNALING_COLLECTION, sessionId));
     if (!snap.exists()) {
       return null;
     }
     const data = snap.data() as WebRtcSignalingDocument;
-    if (Date.now() > data.expiresAtMs) {
+    if (Date.now() > data.expiresAtMs || Date.now() > data.createdAtMs + SESSION_TTL_MS) {
       await cleanupSignalingSession(sessionId);
       return null;
     }
@@ -221,7 +305,8 @@ export async function fetchSignalingSession(
       data.status === 'connected' ||
       data.status === 'closed' ||
       data.status === 'expired' ||
-      Boolean(data.answerSdp)
+      Boolean(data.answerSdp) ||
+      (data.peerUid && data.peerUid !== uid)
     ) {
       throw new Error(
         'این QR Code و نشست جفت‌سازی یک‌بارمصرف بوده و قبلاً استفاده یا بسته شده است. لطفاً در لپ‌تاپ QR جدیدی تولید کنید.'
@@ -246,6 +331,8 @@ export async function submitSignalingAnswer(params: {
   }
 
   const uid = await ensureSignalingAuth();
+  const sessionRef = doc(signalingDb, SIGNALING_COLLECTION, params.sessionId);
+
   const payloadWithAuth: Record<string, unknown> = {
     peerUid: uid,
     status: 'answer-ready',
@@ -258,8 +345,37 @@ export async function submitSignalingAnswer(params: {
   assertSignalingOnlyPayload(payloadWithAuth);
 
   try {
-    await updateDoc(doc(signalingDb, SIGNALING_COLLECTION, params.sessionId), payloadWithAuth);
+    await runTransaction(signalingDb, async (tx) => {
+      const snap = await tx.get(sessionRef);
+      if (!snap.exists()) {
+        throw new Error('نشست لپ‌تاپ منقضی یا بسته شده است.');
+      }
+      const existing = snap.data() as WebRtcSignalingDocument;
+      if (Date.now() > existing.expiresAtMs || Date.now() > existing.createdAtMs + SESSION_TTL_MS) {
+        throw new Error('مهلت زمانی این نشست به پایان رسیده است.');
+      }
+      if (
+        existing.status === 'closed' ||
+        existing.status === 'expired' ||
+        existing.status === 'connected' ||
+        Boolean(existing.answerSdp)
+      ) {
+        throw new Error('این نشست قبلاً پاسخ داده شده یا بسته شده است.');
+      }
+      if (existing.peerUid && existing.peerUid !== uid) {
+        throw new Error('مالکیت این نشست متعلق به این دستگاه نیست.');
+      }
+      tx.update(sessionRef, payloadWithAuth);
+    });
   } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message.includes('منقضی') ||
+        error.message.includes('قبلاً پاسخ') ||
+        error.message.includes('مالکیت این نشست'))
+    ) {
+      throw error;
+    }
     handleFirestoreError(error, OperationType.UPDATE, params.sessionId);
   }
 }

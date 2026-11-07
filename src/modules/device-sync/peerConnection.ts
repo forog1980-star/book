@@ -2,7 +2,6 @@ import {
   buildLaptopSessionQrValue,
   createLaptopInitiatedSessionCredentials,
   derivePairingDigest,
-  deriveSignalingSessionId,
   generateRandomSessionId,
   isValidSignalingSessionId,
   LaptopInitiatedSessionCredentials,
@@ -11,6 +10,7 @@ import {
   parseLaptopSessionQrValue,
 } from './pairingService';
 import {
+  claimAndInspectSignalingSession,
   cleanupSignalingSession,
   createSignalingOfferSession,
   fetchSignalingSession,
@@ -42,6 +42,7 @@ const DIRECT_STUN_ICE_SERVERS: RTCIceServer[] = [
 ];
 
 const MAX_BUFFERED_AMOUNT_BYTES = 256 * 1024; // سقف بافر ۲۵۶ کیلوبایت برای کنترل جریان (Backpressure)
+const INITIAL_ICE_GATHER_WAIT_MS = 700; // فرصت کوتاه اولیه برای جمع‌آوری کاندیداهای شبکه پیش از ثبت SDP
 
 export interface PendingPhoneApprovalRequest {
   sessionId: string;
@@ -60,6 +61,33 @@ export interface PeerConnectionCallbacks {
   onPackageReceived: (pkg: SyncTransferPackage) => void;
   onTransferInterrupted: (packageId: string, reason: string) => void;
   onSignalCleanedUp?: (sessionId: string) => void;
+}
+
+function waitForInitialIceGathering(pc: RTCPeerConnection, timeoutMs: number): Promise<void> {
+  if (pc.iceGatheringState === 'complete') {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      pc.removeEventListener('icegatheringstatechange', onStateChange);
+      resolve();
+    };
+    const onStateChange = () => {
+      if (pc.iceGatheringState === 'complete') {
+        finish();
+      }
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    if (typeof pc.addEventListener === 'function') {
+      pc.addEventListener('icegatheringstatechange', onStateChange);
+    } else {
+      finish();
+    }
+  });
 }
 
 export class DirectWebRtcSessionManager {
@@ -144,7 +172,7 @@ export class DirectWebRtcSessionManager {
 
   /**
    * گام ۱ و ۲ (در لپ‌تاپ آغازگر):
-   * ایجاد نشست موقت و امن با sessionId تصادفی (مستقل از کد تأیید) و تولید QR Code یک‌بارمصرف برای اسکن توسط گوشی
+   * ایجاد نشست موقت و امن با sessionId تصادفی (۱۹۲ بیت CSPRNG و مستقل از کد تأیید) و تولید QR Code یک‌بارمصرف برای اسکن توسط گوشی
    */
   public async startLaptopInitiatorSession(): Promise<LaptopInitiatedSessionCredentials> {
     const creds = createLaptopInitiatedSessionCredentials(this.localDeviceId);
@@ -197,6 +225,8 @@ export class DirectWebRtcSessionManager {
       this.pc = pc;
 
       const localCandidates: RTCIceCandidateInit[] = [];
+      let isOfferSessionCreated = false;
+
       const dc = pc.createDataChannel('markaz_asnad_direct_p2p', {
         ordered: true,
       });
@@ -205,11 +235,14 @@ export class DirectWebRtcSessionManager {
       pc.onicecandidate = (event) => {
         if (event.candidate && !this.signalingDocCleaned && this.activeSessionId === sessionId) {
           localCandidates.push(event.candidate.toJSON());
-          void updateSignalingCandidates({
-            sessionId,
-            isHost: true,
-            candidates: localCandidates,
-          });
+          // کاندیداهای دیررس (Trickle ICE) تنها پس از ثبت اولیه سند در سرور ارسال می‌شوند
+          if (isOfferSessionCreated) {
+            void updateSignalingCandidates({
+              sessionId,
+              isHost: true,
+              candidates: localCandidates,
+            });
+          }
         }
       };
 
@@ -217,14 +250,16 @@ export class DirectWebRtcSessionManager {
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+      await waitForInitialIceGathering(pc, INITIAL_ICE_GATHER_WAIT_MS);
 
       await createSignalingOfferSession({
         sessionId,
         pairingCodeDigest,
         hostDeviceRole: this.localRole,
-        offerSdp: offer.sdp || '',
+        offerSdp: pc.localDescription?.sdp || offer.sdp || '',
         hostCandidates: localCandidates,
       });
+      isOfferSessionCreated = true;
 
       this.unsubscribeSignaling = subscribeToSignalingSession(
         sessionId,
@@ -246,6 +281,13 @@ export class DirectWebRtcSessionManager {
           }
 
           if (!docData) return;
+
+          if (docData.status === 'waiting-for-peer' && !docData.answerSdp && !this.appliedRemoteAnswer) {
+            this.callbacks.onStatusChange(
+              'pairing',
+              'QR Code توسط گوشی اسکن و قفل شد؛ در انتظار تأیید نهایی کاربر روی صفحه گوشی...'
+            );
+          }
 
           if (docData.answerSdp && !this.appliedRemoteAnswer) {
             this.appliedRemoteAnswer = true;
@@ -306,7 +348,8 @@ export class DirectWebRtcSessionManager {
 
   /**
    * گام ۳ و ۴ (در گوشی تأییدکننده):
-   * اسکن QR Code لپ‌تاپ، بررسی اعتبار و تاریخ انقضای نشست، و آماده‌سازی اطلاعات دستگاه درخواست‌کننده جهت تأیید صریح کاربر روی گوشی.
+   * اسکن QR Code لپ‌تاپ، قفل اتمیک peerUid با تراکنش Firestore (جلوگیری از تصاحب نشست توسط دستگاه ثالث)،
+   * و نمایش مشخصات لپ‌تاپ درخواست‌کننده جهت تأیید صریح کاربر روی گوشی.
    * توجه امنیتی: اسکن QR به‌تنهایی اتصال WebRTC را برقرار نمی‌کند؛ تأیید صریح کاربر در گام ۵ الزامی است.
    */
   public async inspectLaptopQrOnPhone(
@@ -328,19 +371,13 @@ export class DirectWebRtcSessionManager {
 
     this.callbacks.onStatusChange(
       'pairing',
-      `در حال بررسی نشست لپ‌تاپ (${maskSessionIdForDisplay(sessionId)}) و اعتبارسنجی رمزنگاری...`
+      `در حال بررسی و قفل اتمیک نشست لپ‌تاپ (${maskSessionIdForDisplay(sessionId)})...`
     );
 
     try {
-      const sessionDoc = await fetchSignalingSession(sessionId);
+      const sessionDoc = await claimAndInspectSignalingSession(sessionId, expectedDigest);
       if (!sessionDoc || !sessionDoc.offerSdp) {
         const msg = 'نشست فعالی برای این QR Code یافت نشد یا مهلت اعتبار آن به پایان رسیده است.';
-        this.callbacks.onStatusChange('connection-error', msg);
-        throw new Error(msg);
-      }
-
-      if (sessionDoc.pairingCodeDigest !== expectedDigest) {
-        const msg = 'عدم تطابق هش امنیتی SHA-256 نشست؛ درخواست اتصال مسدود شد.';
         this.callbacks.onStatusChange('connection-error', msg);
         throw new Error(msg);
       }
@@ -361,7 +398,7 @@ export class DirectWebRtcSessionManager {
 
       this.callbacks.onStatusChange(
         'pairing',
-        `درخواست اتصال از لپ‌تاپ (${laptopDeviceId}) بررسی شد. لطفاً روی گوشی اتصال را تأیید یا رد کنید.`
+        `درخواست اتصال از لپ‌تاپ (${laptopDeviceId}) بررسی و به نام گوشی شما قفل شد. لطفاً روی گوشی اتصال را تأیید یا رد کنید.`
       );
 
       return approvalRequest;
@@ -404,7 +441,6 @@ export class DirectWebRtcSessionManager {
     );
 
     try {
-      // بررسی مجدد یک‌بارمصرف بودن نشست درست پیش از ارسال Answer
       const freshDoc = await fetchSignalingSession(sessionId);
       if (!freshDoc || !freshDoc.offerSdp) {
         throw new Error('نشست لپ‌تاپ منقضی یا بسته شده است.');
@@ -416,6 +452,8 @@ export class DirectWebRtcSessionManager {
       this.pc = pc;
 
       const peerCandidates: RTCIceCandidateInit[] = [];
+      let isAnswerSubmitted = false;
+
       pc.ondatachannel = (event) => {
         this.setupDataChannel(event.channel);
       };
@@ -423,11 +461,13 @@ export class DirectWebRtcSessionManager {
       pc.onicecandidate = (event) => {
         if (event.candidate && !this.signalingDocCleaned && this.activeSessionId === sessionId) {
           peerCandidates.push(event.candidate.toJSON());
-          void updateSignalingCandidates({
-            sessionId,
-            isHost: false,
-            candidates: peerCandidates,
-          });
+          if (isAnswerSubmitted) {
+            void updateSignalingCandidates({
+              sessionId,
+              isHost: false,
+              candidates: peerCandidates,
+            });
+          }
         }
       };
 
@@ -457,12 +497,14 @@ export class DirectWebRtcSessionManager {
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
+      await waitForInitialIceGathering(pc, INITIAL_ICE_GATHER_WAIT_MS);
 
       await submitSignalingAnswer({
         sessionId,
-        answerSdp: answer.sdp || '',
+        answerSdp: pc.localDescription?.sdp || answer.sdp || '',
         peerCandidates,
       });
+      isAnswerSubmitted = true;
 
       this.unsubscribeSignaling = subscribeToSignalingSession(
         sessionId,
@@ -524,7 +566,8 @@ export class DirectWebRtcSessionManager {
   }
 
   /**
-   * متد سازگار برای اتصال مستقیم با QR V2 یا کد ۱۲ کاراکتری (در تست‌های خودکار)
+   * اتصال با رشته QR V2 (یا sessionId تصادفی صریح + کد تأیید ۱۲ کاراکتری)
+   * توجه: sessionId همیشه تصادفی و مستقل از کد تأیید است.
    */
   public async joinSessionWithCode(
     rawQrOrPairingCode: string,
@@ -537,21 +580,16 @@ export class DirectWebRtcSessionManager {
     }
 
     const normalizedCode = normalizePairingCode(rawQrOrPairingCode);
-    if (!normalizedCode) {
+    if (!normalizedCode || !explicitSessionId || !isValidSignalingSessionId(explicitSessionId)) {
       this.callbacks.onStatusChange(
         'connection-error',
-        'اطلاعات QR یا کد تأیید واردشده معتبر نیست.'
+        'اطلاعات QR نامعتبر است؛ شناسه نشست تصادفی (SESS_) و کد تأیید هر دو الزامی هستند.'
       );
-      throw new Error('کد جفت‌سازی نامعتبر است.');
+      throw new Error('اطلاعات QR نامعتبر است؛ شناسه نشست تصادفی الزامی است.');
     }
 
-    const sessionId =
-      explicitSessionId && isValidSignalingSessionId(explicitSessionId)
-        ? explicitSessionId
-        : deriveSignalingSessionId(normalizedCode);
-
     const syntheticQr = buildLaptopSessionQrValue({
-      sessionId,
+      sessionId: explicitSessionId,
       pairingCode: normalizedCode,
       laptopDeviceId: 'DEV_LAPTOP',
     });
@@ -608,11 +646,11 @@ export class DirectWebRtcSessionManager {
   private setupDataChannel(channel: RTCDataChannel): void {
     this.dataChannel = channel;
 
-    channel.onopen = async () => {
+    channel.onopen = () => {
       this.clearConnectionTimeout();
       this.callbacks.onStatusChange(
         'connected',
-        'اتصال مستقیم و رمزنگاری‌شده WebRTC برقرار شد. در حال پاک‌سازی نشست موقت و شروع همگام‌سازی دوطرفه...'
+        'کانال مستقیم WebRTC (DTLS) باز شد؛ در حال تبادل پیام معرفی (Handshake) و شروع همگام‌سازی دوطرفه...'
       );
 
       // ارسال معرفی نقش دستگاه و نسخه پروتکل در کانال مستقیم
@@ -628,9 +666,6 @@ export class DirectWebRtcSessionManager {
       } catch {
         // ignore
       }
-
-      // به محض برقراری اتصال مستقیم، گوش‌دهنده Signaling متوقف و سند موقت از Firebase پاک می‌شود
-      await this.cleanupSignalingDocumentOnly();
     };
 
     channel.onmessage = (event) => {
@@ -669,6 +704,11 @@ export class DirectWebRtcSessionManager {
         );
         return;
       }
+
+      // تنها پس از دریافت HELLO_HANDSHAKE روی کانال باز DataChannel (اطمینان ۱۰۰٪ از تکمیل مذاکره دوطرفه ICE/DTLS/SCTP)،
+      // سند موقت Signaling از Firebase پاک‌سازی می‌شود تا حذف زودهنگام مانع برقراری اتصال نشود.
+      void this.cleanupSignalingDocumentOnly();
+
       if (this.callbacks.onPeerHandshake) {
         this.callbacks.onPeerHandshake(msg.deviceId, msg.deviceRole);
       }
@@ -775,7 +815,7 @@ export class DirectWebRtcSessionManager {
 
       this.callbacks.onStatusChange(
         'transfer-success',
-        `بسته ${verified.pkg.packageId} شامل ${verified.pkg.recordCount} رکورد با صحت کامل (SHA-256) دریافت شد.`
+        `بسته ${verified.pkg.packageId} شامل ${verified.pkg.recordCount} رکورد پس از بررسی چک‌سام یکپارچگی انتقال (SHA-256) دریافت شد.`
       );
       this.callbacks.onPackageReceived(verified.pkg);
       return;
@@ -785,7 +825,7 @@ export class DirectWebRtcSessionManager {
       if (msg.ok) {
         this.callbacks.onStatusChange(
           'transfer-success',
-          `تحویل کامل و بی‌نقص بسته ${msg.packageId} توسط دستگاه مقابل تأیید شد.`
+          `تحویل کامل بسته ${msg.packageId} توسط دستگاه مقابل تأیید شد.`
         );
       } else {
         this.callbacks.onStatusChange(

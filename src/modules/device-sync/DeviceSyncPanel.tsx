@@ -316,13 +316,8 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         }
 
         // ۲. اگر گیرنده «گوشی (مرجع اصلی)» است و بسته کاری لپ‌تاپ هیچ تغییر جدیدی نسبت به داده‌های گوشی ندارد:
+        // هیچ نوشتنی بدون تأیید کاربر روی حافظه گوشی انجام نمی‌شود و فقط گزارش وضعیت در تاریخچه ثبت می‌گردد.
         if (roleRef.current === 'phone-primary' && totalActionableChanges === 0) {
-          applyApprovedSyncReport(
-            report,
-            datasetRef.current,
-            localDeviceId,
-            roleRef.current
-          );
           const updatedHist = appendTransferHistory({
             packageId: report.packageId,
             direction: 'received',

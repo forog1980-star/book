@@ -24,8 +24,26 @@ service cloud.firestore {
       return resource.data;
     }
 
+    // Server-time expiration check: relies on server request.time and enforces max 10-minute window from createdAtMs
     function isNotExpired(data) {
-      return data.expiresAtMs is int && request.time.toMillis() < data.expiresAtMs;
+      return data.createdAtMs is int
+        && data.expiresAtMs is int
+        && request.time.toMillis() < data.expiresAtMs
+        && request.time.toMillis() < data.createdAtMs + 600000;
+    }
+
+    // Prevents client timestamp spoofing on session creation:
+    // createdAtMs must be within +/- 60s of real server time (request.time.toMillis()),
+    // and expiresAtMs must be strictly in the future and at most 10 minutes (600,000 ms) from real server time.
+    function isValidCreationWindow(data) {
+      return data.createdAtMs is int
+        && data.expiresAtMs is int
+        && data.createdAtMs >= request.time.toMillis() - 60000
+        && data.createdAtMs <= request.time.toMillis() + 60000
+        && data.expiresAtMs > request.time.toMillis()
+        && data.expiresAtMs <= request.time.toMillis() + 600000
+        && data.expiresAtMs > data.createdAtMs
+        && data.expiresAtMs <= data.createdAtMs + 600000;
     }
 
     function isValidSignalingSession(data, sessionId) {
@@ -81,7 +99,8 @@ service cloud.firestore {
         && data.peerCandidatesJson is string && data.peerCandidatesJson.size() >= 2 && data.peerCandidatesJson.size() <= 32000
         && data.createdAtMs is int && data.createdAtMs > 0
         && data.expiresAtMs is int && data.expiresAtMs > data.createdAtMs && data.expiresAtMs <= data.createdAtMs + 600000
-        && data.updatedAtMs is int && data.updatedAtMs >= data.createdAtMs;
+        && data.updatedAtMs is int && data.updatedAtMs >= data.createdAtMs
+        && data.updatedAtMs <= request.time.toMillis() + 60000;
     }
 
     function isImmutableSignalingCorePreserved() {
@@ -106,9 +125,15 @@ service cloud.firestore {
         ]);
     }
 
+    // Write-once peerUid binding:
+    // - If peerUid is not yet set, the claiming peer locks incoming().peerUid == request.auth.uid
+    // - Once peerUid is set, only existing().peerUid == request.auth.uid can update, and peerUid cannot be changed
+    // - Once answerSdp is set, it cannot be overwritten
     function isAuthorizedPeerUpdate() {
-      return (!('peerUid' in existing()) || existing().peerUid == request.auth.uid)
-        && incoming().peerUid == request.auth.uid
+      return (
+          (!('peerUid' in existing()) && incoming().peerUid == request.auth.uid)
+          || ('peerUid' in existing() && existing().peerUid == request.auth.uid && incoming().peerUid == existing().peerUid)
+        )
         && (!('answerSdp' in existing()) || incoming().answerSdp == existing().answerSdp)
         && incoming().diff(existing()).affectedKeys().hasOnly([
           'peerUid',
@@ -135,10 +160,11 @@ service cloud.firestore {
           || request.auth.uid == existing().peerUid
         );
 
-      // Creating a temporary signaling session (max 10 minutes TTL, bound to hostUid)
+      // Creating a temporary signaling session (max 10 minutes TTL, bound to hostUid and server clock)
       allow create: if isSignedIn()
         && isValidSessionId(sessionId)
         && isValidSignalingSession(incoming(), sessionId)
+        && isValidCreationWindow(incoming())
         && incoming().hostUid == request.auth.uid
         && !('peerUid' in incoming())
         && !('answerSdp' in incoming())

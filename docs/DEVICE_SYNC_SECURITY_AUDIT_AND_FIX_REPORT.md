@@ -1,35 +1,36 @@
-# گزارش فنی تکمیل و ایمن‌سازی همگام‌سازی گوشی و لپ‌تاپ (`src/modules/device-sync/`)
+# گزارش بازبینی نهایی و تکمیل همگام‌سازی گوشی و لپ‌تاپ (`src/modules/device-sync/`)
 
-## ۱. وضعیت مخزن و Commit مبنا
+## ۱. وضعیت مخزن، Commit مبنا و نقاط بازیابی (Recovery Points)
 - **مخزن رسمی**: `https://github.com/forog1980-star/book`
 - **شاخه مبنا**: `main`
 - **Commit مبنا**: `4a9973f7c2b8e08295e777af36a7a790959a8cf3` (`feat(auth): harden WebRTC signaling security`)
-- **نقطه بازیابی (Recovery Point)**: `.recovery-point-4a9973f/` (شامل کپی کامل فایل‌های ماژول و `SHA256SUMS.txt`).
+- **نقاط بازیابی معتبر (همراه با کنترل واقعی SHA-256)**:
+  1. `.recovery-point-4a9973f/`: منطبق ۱۰۰٪ با فایل‌های Commit مبنا `4a9973f7c2b8e08295e777af36a7a790959a8cf3` (تأییدشده با `sha256sum -c` و مقایسه مستقیم با `git show 4a9973f:<file>`).
+  2. `.recovery-point-pre-final-audit-fix/`: نسخه پشتیبان پیش از اعمال ۵ اصلاح حداقلی مرحله بازبینی نهایی.
 - **وضعیت داده‌های واقعی گوشی**: ۱۸ رکورد کتاب تعیین‌تکلیف‌شده روی گوشی به‌عنوان مرجع اصلی (`phone-primary`) بدون کوچک‌ترین تغییر، حذف یا بازنویسی حفظ شده‌اند.
 
 ---
 
-## ۲. پیاده‌سازی الگوی قطعی اتصال: لپ‌تاپ آغازگر، گوشی تأییدکننده
-1. **آغاز نشست در لپ‌تاپ (`pc-companion`)**:
-   - با انتخاب گزینه «اتصال به گوشی» در لپ‌تاپ، تابع `createLaptopInitiatedSessionCredentials` یک شناسه نشست کاملاً تصادفی (`generateRandomSessionId()` با ۱۹۲ بیت آنتروپی CSPRNG در قالب `SESS_<48_hex_chars>`) مستقل از کد کوتاه تأیید (`pairingCode`) تولید می‌کند.
-   - لپ‌تاپ بدون نیاز به دوربین، QR Code یک‌بارمصرف و زمان‌دار (`GOLZAR_P2P_V2:<sessionId>:<pairingCode>:<laptopDeviceId>`) را نمایش می‌دهد.
-2. **اسکن QR و تأیید صریح در گوشی (`phone-primary`)**:
-   - گوشی با دوربین (یا ورود توکن QR در محیط بدون دوربین) نشست لپ‌تاپ را از طریق `inspectLaptopQrOnPhone` بررسی می‌کند.
-   - اسکن QR به‌تنهایی اتصال WebRTC را برقرار نمی‌کند؛ گوشی ابتدا مشخصات لپ‌تاپ درخواست‌کننده (`laptopDeviceId`، `pairingCode`، `sessionId`) را نمایش می‌دهد.
-   - **در صورت رد توسط گوشی (`rejectPendingSessionOnPhone`)**: نشست بلافاصله با `rejectSignalingSession` در Firestore بسته و حذف می‌شود و لپ‌تاپ فوراً متوقف می‌گردد.
-   - **در صورت تأیید توسط گوشی (`approvePendingSessionOnPhone`)**: پاسخ WebRTC ارسال شده، کانال مستقیم `RTCDataChannel` باز می‌شود و سند موقت Signaling از Firebase پاک‌سازی می‌گردد.
+## ۲. ایرادهای کشف‌شده در بازبینی مستقل و اصلاحات حداقلی انجام‌شده
 
----
+1. **قفل اتمیک `peerUid` در لحظه اسکن QR توسط گوشی (`signalingService.ts`، `peerConnection.ts`)**:
+   - **ایراد کشف‌شده**: در نسخه قبلی، هنگام اسکن QR در گوشی (`inspectLaptopQrOnPhone`)، سند فقط با `getDoc` خوانده می‌شد و ثبت `peerUid` تا لحظه فشردن دکمه «تأیید اتصال» به تعویق می‌افتاد؛ همچنین ثبت آن با `updateDoc` غیرتراکنشی بود.
+   - **اصلاح انجام‌شده**: تابع تراکنشی `claimAndInspectSignalingSession` با استفاده از `runTransaction` اضافه شد تا به محض اسکن QR توسط گوشی، اعتبار نشست و `pairingCodeDigest` بررسی شده و فیلد `peerUid: uid` و `status: 'waiting-for-peer'` به‌صورت اتمیک و یک‌بارمصرف قفل شود. ثبت `answerSdp` در `submitSignalingAnswer` نیز درون `runTransaction` قرار گرفت.
 
-## ۳. احراز هویت ناشناس الزامی و حذف مسیر بدون احراز هویت (`signalingService.ts`)
-- مسیر بازگشتی بدون احراز هویت در `signalingService.ts` به‌طور کامل حذف شد.
-- تابع `ensureSignalingAuth()` در صورت عدم برقراری `signInAnonymously` خطای صریح فارسی صادر کرده و فرآیند اتصال را متوقف می‌کند.
-- هیچ خطای احراز هویت یا مجوز (`permission-denied`) نادیده گرفته نشده و به‌عنوان موفقیت گزارش نمی‌شود.
+2. **جلوگیری از جعل زمان ایجاد نشست (`createdAtMs`) و اعتبارسنجی انقضا با ساعت واقعی سرور (`firestore.rules`)**:
+   - **ایراد کشف‌شده**: در `firestore.rules` قبلی، `data.createdAtMs > 0` با `request.time.toMillis()` مقایسه نمی‌شد و کلاینت می‌توانست با ارسال `createdAtMs` در آینده، شرط `expiresAtMs <= createdAtMs + 600000` را دور بزند.
+   - **اصلاح انجام‌شده**: تابع `isValidCreationWindow(data)` به `firestore.rules` اضافه شد که الزام می‌کند `createdAtMs` حداکثر $\pm 60$ ثانیه با `request.time.toMillis()` سرور فاصله داشته باشد و `expiresAtMs` مستقیماً نسبت به `request.time.toMillis()` سرور حداکثر ۱۰ دقیقه (۶۰۰,۰۰۰ میلی‌ثانیه) در آینده باشد. همچنین در `isNotExpired(data)` هر دو شرط `request.time.toMillis() < data.expiresAtMs` و `request.time.toMillis() < data.createdAtMs + 600000` بررسی می‌شوند.
 
----
+3. **بهینه‌سازی زمان حذف سند Signaling و جمع‌آوری ICE Candidateها (`peerConnection.ts`)**:
+   - **ایراد کشف‌شده**: حذف سند Signaling بلافاصله در `channel.onopen` (پیش از دریافت `HELLO_HANDSHAKE` از طرف مقابل) انجام می‌شد و ثبت اولیه Offer/Answer بدون فرصت کوتاه جمع‌آوری کاندیداهای اولیه STUN صورت می‌گرفت.
+   - **اصلاح انجام‌شده**: تابع `waitForInitialIceGathering` (تا سقف ۷۰۰ میلی‌ثانیه یا تکمیل `iceGatheringState`) پیش از ثبت اولیه Offer و Answer اضافه شد، ارسال کاندیداهای دیررس (Trickle ICE) پس از ثبت سند ادامه می‌یابد، و حذف سند موقت Signaling (`cleanupSignalingDocumentOnly`) تنها پس از دریافت پیام `HELLO_HANDSHAKE` روی کانال باز `RTCDataChannel` انجام می‌شود.
 
-## ۴. همگام‌سازی دوطرفه خودکار در همان نشست با مرجعیت نهایی گوشی
-- به محض باز شدن `RTCDataChannel` پس از تأیید گوشی، رویداد `onChannelReadyForAutoSync` در هر دو دستگاه فعال شده و تبادل دوطرفه در همان نشست انجام می‌شود:
-  1. **گوشی -> لپ‌تاپ**: گوشی بسته داده‌های مرجع خود را به لپ‌تاپ می‌فرستد و لپ‌تاپ (در نبود تعارض محلی) به‌طور خودکار به‌روز می‌شود.
-  2. **لپ‌تاپ -> گوشی**: لپ‌تاپ تغییرات کاری خود را به گوشی می‌فرستد؛ گوشی به‌عنوان صاحب اختیار نهایی داده‌ها، پنجره پیش‌نمایش و حل تعارض را نمایش می‌دهد تا هیچ تغییری بدون کنترل و تأیید نهایی کاربر روی گوشی اعمال نشود.
-- در بالای پنل، ۴ شاخص «وضعیت انتقال نشست»، «تعداد رکوردهای ارسالی»، «تعداد رکوردهای دریافتی» و «موارد نیازمند بررسی / تعارض» به‌صورت زنده نمایش داده می‌شوند.
+4. **حذف کامل وابستگی به `deriveSignalingSessionId` در مسیر اتصال (`peerConnection.ts`)**:
+   - **ایراد کشف‌شده**: متد سازگار `joinSessionWithCode` هنوز در حالت ورود کد ۱۲ کاراکتری بدون شناسه نشست، تابع قدیمی `deriveSignalingSessionId` را فراخوانی می‌کرد.
+   - **اصلاح انجام‌شده**: وابستگی به `deriveSignalingSessionId` از `peerConnection.ts` حذف شد تا تمامی نشست‌ها منحصراً با `sessionId` تصادفی ۱۹۲ بیتی مستقل از کد تأیید کار کنند.
+
+5. **شفاف‌سازی نقش Checksum، عدم نوشتن خودکار در گوشی، و بازیابی مرحله‌ای با Rollback (`transferProtocol.ts`، `syncEngine.ts`، `DeviceSyncPanel.tsx`)**:
+   - **اصلاح انجام‌شده**:
+     - تصریح شد که `payloadChecksum` (SHA-256 بدون کلید) صرفاً برای بررسی سلامت و تشخیص خرابی/ناقص بودن انتقال است و امنیت کانال توسط WebRTC DTLS-SRTP و قفل نشست تأمین می‌شود.
+     - در `DeviceSyncPanel.tsx`، فراخوانی خودکار `applyApprovedSyncReport` روی گوشی در حالت بدون تغییر (`totalActionableChanges === 0`) حذف شد تا هیچ نوشتنی در حافظه گوشی بدون تأیید صریح کاربر گوشی رخ ندهد.
+     - در `syncEngine.ts`، به تابع `restoreRecordIntoDataset` بلوک `try/catch` با بازگردانی (`markRecordSoftDeleted`) در صورت خطا اضافه شد و مستندات آن از «اتمیک» به «بازیابی مرحله‌ای با بازگردانی خودکار در صورت خطا» اصلاح گردید.
