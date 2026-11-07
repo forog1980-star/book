@@ -1,7 +1,8 @@
 import { DeviceSyncRole } from './types';
 
 const SAFE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-const QR_PREFIX = 'GOLZAR_P2P_V1:';
+const QR_PREFIX_V1 = 'GOLZAR_P2P_V1:';
+const QR_PREFIX_V2 = 'GOLZAR_P2P_V2:';
 
 // ثابت‌های استاندارد الگوریتم رمزنگاری SHA-256 (NIST FIPS 180-4)
 const SHA256_K = new Uint32Array([
@@ -144,7 +145,23 @@ export function generateCryptoRandomToken(length = 8): string {
 }
 
 /**
- * تولید کد جفت‌سازی امن ۱۲ کاراکتری (سه بخش ۴ کاراکتری: XXXX-XXXX-XXXX)
+ * تولید شناسه نشست کاملاً تصادفی (۱۹۲ بیت آنتروپی CSPRNG) و مستقل از کد کوتاه تأیید
+ * قالب خروجی: SESS_ + ۴۸ کاراکتر هگزادسیمال کوچک (۵۳ کاراکتر، منطبق با firestore.rules)
+ */
+export function generateRandomSessionId(): string {
+  const bytes = getCryptoRandomBytes(24);
+  const hex = Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  return `SESS_${hex}`;
+}
+
+export function isValidSignalingSessionId(sessionId: string): boolean {
+  return /^SESS_[0-9a-f]{48}$/.test(String(sessionId || '').trim());
+}
+
+/**
+ * تولید کد تأیید/جفت‌سازی امن ۱۲ کاراکتری (سه بخش ۴ کاراکتری: XXXX-XXXX-XXXX)
  * با استفاده انحصاری از CSPRNG (۶۰ بیت آنتروپی، بدون کاراکترهای ابهام‌برانگیز O/0 یا I/1)
  */
 export function generateSecurePairingCode(): string {
@@ -153,12 +170,12 @@ export function generateSecurePairingCode(): string {
 }
 
 /**
- * نرمال‌سازی کد جفت‌سازی واردشده توسط کاربر یا اسکن‌شده از QR
+ * نرمال‌سازی کد تأیید ۱۲ کاراکتری
  */
 export function normalizePairingCode(rawInput: string): string {
   let cleaned = String(rawInput || '').trim().toUpperCase();
-  if (cleaned.startsWith(QR_PREFIX)) {
-    cleaned = cleaned.slice(QR_PREFIX.length);
+  if (cleaned.startsWith(QR_PREFIX_V1)) {
+    cleaned = cleaned.slice(QR_PREFIX_V1.length);
   }
   const alnum = cleaned.replace(/[^A-Z0-9]/g, '');
   if (alnum.length !== 12) {
@@ -174,16 +191,13 @@ export function normalizePairingCode(rawInput: string): string {
 
 /**
  * محاسبه هش رمزنگاری‌شده SHA-256 برای یکپارچگی بسته‌ها و تشخیص تغییرات رکوردها
- * (جایگزین کامل FNV-1a طبق ایراد سوم ممیزی)
  */
 export function computeDeterministicHash(input: string): string {
   return `SHA256_${sha256Hex(input)}`;
 }
 
 /**
- * مشتق‌سازی یک‌طرفه شناسه نشست از کد جفت‌سازی با استفاده از SHA-256
- * (رفع ایراد اول ممیزی: کد جفت‌سازی هرگز به صورت آشکار در sessionId قرار نمی‌گیرد و قابل استخراج نیست،
- * اما در هر دو دستگاه گوشی و کامپیوتر به یک شناسه ۵۳ کاراکتری یکسان منجر می‌شود)
+ * مشتق‌سازی یک‌طرفه شناسه نشست (پشتیبانی سازگار برای کدهای V1؛ در الگوی V2 از generateRandomSessionId استفاده می‌شود)
  */
 export function deriveSignalingSessionId(pairingCode: string): string {
   const norm = normalizePairingCode(pairingCode);
@@ -195,7 +209,7 @@ export function deriveSignalingSessionId(pairingCode: string): string {
 }
 
 /**
- * مشتق‌سازی Digest تأیید کد جفت‌سازی با دامنه مجزا (Domain Separation) و الگوریتم SHA-256
+ * مشتق‌سازی Digest تأیید کد نشست با دامنه مجزا (Domain Separation) و الگوریتم SHA-256
  */
 export function derivePairingDigest(pairingCode: string): string {
   const norm = normalizePairingCode(pairingCode);
@@ -213,12 +227,111 @@ export function maskSessionIdForDisplay(sessionId: string): string {
   return `${sessionId.slice(0, 9)}...${sessionId.slice(-6)}`;
 }
 
-export function buildPairingQrValue(pairingCode: string): string {
+export interface LaptopInitiatedSessionCredentials {
+  sessionId: string;
+  pairingCode: string;
+  pairingCodeDigest: string;
+  laptopDeviceId: string;
+  qrValue: string;
+}
+
+/**
+ * ساخت مشخصات نشست آغازشده توسط لپ‌تاپ:
+ * - sessionId کاملاً تصادفی و مستقل از کد کوتاه تأیید (pairingCode) است
+ * - QR Code حاوی شناسه نشست تصادفی، کد تأیید و شناسه دستگاه لپ‌تاپ است تا گوشی با اسکن آن مشخصات لپ‌تاپ را ببیند و تأیید کند
+ */
+export function createLaptopInitiatedSessionCredentials(
+  laptopDeviceId: string
+): LaptopInitiatedSessionCredentials {
+  const sessionId = generateRandomSessionId();
+  const pairingCode = generateSecurePairingCode();
+  const pairingCodeDigest = derivePairingDigest(pairingCode);
+  const safeDeviceId = String(laptopDeviceId || 'DEV_LAPTOP').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 48) || 'DEV_LAPTOP';
+  const qrValue = buildLaptopSessionQrValue({
+    sessionId,
+    pairingCode,
+    laptopDeviceId: safeDeviceId,
+  });
+
+  return {
+    sessionId,
+    pairingCode,
+    pairingCodeDigest,
+    laptopDeviceId: safeDeviceId,
+    qrValue,
+  };
+}
+
+export function buildLaptopSessionQrValue(params: {
+  sessionId: string;
+  pairingCode: string;
+  laptopDeviceId: string;
+}): string {
+  if (!isValidSignalingSessionId(params.sessionId)) {
+    throw new Error('شناسه نشست نامعتبر است.');
+  }
+  const normCode = normalizePairingCode(params.pairingCode);
+  if (!normCode) {
+    throw new Error('کد تأیید نشست نامعتبر است.');
+  }
+  const safeDeviceId =
+    String(params.laptopDeviceId || 'DEV_LAPTOP')
+      .replace(/[^A-Za-z0-9_-]/g, '')
+      .slice(0, 48) || 'DEV_LAPTOP';
+  return `${QR_PREFIX_V2}${params.sessionId}:${normCode}:${safeDeviceId}`;
+}
+
+export interface ParsedLaptopQrPayload {
+  sessionId: string;
+  pairingCode: string;
+  laptopDeviceId: string;
+}
+
+/**
+ * رمزگشایی و اعتبارسنجی محتوای QR Code اسکن‌شده توسط گوشی
+ */
+export function parseLaptopSessionQrValue(rawQrInput: string): ParsedLaptopQrPayload | null {
+  const trimmed = String(rawQrInput || '').trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith(QR_PREFIX_V2)) {
+    const body = trimmed.slice(QR_PREFIX_V2.length);
+    const parts = body.split(':');
+    if (parts.length < 2) return null;
+    const rawSessionId = parts[0].trim();
+    const rawCode = parts[1].trim();
+    const rawDeviceId = (parts.slice(2).join(':') || 'DEV_LAPTOP').trim();
+
+    if (!isValidSignalingSessionId(rawSessionId)) {
+      return null;
+    }
+    const normCode = normalizePairingCode(rawCode);
+    if (!normCode) {
+      return null;
+    }
+    return {
+      sessionId: rawSessionId,
+      pairingCode: normCode,
+      laptopDeviceId: rawDeviceId.slice(0, 48) || 'DEV_LAPTOP',
+    };
+  }
+
+  return null;
+}
+
+export function buildPairingQrValue(pairingCode: string, sessionId?: string, laptopDeviceId?: string): string {
   const norm = normalizePairingCode(pairingCode);
   if (!norm) {
     throw new Error('کد جفت‌سازی نامعتبر است.');
   }
-  return `${QR_PREFIX}${norm}`;
+  if (sessionId && isValidSignalingSessionId(sessionId)) {
+    return buildLaptopSessionQrValue({
+      sessionId,
+      pairingCode: norm,
+      laptopDeviceId: laptopDeviceId || 'DEV_LAPTOP',
+    });
+  }
+  return `${QR_PREFIX_V1}${norm}`;
 }
 
 export function detectDefaultDeviceRole(): DeviceSyncRole {

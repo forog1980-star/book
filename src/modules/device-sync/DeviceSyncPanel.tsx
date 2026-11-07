@@ -1,16 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   AlertTriangle,
   ArrowLeftRight,
+  Camera,
   CheckCircle2,
   Copy,
   DatabaseBackup,
   Laptop,
   Lock,
-   QrCode,
+  QrCode,
   RefreshCw,
-   RotateCcw,
+  RotateCcw,
   Send,
   ShieldCheck,
   Smartphone,
@@ -31,12 +32,13 @@ import {
   areAllConflictsResolved,
 } from './conflictResolver';
 import {
-  buildPairingQrValue,
-  generateSecurePairingCode,
+  LaptopInitiatedSessionCredentials,
   maskSessionIdForDisplay,
-  normalizePairingCode,
 } from './pairingService';
-import { DirectWebRtcSessionManager } from './peerConnection';
+import {
+  DirectWebRtcSessionManager,
+  PendingPhoneApprovalRequest,
+} from './peerConnection';
 import {
   analyzeIncomingPackage,
   applyApprovedSyncReport,
@@ -86,17 +88,29 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
   const [localRole, setLocalRole] = useState<DeviceSyncRole>(() => getSavedDeviceRole());
   const [status, setStatus] = useState<ConnectionUiStatus>('ready');
   const [statusMessage, setStatusMessage] = useState<string>(
-    'آماده برقراری ارتباط مستقیم نظیربه‌نظیر (WebRTC DataChannel) بدون ذخیره محتوای کتابخانه در فضای ابری.'
+    'آماده اتصال مستقیم بین لپ‌تاپ (آغازگر نشست) و گوشی اصلی (اسکن‌کننده QR و تأییدکننده نهایی اتصال).'
   );
 
-  const [generatedPairingCode, setGeneratedPairingCode] = useState<string>('');
-  const [enteredPairingCode, setEnteredPairingCode] = useState<string>('');
-  const [showQrModal, setShowQrModal] = useState<boolean>(false);
+  // وضعیت نشست آغازشده در لپ‌تاپ (حاوی sessionId تصادفی مستقل از کد تأیید و QR یک‌بارمصرف)
+  const [laptopSessionCreds, setLaptopSessionCreds] =
+    useState<LaptopInitiatedSessionCredentials | null>(null);
+
+  // وضعیت اسکن QR و درخواست منتظر تأیید در گوشی
+  const [scannedQrInput, setScannedQrInput] = useState<string>('');
+  const [isCameraScannerOpen, setIsCameraScannerOpen] = useState<boolean>(false);
+  const [cameraError, setCameraError] = useState<string>('');
+  const [pendingPhoneApproval, setPendingPhoneApproval] =
+    useState<PendingPhoneApprovalRequest | null>(null);
+
   const [peerDeviceInfo, setPeerDeviceInfo] = useState<{
     deviceId: string;
     role: DeviceSyncRole;
   } | null>(null);
   const [signalingCleanedSessionId, setSignalingCleanedSessionId] = useState<string>('');
+
+  // شمارنده‌های نشست فعلی طبق بخش ۴ دستور نهایی
+  const [sessionSentRecordsCount, setSessionSentRecordsCount] = useState<number>(0);
+  const [sessionReceivedRecordsCount, setSessionReceivedRecordsCount] = useState<number>(0);
 
   const [selectedCollections, setSelectedCollections] = useState<SyncCollectionName[]>([
     'auditRecords',
@@ -127,6 +141,10 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     Record<string, SyncRecordEnvelope>
   >(() => loadSoftDeletedArchive());
 
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const datasetRef = useRef<OperationalSyncDataset>(dataset);
   useEffect(() => {
     datasetRef.current = dataset;
@@ -137,7 +155,83 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     roleRef.current = localRole;
   }, [localRole]);
 
+  const selectedCollectionsRef = useRef<SyncCollectionName[]>(selectedCollections);
+  useEffect(() => {
+    selectedCollectionsRef.current = selectedCollections;
+  }, [selectedCollections]);
+
+  const onApplySyncedDatasetRef = useRef(onApplySyncedDataset);
+  useEffect(() => {
+    onApplySyncedDatasetRef.current = onApplySyncedDataset;
+  }, [onApplySyncedDataset]);
+
   const sessionManagerRef = useRef<DirectWebRtcSessionManager | null>(null);
+
+  const stopCameraScanner = useCallback(() => {
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+    if (cameraStreamRef.current) {
+      for (const track of cameraStreamRef.current.getTracks()) {
+        track.stop();
+      }
+      cameraStreamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraScannerOpen(false);
+  }, []);
+
+  // ارسال بسته همگام‌سازی در نشست فعال (چه به‌صورت خودکار پس از تأیید گوشی و چه دستی)
+  const sendSyncPackageOverOpenChannel = useCallback(
+    async (isAutoBidirectional = false) => {
+      const mgr = sessionManagerRef.current;
+      if (!mgr || !mgr.isConnected()) {
+        if (!isAutoBidirectional) {
+          setStatus('connection-error');
+          setStatusMessage('ابتدا اتصال مستقیم بین لپ‌تاپ و گوشی را برقرار نمایید.');
+        }
+        return;
+      }
+
+      try {
+        const pkg = createSyncTransferPackage({
+          dataset: datasetRef.current,
+          localDeviceId,
+          localRole: roleRef.current,
+          selectedCollections: selectedCollectionsRef.current,
+          onlyRecordKeys:
+            !isAutoBidirectional && filterOnlySelectedBooks && selectedBookKeys.length > 0
+              ? selectedBookKeys
+              : undefined,
+        });
+
+        await mgr.sendTransferPackage(pkg);
+        markPackageSentInBaseline(pkg);
+        setSessionSentRecordsCount((prev) => prev + pkg.recordCount);
+
+        const updatedHist = appendTransferHistory({
+          packageId: pkg.packageId,
+          direction: 'sent',
+          peerRole: roleRef.current === 'phone-primary' ? 'pc-companion' : 'phone-primary',
+          timestampMs: Date.now(),
+          status: 'completed',
+          recordsCount: pkg.recordCount,
+          appliedNew: 0,
+          appliedModified: 0,
+          resolvedConflicts: 0,
+        });
+        setTransferHistory(updatedHist);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setStatus('connection-error');
+        setStatusMessage(`خطا در ارسال بسته همگام‌سازی: ${msg}`);
+      }
+    },
+    [filterOnlySelectedBooks, localDeviceId, selectedBookKeys]
+  );
 
   useEffect(() => {
     const mgr = new DirectWebRtcSessionManager(localDeviceId, roleRef.current, {
@@ -148,23 +242,116 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         }
         if (nextStatus === 'disconnected' || nextStatus === 'connection-error') {
           setTransferProgress(null);
+          setLaptopSessionCreds(null);
         }
       },
       onPeerHandshake: (peerId, peerRole) => {
         setPeerDeviceInfo({ deviceId: peerId, role: peerRole });
+      },
+      onChannelReadyForAutoSync: () => {
+        // به محض باز شدن کانال مستقیم پس از تأیید گوشی، همگام‌سازی دوطرفه در همان نشست آغاز می‌شود
+        void sendSyncPackageOverOpenChannel(true);
       },
       onTransferProgress: (packageId, received, total) => {
         setTransferProgress({ packageId, received, total });
       },
       onPackageReceived: (pkg: SyncTransferPackage) => {
         setTransferProgress(null);
+        setSessionReceivedRecordsCount((prev) => prev + pkg.recordCount);
+
         const report = analyzeIncomingPackage(
           pkg,
           datasetRef.current,
           localDeviceId,
           roleRef.current
         );
+
+        const totalActionableChanges =
+          report.newItems.length +
+          report.modifiedItems.length +
+          report.softDeleteItems.length +
+          report.conflicts.length;
+
+        // ۱. اگر گیرنده «لپ‌تاپ» است و بسته از «گوشی (مرجع اصلی)» رسیده و هیچ تعارضی وجود ندارد:
+        // لپ‌تاپ به‌طور خودکار با داده‌های مرجع گوشی به‌روز می‌شود تا همگام‌سازی دوطرفه در همان نشست تکمیل گردد.
+        if (
+          roleRef.current === 'pc-companion' &&
+          pkg.senderRole === 'phone-primary' &&
+          report.conflicts.length === 0
+        ) {
+          const result = applyApprovedSyncReport(
+            report,
+            datasetRef.current,
+            localDeviceId,
+            roleRef.current
+          );
+          const updatedHist = appendTransferHistory({
+            packageId: report.packageId,
+            direction: 'received',
+            peerRole: report.senderRole,
+            timestampMs: Date.now(),
+            status: 'completed',
+            recordsCount: pkg.recordCount,
+            appliedNew: result.appliedNewCount,
+            appliedModified: result.appliedModifiedCount,
+            resolvedConflicts: 0,
+          });
+          setTransferHistory(updatedHist);
+          setSoftDeletedArchive(loadSoftDeletedArchive());
+
+          if (totalActionableChanges > 0) {
+            const summaryText = `همگام‌سازی خودکار از مرجع اصلی (گوشی) انجام شد: ${toPersianDigits(
+              result.appliedNewCount
+            )} رکورد جدید و ${toPersianDigits(
+              result.appliedModifiedCount
+            )} ویرایش در لپ‌تاپ به‌روزرسانی گردید.`;
+            setStatusMessage(summaryText);
+            onApplySyncedDatasetRef.current(result.nextDataset, summaryText);
+          } else {
+            setStatusMessage(
+              `بسته مرجع گوشی (${toPersianDigits(pkg.recordCount)} رکورد) دریافت شد؛ اطلاعات لپ‌تاپ کاملاً با گوشی همگام و به‌روز است.`
+            );
+          }
+          return;
+        }
+
+        // ۲. اگر گیرنده «گوشی (مرجع اصلی)» است و بسته کاری لپ‌تاپ هیچ تغییر جدیدی نسبت به داده‌های گوشی ندارد:
+        if (roleRef.current === 'phone-primary' && totalActionableChanges === 0) {
+          applyApprovedSyncReport(
+            report,
+            datasetRef.current,
+            localDeviceId,
+            roleRef.current
+          );
+          const updatedHist = appendTransferHistory({
+            packageId: report.packageId,
+            direction: 'received',
+            peerRole: report.senderRole,
+            timestampMs: Date.now(),
+            status: 'completed',
+            recordsCount: pkg.recordCount,
+            appliedNew: 0,
+            appliedModified: 0,
+            resolvedConflicts: 0,
+          });
+          setTransferHistory(updatedHist);
+          setStatusMessage(
+            `همگام‌سازی دوطرفه انجام شد: داده‌های مرجع گوشی به لپ‌تاپ ارسال شد و بسته لپ‌تاپ (${toPersianDigits(
+              pkg.recordCount
+            )} رکورد) تغییر جدیدی برای اعمال روی گوشی نداشت.`
+          );
+          return;
+        }
+
+        // ۳. در تمام موارد دارای تغییر روی گوشی (یا وجود تعارض روی لپ‌تاپ)، کنترل نهایی و تأیید صریح با کاربر است:
         setPendingPreviewReport(report);
+        setStatusMessage(
+          `بسته دریافتی شامل ${toPersianDigits(
+            totalActionableChanges
+          )} مورد تغییر/تعارض آماده بررسی و تأیید نهایی شما روی ${
+            roleRef.current === 'phone-primary' ? 'گوشی (مرجع اصلی)' : 'لپ‌تاپ'
+          } است.`
+        );
       },
       onTransferInterrupted: (packageId, reason) => {
         setTransferProgress(null);
@@ -189,9 +376,10 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     sessionManagerRef.current = mgr;
 
     return () => {
+      stopCameraScanner();
       mgr.dispose();
     };
-  }, [localDeviceId]);
+  }, [localDeviceId, sendSyncPackageOverOpenChannel, stopCameraScanner]);
 
   const handleRoleChange = (nextRole: DeviceSyncRole) => {
     setLocalRole(nextRole);
@@ -201,101 +389,156 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     }
   };
 
-  // تولید کد جفت‌سازی موقت و شروع جلسه میزبان (معمولاً روی گوشی)
-  const handleStartHostPairing = async () => {
+  // گام ۱ و ۲ (در لپ‌تاپ): انتخاب «اتصال به گوشی»، ایجاد نشست موقت با sessionId تصادفی و نمایش QR Code
+  const handleStartLaptopSession = async () => {
     try {
-      const newCode = generateSecurePairingCode();
-      setGeneratedPairingCode(newCode);
       setSignalingCleanedSessionId('');
+      setSessionSentRecordsCount(0);
+      setSessionReceivedRecordsCount(0);
+      setPendingPhoneApproval(null);
       if (sessionManagerRef.current) {
-        await sessionManagerRef.current.startHostSession(newCode);
+        const creds = await sessionManagerRef.current.startLaptopInitiatorSession();
+        setLaptopSessionCreds(creds);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setStatus('connection-error');
-      setStatusMessage(`خطا در ایجاد جلسه جفت‌سازی: ${msg}`);
+      setStatusMessage(`خطا در ایجاد نشست امن لپ‌تاپ: ${msg}`);
     }
   };
 
-  // اتصال با کد جفت‌سازی (معمولاً روی کامپیوتر)
-  const handleJoinWithPairingCode = async () => {
-    const norm = normalizePairingCode(enteredPairingCode);
-    if (!norm) {
-      setStatus('connection-error');
-      setStatusMessage(
-        'لطفاً کد جفت‌سازی ۱۲ کاراکتری (مثلاً ABCD-EFGH-JKLM) را به‌طور کامل وارد نمایید.'
+  // گام ۳ و ۴ (در گوشی): اسکن یا ورود رشته QR لپ‌تاپ و نمایش مشخصات لپ‌تاپ جهت تأیید کاربر روی گوشی
+  const handleInspectScannedQrOnPhone = useCallback(
+    async (rawQrText: string) => {
+      const cleaned = String(rawQrText || '').trim();
+      if (!cleaned) {
+        setStatus('connection-error');
+        setStatusMessage('لطفاً ابتدا QR Code نمایش‌داده‌شده در لپ‌تاپ را با دوربین گوشی اسکن کنید.');
+        return;
+      }
+      try {
+        stopCameraScanner();
+        setSignalingCleanedSessionId('');
+        setSessionSentRecordsCount(0);
+        setSessionReceivedRecordsCount(0);
+        if (sessionManagerRef.current) {
+          const approvalReq = await sessionManagerRef.current.inspectLaptopQrOnPhone(cleaned);
+          setPendingPhoneApproval(approvalReq);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setPendingPhoneApproval(null);
+        setStatus('connection-error');
+        setStatusMessage(`خطا در بررسی QR لپ‌تاپ: ${msg}`);
+      }
+    },
+    [stopCameraScanner]
+  );
+
+  // باز کردن دوربین گوشی برای اسکن مستقیم QR Code لپ‌تاپ
+  const handleOpenPhoneCameraScanner = async () => {
+    setCameraError('');
+    if (
+      typeof navigator === 'undefined' ||
+      !navigator.mediaDevices ||
+      typeof navigator.mediaDevices.getUserMedia !== 'function'
+    ) {
+      setCameraError(
+        'دسترسی به دوربین در این مرورگر پشتیبانی نمی‌شود. می‌توانید رشته QR را در کادر پایین جای‌گذاری کنید.'
       );
       return;
     }
+
     try {
-      setSignalingCleanedSessionId('');
-      if (sessionManagerRef.current) {
-        await sessionManagerRef.current.joinSessionWithCode(norm);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      });
+      cameraStreamRef.current = stream;
+      setIsCameraScannerOpen(true);
+
+      setTimeout(() => {
+        if (videoRef.current && cameraStreamRef.current) {
+          videoRef.current.srcObject = cameraStreamRef.current;
+          void videoRef.current.play().catch(() => {});
+        }
+      }, 50);
+
+      const BarcodeDetectorCtor = (
+        globalThis as unknown as {
+          BarcodeDetector?: new (opts: { formats: string[] }) => {
+            detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>;
+          };
+        }
+      ).BarcodeDetector;
+
+      if (BarcodeDetectorCtor) {
+        const detector = new BarcodeDetectorCtor({ formats: ['qr_code'] });
+        scanIntervalRef.current = setInterval(async () => {
+          if (!videoRef.current || videoRef.current.readyState < 2) return;
+          try {
+            const barcodes = await detector.detect(videoRef.current);
+            if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+              const rawVal = barcodes[0].rawValue;
+              setScannedQrInput(rawVal);
+              await handleInspectScannedQrOnPhone(rawVal);
+            }
+          } catch {
+            // ادامه تلاش در فریم بعدی
+          }
+        }, 350);
+      } else {
+        setCameraError(
+          'مرورگر فعلی فاقد رمزگشای خودکار BarcodeDetector است؛ لطفاً از Chrome اندروید استفاده کنید یا شناسه QR لپ‌تاپ را در کادر زیر وارد نمایید.'
+        );
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setStatus('connection-error');
-      setStatusMessage(`خطا در اتصال به جلسه: ${msg}`);
+      setCameraError(`خطا در باز کردن دوربین گوشی: ${msg}`);
+      stopCameraScanner();
     }
   };
 
+  // گام ۵ (در گوشی): تأیید صریح اتصال توسط کاربر روی گوشی و آغاز همگام‌سازی دوطرفه
+  const handleApproveConnectionOnPhone = async () => {
+    if (!sessionManagerRef.current || !pendingPhoneApproval) return;
+    try {
+      await sessionManagerRef.current.approvePendingSessionOnPhone();
+      setPendingPhoneApproval(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setPendingPhoneApproval(null);
+      setStatus('connection-error');
+      setStatusMessage(`خطا هنگام تأیید اتصال در گوشی: ${msg}`);
+    }
+  };
+
+  // گام ۶ (در گوشی): رد درخواست اتصال توسط کاربر روی گوشی و بستن فوری نشست
+  const handleRejectConnectionOnPhone = async () => {
+    if (!sessionManagerRef.current) return;
+    await sessionManagerRef.current.rejectPendingSessionOnPhone();
+    setPendingPhoneApproval(null);
+    setScannedQrInput('');
+  };
+
   const handleDisconnect = () => {
+    stopCameraScanner();
     if (sessionManagerRef.current) {
       sessionManagerRef.current.closeConnection(true);
     }
     setPeerDeviceInfo(null);
-    setGeneratedPairingCode('');
+    setLaptopSessionCreds(null);
+    setPendingPhoneApproval(null);
   };
 
   const handleCancelPairing = async () => {
+    stopCameraScanner();
     if (sessionManagerRef.current) {
       await sessionManagerRef.current.cancelPairing();
     }
     setPeerDeviceInfo(null);
-    setGeneratedPairingCode('');
-    setShowQrModal(false);
-  };
-
-  // ارسال بسته اطلاعات از طریق کانال مستقیم WebRTC
-  const handleSendDirectPackage = async () => {
-    if (!sessionManagerRef.current || !sessionManagerRef.current.isConnected()) {
-      setStatus('connection-error');
-      setStatusMessage('ابتدا اتصال مستقیم بین گوشی و کامپیوتر را برقرار نمایید.');
-      return;
-    }
-
-    try {
-      const pkg = createSyncTransferPackage({
-        dataset,
-        localDeviceId,
-        localRole,
-        selectedCollections,
-        onlyRecordKeys:
-          filterOnlySelectedBooks && selectedBookKeys.length > 0
-            ? selectedBookKeys
-            : undefined,
-      });
-
-      await sessionManagerRef.current.sendTransferPackage(pkg);
-      markPackageSentInBaseline(pkg);
-
-      const updatedHist = appendTransferHistory({
-        packageId: pkg.packageId,
-        direction: 'sent',
-        peerRole: peerDeviceInfo?.role || (localRole === 'phone-primary' ? 'pc-companion' : 'phone-primary'),
-        timestampMs: Date.now(),
-        status: 'completed',
-        recordsCount: pkg.recordCount,
-        appliedNew: 0,
-        appliedModified: 0,
-        resolvedConflicts: 0,
-      });
-      setTransferHistory(updatedHist);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setStatus('connection-error');
-      setStatusMessage(`خطا در ارسال بسته: ${msg}`);
-    }
+    setLaptopSessionCreds(null);
+    setPendingPhoneApproval(null);
   };
 
   // انتخاب تصمیم کاربر برای هر تعارض
@@ -380,7 +623,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     setTransferHistory(updatedHist);
     setSoftDeletedArchive(loadSoftDeletedArchive());
 
-    const summaryText = `همگام‌سازی مستقیم با تأیید شما اعمال شد: ${toPersianDigits(
+    const summaryText = `همگام‌سازی مستقیم با تأیید نهایی شما اعمال شد: ${toPersianDigits(
       result.appliedNewCount
     )} رکورد جدید، ${toPersianDigits(result.appliedModifiedCount)} ویرایش و ${toPersianDigits(
       result.resolvedConflictCount
@@ -438,6 +681,16 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     return Object.values(dataset.auditRecords || {});
   }, [dataset.auditRecords]);
 
+  const itemsRequiringReviewCount = useMemo(() => {
+    if (!pendingPreviewReport) return 0;
+    return (
+      pendingPreviewReport.newItems.length +
+      pendingPreviewReport.modifiedItems.length +
+      pendingPreviewReport.softDeleteItems.length +
+      pendingPreviewReport.conflicts.length
+    );
+  }, [pendingPreviewReport]);
+
   const toggleCollectionSelection = (col: SyncCollectionName) => {
     setSelectedCollections((prev) =>
       prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]
@@ -457,24 +710,24 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
 
   return (
     <section
-      aria-label="ارتباط گوشی و کامپیوتر"
+      aria-label="ارتباط گوشی و لپ‌تاپ"
       className="bg-white rounded-2xl border-2 border-[#D9C2A7] shadow-xs p-4 sm:p-6 space-y-5"
     >
-      {/* هدر بخش مستقل ارتباط گوشی و کامپیوتر */}
+      {/* هدر بخش مستقل ارتباط گوشی و لپ‌تاپ */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-[#E6D5C1]">
         <div className="space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
             <ArrowLeftRight className="w-5 h-5 text-[#8C3B2B] shrink-0" />
             <h2 className="font-titr text-base sm:text-lg font-bold text-[#332218]">
-              ارتباط گوشی و کامپیوتر (انتقال مستقیم WebRTC بدون ذخیره در ابر)
+              ارتباط مستقیم گوشی اصلی و لپ‌تاپ (همگام‌سازی دوطرفه WebRTC بدون ذخیره در ابر)
             </h2>
           </div>
           <p className="text-xs text-[#6E5849] leading-relaxed">
-            گوشی اندروید مرجع اصلی نگهداری اطلاعات کتابخانه است و کامپیوتر محیط مکمل کاری است. تمام محتوای کتاب‌ها و شهدا صرفاً در حافظه محلی دستگاه‌ها باقی می‌ماند و از مسیر مستقیم و رمزنگاری‌شده WebRTC DataChannel منتقل می‌شود.
+            اصل بنیادین: گوشی مرجع اصلی و صاحب اختیار نهایی داده‌های کتابخانه است و لپ‌تاپ دستگاه همراه برای جست‌وجو، ورود و ویرایش اطلاعات است. لپ‌تاپ نشست را آغاز و QR Code تولید می‌کند؛ گوشی با دوربین QR را اسکن کرده و پس از تأیید صریح کاربر روی گوشی، همگام‌سازی دوطرفه در همان نشست انجام می‌شود.
           </p>
         </div>
 
-        {/* نشانگر وضعیت اتصال (۸ وضعیت استاندارد بخش سوم) */}
+        {/* نشانگر وضعیت اتصال */}
         <div className="flex items-center gap-2 shrink-0">
           <span
             data-testid="device-sync-status-badge"
@@ -494,9 +747,51 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         </div>
         {signalingCleanedSessionId && (
           <span className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-900 font-bold text-[11px] shrink-0">
-            پیام‌های موقت Signaling نشست ({maskSessionIdForDisplay(signalingCleanedSessionId)}) از Firebase پاک شد
+            نشست موقت Signaling ({maskSessionIdForDisplay(signalingCleanedSessionId)}) از Firebase پاک‌سازی شد
           </span>
         )}
+      </div>
+
+      {/* خلاصه آماری وضعیت انتقال در نشست فعلی (بخش ۴ دستور نهایی) */}
+      <div
+        data-testid="sync-session-metrics"
+        className="grid grid-cols-2 sm:grid-cols-4 gap-2.5"
+      >
+        <div className="p-3 rounded-xl bg-[#FAF3EA] border border-[#E6D5C1]">
+          <div className="text-[11px] text-[#6E5849]">وضعیت انتقال نشست</div>
+          <div className="text-xs sm:text-sm font-extrabold text-[#332218] mt-0.5">
+            {pendingPhoneApproval
+              ? 'منتظر تأیید روی گوشی'
+              : CONNECTION_STATUS_LABELS[status]}
+          </div>
+        </div>
+        <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200">
+          <div className="text-[11px] text-emerald-900">تعداد رکوردهای ارسالی</div>
+          <div
+            data-testid="session-sent-count"
+            className="text-sm sm:text-base font-extrabold text-emerald-950 mt-0.5"
+          >
+            {toPersianDigits(sessionSentRecordsCount)} رکورد
+          </div>
+        </div>
+        <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200">
+          <div className="text-[11px] text-blue-900">تعداد رکوردهای دریافتی</div>
+          <div
+            data-testid="session-received-count"
+            className="text-sm sm:text-base font-extrabold text-blue-950 mt-0.5"
+          >
+            {toPersianDigits(sessionReceivedRecordsCount)} رکورد
+          </div>
+        </div>
+        <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-300">
+          <div className="text-[11px] text-amber-900">موارد نیازمند بررسی / تعارض</div>
+          <div
+            data-testid="session-review-count"
+            className="text-sm sm:text-base font-extrabold text-amber-950 mt-0.5"
+          >
+            {toPersianDigits(itemsRequiringReviewCount)} مورد
+          </div>
+        </div>
       </div>
 
       {/* گام اول: انتخاب نقش دستگاه فعلی و آمار حافظه محلی */}
@@ -521,13 +816,13 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
             >
               <Smartphone className="w-4 h-4 mt-0.5 shrink-0" />
               <div className="min-w-0">
-                <div className="text-xs font-bold">گوشی اندروید (مرجع اصلی)</div>
+                <div className="text-xs font-bold">گوشی اندروید (مرجع اصلی و تأییدکننده)</div>
                 <div
                   className={`text-[10px] mt-0.5 leading-snug ${
                     localRole === 'phone-primary' ? 'text-amber-100' : 'text-[#6E5849]'
                   }`}
                 >
-                  نگهدارنده اصلی اطلاعات؛ تغییرات کامپیوتر فقط با تأیید شما اعمال می‌شود
+                  صاحب کلید تأیید اتصال (اسکن QR لپ‌تاپ) و صاحب اختیار نهایی داده‌ها
                 </div>
               </div>
             </button>
@@ -543,13 +838,13 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
             >
               <Laptop className="w-4 h-4 mt-0.5 shrink-0" />
               <div className="min-w-0">
-                <div className="text-xs font-bold">کامپیوتر (محیط مکمل کاری)</div>
+                <div className="text-xs font-bold">لپ‌تاپ (آغازگر اتصال و مکمل کاری)</div>
                 <div
                   className={`text-[10px] mt-0.5 leading-snug ${
                     localRole === 'pc-companion' ? 'text-amber-100' : 'text-[#6E5849]'
                   }`}
                 >
-                  نسخه کاری برای تایپ، ویرایش، جست‌وجو و ارسال تغییرات به گوشی
+                  ایجادکننده نشست موقت و نمایش‌دهنده QR Code (بدون نیاز به دوربین)
                 </div>
               </div>
             </button>
@@ -566,16 +861,16 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               </span>
             </div>
             <p className="text-[11px] text-[#6E5849] leading-relaxed">
-              تعداد کل رکوردهای عملیاتی آماده بررسی/ارسال در مجموعه‌های انتخابی:{' '}
+              تعداد کل رکوردهای عملیاتی آماده همگام‌سازی در مجموعه‌های انتخابی:{' '}
               <strong className="text-[#332218]">{toPersianDigits(localEnvelopesCount)}</strong> رکورد
-              (بدون هیچ‌گونه تغییر یا حذف خودکار).
+              (با حفظ کامل داده‌های موجود).
             </p>
           </div>
 
           {onTriggerLocalBackup && (
             <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#E6D5C1]">
               <span className="text-[11px] text-[#6E5849]">
-                توصیه ایمنی: پیش از تبادل اطلاعات، یک نسخه پشتیبان محلی روی دستگاه ذخیره کنید.
+                توصیه ایمنی: پیش از همگام‌سازی، یک نسخه پشتیبان محلی روی دستگاه ذخیره کنید.
               </span>
               <button
                 type="button"
@@ -590,149 +885,268 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         </div>
       </div>
 
-      {/* گام دوم: پنل جفت‌سازی (اتصال به کامپیوتر در گوشی / اتصال به گوشی در کامپیوتر) */}
+      {/* الگوی قطعی اتصال (بخش ۲ دستور نهایی): لپ‌تاپ آغازگر (تولید QR) -> گوشی اسکن‌کننده و تأییدکننده */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* کارت ۱: شروع اتصال از گوشی (تولید کد جفت‌سازی و QR) */}
+        {/* کارت ۱: لپ‌تاپ آغازگر اتصال (ایجاد نشست موقت و نمایش QR Code) */}
         <div className="rounded-2xl border-2 border-[#E6D5C1] bg-white p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-xs sm:text-sm font-bold text-[#332218] flex items-center gap-1.5">
-              <Smartphone className="w-4 h-4 text-[#8C3B2B]" />
-              <span>۱. در گوشی: «اتصال به کامپیوتر» (تولید کد جفت‌سازی)</span>
+              <Laptop className="w-4 h-4 text-[#8C3B2B]" />
+              <span>۱. در لپ‌تاپ: «اتصال به گوشی» (ایجاد نشست و نمایش QR Code)</span>
             </h3>
             <span className="text-[10px] px-2 py-0.5 rounded-md bg-[#FDF8F2] border border-[#E6D5C1] text-[#8C3B2B] font-bold">
-              میزبان جلسه
+              لپ‌تاپ آغازگر
             </span>
           </div>
 
           <p className="text-xs text-[#6E5849] leading-relaxed">
-            روی گوشی دکمه زیر را بزنید تا یک کد جفت‌سازی موقت و امن (با اعتبار ۱۰ دقیقه) تولید شود؛ سپس این کد را در کامپیوتر وارد نمایید.
+            در لپ‌تاپ دکمه «اتصال به گوشی» را بزنید تا یک نشست موقت و یک‌بارمصرف ایجاد شده و QR Code آن روی صفحه لپ‌تاپ نمایش داده شود (لپ‌تاپ نیازی به دوربین ندارد).
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => void handleStartHostPairing()}
+              data-testid="laptop-start-session-btn"
+              onClick={() => void handleStartLaptopSession()}
               className="px-3.5 py-2 rounded-xl bg-[#8C3B2B] hover:bg-[#702D20] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>اتصال به کامپیوتر (تولید کد جفت‌سازی)</span>
+              <QrCode className="w-3.5 h-3.5" />
+              <span>اتصال به گوشی (تولید QR Code نشست امن)</span>
             </button>
 
-            {generatedPairingCode && (
-              <button
-                type="button"
-                onClick={() => setShowQrModal((prev) => !prev)}
-                className="px-3 py-2 rounded-xl bg-[#FDF8F2] hover:bg-amber-100/70 text-[#8C3B2B] border border-[#D9C2A7] text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
-              >
-                <QrCode className="w-3.5 h-3.5" />
-                <span>{showQrModal ? 'بستن QR Code' : 'نمایش QR Code'}</span>
-              </button>
-            )}
-
-            {(status === 'pairing' || status === 'connecting') && (
+            {(status === 'pairing' || status === 'connecting') && laptopSessionCreds && (
               <button
                 type="button"
                 onClick={() => void handleCancelPairing()}
                 className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-900 border border-rose-300 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
               >
                 <XCircle className="w-3.5 h-3.5" />
-                <span>انصراف از جفت‌سازی و پاک‌سازی نشست</span>
+                <span>لغو نشست و بستن QR</span>
               </button>
             )}
           </div>
 
-          {generatedPairingCode && (
-            <div className="rounded-xl bg-[#FDF8F2] border-2 border-[#D9C2A7] p-3 space-y-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-bold text-[#5D4636]">کد جفت‌سازی موقت شما:</span>
+          {laptopSessionCreds && (
+            <div
+              data-testid="laptop-qr-session-box"
+              className="rounded-xl bg-[#FDF8F2] border-2 border-[#D9C2A7] p-3.5 space-y-3"
+            >
+              <div className="flex flex-col items-center justify-center p-3 bg-white rounded-xl border border-[#E6D5C1] gap-2">
+                <QRCodeSVG
+                  value={laptopSessionCreds.qrValue}
+                  size={168}
+                  level="M"
+                />
+                <span className="text-[11px] font-bold text-[#332218]">
+                  این QR Code را با دوربین گوشی اصلی اسکن کرده و روی گوشی تأیید کنید
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                <div className="p-2 rounded-lg bg-white border border-[#E6D5C1]">
+                  <span className="text-[#6E5849] block">کد کوتاه تأیید نشست:</span>
+                  <strong
+                    data-testid="generated-pairing-code"
+                    dir="ltr"
+                    className="font-mono text-xs text-[#332218] select-all"
+                  >
+                    {laptopSessionCreds.pairingCode}
+                  </strong>
+                </div>
+                <div className="p-2 rounded-lg bg-white border border-[#E6D5C1]">
+                  <span className="text-[#6E5849] block">شناسه تصادفی نشست:</span>
+                  <strong
+                    dir="ltr"
+                    className="font-mono text-xs text-[#332218]"
+                  >
+                    {maskSessionIdForDisplay(laptopSessionCreds.sessionId)}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <span className="text-[10px] text-[#6E5849]">
+                  یک‌بارمصرف و زمان‌دار (۱۰ دقیقه) · در انتظار اسکن و تأیید گوشی
+                </span>
                 <button
                   type="button"
                   onClick={() => {
                     try {
-                      void navigator.clipboard.writeText(generatedPairingCode);
+                      void navigator.clipboard.writeText(laptopSessionCreds.qrValue);
                     } catch {
                       // ignore
                     }
                   }}
-                  className="px-2 py-1 rounded-lg bg-white border border-[#D9C2A7] text-[11px] font-bold text-[#8C3B2B] inline-flex items-center gap-1 cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg bg-white border border-[#D9C2A7] text-[11px] font-bold text-[#8C3B2B] inline-flex items-center gap-1 cursor-pointer"
                 >
                   <Copy className="w-3 h-3" />
-                  <span>کپی کد</span>
+                  <span>کپی توکن QR</span>
                 </button>
               </div>
-
-              <div
-                data-testid="generated-pairing-code"
-                dir="ltr"
-                className="text-center font-mono text-base sm:text-lg font-extrabold tracking-widest py-2 px-3 rounded-lg bg-white border border-[#E6D5C1] text-[#332218] select-all"
-              >
-                {generatedPairingCode}
-              </div>
-
-              {showQrModal && (
-                <div className="flex flex-col items-center justify-center p-3 bg-white rounded-xl border border-[#E6D5C1] gap-2">
-                  <QRCodeSVG
-                    value={buildPairingQrValue(generatedPairingCode)}
-                    size={148}
-                    level="M"
-                  />
-                  <span className="text-[11px] text-[#6E5849]">
-                    اسکن با دوربین یا وارد کردن کد ۱۲ کاراکتری در دستگاه مقابل
-                  </span>
-                </div>
-              )}
             </div>
           )}
         </div>
 
-        {/* کارت ۲: اتصال از کامپیوتر به گوشی با وارد کردن کد جفت‌سازی */}
+        {/* کارت ۲: گوشی اسکن‌کننده QR و تأییدکننده نهایی اتصال */}
         <div className="rounded-2xl border-2 border-[#E6D5C1] bg-white p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-xs sm:text-sm font-bold text-[#332218] flex items-center gap-1.5">
-              <Laptop className="w-4 h-4 text-[#2E6F40]" />
-              <span>۲. در کامپیوتر: «اتصال به گوشی» (ورود کد جفت‌سازی)</span>
+              <Smartphone className="w-4 h-4 text-[#2E6F40]" />
+              <span>۲. در گوشی: اسکن QR Code لپ‌تاپ و تأیید صریح اتصال</span>
             </h3>
             <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-[#2E6F40] font-bold">
-              متصل‌شونده
+              گوشی تأییدکننده
             </span>
           </div>
 
           <p className="text-xs text-[#6E5849] leading-relaxed">
-            کد ۱۲ کاراکتری نمایش‌داده‌شده روی گوشی را در کادر زیر وارد کنید و دکمه «اتصال به گوشی» را بزنید تا کانال مستقیم WebRTC برقرار شود.
+            گوشی صاحب کلید تأیید اتصال است. QR Code نمایش‌داده‌شده در لپ‌تاپ را با دوربین گوشی اسکن کنید؛ سپس مشخصات لپ‌تاپ را دیده و اتصال را تأیید یا رد نمایید.
           </p>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {!isCameraScannerOpen ? (
+              <button
+                type="button"
+                data-testid="phone-open-qr-scanner-btn"
+                onClick={() => void handleOpenPhoneCameraScanner()}
+                className="px-3.5 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>اسکن QR Code لپ‌تاپ با دوربین گوشی</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={stopCameraScanner}
+                className="px-3.5 py-2 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-900 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                <span>بستن دوربین اسکنر</span>
+              </button>
+            )}
+          </div>
+
+          {isCameraScannerOpen && (
+            <div className="rounded-xl bg-slate-900 p-2.5 space-y-2 text-center">
+              <video
+                ref={videoRef}
+                playsInline
+                muted
+                className="w-full max-h-52 rounded-lg object-cover bg-black mx-auto"
+              />
+              <p className="text-[11px] text-amber-100">
+                دوربین گوشی را مقابل QR Code نمایش‌داده‌شده در صفحه لپ‌تاپ قرار دهید...
+              </p>
+            </div>
+          )}
+
+          {cameraError && (
+            <div className="rounded-xl bg-amber-50 border border-amber-300 p-2.5 text-[11px] text-amber-950">
+              {cameraError}
+            </div>
+          )}
+
+          {/* ورودی جایگزین توکن QR برای محیط‌های بدون دوربین */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
             <input
               type="text"
               dir="ltr"
-              value={enteredPairingCode}
-              onChange={(e) => setEnteredPairingCode(e.target.value.toUpperCase())}
-              placeholder="XXXX-XXXX-XXXX"
-              aria-label="کد جفت‌سازی ۱۲ کاراکتری"
-              className="flex-1 px-3 py-2 rounded-xl border border-[#D9C2A7] bg-[#FDF8F2] font-mono text-sm font-bold text-center tracking-wider text-[#332218] focus:outline-none focus:border-[#8C3B2B]"
+              data-testid="phone-qr-input"
+              value={scannedQrInput}
+              onChange={(e) => setScannedQrInput(e.target.value)}
+              placeholder="GOLZAR_P2P_V2:SESS_..."
+              aria-label="ورود یا جای‌گذاری توکن QR لپ‌تاپ در گوشی"
+              className="flex-1 px-3 py-2 rounded-xl border border-[#D9C2A7] bg-[#FDF8F2] font-mono text-xs font-bold text-center text-[#332218] focus:outline-none focus:border-[#8C3B2B]"
             />
             <button
               type="button"
-              onClick={() => void handleJoinWithPairingCode()}
-              className="px-4 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer shrink-0 shadow-xs"
+              data-testid="phone-inspect-qr-btn"
+              onClick={() => void handleInspectScannedQrOnPhone(scannedQrInput)}
+              className="px-3.5 py-2 rounded-xl bg-[#FDF8F2] hover:bg-amber-100/70 text-[#8C3B2B] border border-[#D9C2A7] text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
             >
-              <Wifi className="w-3.5 h-3.5" />
-              <span>اتصال به گوشی</span>
+              <QrCode className="w-3.5 h-3.5" />
+              <span>بررسی نشست لپ‌تاپ</span>
             </button>
           </div>
+
+          {/* گام ۴، ۵ و ۶: کارت نمایش مشخصات لپ‌تاپ درخواست‌کننده و دکمه‌های تأیید / رد صریح روی گوشی */}
+          {pendingPhoneApproval && (
+            <div
+              data-testid="phone-approval-prompt"
+              className="rounded-xl border-2 border-[#2E6F40] bg-emerald-50/60 p-3.5 space-y-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-extrabold text-emerald-950 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-[#2E6F40]" />
+                  <span>درخواست اتصال از لپ‌تاپ — نیازمند تأیید صریح شما روی گوشی</span>
+                </span>
+              </div>
+
+              <div className="rounded-lg bg-white border border-emerald-200 p-2.5 space-y-1 text-xs text-[#332218]">
+                <div>
+                  دستگاه درخواست‌کننده:{' '}
+                  <strong>
+                    {pendingPhoneApproval.hostDeviceRole === 'pc-companion'
+                      ? 'لپ‌تاپ (دستگاه همراه کاری)'
+                      : 'دستگاه مقابل'}
+                  </strong>
+                </div>
+                <div>
+                  شناسه دستگاه لپ‌تاپ:{' '}
+                  <strong dir="ltr" className="font-mono">
+                    {pendingPhoneApproval.laptopDeviceId}
+                  </strong>
+                </div>
+                <div>
+                  کد کوتاه تأیید نشست:{' '}
+                  <strong dir="ltr" className="font-mono text-[#8C3B2B]">
+                    {pendingPhoneApproval.pairingCode}
+                  </strong>
+                </div>
+                <div>
+                  شناسه نشست:{' '}
+                  <span dir="ltr" className="font-mono text-[11px] text-[#6E5849]">
+                    {maskSessionIdForDisplay(pendingPhoneApproval.sessionId)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="phone-approve-connection-btn"
+                  onClick={() => void handleApproveConnectionOnPhone()}
+                  className="flex-1 px-3.5 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>تأیید اتصال و شروع همگام‌سازی دوطرفه</span>
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="phone-reject-connection-btn"
+                  onClick={() => void handleRejectConnectionOnPhone()}
+                  className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <XCircle className="w-4 h-4" />
+                  <span>رد درخواست و بستن نشست</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {status === 'connected' || status === 'transfer-success' ? (
             <div className="rounded-xl bg-emerald-50 border border-emerald-300 p-3 flex items-center justify-between gap-2">
               <div className="text-xs text-emerald-950 font-bold flex items-center gap-1.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
                 <span>
-                  متصل به دستگاه مقابل
+                  کانال مستقیم WebRTC برقرار است
                   {peerDeviceInfo
                     ? ` (${
                         peerDeviceInfo.role === 'phone-primary'
                           ? 'گوشی اندروید - مرجع اصلی'
-                          : 'کامپیوتر - مکمل کاری'
-                      })`
+                          : 'لپ‌تاپ - مکمل کاری'
+                      } · ${peerDeviceInfo.deviceId})`
                     : ''}
                 </span>
               </div>
@@ -748,21 +1162,21 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         </div>
       </div>
 
-      {/* گام سوم: انتخاب مجموعه‌ها و ارسال بسته مستقیم در کانال WebRTC DataChannel */}
+      {/* گام سوم: همگام‌سازی دوطرفه در همان نشست و انتخاب مجموعه‌ها */}
       <div className="rounded-2xl border border-[#D9C2A7] bg-[#FDF8F2] p-4 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h3 className="text-xs sm:text-sm font-bold text-[#332218]">
-              ۳. انتخاب اطلاعات و ارسال مستقیم به دستگاه مقابل (DataChannel)
+              ۳. تبادل و همگام‌سازی دوطرفه در نشست فعال (RTCDataChannel)
             </h3>
             <p className="text-[11px] text-[#6E5849]">
-              مشخص کنید کدام بخش‌های اطلاعاتی در بسته انتقالی قرار بگیرند. در دستگاه مقصد، قبل از اعمال هرگونه تغییر، خلاصه بسته و تعارض‌ها به کاربر نمایش داده می‌شود.
+              به محض تأیید اتصال در گوشی، تبادل دوطرفه به‌طور خودکار در همین نشست انجام می‌شود. همچنین در صورت ثبت تغییرات جدید در حین اتصال، می‌توانید با دکمه روبه‌رو مجدداً بسته تغییرات را ارسال کنید.
             </p>
           </div>
 
           <button
             type="button"
-            onClick={() => void handleSendDirectPackage()}
+            onClick={() => void sendSyncPackageOverOpenChannel(false)}
             disabled={status !== 'connected' && status !== 'transfer-success'}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 shrink-0 transition-colors ${
               status === 'connected' || status === 'transfer-success'
@@ -773,8 +1187,8 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
             <Send className="w-4 h-4" />
             <span>
               {localRole === 'phone-primary'
-                ? `ارسال مستقیم اطلاعات گوشی به کامپیوتر (${toPersianDigits(localEnvelopesCount)} رکورد)`
-                : `ارسال تغییرات کاری کامپیوتر به گوشی جهت تأیید (${toPersianDigits(localEnvelopesCount)} رکورد)`}
+                ? `ارسال مجدد داده‌های مرجع گوشی به لپ‌تاپ (${toPersianDigits(localEnvelopesCount)} رکورد)`
+                : `ارسال مجدد تغییرات کاری لپ‌تاپ به گوشی جهت تأیید (${toPersianDigits(localEnvelopesCount)} رکورد)`}
             </span>
           </button>
         </div>
@@ -815,7 +1229,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                 className="accent-[#8C3B2B]"
               />
               <span>
-                انتخاب دستی کتاب‌های خاص برای ارسال (به‌جای ارسال یکجای هر{' '}
+                انتخاب دستی کتاب‌های خاص برای ارسال دستی (به‌جای ارسال هر{' '}
                 {toPersianDigits(auditEntriesList.length)} کتاب ثبت‌شده)
               </span>
             </label>
@@ -863,7 +1277,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         )}
       </div>
 
-      {/* گام چهارم: پنجره پیش‌نمایش بسته دریافتی، حل صریح تعارض‌ها و تأیید نهایی کاربر */}
+      {/* گام چهارم: پنجره پیش‌نمایش بسته دریافتی، حل صریح تعارض‌ها و کنترل نهایی روی گوشی */}
       {pendingPreviewReport && (
         <div
           data-testid="sync-preview-modal"
@@ -874,7 +1288,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               <h3 className="font-titr text-sm sm:text-base font-bold text-[#8C3B2B] flex items-center gap-1.5">
                 <ShieldCheck className="w-5 h-5 shrink-0" />
                 <span>
-                  پیش‌نمایش بسته دریافتی ({pendingPreviewReport.packageId}) — نیازمند بررسی و تأیید شما
+                  پیش‌نمایش و کنترل نهایی بسته دریافتی ({pendingPreviewReport.packageId})
                 </span>
               </h3>
               <p className="text-xs text-[#5D4636]">
@@ -882,9 +1296,9 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                 <strong>
                   {pendingPreviewReport.senderRole === 'phone-primary'
                     ? 'گوشی اندروید (مرجع اصلی)'
-                    : 'کامپیوتر (دستگاه مکمل کاری)'}
+                    : 'لپ‌تاپ (دستگاه همراه کاری)'}
                 </strong>{' '}
-                · هیچ تغییری بدون تأیید صریح شما روی داده‌های این دستگاه اعمال نمی‌شود.
+                · هیچ تغییری از لپ‌تاپ بدون بررسی و تأیید نهایی شما روی داده‌های مرجع گوشی بازنویسی نمی‌شود.
               </p>
             </div>
 
@@ -909,7 +1323,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                 }`}
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>تأیید و اعمال تغییرات در حافظه دستگاه</span>
+                <span>تأیید نهایی و اعمال تغییرات در حافظه دستگاه</span>
               </button>
             </div>
           </div>
@@ -989,13 +1403,13 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
             </div>
           )}
 
-          {/* بخش حل تعارض صریح توسط کاربر (بند ۸، ۹ و ۱۰ بخش چهارم) */}
+          {/* بخش حل تعارض صریح توسط کاربر */}
           {pendingPreviewReport.conflicts.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-xs font-bold text-amber-950 bg-amber-100 border border-amber-300 px-3 py-2 rounded-xl">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>
-                  توجه: در {toPersianDigits(pendingPreviewReport.conflicts.length)} رکورد زیر، هم روی گوشی و هم روی کامپیوتر تغییرات متفاوتی ثبت شده است. هیچ تعارضی به‌صورت خودکار بازنویسی نمی‌شود؛ لطفاً برای هر مورد یکی از ۳ گزینه را انتخاب کنید:
+                  توجه: در {toPersianDigits(pendingPreviewReport.conflicts.length)} رکورد زیر، هم روی گوشی و هم روی لپ‌تاپ تغییرات متفاوتی ثبت شده است. هیچ رکوردی صرفاً به دلیل قدیمی‌تر بودن زمان ویرایش بازنویسی نمی‌شود؛ لطفاً برای هر مورد یکی از ۳ گزینه را انتخاب کنید:
                 </span>
               </div>
 
@@ -1017,7 +1431,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                         {conflict.selectedChoice === 'keep-phone'
                           ? 'انتخاب شما: حفظ نسخه گوشی'
                           : conflict.selectedChoice === 'accept-pc'
-                          ? 'انتخاب شما: پذیرش نسخه کامپیوتر'
+                          ? 'انتخاب شما: پذیرش نسخه لپ‌تاپ'
                           : conflict.selectedChoice === 'manual-edit'
                           ? 'انتخاب شما: اصلاح دستی'
                           : 'در انتظار تصمیم شما'}
@@ -1036,7 +1450,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                       </div>
 
                       <div className="p-2.5 rounded-lg bg-white border border-[#E6D5C1] space-y-1">
-                        <div className="font-bold text-[#2E6F40]">نسخه موجود در کامپیوتر (مکمل کاری):</div>
+                        <div className="font-bold text-[#2E6F40]">نسخه موجود در لپ‌تاپ (مکمل کاری):</div>
                         <div>عنوان: {String(pcData.title || conflict.pcEnvelope.titleSummary)}</div>
                         <div>
                           مکان قفسه: <strong>{String(pcData.location || '—')}</strong> · تعداد نسخه:{' '}
@@ -1046,7 +1460,6 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                       </div>
                     </div>
 
-                    {/* ۳ گزینه الزامی بخش چهارم بند ۱۰ */}
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
@@ -1069,7 +1482,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                             : 'bg-white text-[#332218] border-[#D9C2A7]'
                         }`}
                       >
-                        ۲. پذیرش نسخه کامپیوتر
+                        ۲. پذیرش نسخه لپ‌تاپ
                       </button>
 
                       <button
@@ -1085,7 +1498,6 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                       </button>
                     </div>
 
-                    {/* فرم اصلاح دستی در صورت انتخاب گزینه ۳ */}
                     {editingConflictId === conflict.conflictId && (
                       <div className="p-3 rounded-xl bg-white border border-amber-400 space-y-2.5 text-xs">
                         <div className="font-bold text-[#332218]">
@@ -1163,7 +1575,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
 
       {/* بایگانی حذف نرم قابل بازیابی و تاریخچه بسته‌های انتقالی */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2 border-t border-[#E6D5C1]">
-        {/* بایگانی حذف نرم (بند ۱۲ بخش چهارم) */}
+        {/* بایگانی حذف نرم */}
         <div className="rounded-xl border border-[#E6D5C1] bg-[#FAF3EA]/50 p-3 space-y-2">
           <div className="text-xs font-bold text-[#332218] flex items-center justify-between">
             <span className="inline-flex items-center gap-1.5">
@@ -1201,7 +1613,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           )}
         </div>
 
-        {/* تاریخچه بسته‌های انتقالی (بند ۱۳ بخش چهارم) */}
+        {/* تاریخچه بسته‌های انتقالی */}
         <div className="rounded-xl border border-[#E6D5C1] bg-[#FAF3EA]/50 p-3 space-y-2">
           <div className="text-xs font-bold text-[#332218] flex items-center justify-between">
             <span>تاریخچه بسته‌های انتقالی اخیر (ثبت وضعیت و شناسه بسته)</span>
