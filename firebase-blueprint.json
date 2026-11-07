@@ -7,7 +7,7 @@
       "properties": {
         "sessionId": {
           "type": "string",
-          "description": "SHA-256 derived one-way session identifier (SESS_ + 48 hex chars).",
+          "description": "Cryptographically random 192-bit CSPRNG session identifier (SESS_ + 48 hex chars), independent of the short pairing code.",
           "minLength": 53,
           "maxLength": 53,
           "pattern": "^SESS_[0-9a-f]{48}$"

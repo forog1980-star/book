@@ -5,12 +5,12 @@
 2. **Cryptographically Random `sessionId` Independent of Confirmation Code**:
    - `sessionId` is generated via CSPRNG (`generateRandomSessionId()`: 24 random bytes / 192 bits of entropy -> `^SESS_[0-9a-f]{48}$`, 53 chars total) and is completely independent of the short 12-char confirmation code (`pairingCode`).
    - The Laptop encodes `GOLZAR_P2P_V2:<sessionId>:<pairingCode>:<laptopDeviceId>` into its single-use, short-TTL QR Code.
-3. **Definitive Connection Pattern & Atomic `peerUid` Locking (Laptop Initiator -> Phone Approver)**:
-   - Laptop (`pc-companion`) creates the ephemeral session (`hostUid == request.auth.uid`) and displays the QR Code (no camera required on Laptop).
-   - Phone (`phone-primary`) scans the QR Code and executes `claimAndInspectSignalingSession` inside a **Firestore Transaction (`runTransaction`)**, which atomically verifies the SHA-256 digest and locks `peerUid = request.auth.uid` and `status = 'waiting-for-peer'` on the document before displaying the approval prompt.
-   - Because `peerUid` is locked atomically upon scan, no third device can hijack the session while the Phone user inspects and approves the connection request.
-   - If the Phone rejects the request, `rejectSignalingSession` immediately sets `status: 'closed'` and deletes the session document, terminating the Laptop's waiting session.
-   - If the Phone approves, `submitSignalingAnswer` (also transactional) writes `answerSdp`.
+3. **Bidirectional Host/Peer Connection Pattern, Atomic `peerUid` Locking & Mandatory Phone Approval**:
+   - Either device (Laptop or Phone) can initiate the ephemeral session as `Host` (`hostUid == request.auth.uid`), displaying a single-use QR Code (`GOLZAR_P2P_V2:<sessionId>:<pairingCode>:<hostDeviceId>`) and short confirmation code, while the second device joins as `Peer` (`peerUid == request.auth.uid`).
+   - The `Peer` device executes `claimAndInspectSignalingSession` inside a **Firestore Transaction (`runTransaction`)**, which atomically verifies the SHA-256 digest and locks `peerUid = request.auth.uid` and `status = 'waiting-for-peer'` on the document.
+   - Because `peerUid` is locked atomically upon scan, no third device can hijack the session.
+   - **Phone Approval Invariant**: Regardless of which device initiated the session (`Host` or `Peer`), final connection approval is strictly performed on the Phone (`phone-primary`). If Laptop is `Host`, Phone scans and displays the approval prompt before sending its SDP Answer. If Phone is `Host`, Laptop scans and sends its SDP Answer, and Phone pauses (`onPhoneApprovalRequired`) to require explicit user approval on the Phone before applying the remote Answer and opening the DataChannel.
+   - If the Phone rejects the request, `rejectSignalingSession` immediately sets `status: 'closed'` and deletes the session document, terminating the waiting session.
    - The signaling document in Firestore is deleted only **after** `HELLO_HANDSHAKE` is received over the open `RTCDataChannel` (ensuring Offer, Answer, and ICE candidates have completed).
 4. **Mandatory Anonymous Authentication & Write-Once Session Ownership (`hostUid` / `peerUid`)**:
    - Every signaling operation strictly requires `request.auth != null` (Anonymous Authentication) with zero unauthenticated fallback.

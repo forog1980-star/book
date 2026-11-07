@@ -1,0 +1,14 @@
+28e30d80a84a51f68f36725d78f4927165a39d76a323b1e04aab6f4d1ec4a675  .recovery-point-step6-pre-bidirectional-host/src/modules/device-sync/DeviceSyncPanel.tsx
+6cedd77558635358ef080030554c25fd6dd77c900a7f5c7e9fb369f8c70a3e43  .recovery-point-step6-pre-bidirectional-host/src/modules/device-sync/conflictResolver.ts
+e158f6683cc8c3ac5468da0efb9fd43d35b1ce5c9a90a68e9b351ffd4fc010c5  .recovery-point-step6-pre-bidirectional-host/src/modules/device-sync/index.ts
+3d3c988846f9a945c9e907bd42c1c8c82f79c4ab0122eb3cccdf66f9b34bc798  .recovery-point-step6-pre-bidirectional-host/src/modules/device-sync/pairingService.ts
+58da373cdd8cac6d088a4a59380ba2820cf0dc42da22517fb7ea867d94c7b9f9  .recovery-point-step6-pre-bidirectional-host/src/modules/device-sync/peerConnection.ts
+76ac00463ab46e7eed0b9c1a624b644a1353bdb9323cfb552ab43822325f3adb  .recovery-point-step6-pre-bidirectional-host/src/modules/device-sync/signalingService.ts
+3aaa7d29eb9ac8915982193b6485a906d2cf06b7a1bccb774a2443f9dd6abad1  .recovery-point-step6-pre-bidirectional-host/src/modules/device-sync/syncEngine.ts
+2bd96300819c52b051c7a01052aef270c8d598a1dde9547e33358efa7fa42007  .recovery-point-step6-pre-bidirectional-host/src/modules/device-sync/syncStorage.ts
+25512611b849c842bff19410918fe2d093e69a308258860b40196db2891e045d  .recovery-point-step6-pre-bidirectional-host/src/modules/device-sync/transferProtocol.ts
+c83ba5f69872f77ffcfbed195589ca847f782477f267756291463163006d3bb5  .recovery-point-step6-pre-bidirectional-host/src/modules/device-sync/types.ts
+567edaa3631cc0690c950f266522a9b06e17290d98737770f2630443b02d789c  .recovery-point-step6-pre-bidirectional-host/firestore.rules
+1f4313cbff7db88561042c51fe50683c46747421aa8e7a493068c740d0909dd5  .recovery-point-step6-pre-bidirectional-host/firebase-blueprint.json
+a5e0ce8ec34a8e2eed06aff7999cbfdf29e8582b12f997315c225e4da1fd0faf  .recovery-point-step6-pre-bidirectional-host/security_spec.md
+a733c3f6d57b3344f7c144e842eb2408f2d3d033ae51992472522feeb8592ec0  .recovery-point-step6-pre-bidirectional-host/DEVICE_SYNC_SECURITY_AUDIT_AND_FIX_REPORT.md

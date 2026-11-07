@@ -88,7 +88,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
   const [localRole, setLocalRole] = useState<DeviceSyncRole>(() => getSavedDeviceRole());
   const [status, setStatus] = useState<ConnectionUiStatus>('ready');
   const [statusMessage, setStatusMessage] = useState<string>(
-    'آماده اتصال مستقیم بین لپ‌تاپ (آغازگر نشست) و گوشی اصلی (اسکن‌کننده QR و تأییدکننده نهایی اتصال).'
+    'آماده اتصال مستقیم: شروع نشست از هر دو طرف (میزبان / Peer) امکان‌پذیر است و تأیید نهایی اتصال و مرجعیت داده‌ها همواره با گوشی اصلی است.'
   );
 
   // وضعیت نشست آغازشده در لپ‌تاپ (حاوی sessionId تصادفی مستقل از کد تأیید و QR یک‌بارمصرف)
@@ -367,6 +367,10 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
       onSignalCleanedUp: (cleanedSessionId) => {
         setSignalingCleanedSessionId(cleanedSessionId);
       },
+      onPhoneApprovalRequired: (approvalReq) => {
+        // زمانی که گوشی میزبان (Host) است و لپ‌تاپ به نشست پیوسته است، کادر تأیید نهایی روی گوشی نمایش داده می‌شود
+        setPendingPhoneApproval(approvalReq);
+      },
     });
     sessionManagerRef.current = mgr;
 
@@ -384,7 +388,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     }
   };
 
-  // گام ۱ و ۲ (در لپ‌تاپ): انتخاب «اتصال به گوشی»، ایجاد نشست موقت با sessionId تصادفی و نمایش QR Code
+  // گام ۱ و ۲ (نقش میزبان / Host در هر یک از دو دستگاه): ایجاد نشست موقت با sessionId تصادفی ۱۹۲ بیتی و نمایش QR Code
   const handleStartLaptopSession = async () => {
     try {
       setSignalingCleanedSessionId('');
@@ -398,17 +402,17 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setStatus('connection-error');
-      setStatusMessage(`خطا در ایجاد نشست امن لپ‌تاپ: ${msg}`);
+      setStatusMessage(`خطا در ایجاد نشست امن: ${msg}`);
     }
   };
 
-  // گام ۳ و ۴ (در گوشی): اسکن یا ورود رشته QR لپ‌تاپ و نمایش مشخصات لپ‌تاپ جهت تأیید کاربر روی گوشی
+  // گام ۳ و ۴ (نقش Peer): اسکن یا ورود رشته QR دستگاه میزبان؛ اگر این دستگاه گوشی است کادر تأیید نهایی نمایش داده می‌شود، و اگر لپ‌تاپ است درخواست به گوشی ارسال می‌گردد تا روی گوشی تأیید شود
   const handleInspectScannedQrOnPhone = useCallback(
     async (rawQrText: string) => {
       const cleaned = String(rawQrText || '').trim();
       if (!cleaned) {
         setStatus('connection-error');
-        setStatusMessage('لطفاً ابتدا QR Code نمایش‌داده‌شده در لپ‌تاپ را با دوربین گوشی اسکن کنید.');
+        setStatusMessage('لطفاً ابتدا QR Code نمایش‌داده‌شده در دستگاه میزبان را اسکن یا وارد کنید.');
         return;
       }
       try {
@@ -418,13 +422,20 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         setSessionReceivedRecordsCount(0);
         if (sessionManagerRef.current) {
           const approvalReq = await sessionManagerRef.current.inspectLaptopQrOnPhone(cleaned);
-          setPendingPhoneApproval(approvalReq);
+          if (roleRef.current === 'pc-companion') {
+            // اگر گوشی میزبان بوده و لپ‌تاپ توکن QR گوشی را وارد کرده است، لپ‌تاپ پاسخ WebRTC را می‌فرستد و منتظر تأیید نهایی کاربر روی گوشی می‌ماند
+            setPendingPhoneApproval(null);
+            await sessionManagerRef.current.approvePendingSessionOnPhone();
+          } else {
+            // اگر لپ‌تاپ میزبان بوده و گوشی QR را اسکن کرده است، کادر تأیید نهایی روی گوشی نمایش داده می‌شود
+            setPendingPhoneApproval(approvalReq);
+          }
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setPendingPhoneApproval(null);
         setStatus('connection-error');
-        setStatusMessage(`خطا در بررسی QR لپ‌تاپ: ${msg}`);
+        setStatusMessage(`خطا در بررسی QR نشست: ${msg}`);
       }
     },
     [stopCameraScanner]
@@ -718,7 +729,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
             </h2>
           </div>
           <p className="text-xs text-[#6E5849] leading-relaxed">
-            اصل بنیادین: گوشی مرجع اصلی و صاحب اختیار نهایی داده‌های کتابخانه است و لپ‌تاپ دستگاه همراه برای جست‌وجو، ورود و ویرایش اطلاعات است. لپ‌تاپ نشست را آغاز و QR Code تولید می‌کند؛ گوشی با دوربین QR را اسکن کرده و پس از تأیید صریح کاربر روی گوشی، همگام‌سازی دوطرفه در همان نشست انجام می‌شود.
+            اصل بنیادین: گوشی مرجع اصلی و صاحب اختیار نهایی داده‌های کتابخانه است و لپ‌تاپ دستگاه همراه برای جست‌وجو، ورود و ویرایش اطلاعات است. شروع نشست اتصال از هر دو دستگاه امکان‌پذیر است (دستگاه شروع‌کننده نقش میزبان/Host و نمایش‌دهنده QR Code، و دستگاه دوم نقش Peer و اسکن‌کننده QR را می‌گیرد)، اما تأیید نهایی اتصال و مرجعیت داده‌ها در هر دو حالت منحصراً با گوشی اصلی است.
           </p>
         </div>
 
@@ -817,7 +828,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                     localRole === 'phone-primary' ? 'text-amber-100' : 'text-[#6E5849]'
                   }`}
                 >
-                  صاحب کلید تأیید اتصال (اسکن QR لپ‌تاپ) و صاحب اختیار نهایی داده‌ها
+                  صاحب کلید تأیید نهایی اتصال و مرجع نهایی داده‌های کتابخانه
                 </div>
               </div>
             </button>
@@ -833,13 +844,13 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
             >
               <Laptop className="w-4 h-4 mt-0.5 shrink-0" />
               <div className="min-w-0">
-                <div className="text-xs font-bold">لپ‌تاپ (آغازگر اتصال و مکمل کاری)</div>
+                <div className="text-xs font-bold">لپ‌تاپ (دستگاه همراه و مکمل کاری)</div>
                 <div
                   className={`text-[10px] mt-0.5 leading-snug ${
                     localRole === 'pc-companion' ? 'text-amber-100' : 'text-[#6E5849]'
                   }`}
                 >
-                  ایجادکننده نشست موقت و نمایش‌دهنده QR Code (بدون نیاز به دوربین)
+                  محیط مکمل برای جست‌وجو، ورود و ویرایش اطلاعات (تأیید نهایی با گوشی)
                 </div>
               </div>
             </button>
@@ -880,22 +891,22 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         </div>
       </div>
 
-      {/* الگوی قطعی اتصال (بخش ۲ دستور نهایی): لپ‌تاپ آغازگر (تولید QR) -> گوشی اسکن‌کننده و تأییدکننده */}
+      {/* الگوی اتصال دوطرفه (بخش ۳ دستور نهایی): شروع نشست از هر یک از دو دستگاه (Host) و پیوستن دستگاه دوم (Peer) با تأیید نهایی روی گوشی */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* کارت ۱: لپ‌تاپ آغازگر اتصال (ایجاد نشست موقت و نمایش QR Code) */}
+        {/* کارت ۱: آغاز نشست از این دستگاه (نقش میزبان / Host — تولید QR Code و کد کوتاه) */}
         <div className="rounded-2xl border-2 border-[#E6D5C1] bg-white p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-xs sm:text-sm font-bold text-[#332218] flex items-center gap-1.5">
-              <Laptop className="w-4 h-4 text-[#8C3B2B]" />
-              <span>۱. در لپ‌تاپ: «اتصال به گوشی» (ایجاد نشست و نمایش QR Code)</span>
+              <QrCode className="w-4 h-4 text-[#8C3B2B]" />
+              <span>۱. آغاز نشست از این دستگاه (ایجاد نشست موقت و نمایش QR Code)</span>
             </h3>
             <span className="text-[10px] px-2 py-0.5 rounded-md bg-[#FDF8F2] border border-[#E6D5C1] text-[#8C3B2B] font-bold">
-              لپ‌تاپ آغازگر
+              نقش میزبان (Host)
             </span>
           </div>
 
           <p className="text-xs text-[#6E5849] leading-relaxed">
-            در لپ‌تاپ دکمه «اتصال به گوشی» را بزنید تا یک نشست موقت و یک‌بارمصرف ایجاد شده و QR Code آن روی صفحه لپ‌تاپ نمایش داده شود (لپ‌تاپ نیازی به دوربین ندارد).
+            هر یک از دو دستگاه (لپ‌تاپ یا گوشی) می‌تواند نشست را آغاز کند. با زدن دکمه زیر، یک نشست موقت ۱۰ دقیقه‌ای با شناسه تصادفی ۱۹۲ بیتی ایجاد شده و QR Code و کد کوتاه تأیید نمایش داده می‌شود.
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -906,7 +917,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               className="px-3.5 py-2 rounded-xl bg-[#8C3B2B] hover:bg-[#702D20] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
               <QrCode className="w-3.5 h-3.5" />
-              <span>اتصال به گوشی (تولید QR Code نشست امن)</span>
+              <span>آغاز نشست امن و تولید QR Code</span>
             </button>
 
             {(status === 'pairing' || status === 'connecting') && laptopSessionCreds && (
@@ -933,7 +944,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                   level="M"
                 />
                 <span className="text-[11px] font-bold text-[#332218]">
-                  این QR Code را با دوربین گوشی اصلی اسکن کرده و روی گوشی تأیید کنید
+                  این QR Code را در دستگاه مقابل اسکن کنید (تأیید نهایی اتصال همواره روی گوشی انجام می‌شود)
                 </span>
               </div>
 
@@ -961,7 +972,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
 
               <div className="flex items-center justify-between gap-2 pt-1">
                 <span className="text-[10px] text-[#6E5849]">
-                  یک‌بارمصرف و زمان‌دار (۱۰ دقیقه) · در انتظار اسکن و تأیید گوشی
+                  یک‌بارمصرف و زمان‌دار (۱۰ دقیقه) · در انتظار پیوستن دستگاه مقابل و تأیید گوشی
                 </span>
                 <button
                   type="button"
@@ -982,20 +993,20 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           )}
         </div>
 
-        {/* کارت ۲: گوشی اسکن‌کننده QR و تأییدکننده نهایی اتصال */}
+        {/* کارت ۲: پیوستن به نشست دستگاه مقابل (نقش Peer) و تأیید صریح اتصال روی گوشی */}
         <div className="rounded-2xl border-2 border-[#E6D5C1] bg-white p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-xs sm:text-sm font-bold text-[#332218] flex items-center gap-1.5">
               <Smartphone className="w-4 h-4 text-[#2E6F40]" />
-              <span>۲. در گوشی: اسکن QR Code لپ‌تاپ و تأیید صریح اتصال</span>
+              <span>۲. پیوستن به نشست دستگاه مقابل (اسکن QR) و تأیید نهایی روی گوشی</span>
             </h3>
             <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-[#2E6F40] font-bold">
-              گوشی تأییدکننده
+              نقش Peer / تأیید گوشی
             </span>
           </div>
 
           <p className="text-xs text-[#6E5849] leading-relaxed">
-            گوشی صاحب کلید تأیید اتصال است. QR Code نمایش‌داده‌شده در لپ‌تاپ را با دوربین گوشی اسکن کنید؛ سپس مشخصات لپ‌تاپ را دیده و اتصال را تأیید یا رد نمایید.
+            QR Code نمایش‌داده‌شده در دستگاه میزبان را با دوربین اسکن کنید یا توکن آن را در کادر زیر وارد نمایید. مستقل از اینکه کدام دستگاه نشست را آغاز کرده باشد، تأیید صریح اتصال روی گوشی انجام می‌شود.
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -1007,7 +1018,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                 className="px-3.5 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <Camera className="w-3.5 h-3.5" />
-                <span>اسکن QR Code لپ‌تاپ با دوربین گوشی</span>
+                <span>اسکن QR Code با دوربین</span>
               </button>
             ) : (
               <button
@@ -1030,7 +1041,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                 className="w-full max-h-52 rounded-lg object-cover bg-black mx-auto"
               />
               <p className="text-[11px] text-amber-100">
-                دوربین گوشی را مقابل QR Code نمایش‌داده‌شده در صفحه لپ‌تاپ قرار دهید...
+                دوربین را مقابل QR Code نمایش‌داده‌شده در دستگاه مقابل قرار دهید...
               </p>
             </div>
           )}
@@ -1050,7 +1061,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               value={scannedQrInput}
               onChange={(e) => setScannedQrInput(e.target.value)}
               placeholder="GOLZAR_P2P_V2:SESS_..."
-              aria-label="ورود یا جای‌گذاری توکن QR لپ‌تاپ در گوشی"
+              aria-label="ورود یا جای‌گذاری توکن QR نشست"
               className="flex-1 px-3 py-2 rounded-xl border border-[#D9C2A7] bg-[#FDF8F2] font-mono text-xs font-bold text-center text-[#332218] focus:outline-none focus:border-[#8C3B2B]"
             />
             <button
@@ -1060,7 +1071,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               className="px-3.5 py-2 rounded-xl bg-[#FDF8F2] hover:bg-amber-100/70 text-[#8C3B2B] border border-[#D9C2A7] text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
             >
               <QrCode className="w-3.5 h-3.5" />
-              <span>بررسی نشست لپ‌تاپ</span>
+              <span>بررسی و پیوستن به نشست</span>
             </button>
           </div>
 
@@ -1079,12 +1090,8 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
 
               <div className="rounded-lg bg-white border border-emerald-200 p-2.5 space-y-1 text-xs text-[#332218]">
                 <div>
-                  دستگاه درخواست‌کننده:{' '}
-                  <strong>
-                    {pendingPhoneApproval.hostDeviceRole === 'pc-companion'
-                      ? 'لپ‌تاپ (دستگاه همراه کاری)'
-                      : 'دستگاه مقابل'}
-                  </strong>
+                  دستگاه همراه متصل‌شونده:{' '}
+                  <strong>لپ‌تاپ (دستگاه همراه کاری)</strong>
                 </div>
                 <div>
                   شناسه دستگاه لپ‌تاپ:{' '}
