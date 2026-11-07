@@ -10,6 +10,7 @@ import {
 import {
   buildResolvedEnvelopeFromConflict,
   canonicalizeRecordData,
+  mergeComplementaryFields,
 } from './conflictResolver';
 import { computeDeterministicHash, generateCryptoRandomToken } from './pairingService';
 import {
@@ -308,8 +309,261 @@ export function createSyncTransferPackage(params: {
   };
 }
 
+function normalizeDataKeyText(val: unknown): string {
+  if (val === null || val === undefined) return '';
+  return String(val)
+    .trim()
+    .replace(/ي/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/[\u200B-\u200D\uFEFF]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function isMeaningfulField(val: unknown): boolean {
+  if (val === null || val === undefined) return false;
+  if (typeof val === 'string') {
+    const t = val.trim();
+    return (
+      t !== '' &&
+      t !== '—' &&
+      t !== '-' &&
+      t !== 'UNSET' &&
+      t !== 'unchecked' &&
+      t !== 'نامشخص' &&
+      t !== 'بدون کد قفسه'
+    );
+  }
+  if (Array.isArray(val)) return val.length > 0;
+  return true;
+}
+
+const IGNORED_CONFLICT_COMPARE_KEYS = new Set([
+  'key',
+  'updatedAt',
+  'updatedAtMs',
+  '_updatedAt',
+  'auditDate',
+  'createdAt',
+  'lastReviewedAt',
+]);
+
 /**
- * تحلیل بسته دریافتی و دسته‌بندی تغییرات همراه با تشخیص Replay بسته تکراری
+ * بررسی امکان ادغام خودکار فیلدهای مکمل دو رکورد:
+ * اگر هیچ فیلد معناداری در دو رکورد دارای دو مقدار غیرخالی و متضاد نباشد،
+ * فیلدهای خالی هر طرف با مقادیر پرشده طرف مقابل تکمیل می‌شوند (hasConflict = false).
+ * اگر حتی یک فیلد معنادار در هر دو رکورد مقدار غیرخالی و متفاوت داشته باشد،
+ * hasConflict = true برگردانده می‌شود تا تعارض ثبت گردد و هیچ نسخه‌ای بی‌صدا بازنویسی نشود.
+ */
+export function tryAutoMergeNonConflictingData<T = unknown>(
+  localData: T,
+  incomingData: T
+): { hasConflict: boolean; mergedData: T; conflictingFields: string[] } {
+  if (
+    !localData ||
+    typeof localData !== 'object' ||
+    !incomingData ||
+    typeof incomingData !== 'object'
+  ) {
+    return {
+      hasConflict: localData !== incomingData,
+      mergedData: localData,
+      conflictingFields: localData !== incomingData ? ['value'] : [],
+    };
+  }
+
+  const locObj = localData as Record<string, unknown>;
+  const incObj = incomingData as Record<string, unknown>;
+  const allKeys = new Set([...Object.keys(locObj), ...Object.keys(incObj)]);
+  const merged: Record<string, unknown> = { ...locObj };
+  const conflictingFields: string[] = [];
+
+  for (const k of allKeys) {
+    if (IGNORED_CONFLICT_COMPARE_KEYS.has(k)) continue;
+    const locVal = locObj[k];
+    const incVal = incObj[k];
+    const locHas = isMeaningfulField(locVal);
+    const incHas = isMeaningfulField(incVal);
+
+    if (!locHas && incHas) {
+      merged[k] = incVal;
+    } else if (locHas && !incHas) {
+      merged[k] = locVal;
+    } else if (locHas && incHas) {
+      const normLoc =
+        typeof locVal === 'object' ? JSON.stringify(locVal) : normalizeDataKeyText(locVal);
+      const normInc =
+        typeof incVal === 'object' ? JSON.stringify(incVal) : normalizeDataKeyText(incVal);
+      if (normLoc !== normInc) {
+        conflictingFields.push(k);
+      }
+    }
+  }
+
+  return {
+    hasConflict: conflictingFields.length > 0,
+    mergedData: merged as T,
+    conflictingFields,
+  };
+}
+
+/**
+ * شناسایی رکورد تکراری / متناظر در دستگاه مقصد بر اساس شناسه اصلی و کلیدهای واقعی داده
+ * (مانند tempBookId، copyId، شماره ثبت، شابک، یا ترکیب عنوان + نویسنده + ناشر)
+ */
+export function findMatchingLocalEnvelope(
+  incomingEnv: SyncRecordEnvelope,
+  localMap: Map<string, SyncRecordEnvelope>,
+  claimedCompKeys: Set<string>
+): { matchedCompKey: string; localEnv: SyncRecordEnvelope } | null {
+  const { collection, recordId } = incomingEnv.meta;
+  const exactCompKey = getCompositeKey(collection, recordId);
+  const exactMatch = localMap.get(exactCompKey);
+  if (exactMatch && !claimedCompKeys.has(exactCompKey)) {
+    return { matchedCompKey: exactCompKey, localEnv: exactMatch };
+  }
+
+  if (!incomingEnv.data || typeof incomingEnv.data !== 'object') {
+    return null;
+  }
+  const incObj = incomingEnv.data as Record<string, unknown>;
+
+  for (const [candCompKey, candEnv] of localMap.entries()) {
+    if (candEnv.meta.collection !== collection || claimedCompKeys.has(candCompKey)) {
+      continue;
+    }
+    if (!candEnv.data || typeof candEnv.data !== 'object') continue;
+    const locObj = candEnv.data as Record<string, unknown>;
+
+    if (collection === 'auditRecords') {
+      // ۱. تطابق بر اساس کلید درونی key یا bookId عددی/رشته‌ای
+      const incKey = normalizeDataKeyText(incObj.key || incObj.bookId);
+      const locKey = normalizeDataKeyText(locObj.key || locObj.bookId);
+      if (incKey && locKey && incKey === locKey) {
+        return { matchedCompKey: candCompKey, localEnv: candEnv };
+      }
+
+      // ۲. تطابق بر اساس شناسه نسخه فیزیکی (copyId) در صورتی که هر دو مشخص باشند
+      const incCopyId = normalizeDataKeyText(incObj.copyId);
+      const locCopyId = normalizeDataKeyText(locObj.copyId);
+      if (incCopyId && locCopyId && incCopyId === locCopyId) {
+        return { matchedCompKey: candCompKey, localEnv: candEnv };
+      }
+
+      // ۳. تطابق بر اساس شماره ثبت کتابخانه (registrationNo) غیرخالی
+      const incReg = normalizeDataKeyText(incObj.registrationNo);
+      const locReg = normalizeDataKeyText(locObj.registrationNo);
+      if (incReg && incReg.length >= 2 && locReg && incReg === locReg) {
+        return { matchedCompKey: candCompKey, localEnv: candEnv };
+      }
+
+      // ۴. تطابق بر اساس شناسه کتاب (tempBookId مانند BK-0001) وقتی copyId متضاد ندارند
+      const incTempId = normalizeDataKeyText(incObj.tempBookId);
+      const locTempId = normalizeDataKeyText(locObj.tempBookId);
+      if (
+        incTempId &&
+        locTempId &&
+        incTempId === locTempId &&
+        (!incCopyId || !locCopyId || incCopyId === locCopyId)
+      ) {
+        return { matchedCompKey: candCompKey, localEnv: candEnv };
+      }
+
+      // ۵. تطابق بر اساس شابک (ISBN) معتبر + عنوان هم‌نام
+      const incIsbn = normalizeDataKeyText(incObj.isbn).replace(/[^a-z0-9]/g, '');
+      const locIsbn = normalizeDataKeyText(locObj.isbn).replace(/[^a-z0-9]/g, '');
+      const incTitle = normalizeDataKeyText(incObj.title);
+      const locTitle = normalizeDataKeyText(locObj.title);
+      if (
+        incIsbn.length >= 6 &&
+        incIsbn === locIsbn &&
+        incTitle &&
+        incTitle === locTitle &&
+        (!incCopyId || !locCopyId || incCopyId === locCopyId)
+      ) {
+        return { matchedCompKey: candCompKey, localEnv: candEnv };
+      }
+
+      // ۶. تطابق بر اساس کلید ترکیبی واقعی کتاب: (عنوان + نویسنده + ناشر) وقتی عنوان غیرخالی است و شناسه متضادی ندارند
+      const incAuthor = normalizeDataKeyText(incObj.author);
+      const locAuthor = normalizeDataKeyText(locObj.author);
+      const incPub = normalizeDataKeyText(incObj.publisher);
+      const locPub = normalizeDataKeyText(locObj.publisher);
+      const hasConflictingIds =
+        (incTempId && locTempId && incTempId !== locTempId) ||
+        (incCopyId && locCopyId && incCopyId !== locCopyId) ||
+        (incReg && locReg && incReg !== locReg);
+
+      if (
+        !hasConflictingIds &&
+        incTitle &&
+        incTitle === locTitle &&
+        incAuthor === locAuthor &&
+        incPub === locPub
+      ) {
+        return { matchedCompKey: candCompKey, localEnv: candEnv };
+      }
+    } else if (collection === 'bookCopies') {
+      const incCopyId = normalizeDataKeyText(incObj.copyId);
+      const locCopyId = normalizeDataKeyText(locObj.copyId);
+      if (incCopyId && incCopyId === locCopyId) {
+        return { matchedCompKey: candCompKey, localEnv: candEnv };
+      }
+    } else if (collection === 'customMartyrs') {
+      const incExt = normalizeDataKeyText(incObj.externalSystemId);
+      const locExt = normalizeDataKeyText(locObj.externalSystemId);
+      if (incExt && incExt === locExt) {
+        return { matchedCompKey: candCompKey, localEnv: candEnv };
+      }
+      const incName = normalizeDataKeyText(incObj.fullName);
+      const locName = normalizeDataKeyText(locObj.fullName);
+      const incPiece = normalizeDataKeyText(incObj.gravePiece);
+      const locPiece = normalizeDataKeyText(locObj.gravePiece);
+      const incRow = normalizeDataKeyText(incObj.graveRow);
+      const locRow = normalizeDataKeyText(locObj.graveRow);
+      const incNum = normalizeDataKeyText(incObj.graveNumber);
+      const locNum = normalizeDataKeyText(locObj.graveNumber);
+      if (
+        incName &&
+        incName === locName &&
+        incPiece === locPiece &&
+        incRow === locRow &&
+        incNum === locNum &&
+        (incPiece !== '' || incNum !== '')
+      ) {
+        return { matchedCompKey: candCompKey, localEnv: candEnv };
+      }
+    } else if (collection === 'links') {
+      const incBook = normalizeDataKeyText(incObj.bookId || incObj.bookTitleRaw);
+      const locBook = normalizeDataKeyText(locObj.bookId || locObj.bookTitleRaw);
+      const incMartyr = normalizeDataKeyText(incObj.martyrId || incObj.martyrNameRaw);
+      const locMartyr = normalizeDataKeyText(locObj.martyrId || locObj.martyrNameRaw);
+      const incPage = normalizeDataKeyText(incObj.pageReference);
+      const locPage = normalizeDataKeyText(locObj.pageReference);
+      if (incBook && incMartyr && incBook === locBook && incMartyr === locMartyr && incPage === locPage) {
+        return { matchedCompKey: candCompKey, localEnv: candEnv };
+      }
+    } else if (collection === 'pendingReviews') {
+      const incBook = normalizeDataKeyText(incObj.bookId || incObj.bookTitle);
+      const locBook = normalizeDataKeyText(locObj.bookId || locObj.bookTitle);
+      const incPhrase = normalizeDataKeyText(incObj.nameOrPhrase);
+      const locPhrase = normalizeDataKeyText(locObj.nameOrPhrase);
+      const incPage = normalizeDataKeyText(incObj.pageNumber);
+      const locPage = normalizeDataKeyText(locObj.pageNumber);
+      if (incBook && incPhrase && incBook === locBook && incPhrase === locPhrase && incPage === locPage) {
+        return { matchedCompKey: candCompKey, localEnv: candEnv };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * تحلیل بسته دریافتی و دسته‌بندی تغییرات همراه با:
+ * ۱. تشخیص رکوردهای تکراری بر اساس شناسه و کلیدهای واقعی داده
+ * ۲. ادغام خودکار فیلدهای مکمل دو دستگاه بدون حذف اطلاعات
+ * ۳. ثبت دقیق تعارض‌ها در صورت وجود دو مقدار متفاوت برای یک فیلد
  */
 export function analyzeIncomingPackage(
   pkg: SyncTransferPackage,
@@ -338,19 +592,54 @@ export function analyzeIncomingPackage(
   const softDeleteItems: SyncDiffItem[] = [];
   const unchangedItems: SyncDiffItem[] = [];
   const conflicts: SyncConflictItem[] = [];
+  const claimedLocalCompKeys = new Set<string>();
 
-  for (const incomingEnv of pkg.envelopes) {
-    const { collection, recordId } = incomingEnv.meta;
-    const compKey = getCompositeKey(collection, recordId);
-    const localEnv = localMap.get(compKey);
-    const baselineChangeId = baselineMap[compKey];
+  for (const rawIncomingEnv of pkg.envelopes) {
+    const { collection } = rawIncomingEnv.meta;
+    const match = findMatchingLocalEnvelope(rawIncomingEnv, localMap, claimedLocalCompKeys);
+
+    // اگر رکورد متناظری بر اساس کلید اصلی یا کلید واقعی داده در مقصد پیدا شد، کلید مقصد حفظ می‌شود تا رکورد تکراری ایجاد نگردد
+    const effectiveRecordId = match ? match.localEnv.meta.recordId : rawIncomingEnv.meta.recordId;
+    const compKey = getCompositeKey(collection, effectiveRecordId);
+    if (match) {
+      claimedLocalCompKeys.add(match.matchedCompKey);
+    }
+
+    const localEnv = match ? match.localEnv : undefined;
+    const normalizedData =
+      effectiveRecordId !== rawIncomingEnv.meta.recordId &&
+      collection === 'auditRecords' &&
+      rawIncomingEnv.data &&
+      typeof rawIncomingEnv.data === 'object'
+        ? { ...(rawIncomingEnv.data as Record<string, unknown>), key: effectiveRecordId }
+        : rawIncomingEnv.data;
+    const incomingCanonical = canonicalizeRecordData(normalizedData);
+    const normalizedIncomingChangeId = computeDeterministicHash(
+      `${collection}:${effectiveRecordId}:${incomingCanonical}`
+    );
+    const incomingEnv: SyncRecordEnvelope =
+      effectiveRecordId === rawIncomingEnv.meta.recordId
+        ? rawIncomingEnv
+        : {
+            ...rawIncomingEnv,
+            meta: {
+              ...rawIncomingEnv.meta,
+              recordId: effectiveRecordId,
+              changeId: normalizedIncomingChangeId,
+            },
+            data: normalizedData,
+          };
+
+    const baselineChangeId =
+      baselineMap[compKey] ||
+      baselineMap[getCompositeKey(collection, rawIncomingEnv.meta.recordId)];
 
     // ۱. اگر رکورد در دستگاه گیرنده وجود ندارد (یا قبلاً حذف نرم شده است)
     if (!localEnv || localEnv.meta.softDeleted) {
       if (incomingEnv.meta.softDeleted) {
         unchangedItems.push({
           collection,
-          recordId,
+          recordId: effectiveRecordId,
           titleSummary: incomingEnv.titleSummary,
           changeType: 'unchanged',
           incomingEnvelope: incomingEnv,
@@ -359,7 +648,7 @@ export function analyzeIncomingPackage(
       } else {
         newItems.push({
           collection,
-          recordId,
+          recordId: effectiveRecordId,
           titleSummary: incomingEnv.titleSummary,
           changeType: 'new',
           incomingEnvelope: incomingEnv,
@@ -368,14 +657,14 @@ export function analyzeIncomingPackage(
       continue;
     }
 
-    // ۲. اگر رکورد دریافتی و رکورد محلی دقیقاً یکسان هستند (تضمین Idempotency)
+    // ۲. اگر رکورد دریافتی و رکورد محلی از نظر محتوای کانونیکال یکسان هستند (تکراری / مشترک بدون تغییر)
     if (
       localEnv.meta.changeId === incomingEnv.meta.changeId &&
       Boolean(localEnv.meta.softDeleted) === Boolean(incomingEnv.meta.softDeleted)
     ) {
       unchangedItems.push({
         collection,
-        recordId,
+        recordId: effectiveRecordId,
         titleSummary: incomingEnv.titleSummary,
         changeType: 'unchanged',
         incomingEnvelope: incomingEnv,
@@ -384,54 +673,120 @@ export function analyzeIncomingPackage(
       continue;
     }
 
-    // ۳. اگر رکورد دریافتی درخواست حذف نرم (Soft-Delete) دارد
+    // ۳. اگر رکورد دریافتی نشانگر حذف نرم دارد:
+    // طبق اصل حفظ اطلاعات (بخش ۳ دستور)، هیچ رکورد فعالی صرفاً به دلیل همگام‌سازی حذف نمی‌شود
     if (incomingEnv.meta.softDeleted) {
-      if (baselineChangeId && localEnv.meta.changeId === baselineChangeId) {
-        softDeleteItems.push({
+      unchangedItems.push({
+        collection,
+        recordId: effectiveRecordId,
+        titleSummary: localEnv.titleSummary || incomingEnv.titleSummary,
+        changeType: 'unchanged',
+        incomingEnvelope: localEnv,
+        localEnvelope: localEnv,
+      });
+      continue;
+    }
+
+    // ۴. اگر دستگاه فرستنده همان نسخه خط مبنا (Baseline) را فرستاده و دستگاه گیرنده نسخه جدیدتری دارد:
+    // نسخه جدیدتر محلی حفظ می‌شود و تعارض کاذب ثبت نمی‌گردد
+    if (baselineChangeId && incomingEnv.meta.changeId === baselineChangeId) {
+      unchangedItems.push({
+        collection,
+        recordId: effectiveRecordId,
+        titleSummary: localEnv.titleSummary,
+        changeType: 'unchanged',
+        incomingEnvelope: localEnv,
+        localEnvelope: localEnv,
+      });
+      continue;
+    }
+
+    // ۵. اگر دستگاه گیرنده نسبت به خط مبنا تغییر نکرده و فقط دستگاه فرستنده رکورد را ویرایش کرده است:
+    if (baselineChangeId && localEnv.meta.changeId === baselineChangeId) {
+      const mergedData = mergeComplementaryFields(incomingEnv.data, localEnv.data);
+      const mergedCanonical = canonicalizeRecordData(mergedData);
+      const mergedChangeId = computeDeterministicHash(
+        `${collection}:${effectiveRecordId}:${mergedCanonical}`
+      );
+      const mergedEnvelope: SyncRecordEnvelope = {
+        ...incomingEnv,
+        meta: {
+          ...incomingEnv.meta,
+          recordId: effectiveRecordId,
+          changeId: mergedChangeId,
+        },
+        data: mergedData,
+      };
+      modifiedItems.push({
+        collection,
+        recordId: effectiveRecordId,
+        titleSummary: incomingEnv.titleSummary,
+        changeType: 'modified',
+        incomingEnvelope: mergedEnvelope,
+        localEnvelope: localEnv,
+      });
+      continue;
+    }
+
+    // ۶. بررسی ادغام خودکار فیلدهای مکمل (وقتی یک طرف فقط فیلدهای خالی طرف دیگر را تکمیل کرده و تضادی وجود ندارد)
+    const autoMergeCheck = tryAutoMergeNonConflictingData(localEnv.data, incomingEnv.data);
+    if (!autoMergeCheck.hasConflict) {
+      const mergedCanonical = canonicalizeRecordData(autoMergeCheck.mergedData);
+      const mergedChangeId = computeDeterministicHash(
+        `${collection}:${effectiveRecordId}:${mergedCanonical}`
+      );
+      if (mergedChangeId === localEnv.meta.changeId) {
+        unchangedItems.push({
           collection,
-          recordId,
-          titleSummary: incomingEnv.titleSummary,
-          changeType: 'soft-delete',
-          incomingEnvelope: incomingEnv,
+          recordId: effectiveRecordId,
+          titleSummary: localEnv.titleSummary,
+          changeType: 'unchanged',
+          incomingEnvelope: localEnv,
           localEnvelope: localEnv,
         });
       } else {
-        const phoneEnv = localRole === 'phone-primary' ? localEnv : incomingEnv;
-        const pcEnv = localRole === 'pc-companion' ? localEnv : incomingEnv;
-        conflicts.push({
-          conflictId: `CONF_${compKey}`,
+        const mergedEnv: SyncRecordEnvelope = {
+          meta: {
+            ...localEnv.meta,
+            recordId: effectiveRecordId,
+            updatedAtMs: Math.max(
+              localEnv.meta.updatedAtMs || 0,
+              incomingEnv.meta.updatedAtMs || 0,
+              Date.now()
+            ),
+            revision:
+              Math.max(localEnv.meta.revision || 1, incomingEnv.meta.revision || 1) + 1,
+            changeId: mergedChangeId,
+            lastModifiedByDevice: incomingEnv.meta.lastModifiedByDevice,
+            lastModifiedRole: incomingEnv.meta.lastModifiedRole,
+            softDeleted: false,
+          },
+          titleSummary: incomingEnv.titleSummary || localEnv.titleSummary,
+          data: autoMergeCheck.mergedData,
+        };
+        modifiedItems.push({
           collection,
-          recordId,
-          titleSummary: incomingEnv.titleSummary,
-          phoneEnvelope: phoneEnv,
-          pcEnvelope: pcEnv,
+          recordId: effectiveRecordId,
+          titleSummary: mergedEnv.titleSummary,
+          changeType: 'modified',
+          incomingEnvelope: mergedEnv,
+          localEnvelope: localEnv,
         });
       }
       continue;
     }
 
-    // ۴. هر دو دستگاه نسخه فعالی از این رکورد دارند اما محتوایشان متفاوت است
-    if (baselineChangeId && localEnv.meta.changeId === baselineChangeId) {
-      modifiedItems.push({
-        collection,
-        recordId,
-        titleSummary: incomingEnv.titleSummary,
-        changeType: 'modified',
-        incomingEnvelope: incomingEnv,
-        localEnvelope: localEnv,
-      });
-    } else {
-      const phoneEnv = localRole === 'phone-primary' ? localEnv : incomingEnv;
-      const pcEnv = localRole === 'pc-companion' ? localEnv : incomingEnv;
-      conflicts.push({
-        conflictId: `CONF_${compKey}`,
-        collection,
-        recordId,
-        titleSummary: incomingEnv.titleSummary || localEnv.titleSummary,
-        phoneEnvelope: phoneEnv,
-        pcEnvelope: pcEnv,
-      });
-    }
+    // ۷. وجود تفاوت واقعی در یک یا چند فیلد پرشده در هر دو دستگاه -> ثبت در تعارض‌ها بدون حذف هیچ‌یک از دو نسخه
+    const phoneEnv = localRole === 'phone-primary' ? localEnv : incomingEnv;
+    const pcEnv = localRole === 'pc-companion' ? localEnv : incomingEnv;
+    conflicts.push({
+      conflictId: `CONF_${compKey}`,
+      collection,
+      recordId: effectiveRecordId,
+      titleSummary: incomingEnv.titleSummary || localEnv.titleSummary,
+      phoneEnvelope: phoneEnv,
+      pcEnvelope: pcEnv,
+    });
   }
 
   return {
@@ -450,20 +805,25 @@ export function analyzeIncomingPackage(
 }
 
 /**
- * اعمال تغییرات تأییدشده توسط کاربر روی داده‌های محلی دستگاه
- * (با رعایت کامل عدم حذف فیزیکی خودکار، حفظ کامل سایر رکوردها، و ثبت خط مبنای همگام‌سازی)
+ * اعمال تغییرات بسته دریافتی روی داده‌های محلی دستگاه مقصد:
+ * - هیچ رکورد فعالی صرفاً به دلیل اتصال یا همگام‌سازی حذف نمی‌شود
+ * - رکوردهای جدید اضافه می‌شوند، تغییرات غیرمتعارض ادغام می‌گردند، و در تعارض‌ها نسخه مرجع حفظ شده و وضعیت تعارض ثبت می‌شود
+ * - خط مبنا (Baseline) در دستگاه مقصد پس از اعمال موفق به‌روزرسانی می‌شود
  */
 export function applyApprovedSyncReport(
   report: SyncPreviewReport,
   currentDataset: OperationalSyncDataset,
   localDeviceId: string,
-  localRole: DeviceSyncRole
+  localRole: DeviceSyncRole,
+  options?: { allowSoftDeleteRemoval?: boolean }
 ): {
   nextDataset: OperationalSyncDataset;
   appliedNewCount: number;
   appliedModifiedCount: number;
   appliedSoftDeleteCount: number;
   resolvedConflictCount: number;
+  unresolvedConflictCount: number;
+  unchangedCount: number;
 } {
   const nextAudit: Record<string, FieldAuditRecord> = { ...(currentDataset.auditRecords || {}) };
   const nextCopiesMap = new Map<string, BookCopyRecord>(
@@ -482,7 +842,7 @@ export function applyApprovedSyncReport(
   const metaMap = loadRecordMetaMap();
   const baselineMap = loadBaselineChangeMap();
 
-  const applySingleEnvelope = (env: SyncRecordEnvelope) => {
+  const applySingleEnvelope = (env: SyncRecordEnvelope, updateBaseline = true) => {
     const { collection, recordId } = env.meta;
     const compKey = getCompositeKey(collection, recordId);
 
@@ -491,7 +851,9 @@ export function applyApprovedSyncReport(
       softDeleted: false,
       deletedAtMs: undefined,
     };
-    baselineMap[compKey] = env.meta.changeId;
+    if (updateBaseline) {
+      baselineMap[compKey] = env.meta.changeId;
+    }
 
     if (collection === 'auditRecords') {
       const rec = env.data as FieldAuditRecord;
@@ -513,52 +875,65 @@ export function applyApprovedSyncReport(
 
   // ۱. اعمال رکوردهای جدید
   for (const item of report.newItems) {
-    applySingleEnvelope(item.incomingEnvelope);
+    applySingleEnvelope(item.incomingEnvelope, true);
   }
 
-  // ۲. اعمال رکوردهای ویرایش‌شده بدون تعارض
+  // ۲. اعمال رکوردهای ویرایش‌شده / ادغام‌شده بدون تعارض
   for (const item of report.modifiedItems) {
-    applySingleEnvelope(item.incomingEnvelope);
+    applySingleEnvelope(item.incomingEnvelope, true);
   }
 
-  // ۳. اعمال رکوردهای بدون تغییر در خط مبنا
+  // ۳. ثبت رکوردهای مشترک / تکراری بدون تغییر در خط مبنا
   for (const item of report.unchangedItems) {
     const compKey = getCompositeKey(item.collection, item.recordId);
     baselineMap[compKey] = item.incomingEnvelope.meta.changeId;
   }
 
-  // ۴. اعمال حذف نرم (انتقال به بایگانی قابل بازیابی، بدون حذف فیزیکی غیرقابل بازگشت)
-  for (const item of report.softDeleteItems) {
-    if (item.localEnvelope) {
-      markRecordSoftDeleted(item.localEnvelope);
-    }
-    const compKey = getCompositeKey(item.collection, item.recordId);
-    baselineMap[compKey] = item.incomingEnvelope.meta.changeId;
-    if (metaMap[compKey]) {
-      metaMap[compKey] = {
-        ...metaMap[compKey],
-        softDeleted: true,
-        deletedAtMs: Date.now(),
-      };
-    }
+  // ۴. طبق اصل حفظ اطلاعات (بخش ۳ دستور)، در همگام‌سازی خودکار هیچ رکوردی حذف نمی‌شود
+  let appliedSoftDeletes = 0;
+  if (options?.allowSoftDeleteRemoval) {
+    for (const item of report.softDeleteItems) {
+      if (item.localEnvelope) {
+        markRecordSoftDeleted(item.localEnvelope);
+      }
+      const compKey = getCompositeKey(item.collection, item.recordId);
+      baselineMap[compKey] = item.incomingEnvelope.meta.changeId;
+      if (metaMap[compKey]) {
+        metaMap[compKey] = {
+          ...metaMap[compKey],
+          softDeleted: true,
+          deletedAtMs: Date.now(),
+        };
+      }
 
-    if (item.collection === 'auditRecords') {
-      delete nextAudit[item.recordId];
-    } else if (item.collection === 'bookCopies') {
-      nextCopiesMap.delete(item.recordId);
-    } else if (item.collection === 'customMartyrs') {
-      nextMartyrsMap.delete(item.recordId);
-    } else if (item.collection === 'links') {
-      nextLinksMap.delete(item.recordId);
-    } else if (item.collection === 'pendingReviews') {
-      nextPendingMap.delete(item.recordId);
+      if (item.collection === 'auditRecords') {
+        delete nextAudit[item.recordId];
+      } else if (item.collection === 'bookCopies') {
+        nextCopiesMap.delete(item.recordId);
+      } else if (item.collection === 'customMartyrs') {
+        nextMartyrsMap.delete(item.recordId);
+      } else if (item.collection === 'links') {
+        nextLinksMap.delete(item.recordId);
+      } else if (item.collection === 'pendingReviews') {
+        nextPendingMap.delete(item.recordId);
+      }
+      appliedSoftDeletes++;
     }
   }
 
-  // ۵. اعمال تعارض‌های تعیین‌تکلیف‌شده توسط کاربر
+  // ۵. در تعارض‌ها: نسخه مرجع (گوشی + فیلدهای تکمیلی) یا تصمیم صریح کاربر حفظ می‌شود.
+  // اگر تعارض هنوز توسط کاربر تعیین‌تکلیف نشده باشد، خط مبنا قفل نمی‌شود تا وضعیت تعارض تا زمان تصمیم کاربر باقی بماند.
+  let resolvedConflicts = 0;
+  let unresolvedConflicts = 0;
   for (const conflict of report.conflicts) {
+    const isExplicitlyResolved = Boolean(conflict.selectedChoice);
+    if (isExplicitlyResolved) {
+      resolvedConflicts++;
+    } else {
+      unresolvedConflicts++;
+    }
     const resolvedEnv = buildResolvedEnvelopeFromConflict(conflict, localDeviceId, localRole);
-    applySingleEnvelope(resolvedEnv);
+    applySingleEnvelope(resolvedEnv, isExplicitlyResolved);
   }
 
   saveRecordMetaMap(metaMap);
@@ -575,8 +950,10 @@ export function applyApprovedSyncReport(
     },
     appliedNewCount: report.newItems.length,
     appliedModifiedCount: report.modifiedItems.length,
-    appliedSoftDeleteCount: report.softDeleteItems.length,
-    resolvedConflictCount: report.conflicts.length,
+    appliedSoftDeleteCount: appliedSoftDeletes,
+    resolvedConflictCount: resolvedConflicts,
+    unresolvedConflictCount: unresolvedConflicts,
+    unchangedCount: report.unchangedItems.length,
   };
 }
 
@@ -718,7 +1095,9 @@ export function restoreRecordIntoDataset(
 }
 
 /**
- * ثبت خط مبنای ارسال پس از تحویل موفق بسته به دستگاه مقابل
+ * به‌روزرسانی خط مبنا (Baseline) در دستگاه فرستنده **صرفاً پس از دریافت تأیید واقعی اعمال بسته (TRANSFER_ACK با ok=true و applied=true) از دستگاه مقصد**.
+ * توجه مهم (اصلاح بخش ۵ دستور اجرایی): این تابع هرگز نباید بلافاصله پس از ارسال شبکه (sendTransferPackage) صدا زده شود؛
+ * زیرا ارسال شبکه به معنی دریافت کامل و اعمال موفق اطلاعات در مقصد نیست.
  */
 export function markPackageSentInBaseline(pkg: SyncTransferPackage): void {
   const baselineMap = loadBaselineChangeMap();
@@ -728,3 +1107,5 @@ export function markPackageSentInBaseline(pkg: SyncTransferPackage): void {
   }
   saveBaselineChangeMap(baselineMap);
 }
+
+export const confirmPackageAppliedInBaseline = markPackageSentInBaseline;

@@ -7,10 +7,10 @@ import {
   CheckCircle2,
   Copy,
   DatabaseBackup,
+  Download,
   Laptop,
   Lock,
   QrCode,
-  RefreshCw,
   RotateCcw,
   Send,
   ShieldCheck,
@@ -35,10 +35,7 @@ import {
   LaptopInitiatedSessionCredentials,
   maskSessionIdForDisplay,
 } from './pairingService';
-import {
-  DirectWebRtcSessionManager,
-  PendingPhoneApprovalRequest,
-} from './peerConnection';
+import { DirectWebRtcSessionManager } from './peerConnection';
 import {
   analyzeIncomingPackage,
   applyApprovedSyncReport,
@@ -79,6 +76,29 @@ export interface DeviceSyncPanelProps {
   onTriggerLocalBackup?: () => void;
 }
 
+function countDatasetRecords(ds: OperationalSyncDataset): {
+  auditCount: number;
+  totalCount: number;
+} {
+  const auditCount = Object.keys(ds.auditRecords || {}).length;
+  const totalCount =
+    auditCount +
+    (ds.bookCopies?.length || 0) +
+    (ds.customMartyrs?.length || 0) +
+    (ds.links?.length || 0) +
+    (ds.pendingReviews?.length || 0);
+  return { auditCount, totalCount };
+}
+
+export interface LastSyncBreakdown {
+  packageId: string;
+  newCount: number;
+  unchangedCount: number;
+  modifiedCount: number;
+  conflictCount: number;
+  timestampMs: number;
+}
+
 export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
   dataset,
   onApplySyncedDataset,
@@ -88,19 +108,17 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
   const [localRole, setLocalRole] = useState<DeviceSyncRole>(() => getSavedDeviceRole());
   const [status, setStatus] = useState<ConnectionUiStatus>('ready');
   const [statusMessage, setStatusMessage] = useState<string>(
-    'آماده اتصال مستقیم: شروع نشست از هر دو طرف (میزبان / Peer) امکان‌پذیر است و تأیید نهایی اتصال و مرجعیت داده‌ها همواره با گوشی اصلی است.'
+    'آماده اتصال مستقیم با QR Code: هر یک از دو دستگاه (گوشی یا لپ‌تاپ) می‌تواند QR تولید کند و دستگاه دیگر با اسکن آن مستقیماً متصل شده و همگام‌سازی خودکار دوطرفه را آغاز می‌کند.'
   );
 
-  // وضعیت نشست آغازشده در لپ‌تاپ (حاوی sessionId تصادفی مستقل از کد تأیید و QR یک‌بارمصرف)
+  // وضعیت نشست آغازشده در دستگاه میزبان (گوشی یا لپ‌تاپ)
   const [laptopSessionCreds, setLaptopSessionCreds] =
     useState<LaptopInitiatedSessionCredentials | null>(null);
 
-  // وضعیت اسکن QR و درخواست منتظر تأیید در گوشی
+  // وضعیت اسکن یا ورود توکن QR در دستگاه دوم
   const [scannedQrInput, setScannedQrInput] = useState<string>('');
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<string>('');
-  const [pendingPhoneApproval, setPendingPhoneApproval] =
-    useState<PendingPhoneApprovalRequest | null>(null);
 
   const [peerDeviceInfo, setPeerDeviceInfo] = useState<{
     deviceId: string;
@@ -108,9 +126,27 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
   } | null>(null);
   const [signalingCleanedSessionId, setSignalingCleanedSessionId] = useState<string>('');
 
-  // شمارنده‌های نشست فعلی طبق بخش ۴ دستور نهایی
+  // شمارنده‌های نشست فعلی طبق بخش ۲ و ۶ دستور اجرایی
   const [sessionSentRecordsCount, setSessionSentRecordsCount] = useState<number>(0);
   const [sessionReceivedRecordsCount, setSessionReceivedRecordsCount] = useState<number>(0);
+
+  // شمارنده‌های قبل و بعد از همگام‌سازی برای تست واقعی دو دستگاه (بخش ۶)
+  const [localPreSyncCounts, setLocalPreSyncCounts] = useState<{
+    auditCount: number;
+    totalCount: number;
+  } | null>(null);
+  const [peerPreSyncCounts, setPeerPreSyncCounts] = useState<{
+    auditCount: number;
+    totalCount: number;
+  } | null>(null);
+  const [peerPostSyncCounts, setPeerPostSyncCounts] = useState<{
+    auditCount: number;
+    totalCount: number;
+  } | null>(null);
+  const [lastSyncBreakdown, setLastSyncBreakdown] = useState<LastSyncBreakdown | null>(
+    null
+  );
+  const [lastBaselineAckPackageId, setLastBaselineAckPackageId] = useState<string>('');
 
   const [selectedCollections, setSelectedCollections] = useState<SyncCollectionName[]>([
     'auditRecords',
@@ -128,6 +164,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     total: number;
   } | null>(null);
 
+  // در صورت وجود تعارض واقعی، هر دو نسخه (گوشی و لپ‌تاپ) در این گزارش نگهداری می‌شوند تا کاربر هر زمان بخواهد یکی را انتخاب کند
   const [pendingPreviewReport, setPendingPreviewReport] = useState<SyncPreviewReport | null>(
     null
   );
@@ -165,6 +202,9 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     onApplySyncedDatasetRef.current = onApplySyncedDataset;
   }, [onApplySyncedDataset]);
 
+  // نگهداری بسته‌های ارسال‌شده که هنوز ACK اعمال واقعی از دستگاه مقصد دریافت نکرده‌اند (بخش ۵ دستور اجرایی)
+  const pendingSentPackagesRef = useRef<Map<string, SyncTransferPackage>>(new Map());
+
   const sessionManagerRef = useRef<DirectWebRtcSessionManager | null>(null);
 
   const stopCameraScanner = useCallback(() => {
@@ -184,19 +224,56 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     setIsCameraScannerOpen(false);
   }, []);
 
-  // ارسال بسته همگام‌سازی در نشست فعال (چه به‌صورت خودکار پس از تأیید گوشی و چه دستی)
+  // دانلود مستقیم فایل پشتیبان JSON روی دستگاه فعلی (بخش ۶ دستور اجرایی)
+  const handleDownloadLocalJsonBackup = useCallback(() => {
+    try {
+      const currentCounts = countDatasetRecords(datasetRef.current);
+      const backupPayload = {
+        backupSchema: 'markaz-asnad-device-sync-backup-v1',
+        exportedAtIso: new Date().toISOString(),
+        deviceId: localDeviceId,
+        deviceRole: roleRef.current,
+        counts: currentCounts,
+        dataset: datasetRef.current,
+      };
+      const jsonText = JSON.stringify(backupPayload, null, 2);
+      const blob = new Blob([jsonText], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const roleSlug = roleRef.current === 'phone-primary' ? 'phone' : 'laptop';
+      const dateSlug = new Date().toISOString().replace(/[:.]/g, '-');
+      a.href = url;
+      a.download = `markaz-asnad-backup-${roleSlug}-${dateSlug}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (onTriggerLocalBackup) {
+        onTriggerLocalBackup();
+      }
+    } catch {
+      if (onTriggerLocalBackup) {
+        onTriggerLocalBackup();
+      }
+    }
+  }, [localDeviceId, onTriggerLocalBackup]);
+
+  // ارسال بسته همگام‌سازی در نشست فعال (به‌صورت خودکار پس از اتصال و یا دستی)
+  // طبق بخش ۵ دستور اجرایی: Baseline در این لحظه به‌روز نمی‌شود؛ بلکه فقط پس از دریافت TRANSFER_ACK اعمال واقعی به‌روز می‌گردد.
   const sendSyncPackageOverOpenChannel = useCallback(
     async (isAutoBidirectional = false) => {
       const mgr = sessionManagerRef.current;
       if (!mgr || !mgr.isConnected()) {
         if (!isAutoBidirectional) {
           setStatus('connection-error');
-          setStatusMessage('ابتدا اتصال مستقیم بین لپ‌تاپ و گوشی را برقرار نمایید.');
+          setStatusMessage('ابتدا اتصال مستقیم بین گوشی و لپ‌تاپ را با QR Code برقرار نمایید.');
         }
         return;
       }
 
       try {
+        setLocalPreSyncCounts((prev) => prev ?? countDatasetRecords(datasetRef.current));
+
         const pkg = createSyncTransferPackage({
           dataset: datasetRef.current,
           localDeviceId,
@@ -208,22 +285,9 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               : undefined,
         });
 
+        pendingSentPackagesRef.current.set(pkg.packageId, pkg);
         await mgr.sendTransferPackage(pkg);
-        markPackageSentInBaseline(pkg);
         setSessionSentRecordsCount((prev) => prev + pkg.recordCount);
-
-        const updatedHist = appendTransferHistory({
-          packageId: pkg.packageId,
-          direction: 'sent',
-          peerRole: roleRef.current === 'phone-primary' ? 'pc-companion' : 'phone-primary',
-          timestampMs: Date.now(),
-          status: 'completed',
-          recordsCount: pkg.recordCount,
-          appliedNew: 0,
-          appliedModified: 0,
-          resolvedConflicts: 0,
-        });
-        setTransferHistory(updatedHist);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setStatus('connection-error');
@@ -235,6 +299,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
 
   useEffect(() => {
     const mgr = new DirectWebRtcSessionManager(localDeviceId, roleRef.current, {
+      getLocalPreSyncCounts: () => countDatasetRecords(datasetRef.current),
       onStatusChange: (nextStatus, detail) => {
         setStatus(nextStatus);
         if (detail) {
@@ -245,11 +310,15 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           setLaptopSessionCreds(null);
         }
       },
-      onPeerHandshake: (peerId, peerRole) => {
+      onPeerHandshake: (peerId, peerRole, peerPreCounts) => {
         setPeerDeviceInfo({ deviceId: peerId, role: peerRole });
+        if (peerPreCounts) {
+          setPeerPreSyncCounts((prev) => prev ?? peerPreCounts);
+        }
       },
       onChannelReadyForAutoSync: () => {
-        // به محض باز شدن کانال مستقیم پس از تأیید گوشی، همگام‌سازی دوطرفه در همان نشست آغاز می‌شود
+        setLocalPreSyncCounts((prev) => prev ?? countDatasetRecords(datasetRef.current));
+        // به محض برقراری اتصال WebRTC، همگام‌سازی خودکار دوطرفه بدون نیاز به تأیید دستی جداگانه آغاز می‌شود
         void sendSyncPackageOverOpenChannel(true);
       },
       onTransferProgress: (packageId, received, total) => {
@@ -258,6 +327,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
       onPackageReceived: (pkg: SyncTransferPackage) => {
         setTransferProgress(null);
         setSessionReceivedRecordsCount((prev) => prev + pkg.recordCount);
+        setLocalPreSyncCounts((prev) => prev ?? countDatasetRecords(datasetRef.current));
 
         const report = analyzeIncomingPackage(
           pkg,
@@ -266,93 +336,132 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           roleRef.current
         );
 
-        const totalActionableChanges =
-          report.newItems.length +
-          report.modifiedItems.length +
-          report.softDeleteItems.length +
-          report.conflicts.length;
-
-        // ۱. اگر گیرنده «لپ‌تاپ» است و بسته از «گوشی (مرجع اصلی)» رسیده و هیچ تعارضی وجود ندارد:
-        // لپ‌تاپ به‌طور خودکار با داده‌های مرجع گوشی به‌روز می‌شود تا همگام‌سازی دوطرفه در همان نشست تکمیل گردد.
-        if (
-          roleRef.current === 'pc-companion' &&
-          pkg.senderRole === 'phone-primary' &&
-          report.conflicts.length === 0
-        ) {
-          const result = applyApprovedSyncReport(
-            report,
-            datasetRef.current,
-            localDeviceId,
-            roleRef.current
-          );
-          const updatedHist = appendTransferHistory({
-            packageId: report.packageId,
-            direction: 'received',
-            peerRole: report.senderRole,
-            timestampMs: Date.now(),
-            status: 'completed',
-            recordsCount: pkg.recordCount,
-            appliedNew: result.appliedNewCount,
-            appliedModified: result.appliedModifiedCount,
-            resolvedConflicts: 0,
-          });
-          setTransferHistory(updatedHist);
-          setSoftDeletedArchive(loadSoftDeletedArchive());
-
-          if (totalActionableChanges > 0) {
-            const summaryText = `همگام‌سازی خودکار از مرجع اصلی (گوشی) انجام شد: ${toPersianDigits(
-              result.appliedNewCount
-            )} رکورد جدید و ${toPersianDigits(
-              result.appliedModifiedCount
-            )} ویرایش در لپ‌تاپ به‌روزرسانی گردید.`;
-            setStatusMessage(summaryText);
-            onApplySyncedDatasetRef.current(result.nextDataset, summaryText);
-          } else {
-            setStatusMessage(
-              `بسته مرجع گوشی (${toPersianDigits(pkg.recordCount)} رکورد) دریافت شد؛ اطلاعات لپ‌تاپ کاملاً با گوشی همگام و به‌روز است.`
-            );
-          }
-          return;
-        }
-
-        // ۲. اگر گیرنده «گوشی (مرجع اصلی)» است و بسته کاری لپ‌تاپ هیچ تغییر جدیدی نسبت به داده‌های گوشی ندارد:
-        // هیچ نوشتنی بدون تأیید کاربر روی حافظه گوشی انجام نمی‌شود و فقط گزارش وضعیت در تاریخچه ثبت می‌گردد.
-        if (roleRef.current === 'phone-primary' && totalActionableChanges === 0) {
-          const updatedHist = appendTransferHistory({
-            packageId: report.packageId,
-            direction: 'received',
-            peerRole: report.senderRole,
-            timestampMs: Date.now(),
-            status: 'completed',
-            recordsCount: pkg.recordCount,
-            appliedNew: 0,
-            appliedModified: 0,
-            resolvedConflicts: 0,
-          });
-          setTransferHistory(updatedHist);
-          setStatusMessage(
-            `همگام‌سازی دوطرفه انجام شد: داده‌های مرجع گوشی به لپ‌تاپ ارسال شد و بسته لپ‌تاپ (${toPersianDigits(
-              pkg.recordCount
-            )} رکورد) تغییر جدیدی برای اعمال روی گوشی نداشت.`
-          );
-          return;
-        }
-
-        // ۳. در تمام موارد دارای تغییر روی گوشی (یا وجود تعارض روی لپ‌تاپ)، کنترل نهایی و تأیید صریح با کاربر است:
-        setPendingPreviewReport(report);
-        setStatusMessage(
-          `بسته دریافتی شامل ${toPersianDigits(
-            totalActionableChanges
-          )} مورد تغییر/تعارض آماده بررسی و تأیید نهایی شما روی ${
-            roleRef.current === 'phone-primary' ? 'گوشی (مرجع اصلی)' : 'لپ‌تاپ'
-          } است.`
+        // اعمال خودکار تمام رکوردهای جدید و تغییرات تکمیلی غیرمتعارض روی هر دو دستگاه (بدون حذف هیچ رکوردی)
+        const result = applyApprovedSyncReport(
+          report,
+          datasetRef.current,
+          localDeviceId,
+          roleRef.current
         );
+
+        // به‌روزرسانی فوری مرجع داده محلی برای محاسبه دقیق تعداد رکوردها پس از همگام‌سازی
+        datasetRef.current = result.nextDataset;
+        const postCounts = countDatasetRecords(result.nextDataset);
+
+        // ارسال تأییدیه رسمی دریافت و اعمال واقعی (TRANSFER_ACK) به فرستنده تا Baseline آن به‌روز شود (بخش ۵ دستور اجرایی)
+        mgr.sendPackageAppliedAck({
+          packageId: pkg.packageId,
+          ok: true,
+          applied: true,
+          appliedNewCount: result.appliedNewCount,
+          appliedModifiedCount: result.appliedModifiedCount,
+          unchangedCount: result.unchangedCount,
+          conflictCount: report.conflicts.length,
+          receiverPostAuditCount: postCounts.auditCount,
+          receiverPostTotalCount: postCounts.totalCount,
+        });
+
+        setLastSyncBreakdown({
+          packageId: pkg.packageId,
+          newCount: result.appliedNewCount,
+          unchangedCount: result.unchangedCount,
+          modifiedCount: result.appliedModifiedCount,
+          conflictCount: report.conflicts.length,
+          timestampMs: Date.now(),
+        });
+
+        const updatedHist = appendTransferHistory({
+          packageId: report.packageId,
+          direction: 'received',
+          peerRole: report.senderRole,
+          timestampMs: Date.now(),
+          status: 'completed',
+          recordsCount: pkg.recordCount,
+          appliedNew: result.appliedNewCount,
+          appliedModified: result.appliedModifiedCount,
+          resolvedConflicts: result.resolvedConflictCount,
+        });
+        setTransferHistory(updatedHist);
+        setSoftDeletedArchive(loadSoftDeletedArchive());
+
+        // در صورت وجود تعارض واقعی، هر دو نسخه در بخش تعارض‌ها ثبت و نمایش داده می‌شوند تا هیچ داده‌ای بازنویسی کورکورانه نشود
+        if (report.conflicts.length > 0) {
+          setPendingPreviewReport({
+            ...report,
+            newItems: [],
+            modifiedItems: [],
+            softDeleteItems: [],
+            conflicts: report.conflicts,
+          });
+        } else {
+          setPendingPreviewReport(null);
+        }
+
+        const summaryText =
+          result.appliedNewCount > 0 ||
+          result.appliedModifiedCount > 0 ||
+          report.conflicts.length > 0
+            ? `همگام‌سازی خودکار انجام شد: ${toPersianDigits(
+                result.appliedNewCount
+              )} رکورد جدید اضافه شد، ${toPersianDigits(
+                result.appliedModifiedCount
+              )} رکورد تغییرکرده/تکمیلی ادغام شد، ${toPersianDigits(
+                result.unchangedCount
+              )} رکورد تکراری نادیده گرفته شد و ${toPersianDigits(
+                report.conflicts.length
+              )} مورد تعارض ثبت گردید.`
+            : `همگام‌سازی خودکار کامل شد: تمام ${toPersianDigits(
+                result.unchangedCount
+              )} رکورد مشترک یکسان بودند و هیچ رکورد تکراری ایجاد نشد.`;
+
+        setStatusMessage(summaryText);
+        if (result.appliedNewCount > 0 || result.appliedModifiedCount > 0) {
+          onApplySyncedDatasetRef.current(result.nextDataset, summaryText);
+        }
+      },
+      onPackageAckReceived: (ack) => {
+        if (ack.ok && ack.applied !== false) {
+          const sentPkg = pendingSentPackagesRef.current.get(ack.packageId);
+          if (sentPkg) {
+            // طبق بخش ۵ دستور اجرایی: تنها پس از دریافت ACK اعمال واقعی از دستگاه مقصد، Baseline به‌روز می‌شود
+            markPackageSentInBaseline(sentPkg);
+            pendingSentPackagesRef.current.delete(ack.packageId);
+            setLastBaselineAckPackageId(ack.packageId);
+
+            const updatedHist = appendTransferHistory({
+              packageId: sentPkg.packageId,
+              direction: 'sent',
+              peerRole:
+                roleRef.current === 'phone-primary' ? 'pc-companion' : 'phone-primary',
+              timestampMs: Date.now(),
+              status: 'completed',
+              recordsCount: sentPkg.recordCount,
+              appliedNew: ack.appliedNewCount ?? 0,
+              appliedModified: ack.appliedModifiedCount ?? 0,
+              resolvedConflicts: 0,
+            });
+            setTransferHistory(updatedHist);
+          }
+          if (
+            typeof ack.receiverPostAuditCount === 'number' &&
+            typeof ack.receiverPostTotalCount === 'number'
+          ) {
+            setPeerPostSyncCounts({
+              auditCount: ack.receiverPostAuditCount,
+              totalCount: ack.receiverPostTotalCount,
+            });
+          }
+        }
       },
       onTransferInterrupted: (packageId, reason) => {
         setTransferProgress(null);
+        const wasPendingSent = pendingSentPackagesRef.current.has(packageId);
+        // بسته ناقص از صف انتظار حذف می‌شود بدون اینکه Baseline به‌روز شود
+        pendingSentPackagesRef.current.delete(packageId);
+
         const updatedHist = appendTransferHistory({
           packageId,
-          direction: 'received',
+          direction: wasPendingSent ? 'sent' : 'received',
           peerRole: roleRef.current === 'phone-primary' ? 'pc-companion' : 'phone-primary',
           timestampMs: Date.now(),
           status: 'failed-interrupted',
@@ -366,10 +475,6 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
       },
       onSignalCleanedUp: (cleanedSessionId) => {
         setSignalingCleanedSessionId(cleanedSessionId);
-      },
-      onPhoneApprovalRequired: (approvalReq) => {
-        // زمانی که گوشی میزبان (Host) است و لپ‌تاپ به نشست پیوسته است، کادر تأیید نهایی روی گوشی نمایش داده می‌شود
-        setPendingPhoneApproval(approvalReq);
       },
     });
     sessionManagerRef.current = mgr;
@@ -388,13 +493,15 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     }
   };
 
-  // گام ۱ و ۲ (نقش میزبان / Host در هر یک از دو دستگاه): ایجاد نشست موقت با sessionId تصادفی ۱۹۲ بیتی و نمایش QR Code
+  // تولید QR Code در هر یک از دو دستگاه (گوشی یا لپ‌تاپ)
   const handleStartLaptopSession = async () => {
     try {
       setSignalingCleanedSessionId('');
       setSessionSentRecordsCount(0);
       setSessionReceivedRecordsCount(0);
-      setPendingPhoneApproval(null);
+      setLocalPreSyncCounts(countDatasetRecords(datasetRef.current));
+      setPeerPreSyncCounts(null);
+      setPeerPostSyncCounts(null);
       if (sessionManagerRef.current) {
         const creds = await sessionManagerRef.current.startLaptopInitiatorSession();
         setLaptopSessionCreds(creds);
@@ -402,17 +509,17 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setStatus('connection-error');
-      setStatusMessage(`خطا در ایجاد نشست امن: ${msg}`);
+      setStatusMessage(`خطا در ایجاد نشست و تولید QR Code: ${msg}`);
     }
   };
 
-  // گام ۳ و ۴ (نقش Peer): اسکن یا ورود رشته QR دستگاه میزبان؛ اگر این دستگاه گوشی است کادر تأیید نهایی نمایش داده می‌شود، و اگر لپ‌تاپ است درخواست به گوشی ارسال می‌گردد تا روی گوشی تأیید شود
+  // اسکن یا ورود QR Code در دستگاه دیگر و اتصال مستقیم بدون مرحله تأیید اضافی (بخش ۲ دستور اجرایی)
   const handleInspectScannedQrOnPhone = useCallback(
     async (rawQrText: string) => {
       const cleaned = String(rawQrText || '').trim();
       if (!cleaned) {
         setStatus('connection-error');
-        setStatusMessage('لطفاً ابتدا QR Code نمایش‌داده‌شده در دستگاه میزبان را اسکن یا وارد کنید.');
+        setStatusMessage('لطفاً ابتدا QR Code نمایش‌داده‌شده در دستگاه دیگر را اسکن یا وارد کنید.');
         return;
       }
       try {
@@ -420,28 +527,22 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         setSignalingCleanedSessionId('');
         setSessionSentRecordsCount(0);
         setSessionReceivedRecordsCount(0);
+        setLocalPreSyncCounts(countDatasetRecords(datasetRef.current));
+        setPeerPreSyncCounts(null);
+        setPeerPostSyncCounts(null);
         if (sessionManagerRef.current) {
-          const approvalReq = await sessionManagerRef.current.inspectLaptopQrOnPhone(cleaned);
-          if (roleRef.current === 'pc-companion') {
-            // اگر گوشی میزبان بوده و لپ‌تاپ توکن QR گوشی را وارد کرده است، لپ‌تاپ پاسخ WebRTC را می‌فرستد و منتظر تأیید نهایی کاربر روی گوشی می‌ماند
-            setPendingPhoneApproval(null);
-            await sessionManagerRef.current.approvePendingSessionOnPhone();
-          } else {
-            // اگر لپ‌تاپ میزبان بوده و گوشی QR را اسکن کرده است، کادر تأیید نهایی روی گوشی نمایش داده می‌شود
-            setPendingPhoneApproval(approvalReq);
-          }
+          await sessionManagerRef.current.connectWithScannedQr(cleaned);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        setPendingPhoneApproval(null);
         setStatus('connection-error');
-        setStatusMessage(`خطا در بررسی QR نشست: ${msg}`);
+        setStatusMessage(`خطا در اتصال با QR Code: ${msg}`);
       }
     },
     [stopCameraScanner]
   );
 
-  // باز کردن دوربین گوشی برای اسکن مستقیم QR Code لپ‌تاپ
+  // باز کردن دوربین برای اسکن مستقیم QR Code
   const handleOpenPhoneCameraScanner = async () => {
     setCameraError('');
     if (
@@ -495,36 +596,14 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         }, 350);
       } else {
         setCameraError(
-          'مرورگر فعلی فاقد رمزگشای خودکار BarcodeDetector است؛ لطفاً از Chrome اندروید استفاده کنید یا شناسه QR لپ‌تاپ را در کادر زیر وارد نمایید.'
+          'مرورگر فعلی فاقد رمزگشای خودکار BarcodeDetector است؛ لطفاً از Chrome اندروید استفاده کنید یا توکن QR را در کادر زیر وارد نمایید.'
         );
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setCameraError(`خطا در باز کردن دوربین گوشی: ${msg}`);
+      setCameraError(`خطا در باز کردن دوربین: ${msg}`);
       stopCameraScanner();
     }
-  };
-
-  // گام ۵ (در گوشی): تأیید صریح اتصال توسط کاربر روی گوشی و آغاز همگام‌سازی دوطرفه
-  const handleApproveConnectionOnPhone = async () => {
-    if (!sessionManagerRef.current || !pendingPhoneApproval) return;
-    try {
-      await sessionManagerRef.current.approvePendingSessionOnPhone();
-      setPendingPhoneApproval(null);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setPendingPhoneApproval(null);
-      setStatus('connection-error');
-      setStatusMessage(`خطا هنگام تأیید اتصال در گوشی: ${msg}`);
-    }
-  };
-
-  // گام ۶ (در گوشی): رد درخواست اتصال توسط کاربر روی گوشی و بستن فوری نشست
-  const handleRejectConnectionOnPhone = async () => {
-    if (!sessionManagerRef.current) return;
-    await sessionManagerRef.current.rejectPendingSessionOnPhone();
-    setPendingPhoneApproval(null);
-    setScannedQrInput('');
   };
 
   const handleDisconnect = () => {
@@ -534,7 +613,6 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     }
     setPeerDeviceInfo(null);
     setLaptopSessionCreds(null);
-    setPendingPhoneApproval(null);
   };
 
   const handleCancelPairing = async () => {
@@ -544,10 +622,9 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     }
     setPeerDeviceInfo(null);
     setLaptopSessionCreds(null);
-    setPendingPhoneApproval(null);
   };
 
-  // انتخاب تصمیم کاربر برای هر تعارض
+  // انتخاب تصمیم کاربر برای هر تعارض ثبت‌شده
   const handleSelectConflictResolution = (
     conflict: SyncConflictItem,
     choice: ConflictResolutionChoice
@@ -597,7 +674,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     setEditingConflictId(null);
   };
 
-  // تأیید نهایی کاربر و اعمال بسته دریافتی در حافظه دستگاه
+  // اعمال تصمیم کاربر برای تعارض‌های ثبت‌شده
   const handleConfirmAndApplyPreview = () => {
     if (!pendingPreviewReport) return;
     if (!areAllConflictsResolved(pendingPreviewReport.conflicts)) {
@@ -606,54 +683,23 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
 
     const result = applyApprovedSyncReport(
       pendingPreviewReport,
-      dataset,
+      datasetRef.current,
       localDeviceId,
       localRole
     );
+    datasetRef.current = result.nextDataset;
 
-    const updatedHist = appendTransferHistory({
-      packageId: pendingPreviewReport.packageId,
-      direction: 'received',
-      peerRole: pendingPreviewReport.senderRole,
-      timestampMs: Date.now(),
-      status: 'completed',
-      recordsCount:
-        result.appliedNewCount +
-        result.appliedModifiedCount +
-        result.appliedSoftDeleteCount +
-        result.resolvedConflictCount,
-      appliedNew: result.appliedNewCount,
-      appliedModified: result.appliedModifiedCount,
-      resolvedConflicts: result.resolvedConflictCount,
-    });
-    setTransferHistory(updatedHist);
-    setSoftDeletedArchive(loadSoftDeletedArchive());
-
-    const summaryText = `همگام‌سازی مستقیم با تأیید نهایی شما اعمال شد: ${toPersianDigits(
-      result.appliedNewCount
-    )} رکورد جدید، ${toPersianDigits(result.appliedModifiedCount)} ویرایش و ${toPersianDigits(
+    const summaryText = `تصمیم شما برای ${toPersianDigits(
       result.resolvedConflictCount
-    )} تعارض تعیین‌تکلیف‌شده.`;
+    )} مورد تعارض اعمال شد.`;
 
     setPendingPreviewReport(null);
+    setStatusMessage(summaryText);
     onApplySyncedDataset(result.nextDataset, summaryText);
   };
 
   const handleRejectIncomingPreview = () => {
     if (!pendingPreviewReport) return;
-    const updatedHist = appendTransferHistory({
-      packageId: pendingPreviewReport.packageId,
-      direction: 'received',
-      peerRole: pendingPreviewReport.senderRole,
-      timestampMs: Date.now(),
-      status: 'rejected-by-user',
-      recordsCount: 0,
-      appliedNew: 0,
-      appliedModified: 0,
-      resolvedConflicts: 0,
-      errorDetails: 'رد بسته دریافتی توسط کاربر پیش از اعمال',
-    });
-    setTransferHistory(updatedHist);
     setPendingPreviewReport(null);
   };
 
@@ -674,6 +720,8 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     );
   };
 
+  const currentLocalCounts = useMemo(() => countDatasetRecords(dataset), [dataset]);
+
   const localEnvelopesCount = useMemo(() => {
     return extractLocalEnvelopesMap(
       dataset,
@@ -687,14 +735,9 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     return Object.values(dataset.auditRecords || {});
   }, [dataset.auditRecords]);
 
-  const itemsRequiringReviewCount = useMemo(() => {
+  const activeConflictsCount = useMemo(() => {
     if (!pendingPreviewReport) return 0;
-    return (
-      pendingPreviewReport.newItems.length +
-      pendingPreviewReport.modifiedItems.length +
-      pendingPreviewReport.softDeleteItems.length +
-      pendingPreviewReport.conflicts.length
-    );
+    return pendingPreviewReport.conflicts.length;
   }, [pendingPreviewReport]);
 
   const toggleCollectionSelection = (col: SyncCollectionName) => {
@@ -725,11 +768,11 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           <div className="flex items-center gap-2 flex-wrap">
             <ArrowLeftRight className="w-5 h-5 text-[#8C3B2B] shrink-0" />
             <h2 className="font-titr text-base sm:text-lg font-bold text-[#332218]">
-              ارتباط مستقیم گوشی اصلی و لپ‌تاپ (همگام‌سازی دوطرفه WebRTC بدون ذخیره در ابر)
+              همگام‌سازی مستقیم گوشی و لپ‌تاپ با QR Code (WebRTC DataChannel بدون ذخیره در ابر)
             </h2>
           </div>
           <p className="text-xs text-[#6E5849] leading-relaxed">
-            اصل بنیادین: گوشی مرجع اصلی و صاحب اختیار نهایی داده‌های کتابخانه است و لپ‌تاپ دستگاه همراه برای جست‌وجو، ورود و ویرایش اطلاعات است. شروع نشست اتصال از هر دو دستگاه امکان‌پذیر است (دستگاه شروع‌کننده نقش میزبان/Host و نمایش‌دهنده QR Code، و دستگاه دوم نقش Peer و اسکن‌کننده QR را می‌گیرد)، اما تأیید نهایی اتصال و مرجعیت داده‌ها در هر دو حالت منحصراً با گوشی اصلی است.
+            هر یک از دو دستگاه (گوشی یا لپ‌تاپ) می‌تواند QR Code تولید کند و دستگاه دیگر با اسکن آن مستقیماً متصل می‌شود. به محض اتصال، همگام‌سازی دوطرفه به‌طور خودکار انجام می‌شود: رکوردهای جدید اضافه می‌شوند، تغییرات تکمیلی ادغام می‌گردند، هیچ رکوردی حذف نمی‌شود و در صورت وجود تعارض واقعی هر دو نسخه برای انتخاب شما حفظ می‌شوند.
           </p>
         </div>
 
@@ -745,34 +788,42 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         </div>
       </div>
 
-      {/* پیام وضعیت فعلی و تأیید پاک‌سازی Signaling */}
+      {/* پیام وضعیت فعلی و تأیید پاک‌سازی Signaling و ACK */}
       <div className="rounded-xl bg-[#FDF8F2] border border-[#E6D5C1] p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-[#4A3525]">
         <div className="flex items-center gap-2">
           <Lock className="w-4 h-4 text-[#2E6F40] shrink-0" />
           <span className="font-medium leading-relaxed">{statusMessage}</span>
         </div>
-        {signalingCleanedSessionId && (
-          <span className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-900 font-bold text-[11px] shrink-0">
-            نشست موقت Signaling ({maskSessionIdForDisplay(signalingCleanedSessionId)}) از Firebase پاک‌سازی شد
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+          {lastBaselineAckPackageId && (
+            <span
+              data-testid="baseline-ack-badge"
+              className="px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-300 text-blue-900 font-bold text-[11px]"
+            >
+              تأیید اعمال بسته ({lastBaselineAckPackageId}) دریافت و Baseline به‌روز شد
+            </span>
+          )}
+          {signalingCleanedSessionId && (
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-900 font-bold text-[11px]">
+              نشست موقت Signaling ({maskSessionIdForDisplay(signalingCleanedSessionId)}) پاک‌سازی شد
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* خلاصه آماری وضعیت انتقال در نشست فعلی (بخش ۴ دستور نهایی) */}
+      {/* خلاصه آماری وضعیت انتقال در نشست فعلی (بخش ۲ دستور اجرایی) */}
       <div
         data-testid="sync-session-metrics"
         className="grid grid-cols-2 sm:grid-cols-4 gap-2.5"
       >
         <div className="p-3 rounded-xl bg-[#FAF3EA] border border-[#E6D5C1]">
-          <div className="text-[11px] text-[#6E5849]">وضعیت انتقال نشست</div>
+          <div className="text-[11px] text-[#6E5849]">وضعیت اتصال</div>
           <div className="text-xs sm:text-sm font-extrabold text-[#332218] mt-0.5">
-            {pendingPhoneApproval
-              ? 'منتظر تأیید روی گوشی'
-              : CONNECTION_STATUS_LABELS[status]}
+            {CONNECTION_STATUS_LABELS[status]}
           </div>
         </div>
         <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200">
-          <div className="text-[11px] text-emerald-900">تعداد رکوردهای ارسالی</div>
+          <div className="text-[11px] text-emerald-900">تعداد رکوردهای ارسال‌شده</div>
           <div
             data-testid="session-sent-count"
             className="text-sm sm:text-base font-extrabold text-emerald-950 mt-0.5"
@@ -781,7 +832,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           </div>
         </div>
         <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200">
-          <div className="text-[11px] text-blue-900">تعداد رکوردهای دریافتی</div>
+          <div className="text-[11px] text-blue-900">تعداد رکوردهای دریافت‌شده</div>
           <div
             data-testid="session-received-count"
             className="text-sm sm:text-base font-extrabold text-blue-950 mt-0.5"
@@ -790,123 +841,202 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           </div>
         </div>
         <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-300">
-          <div className="text-[11px] text-amber-900">موارد نیازمند بررسی / تعارض</div>
+          <div className="text-[11px] text-amber-900">تعداد تعارض‌ها</div>
           <div
             data-testid="session-review-count"
             className="text-sm sm:text-base font-extrabold text-amber-950 mt-0.5"
           >
-            {toPersianDigits(itemsRequiringReviewCount)} مورد
+            {toPersianDigits(activeConflictsCount)} مورد
           </div>
         </div>
       </div>
 
-      {/* گام اول: انتخاب نقش دستگاه فعلی و آمار حافظه محلی */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="rounded-xl border border-[#E6D5C1] bg-[#FAF3EA]/60 p-3.5 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-bold text-[#332218]">نقش این دستگاه در ارتباط:</span>
-            <span className="text-[11px] font-mono text-[#6E5849] bg-white px-2 py-0.5 rounded border border-[#E6D5C1]">
-              {localDeviceId}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => handleRoleChange('phone-primary')}
-              className={`p-2.5 rounded-xl border text-right transition-colors cursor-pointer flex items-start gap-2 ${
-                localRole === 'phone-primary'
-                  ? 'bg-[#8C3B2B] text-white border-[#702D20] shadow-xs'
-                  : 'bg-white text-[#332218] border-[#D9C2A7] hover:bg-amber-50/60'
-              }`}
-            >
-              <Smartphone className="w-4 h-4 mt-0.5 shrink-0" />
-              <div className="min-w-0">
-                <div className="text-xs font-bold">گوشی اندروید (مرجع اصلی و تأییدکننده)</div>
-                <div
-                  className={`text-[10px] mt-0.5 leading-snug ${
-                    localRole === 'phone-primary' ? 'text-amber-100' : 'text-[#6E5849]'
-                  }`}
-                >
-                  صاحب کلید تأیید نهایی اتصال و مرجع نهایی داده‌های کتابخانه
-                </div>
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleRoleChange('pc-companion')}
-              className={`p-2.5 rounded-xl border text-right transition-colors cursor-pointer flex items-start gap-2 ${
-                localRole === 'pc-companion'
-                  ? 'bg-[#8C3B2B] text-white border-[#702D20] shadow-xs'
-                  : 'bg-white text-[#332218] border-[#D9C2A7] hover:bg-amber-50/60'
-              }`}
-            >
-              <Laptop className="w-4 h-4 mt-0.5 shrink-0" />
-              <div className="min-w-0">
-                <div className="text-xs font-bold">لپ‌تاپ (دستگاه همراه و مکمل کاری)</div>
-                <div
-                  className={`text-[10px] mt-0.5 leading-snug ${
-                    localRole === 'pc-companion' ? 'text-amber-100' : 'text-[#6E5849]'
-                  }`}
-                >
-                  محیط مکمل برای جست‌وجو، ورود و ویرایش اطلاعات (تأیید نهایی با گوشی)
-                </div>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        {/* وضعیت موجودی محلی این دستگاه و تهیه پشتیبان ایمن */}
-        <div className="rounded-xl border border-[#E6D5C1] bg-[#FAF3EA]/60 p-3.5 flex flex-col justify-between gap-3">
-          <div className="space-y-1.5">
-            <div className="text-xs font-bold text-[#332218] flex items-center justify-between">
-              <span>موجودی فعلی حافظه محلی این دستگاه:</span>
-              <span className="text-[#2E6F40] font-bold">
-                {toPersianDigits(auditEntriesList.length)} کتاب تعیین‌تکلیف‌شده در قفسه
-              </span>
-            </div>
-            <p className="text-[11px] text-[#6E5849] leading-relaxed">
-              تعداد کل رکوردهای عملیاتی آماده همگام‌سازی در مجموعه‌های انتخابی:{' '}
-              <strong className="text-[#332218]">{toPersianDigits(localEnvelopesCount)}</strong> رکورد
-              (با حفظ کامل داده‌های موجود).
+      {/* پنل آماده‌سازی و پایش تست واقعی دو دستگاه (بخش ۶ دستور اجرایی) */}
+      <div
+        data-testid="two-device-test-readiness-box"
+        className="rounded-2xl border-2 border-[#D9C2A7] bg-[#FAF3EA]/70 p-4 space-y-3"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-[#E6D5C1]">
+          <div>
+            <h3 className="text-xs sm:text-sm font-bold text-[#332218] flex items-center gap-1.5">
+              <DatabaseBackup className="w-4 h-4 text-[#8C3B2B]" />
+              <span>وضعیت موجودی قبل و بعد از همگام‌سازی و پشتیبان‌گیری JSON (ویژه تست واقعی دو دستگاه)</span>
+            </h3>
+            <p className="text-[11px] text-[#6E5849] mt-0.5">
+              شمارش زنده رکوردها بر اساس داده‌های واقعی موجود در حافظه هر دستگاه (بدون عدد ثابت فرضی). پیش از شروع تست واقعی، نسخه پشتیبان JSON هر دو دستگاه را دانلود کنید.
             </p>
           </div>
+          <button
+            type="button"
+            data-testid="download-json-backup-btn"
+            onClick={handleDownloadLocalJsonBackup}
+            className="px-3.5 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold inline-flex items-center gap-1.5 shrink-0 cursor-pointer shadow-xs"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>دانلود پشتیبان JSON این دستگاه</span>
+          </button>
+        </div>
 
-          {onTriggerLocalBackup && (
-            <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#E6D5C1]">
-              <span className="text-[11px] text-[#6E5849]">
-                توصیه ایمنی: پیش از همگام‌سازی، یک نسخه پشتیبان محلی روی دستگاه ذخیره کنید.
-              </span>
-              <button
-                type="button"
-                onClick={onTriggerLocalBackup}
-                className="px-3 py-1.5 rounded-xl bg-white hover:bg-amber-50 text-[#8C3B2B] border border-[#D9C2A7] text-xs font-bold inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
-              >
-                <DatabaseBackup className="w-3.5 h-3.5" />
-                <span>پشتیبان محلی فوری</span>
-              </button>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          {/* موجودی این دستگاه قبل و بعد از Sync */}
+          <div className="p-3 rounded-xl bg-white border border-[#E6D5C1] space-y-1.5">
+            <div className="font-bold text-[#332218]">
+              ۱. موجودی این دستگاه ({localRole === 'phone-primary' ? 'گوشی اصلی' : 'لپ‌تاپ همراه'}):
             </div>
-          )}
+            <div className="flex items-center justify-between text-[11px] text-[#6E5849]">
+              <span>قبل از شروع همگام‌سازی:</span>
+              <strong data-testid="local-pre-sync-count" className="text-[#332218]">
+                {toPersianDigits(
+                  (localPreSyncCounts ?? currentLocalCounts).auditCount
+                )}{' '}
+                کتاب قفسه ({toPersianDigits((localPreSyncCounts ?? currentLocalCounts).totalCount)} کل رکوردها)
+              </strong>
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-[#2E6F40]">
+              <span>وضعیت فعلی / پس از همگام‌سازی:</span>
+              <strong data-testid="local-post-sync-count" className="text-[#2E6F40]">
+                {toPersianDigits(currentLocalCounts.auditCount)} کتاب قفسه (
+                {toPersianDigits(currentLocalCounts.totalCount)} کل رکوردها)
+              </strong>
+            </div>
+          </div>
+
+          {/* موجودی دستگاه مقابل قبل و بعد از Sync */}
+          <div className="p-3 rounded-xl bg-white border border-[#E6D5C1] space-y-1.5">
+            <div className="font-bold text-[#332218]">
+              ۲. موجودی دستگاه مقابل ({localRole === 'phone-primary' ? 'لپ‌تاپ همراه' : 'گوشی اصلی'}):
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-[#6E5849]">
+              <span>قبل از شروع همگام‌سازی:</span>
+              <strong data-testid="peer-pre-sync-count" className="text-[#332218]">
+                {peerPreSyncCounts
+                  ? `${toPersianDigits(peerPreSyncCounts.auditCount)} کتاب قفسه (${toPersianDigits(
+                      peerPreSyncCounts.totalCount
+                    )} کل رکوردها)`
+                  : 'پس از اتصال نمایش داده می‌شود'}
+              </strong>
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-[#2E6F40]">
+              <span>پس از اعمال همگام‌سازی (ACK):</span>
+              <strong data-testid="peer-post-sync-count" className="text-[#2E6F40]">
+                {peerPostSyncCounts
+                  ? `${toPersianDigits(peerPostSyncCounts.auditCount)} کتاب قفسه (${toPersianDigits(
+                      peerPostSyncCounts.totalCount
+                    )} کل رکوردها)`
+                  : peerPreSyncCounts
+                  ? `${toPersianDigits(peerPreSyncCounts.auditCount)} کتاب قفسه`
+                  : '—'}
+              </strong>
+            </div>
+          </div>
+
+          {/* تفکیک دقیق نتیجه آخرین همگام‌سازی (جدید، تکراری، تغییرکرده، دارای تعارض) */}
+          <div className="p-3 rounded-xl bg-white border border-[#E6D5C1] space-y-1.5">
+            <div className="font-bold text-[#332218]">
+              ۳. تفکیک رکوردهای آخرین بسته دریافتی:
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+              <div className="px-2 py-1 rounded bg-emerald-50 border border-emerald-200 flex items-center justify-between">
+                <span className="text-emerald-900">جدید:</span>
+                <strong data-testid="breakdown-new-count" className="text-emerald-950">
+                  {toPersianDigits(lastSyncBreakdown?.newCount ?? 0)}
+                </strong>
+              </div>
+              <div className="px-2 py-1 rounded bg-slate-50 border border-slate-200 flex items-center justify-between">
+                <span className="text-slate-700">تکراری (مشترک):</span>
+                <strong data-testid="breakdown-unchanged-count" className="text-slate-900">
+                  {toPersianDigits(lastSyncBreakdown?.unchangedCount ?? 0)}
+                </strong>
+              </div>
+              <div className="px-2 py-1 rounded bg-blue-50 border border-blue-200 flex items-center justify-between">
+                <span className="text-blue-900">تغییرکرده (ادغام):</span>
+                <strong data-testid="breakdown-modified-count" className="text-blue-950">
+                  {toPersianDigits(lastSyncBreakdown?.modifiedCount ?? 0)}
+                </strong>
+              </div>
+              <div className="px-2 py-1 rounded bg-amber-50 border border-amber-200 flex items-center justify-between">
+                <span className="text-amber-900">دارای تعارض:</span>
+                <strong data-testid="breakdown-conflict-count" className="text-amber-950">
+                  {toPersianDigits(lastSyncBreakdown?.conflictCount ?? 0)}
+                </strong>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* الگوی اتصال دوطرفه (بخش ۳ دستور نهایی): شروع نشست از هر یک از دو دستگاه (Host) و پیوستن دستگاه دوم (Peer) با تأیید نهایی روی گوشی */}
+      {/* انتخاب نقش دستگاه فعلی */}
+      <div className="rounded-xl border border-[#E6D5C1] bg-[#FAF3EA]/60 p-3.5 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-bold text-[#332218]">نقش این دستگاه در ارتباط:</span>
+          <span className="text-[11px] font-mono text-[#6E5849] bg-white px-2 py-0.5 rounded border border-[#E6D5C1]">
+            {localDeviceId}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => handleRoleChange('phone-primary')}
+            className={`p-2.5 rounded-xl border text-right transition-colors cursor-pointer flex items-start gap-2 ${
+              localRole === 'phone-primary'
+                ? 'bg-[#8C3B2B] text-white border-[#702D20] shadow-xs'
+                : 'bg-white text-[#332218] border-[#D9C2A7] hover:bg-amber-50/60'
+            }`}
+          >
+            <Smartphone className="w-4 h-4 mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <div className="text-xs font-bold">گوشی اندروید (مرجع اصلی اطلاعات کتابخانه)</div>
+              <div
+                className={`text-[10px] mt-0.5 leading-snug ${
+                  localRole === 'phone-primary' ? 'text-amber-100' : 'text-[#6E5849]'
+                }`}
+              >
+                نگهدارنده اصلی داده‌های کتابخانه با قابلیت تولید یا اسکن QR Code
+              </div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleRoleChange('pc-companion')}
+            className={`p-2.5 rounded-xl border text-right transition-colors cursor-pointer flex items-start gap-2 ${
+              localRole === 'pc-companion'
+                ? 'bg-[#8C3B2B] text-white border-[#702D20] shadow-xs'
+                : 'bg-white text-[#332218] border-[#D9C2A7] hover:bg-amber-50/60'
+            }`}
+          >
+            <Laptop className="w-4 h-4 mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <div className="text-xs font-bold">لپ‌تاپ (دستگاه همراه و مکمل کاری)</div>
+              <div
+                className={`text-[10px] mt-0.5 leading-snug ${
+                  localRole === 'pc-companion' ? 'text-amber-100' : 'text-[#6E5849]'
+                }`}
+              >
+                محیط مکمل برای جست‌وجو، ورود و ویرایش اطلاعات با قابلیت تولید یا اسکن QR Code
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* اتصال ساده دوطرفه با QR Code (بخش ۲ دستور اجرایی) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* کارت ۱: آغاز نشست از این دستگاه (نقش میزبان / Host — تولید QR Code و کد کوتاه) */}
+        {/* کارت ۱: تولید QR Code در این دستگاه (گوشی یا لپ‌تاپ) */}
         <div className="rounded-2xl border-2 border-[#E6D5C1] bg-white p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-xs sm:text-sm font-bold text-[#332218] flex items-center gap-1.5">
               <QrCode className="w-4 h-4 text-[#8C3B2B]" />
-              <span>۱. آغاز نشست از این دستگاه (ایجاد نشست موقت و نمایش QR Code)</span>
+              <span>۱. تولید QR Code در این دستگاه (گوشی یا لپ‌تاپ)</span>
             </h3>
             <span className="text-[10px] px-2 py-0.5 rounded-md bg-[#FDF8F2] border border-[#E6D5C1] text-[#8C3B2B] font-bold">
-              نقش میزبان (Host)
+              نمایش QR
             </span>
           </div>
 
           <p className="text-xs text-[#6E5849] leading-relaxed">
-            هر یک از دو دستگاه (لپ‌تاپ یا گوشی) می‌تواند نشست را آغاز کند. با زدن دکمه زیر، یک نشست موقت ۱۰ دقیقه‌ای با شناسه تصادفی ۱۹۲ بیتی ایجاد شده و QR Code و کد کوتاه تأیید نمایش داده می‌شود.
+            با زدن دکمه زیر، QR Code اتصال در این دستگاه ساخته می‌شود. کافی است آن را با دستگاه دیگر اسکن کنید تا اتصال و همگام‌سازی خودکار دوطرفه بلافاصله انجام شود.
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -917,7 +1047,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               className="px-3.5 py-2 rounded-xl bg-[#8C3B2B] hover:bg-[#702D20] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
               <QrCode className="w-3.5 h-3.5" />
-              <span>آغاز نشست امن و تولید QR Code</span>
+              <span>تولید QR Code برای اتصال</span>
             </button>
 
             {(status === 'pairing' || status === 'connecting') && laptopSessionCreds && (
@@ -927,7 +1057,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                 className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-900 border border-rose-300 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
               >
                 <XCircle className="w-3.5 h-3.5" />
-                <span>لغو نشست و بستن QR</span>
+                <span>لغو و بستن QR</span>
               </button>
             )}
           </div>
@@ -944,13 +1074,13 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                   level="M"
                 />
                 <span className="text-[11px] font-bold text-[#332218]">
-                  این QR Code را در دستگاه مقابل اسکن کنید (تأیید نهایی اتصال همواره روی گوشی انجام می‌شود)
+                  این QR Code را با دستگاه دیگر اسکن کنید تا همگام‌سازی خودکار آغاز شود
                 </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                 <div className="p-2 rounded-lg bg-white border border-[#E6D5C1]">
-                  <span className="text-[#6E5849] block">کد کوتاه تأیید نشست:</span>
+                  <span className="text-[#6E5849] block">کد کوتاه نشست:</span>
                   <strong
                     data-testid="generated-pairing-code"
                     dir="ltr"
@@ -972,7 +1102,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
 
               <div className="flex items-center justify-between gap-2 pt-1">
                 <span className="text-[10px] text-[#6E5849]">
-                  یک‌بارمصرف و زمان‌دار (۱۰ دقیقه) · در انتظار پیوستن دستگاه مقابل و تأیید گوشی
+                  یک‌بارمصرف و زمان‌دار (۱۰ دقیقه) · اتصال و همگام‌سازی فوری به محض اسکن
                 </span>
                 <button
                   type="button"
@@ -993,20 +1123,20 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           )}
         </div>
 
-        {/* کارت ۲: پیوستن به نشست دستگاه مقابل (نقش Peer) و تأیید صریح اتصال روی گوشی */}
+        {/* کارت ۲: اسکن QR Code دستگاه دیگر و اتصال مستقیم */}
         <div className="rounded-2xl border-2 border-[#E6D5C1] bg-white p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-xs sm:text-sm font-bold text-[#332218] flex items-center gap-1.5">
-              <Smartphone className="w-4 h-4 text-[#2E6F40]" />
-              <span>۲. پیوستن به نشست دستگاه مقابل (اسکن QR) و تأیید نهایی روی گوشی</span>
+              <Camera className="w-4 h-4 text-[#2E6F40]" />
+              <span>۲. اسکن QR Code دستگاه دیگر و اتصال مستقیم</span>
             </h3>
             <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-[#2E6F40] font-bold">
-              نقش Peer / تأیید گوشی
+              اسکن و اتصال فوری
             </span>
           </div>
 
           <p className="text-xs text-[#6E5849] leading-relaxed">
-            QR Code نمایش‌داده‌شده در دستگاه میزبان را با دوربین اسکن کنید یا توکن آن را در کادر زیر وارد نمایید. مستقل از اینکه کدام دستگاه نشست را آغاز کرده باشد، تأیید صریح اتصال روی گوشی انجام می‌شود.
+            QR Code نمایش‌داده‌شده در دستگاه دیگر را با دوربین اسکن کنید یا توکن آن را در کادر زیر قرار دهید. اسکن QR به‌منزله مجوز اتصال است و همگام‌سازی دوطرفه بلافاصله آغاز می‌شود.
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -1041,7 +1171,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                 className="w-full max-h-52 rounded-lg object-cover bg-black mx-auto"
               />
               <p className="text-[11px] text-amber-100">
-                دوربین را مقابل QR Code نمایش‌داده‌شده در دستگاه مقابل قرار دهید...
+                دوربین را مقابل QR Code نمایش‌داده‌شده در دستگاه دیگر قرار دهید...
               </p>
             </div>
           )}
@@ -1068,74 +1198,12 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               type="button"
               data-testid="phone-inspect-qr-btn"
               onClick={() => void handleInspectScannedQrOnPhone(scannedQrInput)}
-              className="px-3.5 py-2 rounded-xl bg-[#FDF8F2] hover:bg-amber-100/70 text-[#8C3B2B] border border-[#D9C2A7] text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+              className="px-3.5 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer shrink-0 shadow-xs"
             >
               <QrCode className="w-3.5 h-3.5" />
-              <span>بررسی و پیوستن به نشست</span>
+              <span>اتصال مستقیم و شروع همگام‌سازی</span>
             </button>
           </div>
-
-          {/* گام ۴، ۵ و ۶: کارت نمایش مشخصات لپ‌تاپ درخواست‌کننده و دکمه‌های تأیید / رد صریح روی گوشی */}
-          {pendingPhoneApproval && (
-            <div
-              data-testid="phone-approval-prompt"
-              className="rounded-xl border-2 border-[#2E6F40] bg-emerald-50/60 p-3.5 space-y-3"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-extrabold text-emerald-950 flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-[#2E6F40]" />
-                  <span>درخواست اتصال از لپ‌تاپ — نیازمند تأیید صریح شما روی گوشی</span>
-                </span>
-              </div>
-
-              <div className="rounded-lg bg-white border border-emerald-200 p-2.5 space-y-1 text-xs text-[#332218]">
-                <div>
-                  دستگاه همراه متصل‌شونده:{' '}
-                  <strong>لپ‌تاپ (دستگاه همراه کاری)</strong>
-                </div>
-                <div>
-                  شناسه دستگاه لپ‌تاپ:{' '}
-                  <strong dir="ltr" className="font-mono">
-                    {pendingPhoneApproval.laptopDeviceId}
-                  </strong>
-                </div>
-                <div>
-                  کد کوتاه تأیید نشست:{' '}
-                  <strong dir="ltr" className="font-mono text-[#8C3B2B]">
-                    {pendingPhoneApproval.pairingCode}
-                  </strong>
-                </div>
-                <div>
-                  شناسه نشست:{' '}
-                  <span dir="ltr" className="font-mono text-[11px] text-[#6E5849]">
-                    {maskSessionIdForDisplay(pendingPhoneApproval.sessionId)}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  data-testid="phone-approve-connection-btn"
-                  onClick={() => void handleApproveConnectionOnPhone()}
-                  className="flex-1 px-3.5 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>تأیید اتصال و شروع همگام‌سازی دوطرفه</span>
-                </button>
-
-                <button
-                  type="button"
-                  data-testid="phone-reject-connection-btn"
-                  onClick={() => void handleRejectConnectionOnPhone()}
-                  className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  <XCircle className="w-4 h-4" />
-                  <span>رد درخواست و بستن نشست</span>
-                </button>
-              </div>
-            </div>
-          )}
 
           {status === 'connected' || status === 'transfer-success' ? (
             <div className="rounded-xl bg-emerald-50 border border-emerald-300 p-3 flex items-center justify-between gap-2">
@@ -1164,15 +1232,15 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         </div>
       </div>
 
-      {/* گام سوم: همگام‌سازی دوطرفه در همان نشست و انتخاب مجموعه‌ها */}
+      {/* گام سوم: همگام‌سازی مجدد در همان نشست و انتخاب مجموعه‌ها */}
       <div className="rounded-2xl border border-[#D9C2A7] bg-[#FDF8F2] p-4 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h3 className="text-xs sm:text-sm font-bold text-[#332218]">
-              ۳. تبادل و همگام‌سازی دوطرفه در نشست فعال (RTCDataChannel)
+              ۳. همگام‌سازی خودکار دوطرفه در نشست فعال (RTCDataChannel)
             </h3>
             <p className="text-[11px] text-[#6E5849]">
-              به محض تأیید اتصال در گوشی، تبادل دوطرفه به‌طور خودکار در همین نشست انجام می‌شود. همچنین در صورت ثبت تغییرات جدید در حین اتصال، می‌توانید با دکمه روبه‌رو مجدداً بسته تغییرات را ارسال کنید.
+              به محض برقراری اتصال، تبادل و ادغام دوطرفه به‌طور خودکار انجام می‌شود. در صورت ثبت تغییرات جدید در حین اتصال یا پس از اتصال مجدد، می‌توانید با دکمه روبه‌رو مجدداً همگام‌سازی را اجرا کنید.
             </p>
           </div>
 
@@ -1188,9 +1256,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           >
             <Send className="w-4 h-4" />
             <span>
-              {localRole === 'phone-primary'
-                ? `ارسال مجدد داده‌های مرجع گوشی به لپ‌تاپ (${toPersianDigits(localEnvelopesCount)} رکورد)`
-                : `ارسال مجدد تغییرات کاری لپ‌تاپ به گوشی جهت تأیید (${toPersianDigits(localEnvelopesCount)} رکورد)`}
+              همگام‌سازی مجدد در نشست فعال ({toPersianDigits(localEnvelopesCount)} رکورد)
             </span>
           </button>
         </div>
@@ -1279,8 +1345,8 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         )}
       </div>
 
-      {/* گام چهارم: پنجره پیش‌نمایش بسته دریافتی، حل صریح تعارض‌ها و کنترل نهایی روی گوشی */}
-      {pendingPreviewReport && (
+      {/* بخش مدیریت تعارض‌های ثبت‌شده (فقط زمانی نمایش داده می‌شود که یک رکورد در هر دو دستگاه به شکل متناقض ویرایش شده باشد) */}
+      {pendingPreviewReport && pendingPreviewReport.conflicts.length > 0 && (
         <div
           data-testid="sync-preview-modal"
           className="rounded-2xl border-2 border-[#8C3B2B] bg-white p-4 sm:p-5 shadow-md space-y-4"
@@ -1290,17 +1356,12 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               <h3 className="font-titr text-sm sm:text-base font-bold text-[#8C3B2B] flex items-center gap-1.5">
                 <ShieldCheck className="w-5 h-5 shrink-0" />
                 <span>
-                  پیش‌نمایش و کنترل نهایی بسته دریافتی ({pendingPreviewReport.packageId})
+                  رکوردهای دارای تعارض در بسته ({pendingPreviewReport.packageId}) — حفظ هر دو نسخه برای انتخاب شما
                 </span>
               </h3>
               <p className="text-xs text-[#5D4636]">
-                فرستنده:{' '}
-                <strong>
-                  {pendingPreviewReport.senderRole === 'phone-primary'
-                    ? 'گوشی اندروید (مرجع اصلی)'
-                    : 'لپ‌تاپ (دستگاه همراه کاری)'}
-                </strong>{' '}
-                · هیچ تغییری از لپ‌تاپ بدون بررسی و تأیید نهایی شما روی داده‌های مرجع گوشی بازنویسی نمی‌شود.
+                سایر رکوردهای جدید و تکمیلی به‌طور خودکار اعمال شدند. برای{' '}
+                {toPersianDigits(pendingPreviewReport.conflicts.length)} مورد زیر که در هر دو دستگاه مقادیر متفاوتی داشتند، هیچ نسخه‌ای حذف نشده است و می‌توانید نسخه نهایی را انتخاب کنید:
               </p>
             </div>
 
@@ -1311,7 +1372,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                 className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
               >
                 <XCircle className="w-3.5 h-3.5" />
-                <span>انصراف و رد بسته</span>
+                <span>بستن موقت</span>
               </button>
               <button
                 type="button"
@@ -1325,253 +1386,168 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                 }`}
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>تأیید نهایی و اعمال تغییرات در حافظه دستگاه</span>
+                <span>ثبت تصمیم تعارض‌ها در حافظه دستگاه</span>
               </button>
             </div>
           </div>
 
-          {pendingPreviewReport.isReplayPackage && (
-            <div className="rounded-xl bg-amber-100 border border-amber-400 px-3 py-2 text-xs font-bold text-amber-950 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>
-                توجه (جلوگیری از Replay): بسته با شناسه {pendingPreviewReport.packageId} قبلاً در این دستگاه بررسی و اعمال شده است؛ رکوردهای تکراری در بخش «یکسان و بدون تغییر» قرار گرفته‌اند و هیچ رکورد تکراری ایجاد نخواهد شد.
-              </span>
-            </div>
-          )}
+          <div className="space-y-3">
+            {pendingPreviewReport.conflicts.map((conflict) => {
+              const phoneData = (conflict.phoneEnvelope.data || {}) as Record<string, unknown>;
+              const pcData = (conflict.pcEnvelope.data || {}) as Record<string, unknown>;
 
-          {/* خلاصه آماری تغییرات بسته */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
-            <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200">
-              <div className="text-sm font-extrabold text-emerald-900">
-                {toPersianDigits(pendingPreviewReport.newItems.length)}
-              </div>
-              <div className="text-[11px] font-bold text-emerald-800">رکورد جدید</div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200">
-              <div className="text-sm font-extrabold text-blue-900">
-                {toPersianDigits(pendingPreviewReport.modifiedItems.length)}
-              </div>
-              <div className="text-[11px] font-bold text-blue-800">ویرایش بدون تعارض</div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-300">
-              <div className="text-sm font-extrabold text-amber-950">
-                {toPersianDigits(pendingPreviewReport.conflicts.length)}
-              </div>
-              <div className="text-[11px] font-bold text-amber-900">تعارض نیازمند تصمیم</div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200">
-              <div className="text-sm font-extrabold text-rose-900">
-                {toPersianDigits(pendingPreviewReport.softDeleteItems.length)}
-              </div>
-              <div className="text-[11px] font-bold text-rose-800">حذف نرم (قابل بازیابی)</div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-              <div className="text-sm font-extrabold text-slate-800">
-                {toPersianDigits(pendingPreviewReport.unchangedItems.length)}
-              </div>
-              <div className="text-[11px] font-bold text-slate-600">یکسان و بدون تغییر</div>
-            </div>
-          </div>
-
-          {/* فهرست رکوردهای جدید و ویرایش‌شده */}
-          {(pendingPreviewReport.newItems.length > 0 ||
-            pendingPreviewReport.modifiedItems.length > 0) && (
-            <div className="rounded-xl bg-[#FDF8F2] border border-[#E6D5C1] p-3 space-y-2 max-h-48 overflow-y-auto">
-              <div className="text-xs font-bold text-[#332218]">
-                جزئیات رکوردهای جدید و ویرایش‌شده:
-              </div>
-              {pendingPreviewReport.newItems.map((item) => (
+              return (
                 <div
-                  key={`${item.collection}:${item.recordId}`}
-                  className="text-xs flex items-center justify-between gap-2 py-1 border-b border-[#E6D5C1]/60 last:border-none"
+                  key={conflict.conflictId}
+                  data-testid={`conflict-card-${conflict.recordId}`}
+                  className="rounded-xl border-2 border-amber-300 bg-amber-50/40 p-3.5 space-y-3"
                 >
-                  <span className="font-medium text-[#332218]">{item.titleSummary}</span>
-                  <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-bold text-[10px]">
-                    رکورد جدید ({SYNC_COLLECTION_LABELS[item.collection]})
-                  </span>
-                </div>
-              ))}
-              {pendingPreviewReport.modifiedItems.map((item) => (
-                <div
-                  key={`${item.collection}:${item.recordId}`}
-                  className="text-xs flex items-center justify-between gap-2 py-1 border-b border-[#E6D5C1]/60 last:border-none"
-                >
-                  <span className="font-medium text-[#332218]">{item.titleSummary}</span>
-                  <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-900 font-bold text-[10px]">
-                    ویرایش‌شده ({SYNC_COLLECTION_LABELS[item.collection]})
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* بخش حل تعارض صریح توسط کاربر */}
-          {pendingPreviewReport.conflicts.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 text-xs font-bold text-amber-950 bg-amber-100 border border-amber-300 px-3 py-2 rounded-xl">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>
-                  توجه: در {toPersianDigits(pendingPreviewReport.conflicts.length)} رکورد زیر، هم روی گوشی و هم روی لپ‌تاپ تغییرات متفاوتی ثبت شده است. هیچ رکوردی صرفاً به دلیل قدیمی‌تر بودن زمان ویرایش بازنویسی نمی‌شود؛ لطفاً برای هر مورد یکی از ۳ گزینه را انتخاب کنید:
-                </span>
-              </div>
-
-              {pendingPreviewReport.conflicts.map((conflict) => {
-                const phoneData = (conflict.phoneEnvelope.data || {}) as Record<string, unknown>;
-                const pcData = (conflict.pcEnvelope.data || {}) as Record<string, unknown>;
-
-                return (
-                  <div
-                    key={conflict.conflictId}
-                    data-testid={`conflict-card-${conflict.recordId}`}
-                    className="rounded-xl border-2 border-amber-300 bg-amber-50/40 p-3.5 space-y-3"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-xs sm:text-sm font-bold text-[#332218]">
-                        {conflict.titleSummary}
-                      </span>
-                      <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-200 text-amber-950">
-                        {conflict.selectedChoice === 'keep-phone'
-                          ? 'انتخاب شما: حفظ نسخه گوشی'
-                          : conflict.selectedChoice === 'accept-pc'
-                          ? 'انتخاب شما: پذیرش نسخه لپ‌تاپ'
-                          : conflict.selectedChoice === 'manual-edit'
-                          ? 'انتخاب شما: اصلاح دستی'
-                          : 'در انتظار تصمیم شما'}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-                      <div className="p-2.5 rounded-lg bg-white border border-[#E6D5C1] space-y-1">
-                        <div className="font-bold text-[#8C3B2B]">نسخه موجود در گوشی (مرجع اصلی):</div>
-                        <div>عنوان: {String(phoneData.title || conflict.phoneEnvelope.titleSummary)}</div>
-                        <div>
-                          مکان قفسه: <strong>{String(phoneData.location || '—')}</strong> · تعداد نسخه:{' '}
-                          <strong>{toPersianDigits(String(phoneData.countedCopies ?? '—'))}</strong>
-                        </div>
-                        {phoneData.notes ? <div>یادداشت: {String(phoneData.notes)}</div> : null}
-                      </div>
-
-                      <div className="p-2.5 rounded-lg bg-white border border-[#E6D5C1] space-y-1">
-                        <div className="font-bold text-[#2E6F40]">نسخه موجود در لپ‌تاپ (مکمل کاری):</div>
-                        <div>عنوان: {String(pcData.title || conflict.pcEnvelope.titleSummary)}</div>
-                        <div>
-                          مکان قفسه: <strong>{String(pcData.location || '—')}</strong> · تعداد نسخه:{' '}
-                          <strong>{toPersianDigits(String(pcData.countedCopies ?? '—'))}</strong>
-                        </div>
-                        {pcData.notes ? <div>یادداشت: {String(pcData.notes)}</div> : null}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleSelectConflictResolution(conflict, 'keep-phone')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border ${
-                          conflict.selectedChoice === 'keep-phone'
-                            ? 'bg-[#8C3B2B] text-white border-[#702D20]'
-                            : 'bg-white text-[#332218] border-[#D9C2A7]'
-                        }`}
-                      >
-                        ۱. حفظ نسخه گوشی
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleSelectConflictResolution(conflict, 'accept-pc')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border ${
-                          conflict.selectedChoice === 'accept-pc'
-                            ? 'bg-[#2E6F40] text-white border-emerald-900'
-                            : 'bg-white text-[#332218] border-[#D9C2A7]'
-                        }`}
-                      >
-                        ۲. پذیرش نسخه لپ‌تاپ
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleSelectConflictResolution(conflict, 'manual-edit')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border ${
-                          conflict.selectedChoice === 'manual-edit'
-                            ? 'bg-amber-800 text-white border-amber-950'
-                            : 'bg-white text-[#332218] border-[#D9C2A7]'
-                        }`}
-                      >
-                        ۳. بررسی و اصلاح دستی
-                      </button>
-                    </div>
-
-                    {editingConflictId === conflict.conflictId && (
-                      <div className="p-3 rounded-xl bg-white border border-amber-400 space-y-2.5 text-xs">
-                        <div className="font-bold text-[#332218]">
-                          ویرایش دستی مقادیر نهایی برای ثبت:
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          <div>
-                            <label className="block text-[11px] text-[#6E5849] mb-1">عنوان کتاب:</label>
-                            <input
-                              type="text"
-                              value={manualEditDraft.title || ''}
-                              onChange={(e) =>
-                                setManualEditDraft((p) => ({ ...p, title: e.target.value }))
-                              }
-                              className="w-full px-2.5 py-1.5 rounded-lg border border-[#D9C2A7]"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[11px] text-[#6E5849] mb-1">قفسه:</label>
-                            <select
-                              value={manualEditDraft.shelf || 'SH-01'}
-                              onChange={(e) =>
-                                setManualEditDraft((p) => ({
-                                  ...p,
-                                  shelf: e.target.value as ShelfCode,
-                                }))
-                              }
-                              className="w-full px-2.5 py-1.5 rounded-lg border border-[#D9C2A7]"
-                            >
-                              {SHELVES.map((s) => (
-                                <option key={s.code} value={s.code}>
-                                  {s.title}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-[11px] text-[#6E5849] mb-1">طبقه:</label>
-                            <select
-                              value={manualEditDraft.level || 'T01'}
-                              onChange={(e) =>
-                                setManualEditDraft((p) => ({
-                                  ...p,
-                                  level: e.target.value as ShelfLevelCode,
-                                }))
-                              }
-                              className="w-full px-2.5 py-1.5 rounded-lg border border-[#D9C2A7]"
-                            >
-                              {LEVELS.map((l) => (
-                                <option key={l.code} value={l.code}>
-                                  {l.title}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                        <div className="flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() => handleSaveManualConflictEdit(conflict)}
-                            className="px-3 py-1.5 rounded-lg bg-[#2E6F40] text-white font-bold cursor-pointer"
-                          >
-                            ثبت مقدار اصلاح‌شده دستی
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs sm:text-sm font-bold text-[#332218]">
+                      {conflict.titleSummary}
+                    </span>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-200 text-amber-950">
+                      {conflict.selectedChoice === 'keep-phone'
+                        ? 'انتخاب شما: حفظ نسخه گوشی'
+                        : conflict.selectedChoice === 'accept-pc'
+                        ? 'انتخاب شما: پذیرش نسخه لپ‌تاپ'
+                        : conflict.selectedChoice === 'manual-edit'
+                        ? 'انتخاب شما: اصلاح دستی'
+                        : 'در انتظار تصمیم شما (هر دو نسخه محفوظ است)'}
+                    </span>
                   </div>
-                );
-              })}
-            </div>
-          )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                    <div className="p-2.5 rounded-lg bg-white border border-[#E6D5C1] space-y-1">
+                      <div className="font-bold text-[#8C3B2B]">نسخه موجود در گوشی (مرجع اصلی):</div>
+                      <div>عنوان: {String(phoneData.title || conflict.phoneEnvelope.titleSummary)}</div>
+                      <div>
+                        مکان قفسه: <strong>{String(phoneData.location || '—')}</strong> · تعداد نسخه:{' '}
+                        <strong>{toPersianDigits(String(phoneData.countedCopies ?? '—'))}</strong>
+                      </div>
+                      {phoneData.notes ? <div>یادداشت: {String(phoneData.notes)}</div> : null}
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-white border border-[#E6D5C1] space-y-1">
+                      <div className="font-bold text-[#2E6F40]">نسخه موجود در لپ‌تاپ (مکمل کاری):</div>
+                      <div>عنوان: {String(pcData.title || conflict.pcEnvelope.titleSummary)}</div>
+                      <div>
+                        مکان قفسه: <strong>{String(pcData.location || '—')}</strong> · تعداد نسخه:{' '}
+                        <strong>{toPersianDigits(String(pcData.countedCopies ?? '—'))}</strong>
+                      </div>
+                      {pcData.notes ? <div>یادداشت: {String(pcData.notes)}</div> : null}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectConflictResolution(conflict, 'keep-phone')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border ${
+                        conflict.selectedChoice === 'keep-phone'
+                          ? 'bg-[#8C3B2B] text-white border-[#702D20]'
+                          : 'bg-white text-[#332218] border-[#D9C2A7]'
+                      }`}
+                    >
+                      ۱. حفظ نسخه گوشی
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSelectConflictResolution(conflict, 'accept-pc')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border ${
+                        conflict.selectedChoice === 'accept-pc'
+                          ? 'bg-[#2E6F40] text-white border-emerald-900'
+                          : 'bg-white text-[#332218] border-[#D9C2A7]'
+                      }`}
+                    >
+                      ۲. پذیرش نسخه لپ‌تاپ
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSelectConflictResolution(conflict, 'manual-edit')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer border ${
+                        conflict.selectedChoice === 'manual-edit'
+                          ? 'bg-amber-800 text-white border-amber-950'
+                          : 'bg-white text-[#332218] border-[#D9C2A7]'
+                      }`}
+                    >
+                      ۳. بررسی و اصلاح دستی
+                    </button>
+                  </div>
+
+                  {editingConflictId === conflict.conflictId && (
+                    <div className="p-3 rounded-xl bg-white border border-amber-400 space-y-2.5 text-xs">
+                      <div className="font-bold text-[#332218]">
+                        ویرایش دستی مقادیر نهایی برای ثبت:
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div>
+                          <label className="block text-[11px] text-[#6E5849] mb-1">عنوان کتاب:</label>
+                          <input
+                            type="text"
+                            value={manualEditDraft.title || ''}
+                            onChange={(e) =>
+                              setManualEditDraft((p) => ({ ...p, title: e.target.value }))
+                            }
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-[#D9C2A7]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] text-[#6E5849] mb-1">قفسه:</label>
+                          <select
+                            value={manualEditDraft.shelf || 'SH-01'}
+                            onChange={(e) =>
+                              setManualEditDraft((p) => ({
+                                ...p,
+                                shelf: e.target.value as ShelfCode,
+                              }))
+                            }
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-[#D9C2A7]"
+                          >
+                            {SHELVES.map((s) => (
+                              <option key={s.code} value={s.code}>
+                                {s.title}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[11px] text-[#6E5849] mb-1">طبقه:</label>
+                          <select
+                            value={manualEditDraft.level || 'T01'}
+                            onChange={(e) =>
+                              setManualEditDraft((p) => ({
+                                ...p,
+                                level: e.target.value as ShelfLevelCode,
+                              }))
+                            }
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-[#D9C2A7]"
+                          >
+                            {LEVELS.map((l) => (
+                              <option key={l.code} value={l.code}>
+                                {l.title}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveManualConflictEdit(conflict)}
+                          className="px-3 py-1.5 rounded-lg bg-[#2E6F40] text-white font-bold cursor-pointer"
+                        >
+                          ثبت مقدار اصلاح‌شده دستی
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -1591,7 +1567,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
 
           {Object.keys(softDeletedArchive).length === 0 ? (
             <p className="text-[11px] text-[#6E5849]">
-              هیچ رکوردی در بایگانی حذف نرم وجود ندارد. (حذف فیزیکی خودکار در همگام‌سازی ممنوع است.)
+              هیچ رکوردی در بایگانی حذف نرم وجود ندارد. (حذف خودکار رکوردها در همگام‌سازی ممنوع است.)
             </p>
           ) : (
             <div className="space-y-1.5 max-h-36 overflow-y-auto">
@@ -1618,7 +1594,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         {/* تاریخچه بسته‌های انتقالی */}
         <div className="rounded-xl border border-[#E6D5C1] bg-[#FAF3EA]/50 p-3 space-y-2">
           <div className="text-xs font-bold text-[#332218] flex items-center justify-between">
-            <span>تاریخچه بسته‌های انتقالی اخیر (ثبت وضعیت و شناسه بسته)</span>
+            <span>تاریخچه بسته‌های انتقالی اخیر (ثبت وضعیت و تأییدیه ACK)</span>
             <span className="text-[11px] text-[#6E5849]">
               {toPersianDigits(transferHistory.length)} بسته
             </span>
@@ -1632,14 +1608,14 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
             <div className="space-y-1.5 max-h-36 overflow-y-auto">
               {transferHistory.slice(0, 8).map((item) => (
                 <div
-                  key={item.packageId}
+                  key={`${item.packageId}-${item.direction}-${item.timestampMs}`}
                   className="flex items-center justify-between gap-2 bg-white px-2.5 py-1.5 rounded-lg border border-[#E6D5C1] text-[11px]"
                 >
                   <div className="min-w-0 truncate">
                     <span className="font-mono font-bold text-[#332218]">{item.packageId}</span>
                     <span className="mx-1 text-[#8C7A6B]">·</span>
                     <span>
-                      {item.direction === 'sent' ? 'ارسالی' : 'دریافتی'} (
+                      {item.direction === 'sent' ? 'ارسالی (تأییدشده)' : 'دریافتی (اعمال‌شده)'} (
                       {toPersianDigits(item.recordsCount)} رکورد)
                     </span>
                   </div>
@@ -1667,3 +1643,4 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     </section>
   );
 };
+

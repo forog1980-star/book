@@ -18,6 +18,8 @@ export type WireMessage =
       deviceId: string;
       deviceRole: DeviceSyncRole;
       timestampMs: number;
+      localAuditCount?: number;
+      localTotalCount?: number;
     }
   | {
       type: 'PING_HEARTBEAT';
@@ -49,6 +51,13 @@ export type WireMessage =
       type: 'TRANSFER_ACK';
       packageId: string;
       ok: boolean;
+      applied?: boolean;
+      appliedNewCount?: number;
+      appliedModifiedCount?: number;
+      unchangedCount?: number;
+      conflictCount?: number;
+      receiverPostAuditCount?: number;
+      receiverPostTotalCount?: number;
       error?: string;
     };
 

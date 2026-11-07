@@ -1,0 +1,193 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net: Default-deny all collections and documents
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.uid is string && request.auth.uid.size() > 0 && request.auth.uid.size() <= 128;
+    }
+
+    // Strict SHA-256 derived session ID format: SESS_ + 48 lowercase hex chars (53 chars total)
+    function isValidSessionId(id) {
+      return id is string && id.size() == 53 && id.matches('^SESS_[0-9a-f]{48}$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Server-time expiration check: relies on server request.time and enforces max 10-minute window from createdAtMs
+    function isNotExpired(data) {
+      return data.createdAtMs is int
+        && data.expiresAtMs is int
+        && request.time.toMillis() < data.expiresAtMs
+        && request.time.toMillis() < data.createdAtMs + 600000;
+    }
+
+    // Prevents client timestamp spoofing on session creation:
+    // createdAtMs must be within +/- 60s of real server time (request.time.toMillis()),
+    // and expiresAtMs must be strictly in the future and at most 10 minutes (600,000 ms) from real server time.
+    function isValidCreationWindow(data) {
+      return data.createdAtMs is int
+        && data.expiresAtMs is int
+        && data.createdAtMs >= request.time.toMillis() - 60000
+        && data.createdAtMs <= request.time.toMillis() + 60000
+        && data.expiresAtMs > request.time.toMillis()
+        && data.expiresAtMs <= request.time.toMillis() + 600000
+        && data.expiresAtMs > data.createdAtMs
+        && data.expiresAtMs <= data.createdAtMs + 600000;
+    }
+
+    function isValidSignalingSession(data, sessionId) {
+      return data.keys().hasAll([
+          'sessionId',
+          'pairingCodeDigest',
+          'hostDeviceRole',
+          'hostUid',
+          'status',
+          'offerType',
+          'offerSdp',
+          'hostCandidatesJson',
+          'peerCandidatesJson',
+          'createdAtMs',
+          'expiresAtMs',
+          'updatedAtMs'
+        ])
+        && data.keys().hasOnly([
+          'sessionId',
+          'pairingCodeDigest',
+          'hostDeviceRole',
+          'hostUid',
+          'peerUid',
+          'status',
+          'offerType',
+          'offerSdp',
+          'answerType',
+          'answerSdp',
+          'hostCandidatesJson',
+          'peerCandidatesJson',
+          'createdAtMs',
+          'expiresAtMs',
+          'updatedAtMs'
+        ])
+        && data.sessionId == sessionId
+        && data.pairingCodeDigest is string && data.pairingCodeDigest.size() == 71 && data.pairingCodeDigest.matches('^SHA256_[0-9a-f]{64}$')
+        && data.hostDeviceRole is string && (data.hostDeviceRole == 'phone-primary' || data.hostDeviceRole == 'pc-companion')
+        && data.hostUid is string && data.hostUid.size() > 0 && data.hostUid.size() <= 128
+        && (!('peerUid' in data) || (data.peerUid is string && data.peerUid.size() > 0 && data.peerUid.size() <= 128))
+        && data.status is string && (
+          data.status == 'waiting-for-peer' ||
+          data.status == 'offer-ready' ||
+          data.status == 'answer-ready' ||
+          data.status == 'connected' ||
+          data.status == 'closed' ||
+          data.status == 'expired'
+        )
+        && data.offerType == 'offer'
+        && data.offerSdp is string && data.offerSdp.size() >= 10 && data.offerSdp.size() <= 24000
+        && (!('answerType' in data) || data.answerType == 'answer')
+        && (!('answerSdp' in data) || (data.answerSdp is string && data.answerSdp.size() >= 10 && data.answerSdp.size() <= 24000))
+        && data.hostCandidatesJson is string && data.hostCandidatesJson.size() >= 2 && data.hostCandidatesJson.size() <= 32000
+        && data.peerCandidatesJson is string && data.peerCandidatesJson.size() >= 2 && data.peerCandidatesJson.size() <= 32000
+        && data.createdAtMs is int && data.createdAtMs > 0
+        && data.expiresAtMs is int && data.expiresAtMs > data.createdAtMs && data.expiresAtMs <= data.createdAtMs + 600000
+        && data.updatedAtMs is int && data.updatedAtMs >= data.createdAtMs
+        && data.updatedAtMs <= request.time.toMillis() + 60000;
+    }
+
+    function isImmutableSignalingCorePreserved() {
+      return incoming().sessionId == existing().sessionId
+        && incoming().pairingCodeDigest == existing().pairingCodeDigest
+        && incoming().hostDeviceRole == existing().hostDeviceRole
+        && incoming().hostUid == existing().hostUid
+        && incoming().offerType == existing().offerType
+        && incoming().offerSdp == existing().offerSdp
+        && incoming().createdAtMs == existing().createdAtMs
+        && incoming().expiresAtMs == existing().expiresAtMs;
+    }
+
+    function isAuthorizedHostUpdate() {
+      return request.auth.uid == existing().hostUid
+        && (!('peerUid' in existing()) || incoming().peerUid == existing().peerUid)
+        && (!('answerSdp' in existing()) || incoming().answerSdp == existing().answerSdp)
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'hostCandidatesJson',
+          'status',
+          'updatedAtMs'
+        ]);
+    }
+
+    // Write-once peerUid binding:
+    // - If peerUid is not yet set, the claiming peer locks incoming().peerUid == request.auth.uid
+    // - Once peerUid is set, only existing().peerUid == request.auth.uid can update, and peerUid cannot be changed
+    // - Once answerSdp is set, it cannot be overwritten
+    function isAuthorizedPeerUpdate() {
+      return (
+          (!('peerUid' in existing()) && incoming().peerUid == request.auth.uid)
+          || ('peerUid' in existing() && existing().peerUid == request.auth.uid && incoming().peerUid == existing().peerUid)
+        )
+        && (!('answerSdp' in existing()) || incoming().answerSdp == existing().answerSdp)
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'peerUid',
+          'status',
+          'answerType',
+          'answerSdp',
+          'peerCandidatesJson',
+          'updatedAtMs'
+        ]);
+    }
+
+    // Ephemeral WebRTC Signaling Collection ONLY (Zero library content allowed)
+    match /webrtc_signaling_sessions/{sessionId} {
+      // Strictly forbid listing/querying sessions so no one can enumerate active pairing sessions
+      allow list: if false;
+
+      // Only authenticated session host or claiming/claimed peer can read an unexpired session
+      allow get: if isSignedIn()
+        && isValidSessionId(sessionId)
+        && isNotExpired(existing())
+        && (
+          request.auth.uid == existing().hostUid
+          || !('peerUid' in existing())
+          || request.auth.uid == existing().peerUid
+        );
+
+      // Creating a temporary signaling session (max 10 minutes TTL, bound to hostUid and server clock)
+      allow create: if isSignedIn()
+        && isValidSessionId(sessionId)
+        && isValidSignalingSession(incoming(), sessionId)
+        && isValidCreationWindow(incoming())
+        && incoming().hostUid == request.auth.uid
+        && !('peerUid' in incoming())
+        && !('answerSdp' in incoming())
+        && incoming().status == 'offer-ready'
+        && isNotExpired(incoming());
+
+      // Updating SDP Answer / ICE candidates within an unexpired, active session by authorized owner only
+      allow update: if isSignedIn()
+        && isValidSessionId(sessionId)
+        && isValidSignalingSession(incoming(), sessionId)
+        && isNotExpired(existing())
+        && existing().status != 'closed'
+        && existing().status != 'expired'
+        && isImmutableSignalingCorePreserved()
+        && (isAuthorizedHostUpdate() || isAuthorizedPeerUpdate());
+
+      // Immediate cleanup allowed only by the session host or bound peer
+      allow delete: if isSignedIn()
+        && isValidSessionId(sessionId)
+        && (
+          request.auth.uid == existing().hostUid
+          || ('peerUid' in existing() && request.auth.uid == existing().peerUid)
+        );
+    }
+  }
+}

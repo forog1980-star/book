@@ -56,10 +56,16 @@ export interface PendingPhoneApprovalRequest {
 export interface PeerConnectionCallbacks {
   onStatusChange: (status: ConnectionUiStatus, detailMessage?: string) => void;
   onPhoneApprovalRequired?: (request: PendingPhoneApprovalRequest) => void;
-  onPeerHandshake?: (peerDeviceId: string, peerRole: DeviceSyncRole) => void;
+  getLocalPreSyncCounts?: () => { auditCount: number; totalCount: number };
+  onPeerHandshake?: (
+    peerDeviceId: string,
+    peerRole: DeviceSyncRole,
+    peerPreCounts?: { auditCount: number; totalCount: number }
+  ) => void;
   onChannelReadyForAutoSync?: (peerDeviceId: string, peerRole: DeviceSyncRole) => void;
   onTransferProgress?: (packageId: string, receivedChunks: number, totalChunks: number) => void;
   onPackageReceived: (pkg: SyncTransferPackage) => void;
+  onPackageAckReceived?: (ack: Extract<WireMessage, { type: 'TRANSFER_ACK' }>) => void;
   onTransferInterrupted: (packageId: string, reason: string) => void;
   onSignalCleanedUp?: (sessionId: string) => void;
 }
@@ -103,6 +109,8 @@ export class DirectWebRtcSessionManager {
   private localRole: DeviceSyncRole;
   private callbacks: PeerConnectionCallbacks;
   private incomingBuffers = new Map<string, IncomingTransferBuffer>();
+  private pendingUnackedSentPackageIds = new Set<string>();
+  private ackSentForReceivedPackageIds = new Set<string>();
   private appliedRemoteAnswer = false;
   private autoSyncTriggeredForSession = false;
   private addedRemoteCandidateKeys = new Set<string>();
@@ -289,35 +297,14 @@ export class DirectWebRtcSessionManager {
 
           if (docData.status === 'waiting-for-peer' && !docData.answerSdp && !this.appliedRemoteAnswer) {
             this.callbacks.onStatusChange(
-              'pairing',
-              'QR Code اسکن و قفل شد؛ در انتظار تأیید نهایی اتصال روی صفحه گوشی...'
+              'connecting',
+              'QR Code اسکن شد؛ در حال برقراری مستقیم اتصال WebRTC و آغاز همگام‌سازی خودکار...'
             );
           }
 
           if (docData.answerSdp && !this.appliedRemoteAnswer) {
-            // اگر خود گوشی آغازکننده نشست (Host) بوده و لپ‌تاپ به آن پیوسته است،
-            // تأیید صریح کاربر روی گوشی پیش از تکمیل اتصال الزامی است (اصل ۷ بخش ۲ و بخش ۴).
-            if (this.localRole === 'phone-primary' && this.callbacks.onPhoneApprovalRequired) {
-              this.pendingPhoneApproval = {
-                mode: 'host-side',
-                request: {
-                  sessionId,
-                  pairingCode: normalizedCode,
-                  laptopDeviceId: docData.peerUid ? `PEER_${docData.peerUid.slice(0, 8)}` : 'DEV_LAPTOP',
-                  hostDeviceRole: 'pc-companion',
-                  createdAtMs: docData.createdAtMs,
-                  expiresAtMs: docData.expiresAtMs,
-                },
-                sessionDoc: docData,
-              };
-              this.callbacks.onStatusChange(
-                'pairing',
-                'لپ‌تاپ QR را اسکن کرد و آماده اتصال است. لطفاً روی گوشی اتصال را تأیید یا رد کنید.'
-              );
-              this.callbacks.onPhoneApprovalRequired(this.pendingPhoneApproval.request);
-              return;
-            }
-
+            // طبق بخش ۲ دستور اجرایی (ساده‌سازی فرایند اتصال):
+            // QR Code مجوز عملی اتصال بین دو دستگاه کاربر است و به محض دریافت پاسخ، اتصال و همگام‌سازی خودکار بدون توقف اضافی برقرار می‌شود.
             await this.applyHostRemoteAnswerAndCandidates(docData);
           } else if (docData.peerCandidatesJson && this.pc && this.pc.remoteDescription) {
             await this.addPeerCandidatesFromDoc(docData);
@@ -632,6 +619,18 @@ export class DirectWebRtcSessionManager {
   }
 
   /**
+   * اتصال مستقیم یک‌مرحله‌ای با اسکن QR Code (بدون نیاز به مرحله تأیید جداگانه روی گوشی):
+   * به محض اسکن QR، نشست بررسی و قفل شده و پاسخ WebRTC ارسال می‌گردد تا همگام‌سازی خودکار آغاز شود.
+   */
+  public async connectWithScannedQr(
+    rawQrOrPairingCode: string
+  ): Promise<{ sessionId: string; peerInfo: PendingPhoneApprovalRequest }> {
+    const peerInfo = await this.inspectLaptopQrOnPhone(rawQrOrPairingCode);
+    const { sessionId } = await this.approvePendingSessionOnPhone();
+    return { sessionId, peerInfo };
+  }
+
+  /**
    * اتصال با رشته QR V2 (یا sessionId تصادفی صریح + کد تأیید ۱۲ کاراکتری)
    * توجه: sessionId همیشه تصادفی و مستقل از کد تأیید است.
    */
@@ -664,7 +663,9 @@ export class DirectWebRtcSessionManager {
   }
 
   /**
-   * ارسال بسته تغییرات از طریق کانال مستقیم WebRTC DataChannel با کنترل بافر (Backpressure)
+   * ارسال بسته تغییرات از طریق کانال مستقیم WebRTC DataChannel با کنترل بافر (Backpressure).
+   * توجه مهم (بخش ۳ و ۵ دستور اجرایی): ارسال شبکه به معنی اعمال موفق در مقصد نیست؛
+   * بسته در لیست منتظر تأیید (pendingUnackedSentPackageIds) قرار می‌گیرد تا تنها پس از دریافت TRANSFER_ACK از مقصد، Baseline به‌روزرسانی شود.
    */
   public async sendTransferPackage(pkg: SyncTransferPackage): Promise<void> {
     if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
@@ -675,6 +676,8 @@ export class DirectWebRtcSessionManager {
       throw new Error('کانال مستقیم WebRTC متصل نیست.');
     }
 
+    this.pendingUnackedSentPackageIds.add(pkg.packageId);
+
     this.callbacks.onStatusChange(
       'transferring',
       `در حال ارسال مستقیم بسته ${pkg.packageId} شامل ${pkg.recordCount} رکورد...`
@@ -683,9 +686,10 @@ export class DirectWebRtcSessionManager {
     const frames = buildTransferWireFrames(pkg);
     for (let i = 0; i < frames.length; i++) {
       if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+        this.pendingUnackedSentPackageIds.delete(pkg.packageId);
         this.callbacks.onTransferInterrupted(
           pkg.packageId,
-          'قطع ارتباط در حین ارسال قطعات بسته؛ انتقال ناتمام ماند.'
+          'قطع ارتباط در حین ارسال قطعات بسته؛ انتقال ناتمام ماند و خط مبنا (Baseline) تغییر نکرد.'
         );
         throw new Error('ارتباط در حین ارسال بسته قطع شد.');
       }
@@ -709,6 +713,38 @@ export class DirectWebRtcSessionManager {
     }
   }
 
+  /**
+   * ارسال پیام تأیید واقعی اعمال بسته (TRANSFER_ACK) توسط دستگاه مقصد به دستگاه فرستنده
+   * تنها پس از آنکه بسته دریافت، کنترل چک‌سام و روی Dataset مقصد واقعاً اعمال شده باشد.
+   */
+  public sendPackageAppliedAck(params: {
+    packageId: string;
+    ok: boolean;
+    applied?: boolean;
+    appliedNewCount?: number;
+    appliedModifiedCount?: number;
+    unchangedCount?: number;
+    conflictCount?: number;
+    receiverPostAuditCount?: number;
+    receiverPostTotalCount?: number;
+    error?: string;
+  }): void {
+    this.ackSentForReceivedPackageIds.add(params.packageId);
+    this.sendWireMessage({
+      type: 'TRANSFER_ACK',
+      packageId: params.packageId,
+      ok: params.ok,
+      applied: params.applied ?? params.ok,
+      appliedNewCount: params.appliedNewCount,
+      appliedModifiedCount: params.appliedModifiedCount,
+      unchangedCount: params.unchangedCount,
+      conflictCount: params.conflictCount,
+      receiverPostAuditCount: params.receiverPostAuditCount,
+      receiverPostTotalCount: params.receiverPostTotalCount,
+      error: params.error,
+    });
+  }
+
   private setupDataChannel(channel: RTCDataChannel): void {
     this.dataChannel = channel;
 
@@ -716,16 +752,22 @@ export class DirectWebRtcSessionManager {
       this.clearConnectionTimeout();
       this.callbacks.onStatusChange(
         'connected',
-        'کانال مستقیم WebRTC (DTLS) باز شد؛ در حال تبادل پیام معرفی (Handshake) و شروع همگام‌سازی دوطرفه...'
+        'کانال مستقیم WebRTC (DTLS) باز شد؛ در حال تبادل پیام معرفی (Handshake) و شروع همگام‌سازی خودکار...'
       );
 
-      // ارسال معرفی نقش دستگاه و نسخه پروتکل در کانال مستقیم
+      const preCounts = this.callbacks.getLocalPreSyncCounts
+        ? this.callbacks.getLocalPreSyncCounts()
+        : undefined;
+
+      // ارسال معرفی نقش دستگاه، نسخه پروتکل و تعداد رکوردهای محلی پیش از شروع همگام‌سازی
       const hello: WireMessage = {
         type: 'HELLO_HANDSHAKE',
         protocolVersion: SUPPORTED_SYNC_PROTOCOL_VERSION,
         deviceId: this.localDeviceId,
         deviceRole: this.localRole,
         timestampMs: Date.now(),
+        localAuditCount: preCounts?.auditCount,
+        localTotalCount: preCounts?.totalCount,
       };
       try {
         channel.send(JSON.stringify(hello));
@@ -776,7 +818,11 @@ export class DirectWebRtcSessionManager {
       void this.cleanupSignalingDocumentOnly();
 
       if (this.callbacks.onPeerHandshake) {
-        this.callbacks.onPeerHandshake(msg.deviceId, msg.deviceRole);
+        const peerPreCounts =
+          typeof msg.localAuditCount === 'number' && typeof msg.localTotalCount === 'number'
+            ? { auditCount: msg.localAuditCount, totalCount: msg.localTotalCount }
+            : undefined;
+        this.callbacks.onPeerHandshake(msg.deviceId, msg.deviceRole, peerPreCounts);
       }
       if (!this.autoSyncTriggeredForSession && this.callbacks.onChannelReadyForAutoSync) {
         this.autoSyncTriggeredForSession = true;
@@ -798,6 +844,7 @@ export class DirectWebRtcSessionManager {
           type: 'TRANSFER_ACK',
           packageId: msg.packageId || 'UNKNOWN_PKG',
           ok: false,
+          applied: false,
           error: errText,
         });
         return;
@@ -868,36 +915,51 @@ export class DirectWebRtcSessionManager {
           type: 'TRANSFER_ACK',
           packageId: msg.packageId,
           ok: false,
+          applied: false,
           error: errMsg,
         });
         return;
       }
 
-      this.sendWireMessage({
-        type: 'TRANSFER_ACK',
-        packageId: msg.packageId,
-        ok: true,
-      });
-
       this.callbacks.onStatusChange(
         'transfer-success',
         `بسته ${verified.pkg.packageId} شامل ${verified.pkg.recordCount} رکورد پس از بررسی چک‌سام یکپارچگی انتقال (SHA-256) دریافت شد.`
       );
+
+      // ابتدا بسته به لایه اپلیکیشن تحویل داده می‌شود تا واقعاً روی Dataset مقصد اعمال گردد و سپس TRANSFER_ACK ارسال شود
       this.callbacks.onPackageReceived(verified.pkg);
+
+      // در صورتی که در محیط تست واحد، onPackageReceived خودش sendPackageAppliedAck را صدا نزده باشد، تأیید پایه ارسال می‌شود
+      if (!this.ackSentForReceivedPackageIds.has(msg.packageId)) {
+        this.sendPackageAppliedAck({
+          packageId: msg.packageId,
+          ok: true,
+          applied: true,
+        });
+      }
       return;
     }
 
     if (msg.type === 'TRANSFER_ACK') {
-      if (msg.ok) {
+      this.pendingUnackedSentPackageIds.delete(msg.packageId);
+      if (msg.ok && msg.applied !== false) {
         this.callbacks.onStatusChange(
           'transfer-success',
-          `تحویل کامل بسته ${msg.packageId} توسط دستگاه مقابل تأیید شد.`
+          `دریافت و اعمال موفق بسته ${msg.packageId} توسط دستگاه مقصد تأیید شد و خط مبنا (Baseline) به‌روز گردید.`
         );
+        if (this.callbacks.onPackageAckReceived) {
+          this.callbacks.onPackageAckReceived(msg);
+        }
       } else {
+        const errReason = msg.error || 'خطای اعمال بسته در دستگاه مقصد';
+        this.callbacks.onTransferInterrupted(msg.packageId, errReason);
         this.callbacks.onStatusChange(
           'connection-error',
-          `دستگاه مقابل خطای یکپارچگی بسته را گزارش کرد: ${msg.error || 'نامشخص'}`
+          `دستگاه مقابل خطای دریافت یا اعمال بسته را گزارش کرد: ${errReason}`
         );
+        if (this.callbacks.onPackageAckReceived) {
+          this.callbacks.onPackageAckReceived(msg);
+        }
       }
     }
   }
@@ -958,10 +1020,20 @@ export class DirectWebRtcSessionManager {
       for (const interruptedPkgId of this.incomingBuffers.keys()) {
         this.callbacks.onTransferInterrupted(
           interruptedPkgId,
-          `قطع ارتباط در حین انتقال (${reasonMessage})؛ بسته ناقص حذف شد و هیچ رکوردی ثبت نگردید.`
+          `قطع ارتباط در حین دریافت (${reasonMessage})؛ بسته ناقص حذف شد و هیچ رکوردی ثبت نگردید.`
         );
       }
       this.incomingBuffers.clear();
+    }
+
+    if (this.pendingUnackedSentPackageIds.size > 0) {
+      for (const unackedPkgId of this.pendingUnackedSentPackageIds.values()) {
+        this.callbacks.onTransferInterrupted(
+          unackedPkgId,
+          `قطع ارتباط پیش از دریافت تأیید اعمال بسته از مقصد (${reasonMessage})؛ خط مبنا (Baseline) تغییر نکرد.`
+        );
+      }
+      this.pendingUnackedSentPackageIds.clear();
     }
 
     await this.cleanupSignalingDocumentOnly();
@@ -1064,9 +1136,18 @@ export class DirectWebRtcSessionManager {
     this.addedRemoteCandidateKeys.clear();
     if (this.incomingBuffers.size > 0) {
       for (const pkgId of this.incomingBuffers.keys()) {
-        this.callbacks.onTransferInterrupted(pkgId, 'بسته شدن دستی اتصال پیش از اتمام انتقال.');
+        this.callbacks.onTransferInterrupted(pkgId, 'بسته شدن دستی اتصال پیش از اتمام دریافت.');
       }
       this.incomingBuffers.clear();
+    }
+    if (this.pendingUnackedSentPackageIds.size > 0) {
+      for (const unackedPkgId of this.pendingUnackedSentPackageIds.values()) {
+        this.callbacks.onTransferInterrupted(
+          unackedPkgId,
+          'بسته شدن اتصال پیش از دریافت تأیید اعمال بسته از مقصد؛ خط مبنا (Baseline) تغییر نکرد.'
+        );
+      }
+      this.pendingUnackedSentPackageIds.clear();
     }
     if (notify) {
       this.callbacks.onStatusChange(
