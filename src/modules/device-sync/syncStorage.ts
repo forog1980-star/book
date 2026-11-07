@@ -57,11 +57,12 @@ export function loadRecordMetaMap(): Record<string, RecordSyncMeta> {
   return {};
 }
 
-export function saveRecordMetaMap(map: Record<string, RecordSyncMeta>): void {
+export function saveRecordMetaMap(map: Record<string, RecordSyncMeta>): boolean {
   try {
     localStorage.setItem(RECORD_META_MAP_KEY, JSON.stringify(map));
+    return true;
   } catch {
-    // ignore
+    return false;
   }
 }
 
@@ -79,11 +80,12 @@ export function loadBaselineChangeMap(): Record<string, string> {
   return {};
 }
 
-export function saveBaselineChangeMap(map: Record<string, string>): void {
+export function saveBaselineChangeMap(map: Record<string, string>): boolean {
   try {
     localStorage.setItem(BASELINE_CHANGE_MAP_KEY, JSON.stringify(map));
+    return true;
   } catch {
-    // ignore
+    return false;
   }
 }
 
@@ -101,11 +103,12 @@ export function loadSoftDeletedArchive(): Record<string, SyncRecordEnvelope> {
   return {};
 }
 
-export function saveSoftDeletedArchive(archive: Record<string, SyncRecordEnvelope>): void {
+export function saveSoftDeletedArchive(archive: Record<string, SyncRecordEnvelope>): boolean {
   try {
     localStorage.setItem(SOFT_DELETED_ARCHIVE_KEY, JSON.stringify(archive));
+    return true;
   } catch {
-    // ignore
+    return false;
   }
 }
 
@@ -157,15 +160,16 @@ export function hasPackageBeenApplied(packageId: string): boolean {
   return loadAppliedPackageIds().includes(packageId);
 }
 
-export function recordAppliedPackageId(packageId: string): void {
+export function recordAppliedPackageId(packageId: string): boolean {
   try {
     const list = loadAppliedPackageIds();
     if (!list.includes(packageId)) {
       const next = [packageId, ...list].slice(0, 200);
       localStorage.setItem(APPLIED_PACKAGES_KEY, JSON.stringify(next));
     }
+    return true;
   } catch {
-    // ignore
+    return false;
   }
 }
 

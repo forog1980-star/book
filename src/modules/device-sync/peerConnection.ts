@@ -715,7 +715,7 @@ export class DirectWebRtcSessionManager {
 
   /**
    * ارسال پیام تأیید واقعی اعمال بسته (TRANSFER_ACK) توسط دستگاه مقصد به دستگاه فرستنده
-   * تنها پس از آنکه بسته دریافت، کنترل چک‌سام و روی Dataset مقصد واقعاً اعمال شده باشد.
+   * تنها پس از آنکه بسته دریافت، کنترل چک‌سام، ادغام غیراخلال‌گر و ذخیره پایدار در مقصد واقعاً انجام شده باشد.
    */
   public sendPackageAppliedAck(params: {
     packageId: string;
@@ -729,12 +729,14 @@ export class DirectWebRtcSessionManager {
     receiverPostTotalCount?: number;
     error?: string;
   }): void {
+    const strictOk = params.ok === true && params.applied === true;
+    const strictApplied = params.ok === true && params.applied === true;
     this.ackSentForReceivedPackageIds.add(params.packageId);
     this.sendWireMessage({
       type: 'TRANSFER_ACK',
       packageId: params.packageId,
-      ok: params.ok,
-      applied: params.applied ?? params.ok,
+      ok: strictOk,
+      applied: strictApplied,
       appliedNewCount: params.appliedNewCount,
       appliedModifiedCount: params.appliedModifiedCount,
       unchangedCount: params.unchangedCount,
@@ -922,44 +924,54 @@ export class DirectWebRtcSessionManager {
       }
 
       this.callbacks.onStatusChange(
-        'transfer-success',
-        `بسته ${verified.pkg.packageId} شامل ${verified.pkg.recordCount} رکورد پس از بررسی چک‌سام یکپارچگی انتقال (SHA-256) دریافت شد.`
+        'transferring',
+        `بسته ${verified.pkg.packageId} شامل ${verified.pkg.recordCount} رکورد دریافت و چک‌سام SHA-256 تأیید شد؛ در حال اعمال و ذخیره پایدار در مقصد...`
       );
 
-      // ابتدا بسته به لایه اپلیکیشن تحویل داده می‌شود تا واقعاً روی Dataset مقصد اعمال گردد و سپس TRANSFER_ACK ارسال شود
-      this.callbacks.onPackageReceived(verified.pkg);
-
-      // در صورتی که در محیط تست واحد، onPackageReceived خودش sendPackageAppliedAck را صدا نزده باشد، تأیید پایه ارسال می‌شود
-      if (!this.ackSentForReceivedPackageIds.has(msg.packageId)) {
-        this.sendPackageAppliedAck({
-          packageId: msg.packageId,
-          ok: true,
-          applied: true,
-        });
-      }
+      // بسته به لایه اپلیکیشن تحویل داده می‌شود؛ ارسال TRANSFER_ACK با applied: true صرفاً پس از تکمیل اعمال و ذخیره پایدار مجاز است
+      Promise.resolve(this.callbacks.onPackageReceived(verified.pkg)).catch((err) => {
+        const errMsg =
+          err instanceof Error
+            ? `خطا در اعمال یا ذخیره پایدار بسته در مقصد: ${err.message}`
+            : 'خطا در اعمال یا ذخیره پایدار بسته در مقصد.';
+        this.callbacks.onTransferInterrupted(msg.packageId, errMsg);
+        this.callbacks.onStatusChange('connection-error', errMsg);
+        if (!this.ackSentForReceivedPackageIds.has(msg.packageId)) {
+          this.sendPackageAppliedAck({
+            packageId: msg.packageId,
+            ok: false,
+            applied: false,
+            error: errMsg,
+          });
+        }
+      });
       return;
     }
 
     if (msg.type === 'TRANSFER_ACK') {
-      this.pendingUnackedSentPackageIds.delete(msg.packageId);
-      if (msg.ok && msg.applied !== false) {
+      if (msg.ok === true && msg.applied === true) {
+        this.pendingUnackedSentPackageIds.delete(msg.packageId);
         this.callbacks.onStatusChange(
           'transfer-success',
-          `دریافت و اعمال موفق بسته ${msg.packageId} توسط دستگاه مقصد تأیید شد و خط مبنا (Baseline) به‌روز گردید.`
+          `دریافت، اعمال و ذخیره پایدار بسته ${msg.packageId} توسط دستگاه مقصد تأیید شد و خط مبنا (Baseline) به‌روز گردید.`
         );
         if (this.callbacks.onPackageAckReceived) {
           this.callbacks.onPackageAckReceived(msg);
         }
       } else {
-        const errReason = msg.error || 'خطای اعمال بسته در دستگاه مقصد';
-        this.callbacks.onTransferInterrupted(msg.packageId, errReason);
-        this.callbacks.onStatusChange(
-          'connection-error',
-          `دستگاه مقابل خطای دریافت یا اعمال بسته را گزارش کرد: ${errReason}`
-        );
+        const errReason =
+          msg.error ||
+          (msg.ok !== true
+            ? 'تأییدیه ناموفق از دستگاه مقصد دریافت شد (ok !== true).'
+            : 'اعمال و ذخیره پایدار بسته در دستگاه مقصد تأیید نشد (applied !== true).');
         if (this.callbacks.onPackageAckReceived) {
           this.callbacks.onPackageAckReceived(msg);
         }
+        this.callbacks.onTransferInterrupted(msg.packageId, errReason);
+        this.callbacks.onStatusChange(
+          'connection-error',
+          `تأییدیه بسته ${msg.packageId} رد شد (Baseline تغییر نکرد): ${errReason}`
+        );
       }
     }
   }

@@ -37,10 +37,11 @@ import {
 } from './pairingService';
 import { DirectWebRtcSessionManager } from './peerConnection';
 import {
-  analyzeIncomingPackage,
   applyApprovedSyncReport,
   createSyncTransferPackage,
+  executeDurableSyncPackageApplication,
   extractLocalEnvelopesMap,
+  isStrictValidTransferAck,
   markPackageSentInBaseline,
   restoreRecordIntoDataset,
 } from './syncEngine';
@@ -72,7 +73,11 @@ export interface DeviceSyncPanelProps {
   onApplySyncedDataset: (
     nextDataset: OperationalSyncDataset,
     summaryMessage: string
-  ) => void;
+  ) =>
+    | Promise<boolean | { ok: boolean; error?: string } | void>
+    | boolean
+    | { ok: boolean; error?: string }
+    | void;
   onTriggerLocalBackup?: () => void;
 }
 
@@ -324,48 +329,99 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
       onTransferProgress: (packageId, received, total) => {
         setTransferProgress({ packageId, received, total });
       },
-      onPackageReceived: (pkg: SyncTransferPackage) => {
+      onPackageReceived: async (pkg: SyncTransferPackage) => {
         setTransferProgress(null);
         setSessionReceivedRecordsCount((prev) => prev + pkg.recordCount);
         setLocalPreSyncCounts((prev) => prev ?? countDatasetRecords(datasetRef.current));
 
-        const report = analyzeIncomingPackage(
+        const buildSummaryText = (
+          appliedNewCount: number,
+          appliedModifiedCount: number,
+          unchangedCount: number,
+          conflictCount: number
+        ) =>
+          appliedNewCount > 0 || appliedModifiedCount > 0 || conflictCount > 0
+            ? `همگام‌سازی خودکار انجام شد: ${toPersianDigits(
+                appliedNewCount
+              )} رکورد جدید اضافه شد، ${toPersianDigits(
+                appliedModifiedCount
+              )} رکورد تغییرکرده/تکمیلی ادغام شد، ${toPersianDigits(
+                unchangedCount
+              )} رکورد تکراری نادیده گرفته شد و ${toPersianDigits(
+                conflictCount
+              )} مورد تعارض ثبت گردید.`
+            : `همگام‌سازی خودکار کامل شد: تمام ${toPersianDigits(
+                unchangedCount
+              )} رکورد مشترک یکسان بودند و هیچ رکورد تکراری ایجاد نشد.`;
+
+        // اجرای ترتیب قطعی ۷ مرحله‌ای: تحلیل غیراخلال‌گر -> اعمال -> ذخیره پایدار در مقصد -> تأیید ذخیره -> ارسال TRANSFER_ACK
+        const appResult = await executeDurableSyncPackageApplication({
           pkg,
-          datasetRef.current,
+          currentDataset: datasetRef.current,
           localDeviceId,
-          roleRef.current
-        );
-
-        // اعمال خودکار تمام رکوردهای جدید و تغییرات تکمیلی غیرمتعارض روی هر دو دستگاه (بدون حذف هیچ رکوردی)
-        const result = applyApprovedSyncReport(
-          report,
-          datasetRef.current,
-          localDeviceId,
-          roleRef.current
-        );
-
-        // به‌روزرسانی فوری مرجع داده محلی برای محاسبه دقیق تعداد رکوردها پس از همگام‌سازی
-        datasetRef.current = result.nextDataset;
-        const postCounts = countDatasetRecords(result.nextDataset);
-
-        // ارسال تأییدیه رسمی دریافت و اعمال واقعی (TRANSFER_ACK) به فرستنده تا Baseline آن به‌روز شود (بخش ۵ دستور اجرایی)
-        mgr.sendPackageAppliedAck({
-          packageId: pkg.packageId,
-          ok: true,
-          applied: true,
-          appliedNewCount: result.appliedNewCount,
-          appliedModifiedCount: result.appliedModifiedCount,
-          unchangedCount: result.unchangedCount,
-          conflictCount: report.conflicts.length,
-          receiverPostAuditCount: postCounts.auditCount,
-          receiverPostTotalCount: postCounts.totalCount,
+          localRole: roleRef.current,
+          onPersistDataset: (nextDs, summary) =>
+            onApplySyncedDatasetRef.current(nextDs, summary),
+          buildSummaryMessage: (counts) =>
+            buildSummaryText(
+              counts.appliedNewCount,
+              counts.appliedModifiedCount,
+              counts.unchangedCount,
+              counts.conflictCount
+            ),
         });
+
+        if (!appResult.ok || appResult.applied !== true) {
+          const errText =
+            appResult.ok === false
+              ? appResult.error
+              : 'خطا در ذخیره پایدار بسته در دستگاه مقصد؛ تأییدیه اعمال ارسال نشد.';
+          const updatedFailedHist = appendTransferHistory({
+            packageId: pkg.packageId,
+            direction: 'received',
+            peerRole: pkg.senderRole,
+            timestampMs: Date.now(),
+            status: 'failed-interrupted',
+            recordsCount: pkg.recordCount,
+            appliedNew: 0,
+            appliedModified: 0,
+            resolvedConflicts: 0,
+            errorDetails: errText,
+          });
+          setTransferHistory(updatedFailedHist);
+          setStatus('connection-error');
+          setStatusMessage(errText);
+          mgr.sendPackageAppliedAck({
+            packageId: pkg.packageId,
+            ok: false,
+            applied: false,
+            error: errText,
+          });
+          return;
+        }
+
+        const {
+          report,
+          nextDataset,
+          appliedNewCount,
+          appliedModifiedCount,
+          unchangedCount,
+          resolvedConflictCount,
+          summaryMessage: summaryText,
+          ackMessage,
+        } = appResult;
+
+        // به‌روزرسانی مرجع داده محلی تنها پس از اطمینان از ذخیره پایدار
+        datasetRef.current = nextDataset;
+
+        // مرحله ۶: ارسال تأییدیه رسمی دریافت، اعمال و ذخیره پایدار (TRANSFER_ACK با ok: true و applied: true)
+        mgr.sendPackageAppliedAck(ackMessage);
 
         setLastSyncBreakdown({
           packageId: pkg.packageId,
-          newCount: result.appliedNewCount,
-          unchangedCount: result.unchangedCount,
-          modifiedCount: result.appliedModifiedCount,
+          newCount: appliedNewCount,
+          unchangedCount: unchangedCount,
+          modifiedCount: appliedModifiedCount,
           conflictCount: report.conflicts.length,
           timestampMs: Date.now(),
         });
@@ -377,14 +433,14 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           timestampMs: Date.now(),
           status: 'completed',
           recordsCount: pkg.recordCount,
-          appliedNew: result.appliedNewCount,
-          appliedModified: result.appliedModifiedCount,
-          resolvedConflicts: result.resolvedConflictCount,
+          appliedNew: appliedNewCount,
+          appliedModified: appliedModifiedCount,
+          resolvedConflicts: resolvedConflictCount,
         });
         setTransferHistory(updatedHist);
         setSoftDeletedArchive(loadSoftDeletedArchive());
 
-        // در صورت وجود تعارض واقعی، هر دو نسخه در بخش تعارض‌ها ثبت و نمایش داده می‌شوند تا هیچ داده‌ای بازنویسی کورکورانه نشود
+        // در صورت وجود تعارض واقعی یا هم‌عنوان مبهم، هر دو نسخه در بخش تعارض‌ها ثبت و نمایش داده می‌شوند تا هیچ داده‌ای بازنویسی کورکورانه نشود
         if (report.conflicts.length > 0) {
           setPendingPreviewReport({
             ...report,
@@ -397,50 +453,33 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           setPendingPreviewReport(null);
         }
 
-        const summaryText =
-          result.appliedNewCount > 0 ||
-          result.appliedModifiedCount > 0 ||
-          report.conflicts.length > 0
-            ? `همگام‌سازی خودکار انجام شد: ${toPersianDigits(
-                result.appliedNewCount
-              )} رکورد جدید اضافه شد، ${toPersianDigits(
-                result.appliedModifiedCount
-              )} رکورد تغییرکرده/تکمیلی ادغام شد، ${toPersianDigits(
-                result.unchangedCount
-              )} رکورد تکراری نادیده گرفته شد و ${toPersianDigits(
-                report.conflicts.length
-              )} مورد تعارض ثبت گردید.`
-            : `همگام‌سازی خودکار کامل شد: تمام ${toPersianDigits(
-                result.unchangedCount
-              )} رکورد مشترک یکسان بودند و هیچ رکورد تکراری ایجاد نشد.`;
-
+        setStatus('transfer-success');
         setStatusMessage(summaryText);
-        if (result.appliedNewCount > 0 || result.appliedModifiedCount > 0) {
-          onApplySyncedDatasetRef.current(result.nextDataset, summaryText);
-        }
       },
       onPackageAckReceived: (ack) => {
-        if (ack.ok && ack.applied !== false) {
+        // اصلاح اول: شرط پذیرش ACK و به‌روزرسانی Baseline باید صراحتاً ack.ok === true && ack.applied === true باشد
+        if (ack.ok === true && ack.applied === true && isStrictValidTransferAck(ack)) {
           const sentPkg = pendingSentPackagesRef.current.get(ack.packageId);
           if (sentPkg) {
-            // طبق بخش ۵ دستور اجرایی: تنها پس از دریافت ACK اعمال واقعی از دستگاه مقصد، Baseline به‌روز می‌شود
-            markPackageSentInBaseline(sentPkg);
-            pendingSentPackagesRef.current.delete(ack.packageId);
-            setLastBaselineAckPackageId(ack.packageId);
+            const baselineUpdated = markPackageSentInBaseline(sentPkg, ack);
+            if (baselineUpdated) {
+              pendingSentPackagesRef.current.delete(ack.packageId);
+              setLastBaselineAckPackageId(ack.packageId);
 
-            const updatedHist = appendTransferHistory({
-              packageId: sentPkg.packageId,
-              direction: 'sent',
-              peerRole:
-                roleRef.current === 'phone-primary' ? 'pc-companion' : 'phone-primary',
-              timestampMs: Date.now(),
-              status: 'completed',
-              recordsCount: sentPkg.recordCount,
-              appliedNew: ack.appliedNewCount ?? 0,
-              appliedModified: ack.appliedModifiedCount ?? 0,
-              resolvedConflicts: 0,
-            });
-            setTransferHistory(updatedHist);
+              const updatedHist = appendTransferHistory({
+                packageId: sentPkg.packageId,
+                direction: 'sent',
+                peerRole:
+                  roleRef.current === 'phone-primary' ? 'pc-companion' : 'phone-primary',
+                timestampMs: Date.now(),
+                status: 'completed',
+                recordsCount: sentPkg.recordCount,
+                appliedNew: ack.appliedNewCount ?? 0,
+                appliedModified: ack.appliedModifiedCount ?? 0,
+                resolvedConflicts: 0,
+              });
+              setTransferHistory(updatedHist);
+            }
           }
           if (
             typeof ack.receiverPostAuditCount === 'number' &&
