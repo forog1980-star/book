@@ -1,13 +1,14 @@
 import { getApps, initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously } from 'firebase/auth';
+import { getAuth } from 'firebase/auth';
 import {
   deleteDoc,
   doc,
+  Firestore,
   getDoc,
   getDocFromServer,
   getFirestore,
+  initializeFirestore,
   onSnapshot,
-  runTransaction,
   setDoc,
   Unsubscribe,
   updateDoc,
@@ -18,7 +19,28 @@ import { getOrCreateLocalDeviceId } from './syncStorage';
 import { DeviceSyncRole } from './types';
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-export const signalingDb = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+/**
+ * راه‌اندازی Firestore با فعال‌سازی اجباری HTTP Long-Polling:
+ * در شبکه‌های موبایل، هات‌اسپات و پراکسی‌ها، کانال استریم WebChannel پیش‌فرض فایربیس
+ * در عملیات نوشتن و تراکنش‌ها با خطای «Connection failed» قطع می‌شود.
+ * استفاده از experimentalForceLongPolling ارتباط را روی درخواست‌های استاندارد HTTP پایدار می‌کند.
+ */
+function createStableSignalingFirestore(): Firestore {
+  try {
+    return initializeFirestore(
+      app,
+      {
+        experimentalForceLongPolling: true,
+      },
+      firebaseConfig.firestoreDatabaseId
+    );
+  } catch {
+    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  }
+}
+
+export const signalingDb = createStableSignalingFirestore();
 export const signalingAuth = getAuth(app);
 
 export const SIGNALING_COLLECTION = 'webrtc_signaling_sessions';
@@ -51,6 +73,58 @@ export interface FirestoreErrorInfo {
     userId?: string | null;
     isAnonymous?: boolean | null;
   };
+}
+
+/**
+ * تشخیص خطاهای موقت شبکه/کانال در موبایل و لپ‌تاپ جهت تلاش مجدد خودکار (Retry)
+ */
+function isTransientFirestoreNetworkError(error: unknown): boolean {
+  const msg = (error instanceof Error ? error.message : String(error || '')).toLowerCase();
+  return (
+    msg.includes('connection failed') ||
+    msg.includes('unavailable') ||
+    msg.includes('deadline-exceeded') ||
+    msg.includes('network-request-failed') ||
+    msg.includes('failed to get document') ||
+    msg.includes('client is offline') ||
+    msg.includes('fetch') ||
+    msg.includes('aborted') ||
+    msg.includes('internal') ||
+    msg.includes('unknown')
+  );
+}
+
+async function withFirestoreRetry<T>(
+  operation: () => Promise<T>,
+  maxAttempts = 4,
+  baseDelayMs = 450
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (err) {
+      lastError = err;
+      if (attempt >= maxAttempts || !isTransientFirestoreNetworkError(err)) {
+        throw err;
+      }
+      const waitMs = baseDelayMs * attempt;
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
+  throw lastError;
+}
+
+async function getSignalingDocSnapshot(sessionId: string) {
+  const sessionRef = doc(signalingDb, SIGNALING_COLLECTION, sessionId);
+  try {
+    return await getDocFromServer(sessionRef);
+  } catch (err) {
+    if (isTransientFirestoreNetworkError(err)) {
+      return await getDoc(sessionRef);
+    }
+    throw err;
+  }
 }
 
 /**
@@ -138,20 +212,12 @@ export function assertSignalingOnlyPayload(payload: Record<string, unknown>): vo
 }
 
 /**
- * احراز هویت ناشناس برای قفل مالکیت نشست به همراه شناسه جایگزین امن دستگاه در صورت محدودیت مرورگر یا کنسول
+ * شناسه مالکیت نشست برای دستگاه فعلی بدون فراخوانی شبکه اضافی (signInAnonymously)
+ * که در مرورگرهای موبایل باعث تأخیر و خطای شبکه هنگام اسکن QR می‌شد.
  */
 export async function ensureSignalingAuth(): Promise<string> {
-  try {
-    if (signalingAuth.currentUser?.uid) {
-      return signalingAuth.currentUser.uid;
-    }
-    const cred = await signInAnonymously(signalingAuth);
-    const uid = cred.user?.uid;
-    if (uid) {
-      return uid;
-    }
-  } catch {
-    // در صورت غیرفعال بودن Anonymous Auth در پروژه یا مسدود شدن توسط مرورگر، از شناسه یکتای محلی دستگاه استفاده می‌شود
+  if (signalingAuth.currentUser?.uid) {
+    return signalingAuth.currentUser.uid;
   }
   const fallbackId = String(getOrCreateLocalDeviceId() || 'LOCAL_DEV')
     .replace(/[^a-zA-Z0-9_-]/g, '')
@@ -185,10 +251,12 @@ export async function createSignalingOfferSession(params: {
 
   const uid = await ensureSignalingAuth();
   const now = Date.now();
+  const safeHostRole: DeviceSyncRole =
+    params.hostDeviceRole === 'phone-primary' ? 'phone-primary' : 'pc-companion';
   const docWithAuth: WebRtcSignalingDocument = {
     sessionId: params.sessionId,
     pairingCodeDigest: params.pairingCodeDigest.slice(0, 128),
-    hostDeviceRole: params.hostDeviceRole,
+    hostDeviceRole: safeHostRole,
     hostUid: uid,
     status: 'offer-ready',
     offerType: 'offer',
@@ -203,7 +271,9 @@ export async function createSignalingOfferSession(params: {
   assertSignalingOnlyPayload(docWithAuth as unknown as Record<string, unknown>);
 
   try {
-    await setDoc(doc(signalingDb, SIGNALING_COLLECTION, params.sessionId), docWithAuth);
+    await withFirestoreRetry(async () => {
+      await setDoc(doc(signalingDb, SIGNALING_COLLECTION, params.sessionId), docWithAuth);
+    });
     return docWithAuth;
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, params.sessionId);
@@ -211,8 +281,9 @@ export async function createSignalingOfferSession(params: {
 }
 
 /**
- * قفل اتمیک و یک‌بارمصرف peerUid به محض اسکن QR در گوشی با استفاده از تراکنش Firestore (runTransaction):
- * تضمین می‌کند هیچ دستگاه ثالثی نتواند در فاصله بین اسکن QR و فشردن دکمه تأیید روی گوشی، نشست را تصاحب کند.
+ * بررسی و اعتبارسنجی نشست به محض اسکن QR در دستگاه دوم:
+ * بدون استفاده از runTransaction (که روی شبکه موبایل در برخورد با Trickle ICE دچار خطای Connection failed می‌شد).
+ * ثبت نهایی peerUid و پاسخ SDP به‌صورت یکجا در submitSignalingAnswer انجام می‌گیرد.
  */
 export async function claimAndInspectSignalingSession(
   sessionId: string,
@@ -223,11 +294,10 @@ export async function claimAndInspectSignalingSession(
   }
 
   const uid = await ensureSignalingAuth();
-  const sessionRef = doc(signalingDb, SIGNALING_COLLECTION, sessionId);
 
   try {
-    return await runTransaction(signalingDb, async (tx) => {
-      const snap = await tx.get(sessionRef);
+    return await withFirestoreRetry(async () => {
+      const snap = await getSignalingDocSnapshot(sessionId);
       if (!snap.exists()) {
         throw new Error('SESSION_NOT_FOUND_OR_EXPIRED');
       }
@@ -241,8 +311,8 @@ export async function claimAndInspectSignalingSession(
         data.status === 'connected' ||
         data.status === 'closed' ||
         data.status === 'expired' ||
-        data.status === 'answer-ready' ||
-        Boolean(data.answerSdp)
+        (data.status === 'answer-ready' && data.peerUid && data.peerUid !== uid) ||
+        (Boolean(data.answerSdp) && data.peerUid && data.peerUid !== uid)
       ) {
         throw new Error('SESSION_ALREADY_CONSUMED');
       }
@@ -255,20 +325,9 @@ export async function claimAndInspectSignalingSession(
         throw new Error('SESSION_DIGEST_MISMATCH');
       }
 
-      const nextUpdatedAtMs = Math.max(Date.now(), (data.createdAtMs || 0) + 1);
-      const claimUpdate: Record<string, unknown> = {
-        peerUid: uid,
-        status: 'waiting-for-peer',
-        updatedAtMs: nextUpdatedAtMs,
-      };
-      assertSignalingOnlyPayload(claimUpdate);
-      tx.update(sessionRef, claimUpdate);
-
       return {
         ...data,
         peerUid: uid,
-        status: 'waiting-for-peer',
-        updatedAtMs: nextUpdatedAtMs,
       };
     });
   } catch (error) {
@@ -279,19 +338,19 @@ export async function claimAndInspectSignalingSession(
       }
       if (error.message === 'SESSION_ALREADY_CONSUMED') {
         throw new Error(
-          'این QR Code و نشست جفت‌سازی یک‌بارمصرف بوده و قبلاً استفاده یا بسته شده است. لطفاً در لپ‌تاپ QR جدیدی تولید کنید.'
+          'این QR Code و نشست جفت‌سازی یک‌بارمصرف بوده و قبلاً استفاده یا بسته شده است. لطفاً در دستگاه مقابل QR جدیدی تولید کنید.'
         );
       }
       if (error.message === 'SESSION_ALREADY_CLAIMED_BY_ANOTHER_PEER') {
         throw new Error(
-          'این نشست قبلاً توسط دستگاه دیگری قفل شده است؛ جهت امنیت، در لپ‌تاپ QR جدید تولید نمایید.'
+          'این نشست قبلاً توسط دستگاه دیگری قفل شده است؛ جهت امنیت، QR جدید تولید نمایید.'
         );
       }
       if (error.message === 'SESSION_DIGEST_MISMATCH') {
         throw new Error('عدم تطابق هش یکپارچگی SHA-256 کد نشست؛ درخواست اتصال مسدود شد.');
       }
     }
-    handleFirestoreError(error, OperationType.UPDATE, sessionId);
+    handleFirestoreError(error, OperationType.GET, sessionId);
   }
 }
 
@@ -304,7 +363,7 @@ export async function fetchSignalingSession(
 
   const uid = await ensureSignalingAuth();
   try {
-    const snap = await getDoc(doc(signalingDb, SIGNALING_COLLECTION, sessionId));
+    const snap = await withFirestoreRetry(() => getSignalingDocSnapshot(sessionId));
     if (!snap.exists()) {
       return null;
     }
@@ -317,11 +376,11 @@ export async function fetchSignalingSession(
       data.status === 'connected' ||
       data.status === 'closed' ||
       data.status === 'expired' ||
-      Boolean(data.answerSdp) ||
+      (Boolean(data.answerSdp) && data.peerUid && data.peerUid !== uid) ||
       (data.peerUid && data.peerUid !== uid)
     ) {
       throw new Error(
-        'این QR Code و نشست جفت‌سازی یک‌بارمصرف بوده و قبلاً استفاده یا بسته شده است. لطفاً در لپ‌تاپ QR جدیدی تولید کنید.'
+        'این QR Code و نشست جفت‌سازی یک‌بارمصرف بوده و قبلاً استفاده یا بسته شده است. لطفاً QR جدیدی تولید کنید.'
       );
     }
     return data;
@@ -332,6 +391,10 @@ export async function fetchSignalingSession(
     handleFirestoreError(error, OperationType.GET, sessionId);
   }
 }
+
+// مجموعه نشست‌هایی که در حال ارسال Answer هستند تا ارسال کاندیداهای موازی با آن‌ها تداخل نکند
+const activeAnswerSubmissionSessions = new Set<string>();
+const pendingCandidateTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export async function submitSignalingAnswer(params: {
   sessionId: string;
@@ -344,39 +407,53 @@ export async function submitSignalingAnswer(params: {
 
   const uid = await ensureSignalingAuth();
   const sessionRef = doc(signalingDb, SIGNALING_COLLECTION, params.sessionId);
+  activeAnswerSubmissionSessions.add(params.sessionId);
 
   try {
-    await runTransaction(signalingDb, async (tx) => {
-      const snap = await tx.get(sessionRef);
-      if (!snap.exists()) {
-        throw new Error('نشست لپ‌تاپ منقضی یا بسته شده است.');
-      }
-      const existing = snap.data() as WebRtcSignalingDocument;
-      if (isSignalingDocExpired(existing)) {
-        throw new Error('مهلت زمانی این نشست به پایان رسیده است.');
-      }
-      if (
-        existing.status === 'closed' ||
-        existing.status === 'expired' ||
-        existing.status === 'connected' ||
-        Boolean(existing.answerSdp)
-      ) {
-        throw new Error('این نشست قبلاً پاسخ داده شده یا بسته شده است.');
-      }
-      if (existing.peerUid && existing.peerUid !== uid) {
-        throw new Error('مالکیت این نشست متعلق به این دستگاه نیست.');
-      }
-      const payloadWithAuth: Record<string, unknown> = {
-        peerUid: uid,
-        status: 'answer-ready',
-        answerType: 'answer',
-        answerSdp: params.answerSdp.slice(0, 24000),
-        peerCandidatesJson: JSON.stringify(params.peerCandidates || []).slice(0, 32000),
-        updatedAtMs: Math.max(Date.now(), (existing.createdAtMs || 0) + 1),
-      };
-      assertSignalingOnlyPayload(payloadWithAuth);
-      tx.update(sessionRef, payloadWithAuth);
-    });
+    await withFirestoreRetry(
+      async () => {
+        const snap = await getSignalingDocSnapshot(params.sessionId);
+        if (!snap.exists()) {
+          throw new Error('نشست دستگاه مقابل منقضی یا بسته شده است.');
+        }
+        const existing = snap.data() as WebRtcSignalingDocument;
+        if (isSignalingDocExpired(existing)) {
+          throw new Error('مهلت زمانی این نشست به پایان رسیده است.');
+        }
+        if (existing.peerUid && existing.peerUid !== uid) {
+          throw new Error('مالکیت این نشست متعلق به این دستگاه نیست.');
+        }
+        // اگر در تلاش قبلی پاسخ همین دستگاه ثبت شده اما تایید شبکه قطع شده بود، موفقیت‌آمیز تلقی می‌شود
+        if (
+          existing.status === 'answer-ready' &&
+          existing.peerUid === uid &&
+          Boolean(existing.answerSdp)
+        ) {
+          return;
+        }
+        if (
+          existing.status === 'closed' ||
+          existing.status === 'expired' ||
+          existing.status === 'connected' ||
+          (Boolean(existing.answerSdp) && existing.peerUid !== uid)
+        ) {
+          throw new Error('این نشست قبلاً پاسخ داده شده یا بسته شده است.');
+        }
+
+        const payloadWithAuth: Record<string, unknown> = {
+          peerUid: uid,
+          status: 'answer-ready',
+          answerType: 'answer',
+          answerSdp: params.answerSdp.slice(0, 24000),
+          peerCandidatesJson: JSON.stringify(params.peerCandidates || []).slice(0, 32000),
+          updatedAtMs: Math.max(Date.now(), (existing.createdAtMs || 0) + 1),
+        };
+        assertSignalingOnlyPayload(payloadWithAuth);
+        await updateDoc(sessionRef, payloadWithAuth);
+      },
+      4,
+      450
+    );
   } catch (error) {
     if (
       error instanceof Error &&
@@ -387,6 +464,8 @@ export async function submitSignalingAnswer(params: {
       throw error;
     }
     handleFirestoreError(error, OperationType.UPDATE, params.sessionId);
+  } finally {
+    activeAnswerSubmissionSessions.delete(params.sessionId);
   }
 }
 
@@ -419,18 +498,37 @@ export async function updateSignalingCandidates(params: {
   isHost: boolean;
   candidates: RTCIceCandidateInit[];
 }): Promise<void> {
-  await ensureSignalingAuth();
-  const jsonStr = JSON.stringify(params.candidates || []).slice(0, 32000);
-  const updatePayload = params.isHost
-    ? { hostCandidatesJson: jsonStr, updatedAtMs: Date.now() }
-    : { peerCandidatesJson: jsonStr, updatedAtMs: Date.now() };
+  if (!isValidSignalingSessionId(params.sessionId)) return;
 
-  assertSignalingOnlyPayload(updatePayload);
-  try {
-    await updateDoc(doc(signalingDb, SIGNALING_COLLECTION, params.sessionId), updatePayload);
-  } catch {
-    // اگر جلسه پس از برقراری ارتباط پاک شده باشد، خطای به‌روزرسانی کاندیدا نادیده گرفته می‌شود
+  const timerKey = `${params.sessionId}_${params.isHost ? 'host' : 'peer'}`;
+  const existingTimer = pendingCandidateTimers.get(timerKey);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
   }
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(async () => {
+      pendingCandidateTimers.delete(timerKey);
+      // اگر در همین لحظه submitSignalingAnswer در حال اجراست، کمی صبر می‌کنیم تا تداخل رخ ندهد
+      if (activeAnswerSubmissionSessions.has(params.sessionId)) {
+        await new Promise((r) => setTimeout(r, 600));
+      }
+      await ensureSignalingAuth();
+      const jsonStr = JSON.stringify(params.candidates || []).slice(0, 32000);
+      const updatePayload = params.isHost
+        ? { hostCandidatesJson: jsonStr, updatedAtMs: Date.now() }
+        : { peerCandidatesJson: jsonStr, updatedAtMs: Date.now() };
+
+      assertSignalingOnlyPayload(updatePayload);
+      try {
+        await updateDoc(doc(signalingDb, SIGNALING_COLLECTION, params.sessionId), updatePayload);
+      } catch {
+        // اگر جلسه پس از برقراری ارتباط پاک شده باشد، خطای به‌روزرسانی کاندیدا نادیده گرفته می‌شود
+      }
+      resolve();
+    }, 550);
+    pendingCandidateTimers.set(timerKey, timer);
+  });
 }
 
 export function subscribeToSignalingSession(
@@ -438,22 +536,58 @@ export function subscribeToSignalingSession(
   onUpdate: (docData: WebRtcSignalingDocument | null) => void,
   onError?: (err: Error) => void
 ): Unsubscribe {
-  return onSnapshot(
+  let isDisposed = false;
+  let lastDeliveredUpdatedAtMs = -1;
+  let lastDeliveredStatus = '';
+  let lastDeliveredHasAnswer = false;
+
+  const deliverIfChanged = (data: WebRtcSignalingDocument | null) => {
+    if (isDisposed) return;
+    if (!data) {
+      if (lastDeliveredStatus !== '__NULL__') {
+        lastDeliveredStatus = '__NULL__';
+        lastDeliveredHasAnswer = false;
+        onUpdate(null);
+      }
+      return;
+    }
+    if (isSignalingDocExpired(data)) {
+      void cleanupSignalingSession(sessionId);
+      if (lastDeliveredStatus !== '__NULL__') {
+        lastDeliveredStatus = '__NULL__';
+        lastDeliveredHasAnswer = false;
+        onUpdate(null);
+      }
+      return;
+    }
+    const hasAnswer = Boolean(data.answerSdp);
+    if (
+      data.updatedAtMs !== lastDeliveredUpdatedAtMs ||
+      data.status !== lastDeliveredStatus ||
+      hasAnswer !== lastDeliveredHasAnswer
+    ) {
+      lastDeliveredUpdatedAtMs = data.updatedAtMs;
+      lastDeliveredStatus = data.status;
+      lastDeliveredHasAnswer = hasAnswer;
+      onUpdate(data);
+    }
+  };
+
+  const unsubscribeSnapshot = onSnapshot(
     doc(signalingDb, SIGNALING_COLLECTION, sessionId),
     (snapshot) => {
       if (!snapshot.exists()) {
-        onUpdate(null);
+        deliverIfChanged(null);
         return;
       }
       const data = snapshot.data() as WebRtcSignalingDocument;
-      if (isSignalingDocExpired(data)) {
-        void cleanupSignalingSession(sessionId);
-        onUpdate(null);
-        return;
-      }
-      onUpdate(data);
+      deliverIfChanged(data);
     },
     (error) => {
+      // اگر خطای موقت شبکه در لیسنر رخ داد، بلافاصله اتصال را قطع نمی‌کنیم چون حلقه Polling فعال است
+      if (isTransientFirestoreNetworkError(error)) {
+        return;
+      }
       try {
         handleFirestoreError(error, OperationType.GET, sessionId);
       } catch (formattedErr) {
@@ -463,6 +597,28 @@ export function subscribeToSignalingSession(
       }
     }
   );
+
+  // حلقه کمکی Polling هر ۲ ثانیه برای اطمینان از دریافت سریع SDP Answer حتی در صورت کندی کانال Listen در موبایل
+  const pollIntervalId = setInterval(async () => {
+    if (isDisposed) return;
+    try {
+      const snap = await getSignalingDocSnapshot(sessionId);
+      if (isDisposed) return;
+      if (!snap.exists()) {
+        deliverIfChanged(null);
+        return;
+      }
+      deliverIfChanged(snap.data() as WebRtcSignalingDocument);
+    } catch {
+      // خطاهای موقت Polling نادیده گرفته می‌شوند
+    }
+  }, 2000);
+
+  return () => {
+    isDisposed = true;
+    clearInterval(pollIntervalId);
+    unsubscribeSnapshot();
+  };
 }
 
 /**
@@ -470,6 +626,13 @@ export function subscribeToSignalingSession(
  */
 export async function cleanupSignalingSession(sessionId: string): Promise<boolean> {
   if (!sessionId) return false;
+  for (const key of [`${sessionId}_host`, `${sessionId}_peer`]) {
+    const t = pendingCandidateTimers.get(key);
+    if (t) {
+      clearTimeout(t);
+      pendingCandidateTimers.delete(key);
+    }
+  }
   try {
     await deleteDoc(doc(signalingDb, SIGNALING_COLLECTION, sessionId));
     return true;

@@ -40,10 +40,13 @@ import {
 const DIRECT_STUN_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+  { urls: 'stun:stun4.l.google.com:19302' },
 ];
 
 const MAX_BUFFERED_AMOUNT_BYTES = 256 * 1024; // سقف بافر ۲۵۶ کیلوبایت برای کنترل جریان (Backpressure)
-const INITIAL_ICE_GATHER_WAIT_MS = 700; // فرصت کوتاه اولیه برای جمع‌آوری کاندیداهای شبکه پیش از ثبت SDP
+const INITIAL_ICE_GATHER_WAIT_MS = 1800; // فرصت کافی اولیه برای جمع‌آوری کاندیداهای شبکه پیش از ثبت SDP جهت جلوگیری از ترافیک Trickle ICE
 
 export interface PendingPhoneApprovalRequest {
   sessionId: string;
@@ -119,6 +122,7 @@ export class DirectWebRtcSessionManager {
   private connectionTimeoutMs: number;
   private heartbeatIntervalId: ReturnType<typeof setInterval> | null = null;
   private disconnectedGraceTimerId: ReturnType<typeof setTimeout> | null = null;
+  private delayedSignalingCleanupTimerId: ReturnType<typeof setTimeout> | null = null;
   private lastPeerActivityMs = 0;
   private heartbeatSentCount = 0;
   private heartbeatReceivedCount = 0;
@@ -887,9 +891,14 @@ export class DirectWebRtcSessionManager {
         return;
       }
 
-      // تنها پس از دریافت HELLO_HANDSHAKE روی کانال باز DataChannel (اطمینان ۱۰۰٪ از تکمیل مذاکره دوطرفه ICE/DTLS/SCTP)،
-      // سند موقت Signaling از Firebase پاک‌سازی می‌شود تا حذف زودهنگام مانع برقراری اتصال نشود.
-      void this.cleanupSignalingDocumentOnly();
+      // پس از دریافت HELLO_HANDSHAKE روی کانال باز DataChannel، لیسنر محلی را متوقف می‌کنیم
+      // و حذف فیزیکی سند موقت Signaling از Firebase را ۱۵ ثانیه به تعویق می‌اندازیم تا دستگاه مقابل نیز
+      // بدون هیچ تداخلی مذاکره خود را تکمیل کند.
+      if (this.unsubscribeSignaling) {
+        this.unsubscribeSignaling();
+        this.unsubscribeSignaling = null;
+      }
+      this.scheduleDelayedSignalingDocumentCleanup(15000);
 
       if (this.callbacks.onPeerHandshake) {
         const peerPreCounts =
@@ -1111,7 +1120,49 @@ export class DirectWebRtcSessionManager {
     }
   }
 
+  private clearDelayedSignalingCleanupTimer(): void {
+    if (this.delayedSignalingCleanupTimerId !== null) {
+      clearTimeout(this.delayedSignalingCleanupTimerId);
+      this.delayedSignalingCleanupTimerId = null;
+    }
+  }
+
+  private scheduleDelayedSignalingDocumentCleanup(delayMs = 15000): void {
+    this.clearDelayedSignalingCleanupTimer();
+    const targetSessionId = this.activeSessionId;
+    if (!targetSessionId || this.signalingDocCleaned) return;
+    this.delayedSignalingCleanupTimerId = setTimeout(() => {
+      this.delayedSignalingCleanupTimerId = null;
+      if (this.activeSessionId === targetSessionId && !this.signalingDocCleaned) {
+        void this.cleanupSignalingDocumentOnly();
+      }
+    }, delayMs);
+  }
+
   private setupPeerConnectionStateHandlers(pc: RTCPeerConnection): void {
+    const startRecoveryGraceWindow = (graceMs: number, timeoutReason: string) => {
+      this.sendWireMessage({
+        type: 'PING_HEARTBEAT',
+        timestampMs: Date.now(),
+      });
+      if (this.disconnectedGraceTimerId === null) {
+        this.disconnectedGraceTimerId = setTimeout(() => {
+          this.disconnectedGraceTimerId = null;
+          if (
+            this.pc &&
+            (this.pc.connectionState === 'disconnected' ||
+              this.pc.connectionState === 'failed' ||
+              this.pc.connectionState === 'closed') &&
+            (!this.dataChannel ||
+              this.dataChannel.readyState !== 'open' ||
+              Date.now() - this.lastPeerActivityMs > graceMs - 2000)
+          ) {
+            void this.cleanupSignalingAndLocalResources('disconnected', timeoutReason);
+          }
+        }, graceMs);
+      }
+    };
+
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
       if (state === 'connected') {
@@ -1119,6 +1170,18 @@ export class DirectWebRtcSessionManager {
         return;
       }
       if (state === 'failed') {
+        // اگر کانال داده هنوز باز است یا تازه پیام دریافت کرده، ۱۰ ثانیه فرصت بازیابی می‌دهیم
+        if (
+          this.dataChannel &&
+          this.dataChannel.readyState === 'open' &&
+          Date.now() - this.lastPeerActivityMs < 10000
+        ) {
+          startRecoveryGraceWindow(
+            10000,
+            'اتصال مستقیم نظیربه‌نظیر (WebRTC) به علت قطع شبکه، تغییر Wi-Fi یا محدودیت فایروال خاتمه یافت.'
+          );
+          return;
+        }
         this.clearDisconnectedGraceTimer();
         void this.cleanupSignalingAndLocalResources(
           'connection-error',
@@ -1126,28 +1189,11 @@ export class DirectWebRtcSessionManager {
         );
       } else if (state === 'disconnected') {
         // در WebRTC وضعیت disconnected موقت است (مثلاً نوسان چندثانیه‌ای وای‌فای یا کم‌نور شدن صفحه گوشی).
-        // به جای قطع فوری، ۲۰ ثانیه فرصت بازیابی خودکار می‌دهیم و یک پالس Keep-Alive ارسال می‌کنیم.
-        this.sendWireMessage({
-          type: 'PING_HEARTBEAT',
-          timestampMs: Date.now(),
-        });
-        if (this.disconnectedGraceTimerId === null) {
-          this.disconnectedGraceTimerId = setTimeout(() => {
-            this.disconnectedGraceTimerId = null;
-            if (
-              this.pc &&
-              (this.pc.connectionState === 'disconnected' ||
-                this.pc.connectionState === 'failed' ||
-                this.pc.connectionState === 'closed') &&
-              (!this.dataChannel || this.dataChannel.readyState !== 'open' || Date.now() - this.lastPeerActivityMs > 18000)
-            ) {
-              void this.cleanupSignalingAndLocalResources(
-                'disconnected',
-                'اتصال مستقیم بین دو دستگاه پس از ۲۰ ثانیه عدم پاسخ شبکه یا خاموش شدن صفحه گوشی قطع شد.'
-              );
-            }
-          }, 20000);
-        }
+        // به جای قطع فوری، ۲۵ ثانیه فرصت بازیابی خودکار می‌دهیم و یک پالس Keep-Alive ارسال می‌کنیم.
+        startRecoveryGraceWindow(
+          25000,
+          'اتصال مستقیم بین دو دستگاه پس از ۲۵ ثانیه عدم پاسخ شبکه یا خاموش شدن صفحه گوشی قطع شد.'
+        );
       } else if (state === 'closed') {
         this.clearDisconnectedGraceTimer();
         void this.cleanupSignalingAndLocalResources(
@@ -1159,6 +1205,7 @@ export class DirectWebRtcSessionManager {
   }
 
   private async cleanupSignalingDocumentOnly(): Promise<void> {
+    this.clearDelayedSignalingCleanupTimer();
     if (this.unsubscribeSignaling) {
       this.unsubscribeSignaling();
       this.unsubscribeSignaling = null;
@@ -1183,6 +1230,7 @@ export class DirectWebRtcSessionManager {
   ): Promise<void> {
     this.clearConnectionTimeout();
     this.clearDisconnectedGraceTimer();
+    this.clearDelayedSignalingCleanupTimer();
     this.stopHeartbeatLoop();
     this.releaseWakeLock();
 
@@ -1263,6 +1311,7 @@ export class DirectWebRtcSessionManager {
   public closeConnection(notify = true): void {
     this.clearConnectionTimeout();
     this.clearDisconnectedGraceTimer();
+    this.clearDelayedSignalingCleanupTimer();
     this.stopHeartbeatLoop();
     this.releaseWakeLock();
     if (this.unsubscribeSignaling) {
