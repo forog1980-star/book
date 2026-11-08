@@ -1512,6 +1512,13 @@ export default function App() {
       return 'stepped_back';
     }
 
+    // ۱.۸. اگر بخش اختصاصی ارتباط گوشی باز است، ابتدا بسته شود و به صفحه قبل برگردد
+    if (showDeviceSyncDrawer) {
+      setShowDeviceSyncDrawer(false);
+      doubleBackExitArmedRef.current = false;
+      return 'stepped_back';
+    }
+
     // ۲. اگر در صفحه خانه عبارتی جست‌وجو شده است، ابتدا جست‌وجو پاک شود و به نمای اولیه خانه برگردد
     if (activeTab === 'home' && homeGlobalQuery.trim() !== '') {
       setHomeGlobalQuery('');
@@ -1541,7 +1548,7 @@ export default function App() {
     }
 
     return 'at_root';
-  }, [activeTab, homeGlobalQuery]);
+  }, [activeTab, homeGlobalQuery, showDeviceSyncDrawer]);
 
   // مدیریت دکمه بازگشت (Back) گوشی و مرورگر به صورت دو مرحله‌ای:
   // مرحله ۱: برگشت به مرحله قبل (بستن پنجره باز یا بازگشت به صفحه/تب قبلی)
@@ -1624,22 +1631,23 @@ export default function App() {
                 />
               </div>
 
-              {/* عنوان اصلی سامانه با پهنای کامل در موبایل و دسکتاپ */}
+              {/* عنوان اصلی صفحه: کتابخانه */}
               <div className="w-full flex-1 min-w-0">
-                <h1 className="w-full font-titr text-base sm:text-xl md:text-2xl font-bold tracking-normal text-[#FDF8F2] leading-relaxed break-words">
-                  سامانه کتابخانه و پژوهش مرکز اسناد گلزار شهدا
+                <h1 className="w-full font-titr text-lg sm:text-2xl font-bold tracking-normal text-[#FDF8F2] leading-relaxed break-words">
+                  کتابخانه
                 </h1>
               </div>
             </div>
           </header>
 
-          {/* نوار ابزار در یک Flex Container تک‌خطی زیر هدر: پشتیبان | نقش کاربر | دریافت آخرین نسخه | آیکون نصب */}
+          {/* نوار ابزار در یک Flex Container تک‌خطی زیر هدر: پشتیبان | نقش کاربر | ارتباط گوشی | نصب | خروج */}
           <div className="w-full max-w-full bg-white border-b border-[#E6D5C1] px-2 sm:px-6 py-2">
             <div className="max-w-6xl w-full mx-auto flex flex-nowrap items-center justify-between gap-1.5 sm:gap-2.5 text-xs overflow-x-auto no-scrollbar">
               {/* ۱. کلید پشتیبان */}
               <button
                 type="button"
                 onClick={() => {
+                  setShowDeviceSyncDrawer(false);
                   setActiveTab('management');
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
@@ -1671,11 +1679,14 @@ export default function App() {
                 </select>
               </div>
 
-              {/* ۳. کلید ارتباط مستقیم گوشی و کامپیوتر (WebRTC P2P) */}
+              {/* ۳. کلید ارتباط گوشی */}
               <button
                 type="button"
-                onClick={() => setShowDeviceSyncDrawer((prev) => !prev)}
-                title="ارتباط مستقیم گوشی و کامپیوتر (انتقال نظیربه‌نظیر WebRTC بدون ذخیره در ابر)"
+                onClick={() => {
+                  setShowDeviceSyncDrawer((prev) => !prev);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                title="ورود به صفحه اختصاصی ارتباط گوشی و انتقال اطلاعات"
                 className={`flex-1 min-h-[34px] px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-bold rounded-lg transition-colors inline-flex items-center justify-center gap-1 min-w-0 whitespace-nowrap truncate cursor-pointer border ${
                   showDeviceSyncDrawer
                     ? 'bg-[#8C3B2B] text-white border-[#702D20]'
@@ -1683,7 +1694,7 @@ export default function App() {
                 }`}
               >
                 <RefreshCw className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">ارتباط گوشی و کامپیوتر</span>
+                <span className="truncate">ارتباط گوشی</span>
               </button>
 
               {/* ۴. آیکون کوچک نصب روی گوشی */}
@@ -1772,61 +1783,6 @@ export default function App() {
         </header>
       )}
 
-      {/* نوار وضعیت پایگاه داده book در حافظه محلی گوشی (فقط در صفحه اول نمایش داده می‌شود) */}
-      {activeTab === 'home' && (
-        <div className="w-full bg-[#FAF3EA] border-b border-[#E6D5C1] px-2.5 sm:px-6 py-1.5">
-          <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2 text-[11px] sm:text-xs text-[#5D4636]">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-1 font-bold text-[#8C3B2B]">
-                <span className="w-2 h-2 rounded-full bg-[#2E7D5B]" />
-                عنوان پایگاه داده در گوشی: <strong className="font-mono bg-white px-1.5 py-0.5 rounded border border-[#E6D5C1]">book</strong>
-              </span>
-              <span className="text-[#8C7A6B]">|</span>
-              <span>کل رکوردهای ثبت‌شده در دستگاه: <strong>{toPersianDigits(totalSavedCount)}</strong></span>
-              {sessionEditsCount > 0 && (
-                <>
-                  <span className="text-[#8C7A6B]">|</span>
-                  <span className="text-[#2E7D5B] font-bold">
-                    {toPersianDigits(sessionEditsCount)} ثبت جدید در این نشست (ذخیره آنی در حافظه دستگاه)
-                  </span>
-                </>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2.5">
-              <button
-                type="button"
-                onClick={() => setShowDeviceSyncDrawer((prev) => !prev)}
-                title="باز کردن بخش ارتباط مستقیم گوشی و کامپیوتر"
-                className="text-[#8C3B2B] hover:underline font-bold inline-flex items-center gap-1 text-[11px] cursor-pointer"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>ارتباط گوشی و کامپیوتر (WebRTC)</span>
-              </button>
-              <span className="text-[#8C7A6B]">·</span>
-              <button
-                type="button"
-                onClick={handleQuickExcelExport}
-                title="دانلود فایل اکسل یکپارچه شامل ۹۸۰ کتاب پایه به همراه تمام ثبت‌های جدید در یک جدول واحد"
-                className="text-[#2E6F40] hover:underline font-bold inline-flex items-center gap-1 text-[11px] cursor-pointer"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>دانلود بانک اکسل تجمیعی کل کتاب‌ها (۹۸۰ + جدید)</span>
-              </button>
-              <span className="text-[#8C7A6B]">·</span>
-              <button
-                type="button"
-                onClick={() => setShowExitConfirmModal(true)}
-                className="text-[#8C3B2B] hover:underline font-bold inline-flex items-center gap-1 text-[11px] cursor-pointer"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>خروج کامل</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Toast Notification (شناور در بالای صفحه با فاصله امن از نوار وضعیت آنتن و باتری گوشی) */}
       {toast && (
         <div
@@ -1858,21 +1814,37 @@ export default function App() {
 
       {/* Main Content Container (Centered & Constrained on Mobile) */}
       <main className="flex-1 w-full max-w-6xl mx-auto px-2.5 sm:px-6 py-3 sm:py-6 overflow-x-hidden space-y-5">
-        {showDeviceSyncDrawer && (
-          <DeviceSyncPanel
-            dataset={{
-              auditRecords,
-              bookCopies,
-              customMartyrs,
-              links,
-              pendingReviews
-            }}
-            onApplySyncedDataset={handleApplyP2PSyncedDataset}
-            onTriggerLocalBackup={() => {
-              void handleFullJsonBackupDownload();
-            }}
-          />
-        )}
+        {showDeviceSyncDrawer ? (
+          <div className="space-y-4">
+            <div className="bg-white border border-[#E6D5C1] rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-2 text-sm sm:text-base font-bold text-[#332218]">
+                <RefreshCw className="w-4 h-4 text-[#8C3B2B] shrink-0" />
+                <span>صفحه اختصاصی ارتباط گوشی و انتقال اطلاعات</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDeviceSyncDrawer(false)}
+                className="min-h-[36px] px-3.5 py-1.5 rounded-xl bg-[#8C3B2B] hover:bg-[#702D20] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <ArrowRight className="w-3.5 h-3.5" />
+                <span>بازگشت به کتابخانه</span>
+              </button>
+            </div>
+            <DeviceSyncPanel
+              dataset={{
+                auditRecords,
+                bookCopies,
+                customMartyrs,
+                links,
+                pendingReviews
+              }}
+              onApplySyncedDataset={handleApplyP2PSyncedDataset}
+              onTriggerLocalBackup={() => {
+                void handleFullJsonBackupDownload();
+              }}
+            />
+          </div>
+        ) : (
         <>
           {/* MENU 1: HOME (خانه) */}
           {activeTab === 'home' && (
@@ -1889,8 +1861,12 @@ export default function App() {
             auditLog={auditLog}
             globalQuery={homeGlobalQuery}
             onChangeGlobalQuery={setHomeGlobalQuery}
-            onNavigateTab={(tab) => setActiveTab(tab)}
+            onNavigateTab={(tab) => {
+              setShowDeviceSyncDrawer(false);
+              setActiveTab(tab);
+            }}
             onOpenBookInLibrary={(bookQuery) => {
+              setShowDeviceSyncDrawer(false);
               setLibrarySubView('catalog');
               setLibraryInitialSearchQuery(bookQuery);
               setActiveTab('library');
@@ -2304,21 +2280,6 @@ export default function App() {
         {/* MANAGEMENT, BACKUP & 16 REPORTS */}
         {activeTab === 'management' && (
           <div className="space-y-6">
-            {!showDeviceSyncDrawer && (
-              <DeviceSyncPanel
-                dataset={{
-                  auditRecords,
-                  bookCopies,
-                  customMartyrs,
-                  links,
-                  pendingReviews
-                }}
-                onApplySyncedDataset={handleApplyP2PSyncedDataset}
-                onTriggerLocalBackup={() => {
-                  void handleFullJsonBackupDownload();
-                }}
-              />
-            )}
             <div className="flex flex-wrap items-center justify-between gap-2 bg-white border border-slate-200 rounded-2xl p-3">
               <span className="text-xs font-bold text-[#253247] px-1">
                 پشتیبان کامل JSON سامانه (۱۱ مجموعه داده)، خروجی‌های تخصصی Excel و گزارش‌های ۱۶گانه:
@@ -2387,6 +2348,7 @@ export default function App() {
           </div>
         )}
         </>
+        )}
       </main>
 
       {/* Quiet Footer for Desktop */}
@@ -2418,11 +2380,14 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
+              setShowDeviceSyncDrawer(false);
               setActiveTab('home');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             className={`min-w-0 min-h-[48px] flex flex-col items-center justify-center rounded-xl transition-colors px-0.5 cursor-pointer ${
-              activeTab === 'home' ? 'text-[#8C3B2B] font-bold bg-[#F5E6D3]' : 'text-[#755C48] hover:bg-[#F5E6D3]/50'
+              activeTab === 'home' && !showDeviceSyncDrawer
+                ? 'text-[#8C3B2B] font-bold bg-[#F5E6D3]'
+                : 'text-[#755C48] hover:bg-[#F5E6D3]/50'
             }`}
           >
             <Home className="w-5 h-5 shrink-0" />
@@ -2432,11 +2397,14 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
+              setShowDeviceSyncDrawer(false);
               setActiveTab('library');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             className={`min-w-0 min-h-[48px] flex flex-col items-center justify-center rounded-xl transition-colors px-0.5 cursor-pointer ${
-              activeTab === 'library' ? 'text-[#8C3B2B] font-bold bg-[#F5E6D3]' : 'text-[#755C48] hover:bg-[#F5E6D3]/50'
+              activeTab === 'library' && !showDeviceSyncDrawer
+                ? 'text-[#8C3B2B] font-bold bg-[#F5E6D3]'
+                : 'text-[#755C48] hover:bg-[#F5E6D3]/50'
             }`}
           >
             <BookOpen className="w-5 h-5 shrink-0" />
@@ -2446,11 +2414,14 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
+              setShowDeviceSyncDrawer(false);
               setActiveTab('martyrs');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             className={`min-w-0 min-h-[48px] flex flex-col items-center justify-center rounded-xl transition-colors px-0.5 cursor-pointer ${
-              activeTab === 'martyrs' ? 'text-[#8C3B2B] font-bold bg-[#F5E6D3]' : 'text-[#755C48] hover:bg-[#F5E6D3]/50'
+              activeTab === 'martyrs' && !showDeviceSyncDrawer
+                ? 'text-[#8C3B2B] font-bold bg-[#F5E6D3]'
+                : 'text-[#755C48] hover:bg-[#F5E6D3]/50'
             }`}
           >
             <Users className="w-5 h-5 shrink-0" />
@@ -2460,11 +2431,12 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
+              setShowDeviceSyncDrawer(false);
               setActiveTab('smart_search');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             className={`min-w-0 min-h-[48px] flex flex-col items-center justify-center rounded-xl transition-colors px-0.5 cursor-pointer ${
-              activeTab === 'smart_search'
+              activeTab === 'smart_search' && !showDeviceSyncDrawer
                 ? 'text-[#8C3B2B] font-bold bg-[#F5E6D3]'
                 : 'text-[#755C48] hover:bg-[#F5E6D3]/50'
             }`}
@@ -2476,11 +2448,14 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
+              setShowDeviceSyncDrawer(false);
               setActiveTab('research');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             className={`min-w-0 min-h-[48px] flex flex-col items-center justify-center rounded-xl transition-colors px-0.5 cursor-pointer ${
-              activeTab === 'research' ? 'text-[#8C3B2B] font-bold bg-[#F5E6D3]' : 'text-[#755C48] hover:bg-[#F5E6D3]/50'
+              activeTab === 'research' && !showDeviceSyncDrawer
+                ? 'text-[#8C3B2B] font-bold bg-[#F5E6D3]'
+                : 'text-[#755C48] hover:bg-[#F5E6D3]/50'
             }`}
           >
             <FileSearch className="w-5 h-5 shrink-0" />

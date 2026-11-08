@@ -1,8 +1,10 @@
 import {
+  BookCopyRecord,
   BookMartyrLinkRecord,
   ExtractedContentItem,
   ExtractedContentType,
   ExtractedReviewStatus,
+  FieldAuditRecord,
   ReferenceCatalogRow,
   normalizePersianText
 } from './markazAsnadData';
@@ -534,3 +536,455 @@ export function doesLinkMatchCatalogBook(
   }
   return false;
 }
+
+export type MartyrRelationCertainty = 'قطعی' | 'احتمالی' | 'نیازمند بررسی';
+
+export interface BookDossierMartyrRelation {
+  linkId: string;
+  martyrName: string;
+  gravePiece: string;
+  graveRow: string;
+  graveNumber: string;
+  pageReference: string;
+  certainty: MartyrRelationCertainty;
+  rawStatus: string;
+  evidenceText: string;
+  reviewerNote: string;
+  sourceFile: string;
+  sourceSheet: string;
+  sourceSheetCategory: 'کتاب‌های مرتبط با یک شهید' | 'کتاب‌های مرتبط با چند شهید';
+  sourceExcelRow: string;
+  rawNameInSource: string;
+}
+
+export interface UnifiedBookDossier {
+  dossierId: string;
+  bookId: string;
+  rowKey: string;
+  title: string;
+  alternativeTitle: string;
+  author: string;
+  publisher: string;
+  year: string;
+  edition: string;
+  isbn: string;
+  fipa: string;
+  registrationNo: string;
+  category: string;
+  description: string;
+  isNewRegistration: boolean;
+  isDetermined: boolean;
+  determinationStatusLabel: string;
+  physicalStatus: 'verified' | 'review' | 'not_found' | 'unchecked';
+  shelf: string;
+  level: string;
+  locationCode: string;
+  countedCopies: string;
+  checkedBy: string;
+  updatedAt: string;
+  notes: string;
+  sheetCategory:
+    | 'کتاب‌های مرتبط با یک شهید'
+    | 'کتاب‌های مرتبط با چند شهید'
+    | 'ثبت جدید'
+    | 'فهرست کتابخانه';
+  martyrRelations: BookDossierMartyrRelation[];
+  extractedPassages: ExtractedContentItem[];
+  originalExcelData: {
+    hasExcelRecord: boolean;
+    sourceFile: string;
+    sourceSheet: string;
+    sourceRow: string;
+    rawCells: Array<{ label: string; value: string }>;
+    rawRelationRows: Array<{
+      linkId: string;
+      rowNumber: string;
+      sheet: string;
+      file: string;
+      martyr: string;
+      piece: string;
+      row: string;
+      number: string;
+      page: string;
+      desc: string;
+      status: string;
+    }>;
+  };
+}
+
+const INCLUDED_GROUP_PHRASE_LINK_IDS = new Set([
+  'RL-0160', // جاده های سربی
+  'RL-0132', // پدیدار شناسی بسیجی شهید
+  'RL-0343', // سید آسایشگاه 15
+  'RL-0366', // شلیک به آسمان
+  'RL-0006', // از جهنم سرد شین تا بهشت ارزنتاک
+  'RL-0011', // اسماعیل نذر آفتاب
+  'RL-0037', // اوستا علی
+  'RL-0076', // بابا نظر
+  'RL-0041', // آخرین شلیک
+  'RL-0044', // آسمان مال من بود
+  'RL-0047' // آن روز سه و نیم بعد از ظهر
+]);
+
+export function classifyMartyrLinkCertainty(link: BookMartyrLinkRecord): MartyrRelationCertainty {
+  const st = link.reviewStatus || '';
+  if (link.isGroupPhrase || st.includes('تفکیک نام') || st.includes('نیازمند بررسی')) {
+    return 'نیازمند بررسی';
+  }
+  if (st.includes('تطبیق کتاب') || st.includes('احتمالی') || link.reviewerNote?.includes('کاندید')) {
+    return 'احتمالی';
+  }
+  if (st.includes('تکمیل مزار') || st.includes('بررسی مزار')) {
+    // اگر قطعه مشخص است اما ردیف یا شماره مزار ناقص است، ارتباط احتمالی یا نیازمند بررسی مزار است
+    if (link.gravePieceRaw && link.gravePieceRaw !== 'غ تهرانی') {
+      return 'احتمالی';
+    }
+    return 'نیازمند بررسی';
+  }
+  if (
+    st === 'تأییدشده کارشناسی' ||
+    st === 'تأیید' ||
+    st === 'بررسی‌شده در پژوهش اصلی' ||
+    (link.gravePieceRaw && link.graveRowRaw && link.graveNumberRaw)
+  ) {
+    return 'قطعی';
+  }
+  return 'نیازمند بررسی';
+}
+
+/**
+ * ساخت فهرست یکتا و بدون تکرار پرونده کتاب‌ها (۱۹۸ عنوان پایه از شیت‌های «کتاب‌های مرتبط با یک شهید» و «کتاب‌های مرتبط با چند شهید»
+ * + به‌روزرسانی خودکار با اضافه‌شدن کتاب‌های ثبت جدید یا تعیین‌تکلیف‌شده).
+ * هر عنوان کتاب فقط یک رکورد دارد و تمامی شهدای مرتبط با آن در همان پرونده کتاب تجمیع می‌شوند.
+ */
+export function buildUnifiedBookDossiers(params: {
+  catalogRows: ReferenceCatalogRow[];
+  auditRecords: Record<string, FieldAuditRecord>;
+  bookCopies: BookCopyRecord[];
+  links: BookMartyrLinkRecord[];
+  extractedItems: ExtractedContentItem[];
+}): UnifiedBookDossier[] {
+  const { catalogRows, auditRecords, bookCopies, links, extractedItems } = params;
+
+  const catalogById = new Map<string, ReferenceCatalogRow>();
+  const catalogByCompactTitle = new Map<string, ReferenceCatalogRow>();
+  for (const row of catalogRows) {
+    if (row.tempBookId) catalogById.set(row.tempBookId, row);
+    const ct = compactPersianForMatch(row.titleRaw);
+    if (ct && !catalogByCompactTitle.has(ct)) {
+      catalogByCompactTitle.set(ct, row);
+    }
+  }
+
+  const auditByBookId = new Map<string, FieldAuditRecord>();
+  const auditByCompactTitle = new Map<string, FieldAuditRecord>();
+  for (const rec of Object.values(auditRecords)) {
+    if (rec.tempBookId) auditByBookId.set(rec.tempBookId, rec);
+    const ct = compactPersianForMatch(rec.title);
+    if (ct) auditByCompactTitle.set(ct, rec);
+  }
+
+  const copiesByBookId = new Map<string, BookCopyRecord[]>();
+  for (const cp of bookCopies) {
+    if (!cp.bookId) continue;
+    const arr = copiesByBookId.get(cp.bookId) || [];
+    arr.push(cp);
+    copiesByBookId.set(cp.bookId, arr);
+  }
+
+  // گام ۱: تجمیع پیوندهای معتبر بر اساس عنوان یکتای کتاب (بدون ساخت رکورد تکراری برای کتاب‌های چندشهیدی)
+  const bookGroups = new Map<
+    string,
+    {
+      key: string;
+      primaryBookId: string;
+      title: string;
+      alternativeTitle: string;
+      publisher: string;
+      description: string;
+      links: BookMartyrLinkRecord[];
+      catalogRow?: ReferenceCatalogRow;
+      auditRecord?: FieldAuditRecord;
+    }
+  >();
+
+  const getBookGroupKey = (
+    tempBookId: string,
+    title: string
+  ): string => {
+    // حفظ تفکیک زوج‌های دوجلدی مجاز که دو شناسه مستقل در کاتالوگ دارند
+    if (
+      tempBookId === 'BK-0383' ||
+      tempBookId === 'BK-0384' ||
+      tempBookId === 'BK-0235' ||
+      tempBookId === 'BK-0236' ||
+      tempBookId === 'BK-0404' ||
+      tempBookId === 'BK-0405'
+    ) {
+      return tempBookId;
+    }
+    const ct = compactPersianForMatch(title);
+    return ct || tempBookId;
+  };
+
+  for (const lnk of links) {
+    if (!lnk.martyrNameRaw || lnk.martyrNameRaw === '*') continue;
+    const isGhatatSheet = lnk.sourceSheet === 'یک شهید' || lnk.sourceSheet === 'چند شهید';
+    const isUserAddedLink = !lnk.id.startsWith('RL-');
+    if (
+      !isGhatatSheet &&
+      !isUserAddedLink &&
+      lnk.isGroupPhrase &&
+      !INCLUDED_GROUP_PHRASE_LINK_IDS.has(lnk.id)
+    ) {
+      continue;
+    }
+
+    const catRow =
+      (lnk.tempBookId ? catalogById.get(lnk.tempBookId) : undefined) ||
+      catalogByCompactTitle.get(compactPersianForMatch(lnk.bookTitleRaw));
+    const resolvedBookId = lnk.tempBookId || catRow?.tempBookId || '';
+    const resolvedTitle = catRow?.titleRaw || lnk.bookTitleRaw;
+    const groupKey = getBookGroupKey(resolvedBookId, resolvedTitle);
+
+    if (!bookGroups.has(groupKey)) {
+      const aud =
+        (resolvedBookId ? auditByBookId.get(resolvedBookId) : undefined) ||
+        (catRow ? auditRecords[catRow.rowKey] : undefined) ||
+        auditByCompactTitle.get(compactPersianForMatch(resolvedTitle));
+
+      bookGroups.set(groupKey, {
+        key: groupKey,
+        primaryBookId: resolvedBookId || `BK-RES-${String(bookGroups.size + 1).padStart(4, '0')}`,
+        title: aud?.title || resolvedTitle,
+        alternativeTitle: lnk.alternativeTitle || '',
+        publisher: aud?.publisher || catRow?.publisherRaw || lnk.publisherRaw || '',
+        description: aud?.descriptionRaw || catRow?.descriptionRaw || lnk.sourceDescriptionRaw || '',
+        links: [],
+        catalogRow: catRow,
+        auditRecord: aud
+      });
+    }
+
+    const grp = bookGroups.get(groupKey)!;
+    if (!grp.alternativeTitle && lnk.alternativeTitle) {
+      grp.alternativeTitle = lnk.alternativeTitle;
+    }
+    if (!grp.description && lnk.sourceDescriptionRaw) {
+      grp.description = lnk.sourceDescriptionRaw;
+    }
+    grp.links.push(lnk);
+  }
+
+  // گام ۲: افزودن خودکار تمام کتاب‌های ثبت جدید (outside-list) یا کتاب‌های تعیین‌تکلیف‌شده در قفسه که هنوز در ۱۹۸ عنوان پایه نبوده‌اند
+  for (const aud of Object.values(auditRecords)) {
+    const catRow =
+      (aud.tempBookId ? catalogById.get(aud.tempBookId) : undefined) ||
+      catalogRows.find((r) => r.rowKey === aud.key);
+    const groupKey =
+      aud.source === 'outside-list'
+        ? `NEW::${aud.key}`
+        : getBookGroupKey(aud.tempBookId || catRow?.tempBookId || aud.key, aud.title || catRow?.titleRaw || '');
+
+    if (!bookGroups.has(groupKey)) {
+      bookGroups.set(groupKey, {
+        key: groupKey,
+        primaryBookId: aud.tempBookId || catRow?.tempBookId || aud.key,
+        title: aud.title || catRow?.titleRaw || 'بدون عنوان',
+        alternativeTitle: '',
+        publisher: aud.publisher || catRow?.publisherRaw || '',
+        description: aud.descriptionRaw || catRow?.descriptionRaw || '',
+        links: [],
+        catalogRow: catRow,
+        auditRecord: aud
+      });
+    } else {
+      const existing = bookGroups.get(groupKey)!;
+      if (!existing.auditRecord) {
+        existing.auditRecord = aud;
+      }
+    }
+  }
+
+  // گام ۳: ساخت پرونده کامل هر کتاب (UnifiedBookDossier)
+  const dossiers: UnifiedBookDossier[] = [];
+  let indexCounter = 1;
+
+  for (const grp of bookGroups.values()) {
+    const catRow = grp.catalogRow;
+    const aud = grp.auditRecord;
+    const copies = copiesByBookId.get(grp.primaryBookId) || [];
+    const firstCopy = copies[0];
+
+    const isNewRegistration = aud?.source === 'outside-list';
+    const isDetermined = Boolean(aud);
+
+    const physicalStatus: UnifiedBookDossier['physicalStatus'] = aud
+      ? aud.physical
+      : 'unchecked';
+
+    let determinationStatusLabel = 'تعیین‌تکلیف‌نشده (فهرست اولیه)';
+    if (aud) {
+      if (isNewRegistration) {
+        determinationStatusLabel =
+          aud.physical === 'verified' && aud.copyStatus === 'verified_present'
+            ? 'ثبت جدید — تأییدشده در قفسه'
+            : 'ثبت جدید — در انتظار تأیید کارشناس';
+      } else if (aud.physical === 'verified') {
+        determinationStatusLabel = 'تعیین‌تکلیف‌شده — موجود در قفسه';
+      } else if (aud.physical === 'review') {
+        determinationStatusLabel = 'تعیین‌تکلیف‌شده — نیازمند بررسی';
+      } else {
+        determinationStatusLabel = 'تعیین‌تکلیف‌شده — مشاهده‌نشده در قفسه';
+      }
+    }
+
+    const isMultiMartyr =
+      grp.links.length > 1 || grp.links.some((l) => l.sourceSheet === 'چند شهید' || l.isGroupPhrase);
+
+    const sheetCategory: UnifiedBookDossier['sheetCategory'] = isNewRegistration
+      ? 'ثبت جدید'
+      : grp.links.length === 0
+      ? 'فهرست کتابخانه'
+      : isMultiMartyr
+      ? 'کتاب‌های مرتبط با چند شهید'
+      : 'کتاب‌های مرتبط با یک شهید';
+
+    const martyrRelations: BookDossierMartyrRelation[] = grp.links.map((lnk) => {
+      const certainty = classifyMartyrLinkCertainty(lnk);
+      const relSheetCat: 'کتاب‌های مرتبط با یک شهید' | 'کتاب‌های مرتبط با چند شهید' =
+        lnk.sourceSheet === 'چند شهید' || grp.links.length > 1 || lnk.isGroupPhrase
+          ? 'کتاب‌های مرتبط با چند شهید'
+          : 'کتاب‌های مرتبط با یک شهید';
+
+      const evidenceParts: string[] = [];
+      if (lnk.sourceDescriptionRaw) {
+        evidenceParts.push(`موضوع/توضیح منبع: ${lnk.sourceDescriptionRaw}`);
+      }
+      if (lnk.pageReferenceRaw) {
+        evidenceParts.push(`صفحه/ارجاع: ${lnk.pageReferenceRaw}`);
+      }
+      if (lnk.reviewerNote) {
+        evidenceParts.push(`یادداشت بررسی: ${lnk.reviewerNote}`);
+      }
+      if (evidenceParts.length === 0) {
+        evidenceParts.push('ثبت‌شده در شیت پژوهشی ارتباط کتاب و شهید');
+      }
+
+      return {
+        linkId: lnk.id,
+        martyrName: lnk.martyrNameRaw,
+        gravePiece: lnk.gravePieceRaw || '—',
+        graveRow: lnk.graveRowRaw || '—',
+        graveNumber: lnk.graveNumberRaw || '—',
+        pageReference: lnk.pageReferenceRaw || 'کل کتاب / ثبت‌نشده',
+        certainty,
+        rawStatus: lnk.reviewStatus || 'بررسی‌شده در پژوهش اصلی',
+        evidenceText: evidenceParts.join(' | '),
+        reviewerNote: lnk.reviewerNote || '',
+        sourceFile: lnk.sourceFile || 'اکسل پژوهشی کتابخانه',
+        sourceSheet: lnk.sourceSheet || relSheetCat,
+        sourceSheetCategory: relSheetCat,
+        sourceExcelRow: lnk.sourceExcelRow || '—',
+        rawNameInSource: lnk.rawNameInSource || lnk.martyrNameRaw
+      };
+    });
+
+    const relatedExtracts = extractedItems.filter(
+      (ex) =>
+        (ex.tempBookId && ex.tempBookId === grp.primaryBookId) ||
+        compactPersianForMatch(ex.bookTitleRaw) === compactPersianForMatch(grp.title)
+    );
+
+    const rawCells: Array<{ label: string; value: string }> = [];
+    if (catRow) {
+      rawCells.push(
+        { label: 'شناسه کتاب در اکسل', value: catRow.tempBookId || '—' },
+        { label: 'عنوان ثبت‌شده در اکسل', value: catRow.titleRaw || '—' },
+        { label: 'ناشر در اکسل', value: catRow.publisherRaw || '—' },
+        { label: 'توضیحات ستون منبع', value: catRow.descriptionRaw || '—' },
+        { label: 'دسته موضوعی خام', value: catRow.categoryRaw || '—' },
+        { label: 'نویسنده/گردآورنده خام', value: catRow.authorRaw || '—' },
+        { label: 'شابک / فیپا', value: [catRow.isbnRaw, catRow.fipaRaw].filter(Boolean).join(' / ') || '—' },
+        { label: 'محل نگهداری در اکسل', value: catRow.locationRaw || '—' },
+        { label: 'شیت منبع پشتیبان', value: catRow.backupSourceSheet || '—' },
+        { label: 'شماره ردیف در شیت منبع', value: catRow.backupSourceRow || String(catRow.rowIndex) }
+      );
+    } else if (grp.links.length > 0) {
+      const firstLnk = grp.links[0];
+      rawCells.push(
+        { label: 'عنوان کتاب در شیت پژوهشی', value: firstLnk.bookTitleRaw || '—' },
+        { label: 'عنوان دیگر در شیت', value: firstLnk.alternativeTitle || '—' },
+        { label: 'ناشر در شیت پژوهشی', value: firstLnk.publisherRaw || '—' },
+        { label: 'توضیحات کتاب در منبع', value: firstLnk.sourceDescriptionRaw || '—' },
+        { label: 'فایل اکسل منبع', value: firstLnk.sourceFile || '—' },
+        { label: 'شیت اکسل منبع', value: firstLnk.sourceSheet || '—' },
+        { label: 'ردیف شروع در اکسل', value: firstLnk.groupStartRow || firstLnk.sourceExcelRow || '—' }
+      );
+    }
+
+    const rawRelationRows = grp.links.map((lnk) => ({
+      linkId: lnk.id,
+      rowNumber: lnk.sourceExcelRow || '—',
+      sheet: lnk.sourceSheet || '—',
+      file: lnk.sourceFile || '—',
+      martyr: lnk.martyrNameRaw || '—',
+      piece: lnk.gravePieceRaw || '—',
+      row: lnk.graveRowRaw || '—',
+      number: lnk.graveNumberRaw || '—',
+      page: lnk.pageReferenceRaw || '—',
+      desc: lnk.sourceDescriptionRaw || '—',
+      status: lnk.reviewStatus || '—'
+    }));
+
+    dossiers.push({
+      dossierId: `DOS-${String(indexCounter++).padStart(4, '0')}`,
+      bookId: grp.primaryBookId,
+      rowKey: aud?.key || catRow?.rowKey || `DOS::${grp.primaryBookId}`,
+      title: aud?.title || grp.title,
+      alternativeTitle: grp.alternativeTitle,
+      author: aud?.author || catRow?.authorRaw || 'ثبت‌نشده',
+      publisher: aud?.publisher || grp.publisher || 'ثبت‌نشده',
+      year: aud?.year || '—',
+      edition: aud?.edition || '—',
+      isbn: aud?.isbn || catRow?.isbnRaw || '—',
+      fipa: aud?.fipa || catRow?.fipaRaw || '—',
+      registrationNo: aud?.registrationNo || catRow?.registrationNoRaw || '—',
+      category: aud?.category || catRow?.categoryRaw || '—',
+      description: aud?.descriptionRaw || grp.description || '—',
+      isNewRegistration,
+      isDetermined,
+      determinationStatusLabel,
+      physicalStatus,
+      shelf: aud?.shelf || firstCopy?.shelf || '',
+      level: aud?.level || firstCopy?.level || '',
+      locationCode: aud?.location || firstCopy?.location || catRow?.locationRaw || '',
+      countedCopies: aud?.countedCopies || catRow?.countedCopiesRaw || '1',
+      checkedBy: aud?.checkedBy || '',
+      updatedAt: aud?.updatedAt || '',
+      notes: aud?.notes || catRow?.noteRaw || '',
+      sheetCategory,
+      martyrRelations,
+      extractedPassages: relatedExtracts,
+      originalExcelData: {
+        hasExcelRecord: Boolean(catRow || grp.links.length > 0),
+        sourceFile:
+          grp.links[0]?.sourceFile ||
+          (catRow ? 'فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx' : 'ثبت مستقیم در نرم‌افزار'),
+        sourceSheet:
+          grp.links[0]?.sourceSheet ||
+          catRow?.backupSourceSheet ||
+          (isNewRegistration ? 'ثبت جدید در دستگاه' : 'فهرست کتاب‌ها'),
+        sourceRow:
+          grp.links[0]?.sourceExcelRow ||
+          catRow?.backupSourceRow ||
+          (catRow ? String(catRow.rowIndex) : '—'),
+        rawCells,
+        rawRelationRows
+      }
+    });
+  }
+
+  return dossiers;
+}
+
