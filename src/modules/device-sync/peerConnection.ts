@@ -14,6 +14,7 @@ import {
   cleanupSignalingSession,
   createSignalingOfferSession,
   fetchSignalingSession,
+  isSignalingDocExpired,
   rejectSignalingSession,
   submitSignalingAnswer,
   subscribeToSignalingSession,
@@ -231,6 +232,7 @@ export class DirectWebRtcSessionManager {
       `نشست امن (${maskSessionIdForDisplay(sessionId)}) ایجاد شد. لطفاً QR Code را در دستگاه مقابل اسکن کنید...`
     );
 
+    let isOfferSessionCreated = false;
     try {
       const pc = new RTCPeerConnection({
         iceServers: DIRECT_STUN_ICE_SERVERS,
@@ -238,7 +240,6 @@ export class DirectWebRtcSessionManager {
       this.pc = pc;
 
       const localCandidates: RTCIceCandidateInit[] = [];
-      let isOfferSessionCreated = false;
 
       const dc = pc.createDataChannel('markaz_asnad_direct_p2p', {
         ordered: true,
@@ -321,6 +322,9 @@ export class DirectWebRtcSessionManager {
       this.armDirectConnectionTimeout();
       return { sessionId, qrValue };
     } catch (err) {
+      if (!isOfferSessionCreated) {
+        this.signalingDocCleaned = true;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       await this.cleanupSignalingAndLocalResources(
         'connection-error',
@@ -406,7 +410,7 @@ export class DirectWebRtcSessionManager {
         throw new Error(msg);
       }
 
-      if (Date.now() > sessionDoc.expiresAtMs) {
+      if (isSignalingDocExpired(sessionDoc)) {
         await cleanupSignalingSession(sessionId);
         const msg = 'مهلت زمانی این QR Code به پایان رسیده است. لطفاً QR جدید تولید کنید.';
         this.callbacks.onStatusChange('connection-error', msg);
@@ -457,7 +461,7 @@ export class DirectWebRtcSessionManager {
         throw new Error('نشست منقضی یا بسته شده است.');
       }
 
-      if (Date.now() > freshDoc.expiresAtMs) {
+      if (isSignalingDocExpired(freshDoc)) {
         await cleanupSignalingSession(sessionId);
         throw new Error('مهلت زمانی این QR Code به پایان رسیده است. لطفاً QR جدید تولید کنید.');
       }
@@ -586,7 +590,7 @@ export class DirectWebRtcSessionManager {
     const { mode, request, sessionDoc } = this.pendingPhoneApproval;
     this.pendingPhoneApproval = null;
 
-    if (Date.now() > sessionDoc.expiresAtMs) {
+    if (isSignalingDocExpired(sessionDoc)) {
       await cleanupSignalingSession(request.sessionId);
       const msg = 'مهلت زمانی این QR Code به پایان رسیده است. لطفاً QR جدید تولید کنید.';
       this.callbacks.onStatusChange('connection-error', msg);

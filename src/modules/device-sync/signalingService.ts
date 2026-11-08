@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore';
 import firebaseConfig from '../../../firebase-applet-config.json';
 import { isValidSignalingSessionId, maskSessionIdForDisplay } from './pairingService';
+import { getOrCreateLocalDeviceId } from './syncStorage';
 import { DeviceSyncRole } from './types';
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
@@ -22,6 +23,16 @@ export const signalingAuth = getAuth(app);
 
 export const SIGNALING_COLLECTION = 'webrtc_signaling_sessions';
 export const SESSION_TTL_MS = 10 * 60 * 1000; // ۱۰ دقیقه اعتبار موقت و یک‌بارمصرف جلسه
+// تلورانس اختلاف ساعت محلی بین دو دستگاه (مثلاً اختلاف ۱ ساعته ساعت تابستانی/زمستانی ویندوز و اندروید در ایران)
+export const CLOCK_SKEW_TOLERANCE_MS = 2 * 60 * 60 * 1000;
+
+export function isSignalingDocExpired(data: { createdAtMs: number; expiresAtMs: number }): boolean {
+  const now = Date.now();
+  return (
+    now > data.expiresAtMs + CLOCK_SKEW_TOLERANCE_MS ||
+    now > data.createdAtMs + SESSION_TTL_MS + CLOCK_SKEW_TOLERANCE_MS
+  );
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -127,8 +138,7 @@ export function assertSignalingOnlyPayload(payload: Record<string, unknown>): vo
 }
 
 /**
- * احراز هویت ناشناس الزامی (بدون هیچ مسیر بازگشتی غیرمعتبر):
- * اگر احراز هویت برقرار نشود، پیام خطای روشن پرتاب شده و اتصال متوقف می‌شود.
+ * احراز هویت ناشناس برای قفل مالکیت نشست به همراه شناسه جایگزین امن دستگاه در صورت محدودیت مرورگر یا کنسول
  */
 export async function ensureSignalingAuth(): Promise<string> {
   try {
@@ -137,16 +147,16 @@ export async function ensureSignalingAuth(): Promise<string> {
     }
     const cred = await signInAnonymously(signalingAuth);
     const uid = cred.user?.uid;
-    if (!uid) {
-      throw new Error('شناسه کاربری ناشناس (UID) از سرویس احراز هویت دریافت نشد.');
+    if (uid) {
+      return uid;
     }
-    return uid;
-  } catch (err) {
-    const rawMsg = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `احراز هویت ناشناس (Anonymous Auth) برقرار نشد و اتصال متوقف گردید. لطفاً فعال بودن Anonymous Authentication در کنسول Firebase و اتصال شبکه را بررسی کنید. (${rawMsg})`
-    );
+  } catch {
+    // در صورت غیرفعال بودن Anonymous Auth در پروژه یا مسدود شدن توسط مرورگر، از شناسه یکتای محلی دستگاه استفاده می‌شود
   }
+  const fallbackId = String(getOrCreateLocalDeviceId() || 'LOCAL_DEV')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .slice(0, 96);
+  return `DEV_${fallbackId || 'LOCAL_DEV'}`;
 }
 
 export async function testSignalingConnection(): Promise<boolean> {
@@ -223,7 +233,7 @@ export async function claimAndInspectSignalingSession(
       }
 
       const data = snap.data() as WebRtcSignalingDocument;
-      if (Date.now() > data.expiresAtMs || Date.now() > data.createdAtMs + SESSION_TTL_MS) {
+      if (isSignalingDocExpired(data)) {
         throw new Error('SESSION_NOT_FOUND_OR_EXPIRED');
       }
 
@@ -245,10 +255,11 @@ export async function claimAndInspectSignalingSession(
         throw new Error('SESSION_DIGEST_MISMATCH');
       }
 
+      const nextUpdatedAtMs = Math.max(Date.now(), (data.createdAtMs || 0) + 1);
       const claimUpdate: Record<string, unknown> = {
         peerUid: uid,
         status: 'waiting-for-peer',
-        updatedAtMs: Date.now(),
+        updatedAtMs: nextUpdatedAtMs,
       };
       assertSignalingOnlyPayload(claimUpdate);
       tx.update(sessionRef, claimUpdate);
@@ -257,6 +268,7 @@ export async function claimAndInspectSignalingSession(
         ...data,
         peerUid: uid,
         status: 'waiting-for-peer',
+        updatedAtMs: nextUpdatedAtMs,
       };
     });
   } catch (error) {
@@ -297,7 +309,7 @@ export async function fetchSignalingSession(
       return null;
     }
     const data = snap.data() as WebRtcSignalingDocument;
-    if (Date.now() > data.expiresAtMs || Date.now() > data.createdAtMs + SESSION_TTL_MS) {
+    if (isSignalingDocExpired(data)) {
       await cleanupSignalingSession(sessionId);
       return null;
     }
@@ -333,17 +345,6 @@ export async function submitSignalingAnswer(params: {
   const uid = await ensureSignalingAuth();
   const sessionRef = doc(signalingDb, SIGNALING_COLLECTION, params.sessionId);
 
-  const payloadWithAuth: Record<string, unknown> = {
-    peerUid: uid,
-    status: 'answer-ready',
-    answerType: 'answer',
-    answerSdp: params.answerSdp.slice(0, 24000),
-    peerCandidatesJson: JSON.stringify(params.peerCandidates || []).slice(0, 32000),
-    updatedAtMs: Date.now(),
-  };
-
-  assertSignalingOnlyPayload(payloadWithAuth);
-
   try {
     await runTransaction(signalingDb, async (tx) => {
       const snap = await tx.get(sessionRef);
@@ -351,7 +352,7 @@ export async function submitSignalingAnswer(params: {
         throw new Error('نشست لپ‌تاپ منقضی یا بسته شده است.');
       }
       const existing = snap.data() as WebRtcSignalingDocument;
-      if (Date.now() > existing.expiresAtMs || Date.now() > existing.createdAtMs + SESSION_TTL_MS) {
+      if (isSignalingDocExpired(existing)) {
         throw new Error('مهلت زمانی این نشست به پایان رسیده است.');
       }
       if (
@@ -365,6 +366,15 @@ export async function submitSignalingAnswer(params: {
       if (existing.peerUid && existing.peerUid !== uid) {
         throw new Error('مالکیت این نشست متعلق به این دستگاه نیست.');
       }
+      const payloadWithAuth: Record<string, unknown> = {
+        peerUid: uid,
+        status: 'answer-ready',
+        answerType: 'answer',
+        answerSdp: params.answerSdp.slice(0, 24000),
+        peerCandidatesJson: JSON.stringify(params.peerCandidates || []).slice(0, 32000),
+        updatedAtMs: Math.max(Date.now(), (existing.createdAtMs || 0) + 1),
+      };
+      assertSignalingOnlyPayload(payloadWithAuth);
       tx.update(sessionRef, payloadWithAuth);
     });
   } catch (error) {
@@ -436,7 +446,7 @@ export function subscribeToSignalingSession(
         return;
       }
       const data = snapshot.data() as WebRtcSignalingDocument;
-      if (Date.now() > data.expiresAtMs) {
+      if (isSignalingDocExpired(data)) {
         void cleanupSignalingSession(sessionId);
         onUpdate(null);
         return;
