@@ -372,9 +372,9 @@ export class DirectWebRtcSessionManager {
   }
 
   /**
-   * گام ۳ و ۴ (در دستگاه دوم / Peer که QR را اسکن می‌کند):
-   * اسکن QR Code، قفل اتمیک peerUid با تراکنش Firestore (جلوگیری از تصاحب نشست توسط دستگاه ثالث)،
-   * و آماده‌سازی مشخصات دستگاه مقابل جهت تأیید.
+   * اسکن QR Code در دستگاه دوم (Peer - چه گوشی و چه لپ‌تاپ):
+   * اعتبارسنجی فنی QR، قفل اتمیک peerUid با تراکنش Firestore (جلوگیری از تصاحب نشست توسط دستگاه ثالث)،
+   * و برقراری بی‌درنگ کانال مستقیم WebRTC جهت آغاز خودکار همگام‌سازی بدون توقف برای تأیید انسانی جداگانه.
    */
   public async inspectLaptopQrOnPhone(
     rawScannedQrValue: string
@@ -395,13 +395,20 @@ export class DirectWebRtcSessionManager {
 
     this.callbacks.onStatusChange(
       'pairing',
-      `در حال بررسی و قفل اتمیک نشست (${maskSessionIdForDisplay(sessionId)})...`
+      `در حال بررسی فنی و قفل اتمیک نشست (${maskSessionIdForDisplay(sessionId)})...`
     );
 
     try {
       const sessionDoc = await claimAndInspectSignalingSession(sessionId, expectedDigest);
       if (!sessionDoc || !sessionDoc.offerSdp) {
         const msg = 'نشست فعالی برای این QR Code یافت نشد یا مهلت اعتبار آن به پایان رسیده است.';
+        this.callbacks.onStatusChange('connection-error', msg);
+        throw new Error(msg);
+      }
+
+      if (Date.now() > sessionDoc.expiresAtMs) {
+        await cleanupSignalingSession(sessionId);
+        const msg = 'مهلت زمانی این QR Code به پایان رسیده است. لطفاً QR جدید تولید کنید.';
         this.callbacks.onStatusChange('connection-error', msg);
         throw new Error(msg);
       }
@@ -415,21 +422,7 @@ export class DirectWebRtcSessionManager {
         expiresAtMs: sessionDoc.expiresAtMs,
       };
 
-      this.pendingPhoneApproval = {
-        mode: 'peer-side',
-        request: approvalRequest,
-        sessionDoc,
-      };
-
-      this.callbacks.onStatusChange(
-        'pairing',
-        `نشست دستگاه مقابل (${laptopDeviceId}) بررسی و به‌صورت اتمیک قفل شد. ${
-          this.localRole === 'phone-primary'
-            ? 'لطفاً روی گوشی اتصال را تأیید یا رد کنید.'
-            : 'در حال ارسال پاسخ به گوشی جهت تأیید نهایی روی گوشی...'
-        }`
-      );
-
+      await this.establishPeerAnswerConnection(approvalRequest, sessionDoc);
       return approvalRequest;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -439,49 +432,34 @@ export class DirectWebRtcSessionManager {
   }
 
   /**
-   * گام ۵: تأیید صریح اتصال روی گوشی (چه گوشی در نقش Peer باشد و چه در نقش Host)
-   * و یا ارسال درخواست پیوستن از لپ‌تاپ به نشست گوشی
+   * برقراری مستقیم اتصال WebRTC در سمت اسکن‌کننده QR (Peer) بلافاصله پس از قفل اتمیک نشست
    */
-  public async approvePendingSessionOnPhone(): Promise<{ sessionId: string }> {
-    if (!this.pendingPhoneApproval) {
-      const msg = 'هیچ درخواست اتصال منتظر تأییدی وجود ندارد. ابتدا QR نشست را اسکن کنید.';
-      this.callbacks.onStatusChange('connection-error', msg);
-      throw new Error(msg);
-    }
-
-    const { mode, request, sessionDoc } = this.pendingPhoneApproval;
-    this.pendingPhoneApproval = null;
-
-    if (Date.now() > sessionDoc.expiresAtMs) {
-      await cleanupSignalingSession(request.sessionId);
-      const msg = 'مهلت زمانی این QR Code به پایان رسیده است. لطفاً QR جدید تولید کنید.';
-      this.callbacks.onStatusChange('connection-error', msg);
-      throw new Error(msg);
-    }
-
-    // حالت الف: گوشی خودش آغازکننده نشست (Host) بوده و اکنون درخواست پیوستن لپ‌تاپ را تأیید می‌کند
-    if (mode === 'host-side') {
-      await this.applyHostRemoteAnswerAndCandidates(sessionDoc);
-      return { sessionId: request.sessionId };
-    }
-
-    // حالت ب: دستگاه فعلی اسکن‌کننده QR (Peer) است و پاسخ SDP Answer را ثبت می‌کند
+  private async establishPeerAnswerConnection(
+    request: PendingPhoneApprovalRequest,
+    lockedSessionDoc?: WebRtcSignalingDocument
+  ): Promise<{ sessionId: string }> {
     const sessionId = request.sessionId;
     this.activeSessionId = sessionId;
     this.signalingDocCleaned = false;
     this.autoSyncTriggeredForSession = false;
+    this.pendingPhoneApproval = null;
 
     this.callbacks.onStatusChange(
       'connecting',
-      this.localRole === 'phone-primary'
-        ? 'اتصال توسط گوشی تأیید شد؛ در حال برقراری کانال مستقیم WebRTC و شروع همگام‌سازی دوطرفه...'
-        : 'پاسخ شبکه ارسال شد؛ در انتظار تأیید نهایی اتصال روی صفحه گوشی...'
+      `نشست (${maskSessionIdForDisplay(sessionId)}) قفل شد؛ در حال برقراری کانال مستقیم WebRTC و شروع همگام‌سازی خودکار...`
     );
 
     try {
-      const freshDoc = await fetchSignalingSession(sessionId);
+      const freshDoc = lockedSessionDoc?.offerSdp
+        ? lockedSessionDoc
+        : await fetchSignalingSession(sessionId);
       if (!freshDoc || !freshDoc.offerSdp) {
         throw new Error('نشست منقضی یا بسته شده است.');
+      }
+
+      if (Date.now() > freshDoc.expiresAtMs) {
+        await cleanupSignalingSession(sessionId);
+        throw new Error('مهلت زمانی این QR Code به پایان رسیده است. لطفاً QR جدید تولید کنید.');
       }
 
       const pc = new RTCPeerConnection({
@@ -554,7 +532,7 @@ export class DirectWebRtcSessionManager {
             this.signalingDocCleaned = true;
             await this.cleanupSignalingAndLocalResources(
               'disconnected',
-              'درخواست اتصال توسط گوشی رد شد یا نشست موقت بسته گردید.'
+              'نشست موقت بسته یا منقضی گردید.'
             );
             return;
           }
@@ -592,21 +570,53 @@ export class DirectWebRtcSessionManager {
   }
 
   /**
-   * گام ۶ (در گوشی تأییدکننده):
-   * اگر کاربر در گوشی درخواست اتصال را رد کند (چه گوشی Peer باشد و چه Host)، نشست بلافاصله در Firestore بسته و حذف شده و اتصال لغو می‌شود.
+   * حفظ سازگاری با فراخوانی‌های قبلی:
+   * از آنجا که اسکن QR بلافاصله اتصال را برقرار می‌کند، اگر نشست فعال وجود داشته باشد همان برگردانده می‌شود.
+   */
+  public async approvePendingSessionOnPhone(): Promise<{ sessionId: string }> {
+    if (!this.pendingPhoneApproval) {
+      if (this.activeSessionId) {
+        return { sessionId: this.activeSessionId };
+      }
+      const msg = 'هیچ نشست فعالی برای اتصال وجود ندارد. ابتدا QR نشست را اسکن کنید.';
+      this.callbacks.onStatusChange('connection-error', msg);
+      throw new Error(msg);
+    }
+
+    const { mode, request, sessionDoc } = this.pendingPhoneApproval;
+    this.pendingPhoneApproval = null;
+
+    if (Date.now() > sessionDoc.expiresAtMs) {
+      await cleanupSignalingSession(request.sessionId);
+      const msg = 'مهلت زمانی این QR Code به پایان رسیده است. لطفاً QR جدید تولید کنید.';
+      this.callbacks.onStatusChange('connection-error', msg);
+      throw new Error(msg);
+    }
+
+    if (mode === 'host-side') {
+      await this.applyHostRemoteAnswerAndCandidates(sessionDoc);
+      return { sessionId: request.sessionId };
+    }
+
+    return this.establishPeerAnswerConnection(request, sessionDoc);
+  }
+
+  /**
+   * لغو و بستن نشست در صورت انصراف کاربر
    */
   public async rejectPendingSessionOnPhone(): Promise<void> {
     const pending = this.pendingPhoneApproval;
     this.pendingPhoneApproval = null;
-    if (pending) {
+    const targetSessionId = pending?.request.sessionId || this.activeSessionId;
+    if (targetSessionId) {
       try {
-        if (pending.mode === 'peer-side') {
-          await rejectSignalingSession(pending.request.sessionId);
+        if (pending?.mode === 'peer-side') {
+          await rejectSignalingSession(targetSessionId);
         } else {
-          await cleanupSignalingSession(pending.request.sessionId);
+          await cleanupSignalingSession(targetSessionId);
         }
         if (this.callbacks.onSignalCleanedUp) {
-          this.callbacks.onSignalCleanedUp(pending.request.sessionId);
+          this.callbacks.onSignalCleanedUp(targetSessionId);
         }
       } catch {
         // ignore cleanup error on rejection
@@ -614,20 +624,19 @@ export class DirectWebRtcSessionManager {
     }
     await this.cleanupSignalingAndLocalResources(
       'disconnected',
-      'درخواست اتصال توسط شما روی گوشی رد شد و نشست موقت بلافاصله بسته گردید.'
+      'نشست موقت بسته و اتصال لغو گردید.'
     );
   }
 
   /**
-   * اتصال مستقیم یک‌مرحله‌ای با اسکن QR Code (بدون نیاز به مرحله تأیید جداگانه روی گوشی):
-   * به محض اسکن QR، نشست بررسی و قفل شده و پاسخ WebRTC ارسال می‌گردد تا همگام‌سازی خودکار آغاز شود.
+   * اتصال مستقیم یک‌مرحله‌ای با اسکن QR Code (از هر دو جهت و بدون نیاز به تأیید انسانی جداگانه روی گوشی):
+   * به محض اسکن QR، نشست بررسی و قفل اتمیک شده و پاسخ WebRTC ارسال می‌گردد تا همگام‌سازی خودکار آغاز شود.
    */
   public async connectWithScannedQr(
     rawQrOrPairingCode: string
   ): Promise<{ sessionId: string; peerInfo: PendingPhoneApprovalRequest }> {
     const peerInfo = await this.inspectLaptopQrOnPhone(rawQrOrPairingCode);
-    const { sessionId } = await this.approvePendingSessionOnPhone();
-    return { sessionId, peerInfo };
+    return { sessionId: peerInfo.sessionId, peerInfo };
   }
 
   /**
@@ -640,8 +649,8 @@ export class DirectWebRtcSessionManager {
   ): Promise<{ sessionId: string }> {
     const parsedQr = parseLaptopSessionQrValue(rawQrOrPairingCode);
     if (parsedQr) {
-      await this.inspectLaptopQrOnPhone(rawQrOrPairingCode);
-      return this.approvePendingSessionOnPhone();
+      const peerInfo = await this.inspectLaptopQrOnPhone(rawQrOrPairingCode);
+      return { sessionId: peerInfo.sessionId };
     }
 
     const normalizedCode = normalizePairingCode(rawQrOrPairingCode);
@@ -658,8 +667,8 @@ export class DirectWebRtcSessionManager {
       pairingCode: normalizedCode,
       laptopDeviceId: 'DEV_LAPTOP',
     });
-    await this.inspectLaptopQrOnPhone(syntheticQr);
-    return this.approvePendingSessionOnPhone();
+    const peerInfo = await this.inspectLaptopQrOnPhone(syntheticQr);
+    return { sessionId: peerInfo.sessionId };
   }
 
   /**

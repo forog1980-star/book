@@ -56,6 +56,9 @@ export const OPERATIONAL_STORAGE_KEYS = {
   auditLog: 'book_audit_log_v1',
   rejectedSuggestions: 'book_rejected_suggestions_v1',
   userRole: 'book_user_role_v1',
+  syncRecordMeta: 'book_p2p_record_meta_v1',
+  syncBaselineHashes: 'book_p2p_baseline_hashes_v1',
+  syncAppliedPackages: 'book_p2p_applied_packages_v1',
 } as const;
 
 let lastIssuedTimestamp = 0;

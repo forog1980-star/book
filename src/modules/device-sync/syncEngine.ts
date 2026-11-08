@@ -13,6 +13,7 @@ import {
   enrichLinksWithSorehMehrResearch,
 } from '../../data/soorehMehrResearch';
 import {
+  BatchStorageSaveEntry,
   hydrateOperationalKey,
   OPERATIONAL_STORAGE_KEYS,
   saveOperationalDataBatchAtomic,
@@ -24,15 +25,23 @@ import {
 } from './conflictResolver';
 import { computeDeterministicHash, generateCryptoRandomToken } from './pairingService';
 import {
+  APPLIED_PACKAGES_KEY,
+  applyCommittedSyncMetadataToCache,
+  BASELINE_CHANGE_MAP_KEY,
   commitSyncMetadataAtomically,
   hasPackageBeenApplied,
+  hydrateSyncMetadataFromStorage,
+  loadAppliedPackageIds,
   loadBaselineChangeMap,
   loadRecordMetaMap,
   loadSoftDeletedArchive,
   markRecordSoftDeleted,
+  RECORD_META_MAP_KEY,
   restoreSoftDeletedRecord,
   saveBaselineChangeMap,
   saveRecordMetaMap,
+  SyncMetadataCommitResult,
+  SyncMetadataSnapshot,
 } from './syncStorage';
 import { WireMessage } from './transferProtocol';
 import {
@@ -123,7 +132,8 @@ export function extractLocalEnvelopesMap(
     'customMartyrs',
     'links',
     'pendingReviews',
-  ]
+  ],
+  options?: { persistUpdatedMeta?: boolean }
 ): Map<string, SyncRecordEnvelope> {
   const metaMap = loadRecordMetaMap();
   const updatedMetaMap: Record<string, RecordSyncMeta> = { ...metaMap };
@@ -260,7 +270,9 @@ export function extractLocalEnvelopesMap(
     }
   }
 
-  saveRecordMetaMap(updatedMetaMap);
+  if (options?.persistUpdatedMeta !== false) {
+    saveRecordMetaMap(updatedMetaMap);
+  }
   return result;
 }
 
@@ -790,7 +802,8 @@ export function analyzeIncomingPackage(
     localDataset,
     localDeviceId,
     localRole,
-    pkg.selectedCollections
+    pkg.selectedCollections,
+    { persistUpdatedMeta: false }
   );
   const baselineMap = loadBaselineChangeMap();
 
@@ -1058,7 +1071,8 @@ export function applyApprovedSyncReport(
   resolvedConflictCount: number;
   unresolvedConflictCount: number;
   unchangedCount: number;
-  commitMetadata: (metaOpts?: { allowInMemoryFallback?: boolean }) => { ok: boolean; error?: string };
+  pendingMetadata: SyncMetadataSnapshot;
+  commitMetadata: (metaOpts?: { explicitTimestamp?: number }) => Promise<SyncMetadataCommitResult>;
 } {
   const nextAudit: Record<string, FieldAuditRecord> = { ...(currentDataset.auditRecords || {}) };
   const nextCopiesMap = new Map<string, BookCopyRecord>(
@@ -1075,6 +1089,18 @@ export function applyApprovedSyncReport(
   );
 
   const metaMap = loadRecordMetaMap();
+  const existingLocalEnvelopes = extractLocalEnvelopesMap(
+    currentDataset,
+    localDeviceId,
+    localRole,
+    ['auditRecords', 'bookCopies', 'customMartyrs', 'links', 'pendingReviews'],
+    { persistUpdatedMeta: false }
+  );
+  for (const [compKey, env] of existingLocalEnvelopes.entries()) {
+    if (!metaMap[compKey]) {
+      metaMap[compKey] = env.meta;
+    }
+  }
   const baselineMap = loadBaselineChangeMap();
 
   const applySingleEnvelope = (
@@ -1127,6 +1153,11 @@ export function applyApprovedSyncReport(
   // ۳. ثبت رکوردهای مشترک / تکراری بدون تغییر در خط مبنا
   for (const item of report.unchangedItems) {
     const compKey = getCompositeKey(item.collection, item.recordId);
+    if (item.localEnvelope?.meta) {
+      metaMap[compKey] = item.localEnvelope.meta;
+    } else if (!metaMap[compKey]) {
+      metaMap[compKey] = item.incomingEnvelope.meta;
+    }
     baselineMap[compKey] = item.incomingEnvelope.meta.changeId;
   }
 
@@ -1187,19 +1218,31 @@ export function applyApprovedSyncReport(
     }
   }
 
+  const currentApplied = loadAppliedPackageIds();
+  const nextAppliedPackageIds =
+    report.packageId && !currentApplied.includes(report.packageId)
+      ? [report.packageId, ...currentApplied].slice(0, 200)
+      : currentApplied;
+
+  const pendingMetadata: SyncMetadataSnapshot = {
+    recordMetaMap: { ...metaMap },
+    baselineChangeMap: { ...baselineMap },
+    appliedPackageIds: nextAppliedPackageIds,
+  };
+
   const commitMetadata = (metaOpts?: {
-    allowInMemoryFallback?: boolean;
-  }): { ok: boolean; error?: string } => {
+    explicitTimestamp?: number;
+  }): Promise<SyncMetadataCommitResult> => {
     return commitSyncMetadataAtomically({
       recordMetaMap: metaMap,
       baselineChangeMap: baselineMap,
       packageId: report.packageId,
-      allowInMemoryFallback: metaOpts?.allowInMemoryFallback,
+      explicitTimestamp: metaOpts?.explicitTimestamp,
     });
   };
 
   if (!options?.deferMetadataCommit) {
-    commitMetadata();
+    void commitMetadata();
   }
 
   return {
@@ -1216,24 +1259,28 @@ export function applyApprovedSyncReport(
     resolvedConflictCount: resolvedConflicts,
     unresolvedConflictCount: unresolvedConflicts,
     unchangedCount: report.unchangedItems.length,
+    pendingMetadata,
     commitMetadata,
   };
 }
 
 /**
  * ذخیره پایدار و هماهنگ هر ۶ مجموعه عملیاتی مقصد (auditRecords, bookCopies, customMartyrs, links, pendingReviews, extractedItems)
- * در یک تراکنش اتمیک IndexedDB همراه با حفاظت زمان‌بندی و Rollback کامل در localStorage.
+ * به همراه ۳ کلید متادیتای همگام‌سازی (RECORD_META_MAP_KEY, BASELINE_CHANGE_MAP_KEY, APPLIED_PACKAGES_KEY)
+ * در یک تراکنش اتمیک واحد IndexedDB همراه با حفاظت زمان‌بندی و Rollback کامل در localStorage.
  */
 export async function persistSyncedDatasetDurably(
   dataset: OperationalSyncDataset,
   options?: {
     existingExtractedItems?: ExtractedContentItem[];
     explicitTimestamp?: number;
+    syncMetadata?: SyncMetadataSnapshot;
   }
 ): Promise<{
   ok: boolean;
   idbSaved?: boolean;
   localSaved?: boolean;
+  metadataSavedInBatch?: boolean;
   updatedAt?: number;
   failedKey?: string;
   error?: string;
@@ -1257,33 +1304,51 @@ export async function persistSyncedDatasetDurably(
     }
     const nextExtracted = buildSorehMehrExtractedItems(enrichedLinks, baseExtracted);
 
+    const batchEntries: BatchStorageSaveEntry[] = [
+      { key: OPERATIONAL_STORAGE_KEYS.auditRecords, value: dataset.auditRecords },
+      { key: OPERATIONAL_STORAGE_KEYS.bookCopies, value: dataset.bookCopies },
+      { key: OPERATIONAL_STORAGE_KEYS.customMartyrs, value: dataset.customMartyrs },
+      { key: OPERATIONAL_STORAGE_KEYS.links, value: enrichedLinks },
+      { key: OPERATIONAL_STORAGE_KEYS.pendingReviews, value: dataset.pendingReviews },
+      { key: OPERATIONAL_STORAGE_KEYS.extractedItems, value: nextExtracted },
+    ];
+
+    if (options?.syncMetadata) {
+      batchEntries.push(
+        { key: RECORD_META_MAP_KEY, value: options.syncMetadata.recordMetaMap },
+        { key: BASELINE_CHANGE_MAP_KEY, value: options.syncMetadata.baselineChangeMap },
+        { key: APPLIED_PACKAGES_KEY, value: options.syncMetadata.appliedPackageIds }
+      );
+    }
+
     const batchRes = await saveOperationalDataBatchAtomic(
-      [
-        { key: OPERATIONAL_STORAGE_KEYS.auditRecords, value: dataset.auditRecords },
-        { key: OPERATIONAL_STORAGE_KEYS.bookCopies, value: dataset.bookCopies },
-        { key: OPERATIONAL_STORAGE_KEYS.customMartyrs, value: dataset.customMartyrs },
-        { key: OPERATIONAL_STORAGE_KEYS.links, value: enrichedLinks },
-        { key: OPERATIONAL_STORAGE_KEYS.pendingReviews, value: dataset.pendingReviews },
-        { key: OPERATIONAL_STORAGE_KEYS.extractedItems, value: nextExtracted },
-      ],
+      batchEntries,
       options?.explicitTimestamp
     );
 
-    if (!batchRes.ok) {
+    if (!batchRes.ok || !batchRes.idbSaved) {
       return {
         ok: false,
-        idbSaved: batchRes.idbSaved,
-        localSaved: batchRes.localSaved,
+        idbSaved: false,
+        localSaved: false,
+        metadataSavedInBatch: false,
         updatedAt: batchRes.updatedAt,
         failedKey: batchRes.failedKey,
-        error: batchRes.error || 'خطا در ذخیره اتمیک مجموعه‌های عملیاتی همگام‌سازی در مقصد.',
+        error:
+          batchRes.error ||
+          'خطا در ذخیره اتمیک مجموعه‌های عملیاتی و متادیتای همگام‌سازی در IndexedDB مقصد.',
       };
+    }
+
+    if (options?.syncMetadata) {
+      applyCommittedSyncMetadataToCache(options.syncMetadata, batchRes.updatedAt);
     }
 
     return {
       ok: true,
       idbSaved: batchRes.idbSaved,
       localSaved: batchRes.localSaved,
+      metadataSavedInBatch: Boolean(options?.syncMetadata),
       updatedAt: batchRes.updatedAt,
       warning: batchRes.warning,
     };
@@ -1292,19 +1357,20 @@ export async function persistSyncedDatasetDurably(
       ok: false,
       idbSaved: false,
       localSaved: false,
+      metadataSavedInBatch: false,
       error: err instanceof Error ? err.message : String(err),
     };
   }
 }
 
 /**
- * اجرای کامل و ترتیبی چرخه دریافت، تحلیل، اعمال در مقصد، ذخیره پایدار محلی و تولید TRANSFER_ACK (اصلاح دوم + ذخیره اتمیک ۶ مجموعه):
+ * اجرای کامل و ترتیبی چرخه دریافت، بازیابی متادیتا، تحلیل، اعمال در مقصد، ذخیره پایدار محلی (۶ مجموعه عملیاتی + ۳ کلید متادیتا در IndexedDB) و تولید TRANSFER_ACK:
+ * ۰. بازیابی متادیتای همگام‌سازی از IndexedDB پیش از هرگونه بررسی hasPackageBeenApplied و analyzeIncomingPackage
  * ۱. تحلیل و ادغام غیرمخرب بسته دریافتی
- * ۲. ساخت Dataset جدید در حافظه بدون ثبت زودهنگام Baseline مقصد
- * ۳. ذخیره پایدار و هماهنگ در حافظه محلی مقصد (هر ۶ مجموعه عملیاتی در یک تراکنش اتمیک IndexedDB)
- * ۴. ثبت متادیتای همگام‌سازی و شناسه بسته اعمال‌شده صرفاً در صورت موفقیت ذخیره پایدار
- * ۵. تولید TRANSFER_ACK با ok: true, applied: true فقط در صورت موفقیت کامل مراحل فوق؛
- *    در صورت شکست ذخیره هر یک از مجموعه‌ها، تولید TRANSFER_ACK با ok: false, applied: false بدون تغییر Baseline.
+ * ۲. ساخت Dataset و متادیتای جدید در حافظه بدون ثبت زودهنگام
+ * ۳. ذخیره پایدار و هماهنگ در حافظه محلی مقصد (هر ۶ مجموعه عملیاتی و ۳ کلید متادیتای همگام‌سازی در IndexedDB)
+ * ۴. تولید TRANSFER_ACK با ok: true, applied: true فقط در صورت موفقیت کامل ذخیره پایدار Dataset و متادیتا؛
+ *    در صورت شکست ذخیره پایدار هر یک از مجموعه‌ها یا متادیتا، تولید TRANSFER_ACK با ok: false, applied: false بدون تغییر Baseline.
  */
 export async function executeDurableSyncPackageApplication(params: {
   pkg: SyncTransferPackage;
@@ -1313,15 +1379,28 @@ export async function executeDurableSyncPackageApplication(params: {
   localRole: DeviceSyncRole;
   onPersistDataset?: (
     nextDataset: OperationalSyncDataset,
-    summaryMessage: string
+    summaryMessage: string,
+    syncMetadata?: SyncMetadataSnapshot
   ) =>
     | Promise<
         | boolean
-        | { ok: boolean; idbSaved?: boolean; localSaved?: boolean; error?: string }
+        | {
+            ok: boolean;
+            idbSaved?: boolean;
+            localSaved?: boolean;
+            metadataSavedInBatch?: boolean;
+            error?: string;
+          }
         | void
       >
     | boolean
-    | { ok: boolean; idbSaved?: boolean; localSaved?: boolean; error?: string }
+    | {
+        ok: boolean;
+        idbSaved?: boolean;
+        localSaved?: boolean;
+        metadataSavedInBatch?: boolean;
+        error?: string;
+      }
     | void;
   buildSummaryMessage?: (counts: {
     appliedNewCount: number;
@@ -1353,6 +1432,9 @@ export async function executeDurableSyncPackageApplication(params: {
     }
 > {
   try {
+    // بازیابی متادیتای پایدار از IndexedDB پیش از اجرای hasPackageBeenApplied و analyzeIncomingPackage
+    await hydrateSyncMetadataFromStorage();
+
     const report = analyzeIncomingPackage(
       params.pkg,
       params.currentDataset,
@@ -1378,10 +1460,14 @@ export async function executeDurableSyncPackageApplication(params: {
       : `همگام‌سازی انجام شد: ${applied.appliedNewCount} جدید، ${applied.appliedModifiedCount} ویرایش، ${report.conflicts.length} تعارض.`;
 
     let handledByCustomPersist = false;
-    let idbSavedConfirmed = false;
+    let metadataSavedInSameTransaction = false;
 
     if (params.onPersistDataset) {
-      const customRes = await params.onPersistDataset(applied.nextDataset, summaryMessage);
+      const customRes = await params.onPersistDataset(
+        applied.nextDataset,
+        summaryMessage,
+        applied.pendingMetadata
+      );
       if (customRes === false) {
         const errText = 'ذخیره پایدار داده‌های همگام‌سازی در مقصد ناموفق بود.';
         return {
@@ -1398,7 +1484,7 @@ export async function executeDurableSyncPackageApplication(params: {
         };
       }
       if (customRes && typeof customRes === 'object' && 'ok' in customRes) {
-        if (customRes.ok !== true) {
+        if (customRes.ok !== true || ('idbSaved' in customRes && customRes.idbSaved === false)) {
           const errText =
             customRes.error || 'ذخیره پایدار داده‌های همگام‌سازی در مقصد با خطا مواجه شد.';
           return {
@@ -1415,15 +1501,21 @@ export async function executeDurableSyncPackageApplication(params: {
           };
         }
         handledByCustomPersist = true;
-        if ('idbSaved' in customRes && customRes.idbSaved === true) {
-          idbSavedConfirmed = true;
+        if (
+          'metadataSavedInBatch' in customRes &&
+          customRes.metadataSavedInBatch === true &&
+          customRes.idbSaved === true
+        ) {
+          metadataSavedInSameTransaction = true;
         }
       }
     }
 
     if (!handledByCustomPersist) {
-      const storageRes = await persistSyncedDatasetDurably(applied.nextDataset);
-      if (!storageRes.ok) {
+      const storageRes = await persistSyncedDatasetDurably(applied.nextDataset, {
+        syncMetadata: applied.pendingMetadata,
+      });
+      if (!storageRes.ok || !storageRes.idbSaved) {
         const errText =
           storageRes.error || 'خطا در ذخیره‌سازی پایدار محلی در دستگاه مقصد.';
         return {
@@ -1439,29 +1531,27 @@ export async function executeDurableSyncPackageApplication(params: {
           },
         };
       }
-      if (storageRes.idbSaved === true) {
-        idbSavedConfirmed = true;
-      }
+      metadataSavedInSameTransaction = Boolean(storageRes.metadataSavedInBatch);
     }
 
-    const metaCommitRes = applied.commitMetadata({
-      allowInMemoryFallback: idbSavedConfirmed,
-    });
-    if (!metaCommitRes.ok) {
-      const errText =
-        metaCommitRes.error || 'خطا در ثبت پایدار متادیتای همگام‌سازی در مقصد.';
-      return {
-        ok: false,
-        applied: false,
-        error: errText,
-        ackMessage: {
-          type: 'TRANSFER_ACK',
-          packageId: params.pkg.packageId,
+    if (!metadataSavedInSameTransaction) {
+      const metaCommitRes = await applied.commitMetadata();
+      if (!metaCommitRes.ok || !metaCommitRes.idbSaved) {
+        const errText =
+          metaCommitRes.error || 'خطا در ثبت پایدار متادیتای همگام‌سازی در IndexedDB مقصد.';
+        return {
           ok: false,
           applied: false,
           error: errText,
-        },
-      };
+          ackMessage: {
+            type: 'TRANSFER_ACK',
+            packageId: params.pkg.packageId,
+            ok: false,
+            applied: false,
+            error: errText,
+          },
+        };
+      }
     }
 
     const postAuditCount = Object.keys(applied.nextDataset.auditRecords || {}).length;

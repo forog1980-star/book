@@ -86,9 +86,15 @@ import {
   enrichLinksWithSorehMehrResearch
 } from './data/soorehMehrResearch';
 import {
+  APPLIED_PACKAGES_KEY,
+  applyCommittedSyncMetadataToCache,
+  BASELINE_CHANGE_MAP_KEY,
   DeviceSyncPanel,
+  hydrateSyncMetadataFromStorage,
   markRecordSoftDeleted,
-  OperationalSyncDataset
+  OperationalSyncDataset,
+  RECORD_META_MAP_KEY,
+  SyncMetadataSnapshot
 } from './modules/device-sync';
 
 // عنوان و شناسه اختصاصی پایگاه داده در حافظه گوشی و مرورگر: book
@@ -645,7 +651,8 @@ export default function App() {
           hydrateOperationalKey<RejectedSuggestionRecord[]>(
             OPERATIONAL_STORAGE_KEYS.rejectedSuggestions,
             rejectedSuggestionsArchive
-          )
+          ),
+          hydrateSyncMetadataFromStorage()
         ]);
 
         if (cancelled) return;
@@ -801,25 +808,42 @@ export default function App() {
 
   const handleApplyP2PSyncedDataset = async (
     nextDataset: OperationalSyncDataset,
-    summaryMessage: string
-  ): Promise<{ ok: boolean; idbSaved?: boolean; localSaved?: boolean; error?: string }> => {
+    summaryMessage: string,
+    syncMetadata?: SyncMetadataSnapshot
+  ): Promise<{
+    ok: boolean;
+    idbSaved?: boolean;
+    localSaved?: boolean;
+    metadataSavedInBatch?: boolean;
+    error?: string;
+  }> => {
     const enrichedNextLinks = enrichLinksWithSorehMehrResearch(nextDataset.links);
     const nextExtracted = buildSorehMehrExtractedItems(enrichedNextLinks, extractedItems);
 
-    setStorageStatus('saving');
-    const batchRes = await saveOperationalDataBatchAtomic([
+    const batchEntries: Array<{ key: string; value: unknown }> = [
       { key: AUDIT_STORAGE_KEY, value: nextDataset.auditRecords },
       { key: COPIES_STORAGE_KEY, value: nextDataset.bookCopies },
       { key: CUSTOM_MARTYRS_STORAGE_KEY, value: nextDataset.customMartyrs },
       { key: LINKS_STORAGE_KEY, value: enrichedNextLinks },
       { key: PENDING_REVIEWS_STORAGE_KEY, value: nextDataset.pendingReviews },
-      { key: EXTRACTED_STORAGE_KEY, value: nextExtracted },
-    ]);
+      { key: EXTRACTED_STORAGE_KEY, value: nextExtracted }
+    ];
 
-    if (!batchRes.ok) {
+    if (syncMetadata) {
+      batchEntries.push(
+        { key: RECORD_META_MAP_KEY, value: syncMetadata.recordMetaMap },
+        { key: BASELINE_CHANGE_MAP_KEY, value: syncMetadata.baselineChangeMap },
+        { key: APPLIED_PACKAGES_KEY, value: syncMetadata.appliedPackageIds }
+      );
+    }
+
+    setStorageStatus('saving');
+    const batchRes = await saveOperationalDataBatchAtomic(batchEntries);
+
+    if (!batchRes.ok || !batchRes.idbSaved) {
       const errText =
         batchRes.error ||
-        'خطا در ذخیره‌سازی پایدار و هماهنگ اطلاعات همگام‌سازی در حافظه محلی دستگاه مقصد.';
+        'خطا در ذخیره‌سازی پایدار و هماهنگ اطلاعات و متادیتای همگام‌سازی در حافظه IndexedDB دستگاه مقصد.';
       setStorageStatus('error');
       setStorageErrorMsg(errText);
       showNotify(errText, 'warning');
@@ -827,8 +851,13 @@ export default function App() {
         ok: false,
         idbSaved: batchRes.idbSaved,
         localSaved: batchRes.localSaved,
-        error: errText,
+        metadataSavedInBatch: false,
+        error: errText
       };
+    }
+
+    if (syncMetadata) {
+      applyCommittedSyncMetadataToCache(syncMetadata, batchRes.updatedAt);
     }
 
     setStorageStatus('saved');
@@ -846,6 +875,7 @@ export default function App() {
       ok: true,
       idbSaved: batchRes.idbSaved,
       localSaved: batchRes.localSaved,
+      metadataSavedInBatch: Boolean(syncMetadata)
     };
   };
 

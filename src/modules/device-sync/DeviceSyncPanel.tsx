@@ -49,9 +49,11 @@ import {
   appendTransferHistory,
   getOrCreateLocalDeviceId,
   getSavedDeviceRole,
+  hydrateSyncMetadataFromStorage,
   loadSoftDeletedArchive,
   loadTransferHistory,
   saveDeviceRole,
+  SyncMetadataSnapshot,
 } from './syncStorage';
 import {
   ConflictResolutionChoice,
@@ -72,11 +74,16 @@ export interface DeviceSyncPanelProps {
   dataset: OperationalSyncDataset;
   onApplySyncedDataset: (
     nextDataset: OperationalSyncDataset,
-    summaryMessage: string
+    summaryMessage: string,
+    syncMetadata?: SyncMetadataSnapshot
   ) =>
-    | Promise<boolean | { ok: boolean; error?: string } | void>
+    | Promise<
+        | boolean
+        | { ok: boolean; idbSaved?: boolean; metadataSavedInBatch?: boolean; error?: string }
+        | void
+      >
     | boolean
-    | { ok: boolean; error?: string }
+    | { ok: boolean; idbSaved?: boolean; metadataSavedInBatch?: boolean; error?: string }
     | void;
   onTriggerLocalBackup?: () => void;
 }
@@ -303,6 +310,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
   );
 
   useEffect(() => {
+    void hydrateSyncMetadataFromStorage();
     const mgr = new DirectWebRtcSessionManager(localDeviceId, roleRef.current, {
       getLocalPreSyncCounts: () => countDatasetRecords(datasetRef.current),
       onStatusChange: (nextStatus, detail) => {
@@ -360,8 +368,8 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           currentDataset: datasetRef.current,
           localDeviceId,
           localRole: roleRef.current,
-          onPersistDataset: (nextDs, summary) =>
-            onApplySyncedDatasetRef.current(nextDs, summary),
+          onPersistDataset: (nextDs, summary, syncMeta) =>
+            onApplySyncedDatasetRef.current(nextDs, summary, syncMeta),
           buildSummaryMessage: (counts) =>
             buildSummaryText(
               counts.appliedNewCount,
@@ -732,7 +740,11 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
       result.resolvedConflictCount
     )} مورد تعارض اعمال شد.`;
 
-    const persistRes = await onApplySyncedDataset(result.nextDataset, summaryText);
+    const persistRes = await onApplySyncedDataset(
+      result.nextDataset,
+      summaryText,
+      result.pendingMetadata
+    );
     if (
       persistRes === false ||
       (persistRes && typeof persistRes === 'object' && 'ok' in persistRes && persistRes.ok !== true)
@@ -746,13 +758,22 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
       return;
     }
 
-    const idbConfirmed = Boolean(
+    const metadataSavedInBatch = Boolean(
       persistRes &&
         typeof persistRes === 'object' &&
-        'idbSaved' in persistRes &&
-        (persistRes as { idbSaved?: boolean }).idbSaved === true
+        'metadataSavedInBatch' in persistRes &&
+        (persistRes as { metadataSavedInBatch?: boolean }).metadataSavedInBatch === true
     );
-    result.commitMetadata({ allowInMemoryFallback: idbConfirmed });
+    if (!metadataSavedInBatch) {
+      const metaRes = await result.commitMetadata();
+      if (!metaRes.ok || !metaRes.idbSaved) {
+        const errText =
+          metaRes.error || 'خطا در ذخیره پایدار متادیتای همگام‌سازی در IndexedDB.';
+        setStatus('connection-error');
+        setStatusMessage(errText);
+        return;
+      }
+    }
     datasetRef.current = result.nextDataset;
     setPendingPreviewReport(null);
     setStatusMessage(summaryText);
