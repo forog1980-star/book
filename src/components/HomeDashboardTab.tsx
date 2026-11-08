@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search,
   Mic,
@@ -50,7 +50,12 @@ import {
 import { parsePersianVoiceBookCommand } from '../utils/voiceCommandParser';
 import { generateUniqueCopyId, generateUniqueOutsideBookId } from '../utils/idGenerator';
 import { requestActionConfirmation } from '../utils/confirmDialogService';
-import { registerInnerBackStep } from '../utils/navigationHistory';
+import {
+  registerInnerBackStep,
+  getHomeDossierNavSnapshot,
+  saveHomeDossierNavSnapshot,
+  setMartyrsCrossTabTarget
+} from '../utils/navigationHistory';
 import {
   exportBookDossiersToExcel,
   exportShelfAuditRecordsToExcel
@@ -72,6 +77,8 @@ interface HomeDashboardTabProps {
   onNavigateTab: (tab: 'home' | 'library' | 'martyrs' | 'smart_search' | 'research' | 'management') => void;
   onOpenBookInLibrary?: (bookQuery: string) => void;
   onSaveVoiceOrQuickBook: (record: FieldAuditRecord, newCopy?: BookCopyRecord) => void;
+  onAddBookCopy?: (newCopy: BookCopyRecord) => void;
+  onMoveBookCopy?: (copyId: string, toShelf: ShelfCode, toLevel: LevelCode, reason: string) => void;
   onAddLink?: (newLink: BookMartyrLinkRecord) => void;
   onUpdateLink?: (updatedLink: BookMartyrLinkRecord) => void;
   onApproveOutsideBook?: (recordKey: string) => void;
@@ -107,12 +114,16 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
   onNavigateTab,
   onOpenBookInLibrary,
   onSaveVoiceOrQuickBook,
+  onAddBookCopy,
+  onMoveBookCopy,
   onAddLink,
   onUpdateLink,
   onApproveOutsideBook,
   onDeleteAuditRecord,
   onNotify
 }) => {
+  const initialNavSnapshot = useMemo(() => getHomeDossierNavSnapshot(), []);
+
   const [internalGlobalQuery, setInternalGlobalQuery] = useState('');
   const globalQuery = externalGlobalQuery !== undefined ? externalGlobalQuery : internalGlobalQuery;
   const setGlobalQuery = (val: string) => {
@@ -132,16 +143,37 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
     location: string;
   } | null>(null);
 
-  // وضعیت پنجره فهرست کارت‌های آماری و پرونده اختصاصی هر کتاب
-  const [activeStatGroupModal, setActiveStatGroupModal] = useState<StatGroupModalType>(null);
-  const [statModalSearchQuery, setStatModalSearchQuery] = useState('');
-  const [statModalSubFilter, setStatModalSubFilter] = useState<GroupSubFilter>('all');
-  const [selectedBookDossierId, setSelectedBookDossierId] = useState<string | null>(null);
-  const [lastInteractedDossierId, setLastInteractedDossierId] = useState<string | null>(null);
+  // وضعیت پنجره فهرست کارت‌های آماری و پرونده اختصاصی هر کتاب (با بازیابی پایدار از حافظه ناوبری)
+  const [activeStatGroupModal, setActiveStatGroupModal] = useState<StatGroupModalType>(
+    initialNavSnapshot.activeStatGroupModal
+  );
+  const [statModalSearchQuery, setStatModalSearchQuery] = useState(
+    initialNavSnapshot.statModalSearchQuery
+  );
+  const [statModalSubFilter, setStatModalSubFilter] = useState<GroupSubFilter>(
+    initialNavSnapshot.statModalSubFilter
+  );
+  const [selectedBookDossierId, setSelectedBookDossierId] = useState<string | null>(
+    initialNavSnapshot.selectedBookDossierId
+  );
+  const [lastInteractedDossierId, setLastInteractedDossierId] = useState<string | null>(
+    initialNavSnapshot.lastInteractedDossierId
+  );
   const [showOriginalExcelModal, setShowOriginalExcelModal] = useState(false);
 
   // پرونده اختصاصی شهید با کلیک روی نام شهید در پرونده کتاب
-  const [selectedMartyrDossierName, setSelectedMartyrDossierName] = useState<string | null>(null);
+  const [selectedMartyrDossierName, setSelectedMartyrDossierName] = useState<string | null>(
+    initialNavSnapshot.selectedMartyrDossierName
+  );
+
+  // مرجع اسکرول فهرست کتاب‌ها در پنجره آماری برای حفظ دقیق موقعیت اسکرول در تمام مسیرهای بازگشت
+  const statListScrollRef = useRef<HTMLDivElement | null>(null);
+
+  // وضعیت جابه‌جایی قفسه نسخه فیزیکی (با ثبت در تاریخچه جابه‌جایی) در پرونده کتاب
+  const [isMovingDossierShelf, setIsMovingDossierShelf] = useState(false);
+  const [moveTargetShelf, setMoveTargetShelf] = useState<ShelfCode>('SH-01');
+  const [moveTargetLevel, setMoveTargetLevel] = useState<LevelCode>('T01');
+  const [moveReason, setMoveReason] = useState('جابه‌جایی قفسه در بازبینی میدانی');
 
   // وضعیت باز و بسته شدن گزیده‌های متنی طولانی در پرونده کتاب
   const [expandedDossierPassageIds, setExpandedDossierPassageIds] = useState<Record<string, boolean>>({});
@@ -243,25 +275,28 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
     [allDossiers]
   );
 
-  // تفکیک دقیق منشأ آمار مجموعه کتاب‌ها (برای روشن شدن دقیق ترکیب ۳۰۶ عنوان گوشی در برابر ۱۹۸ عنوان پایه رایانه)
+  // تفکیک دقیق ۴بخشی منشأ آمار مجموعه کتاب‌ها بر اساس منشأ تغییرناپذیر هر کتاب (originCategory)
   const statsComposition = useMemo(() => {
     const baseResearchCount = allDossiers.filter(
-      (d) => !d.isNewRegistration && d.martyrRelations.length > 0
+      (d) => d.originCategory === 'base-research'
     ).length;
     const determinedCatalogWithoutMartyrCount = allDossiers.filter(
-      (d) => !d.isNewRegistration && d.martyrRelations.length === 0 && d.isDetermined
+      (d) => d.originCategory === 'catalog-determined'
     ).length;
     const determinedInResearchCount = allDossiers.filter(
-      (d) => !d.isNewRegistration && d.martyrRelations.length > 0 && d.isDetermined
+      (d) => d.originCategory === 'base-research' && d.isDetermined
+    ).length;
+    const newCount = allDossiers.filter(
+      (d) => d.originCategory === 'new-registration'
     ).length;
     return {
       baseResearchCount,
       determinedCatalogWithoutMartyrCount,
       determinedInResearchCount,
-      newCount: newRegisteredDossiers.length,
+      newCount,
       totalUniqueCount: allDossiers.length
     };
-  }, [allDossiers, newRegisteredDossiers]);
+  }, [allDossiers]);
 
   const selectedBookDossier = useMemo(() => {
     if (!selectedBookDossierId) return null;
@@ -274,6 +309,47 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       ) || null
     );
   }, [allDossiers, selectedBookDossierId]);
+
+  // نسخه‌های فیزیکی ثبت‌شده برای کتاب انتخاب‌شده (شامل تاریخچه جابه‌جایی قفسه)
+  const selectedBookCopies = useMemo(() => {
+    if (!selectedBookDossier) return [];
+    return bookCopies.filter((cp) => cp.bookId === selectedBookDossier.bookId);
+  }, [bookCopies, selectedBookDossier]);
+
+  // همگام‌سازی خودکار وضعیت فهرست، فیلتر، متن جست‌وجو، پرونده کتاب و پرونده شهید در مخزن ناوبری
+  useEffect(() => {
+    saveHomeDossierNavSnapshot({
+      activeStatGroupModal,
+      statModalSearchQuery,
+      statModalSubFilter,
+      selectedBookDossierId,
+      lastInteractedDossierId,
+      selectedMartyrDossierName
+    });
+  }, [
+    activeStatGroupModal,
+    statModalSearchQuery,
+    statModalSubFilter,
+    selectedBookDossierId,
+    lastInteractedDossierId,
+    selectedMartyrDossierName
+  ]);
+
+  // بازیابی موقعیت اسکرول فهرست کتاب‌ها هنگام بازگشت از پرونده کتاب یا بازگشت از بانک جامع شهدا
+  useEffect(() => {
+    if (!activeStatGroupModal) return;
+    const timer = setTimeout(() => {
+      const container = statListScrollRef.current;
+      const savedScrollTop = getHomeDossierNavSnapshot().statModalScrollTop;
+      if (container && savedScrollTop > 0) {
+        container.scrollTop = savedScrollTop;
+      } else if (lastInteractedDossierId) {
+        const el = document.getElementById(`stat-dossier-row-${lastInteractedDossierId}`);
+        el?.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+      }
+    }, 35);
+    return () => clearTimeout(timer);
+  }, [activeStatGroupModal, selectedBookDossierId, lastInteractedDossierId]);
 
   // ثبت لایه‌ای دکمه بازگشت (Back) تا کاربر با زدن بازگشت به محل قبلی در فهرست برگردد و جست‌وجو/فیلتر/اسکرول حفظ شود
   useEffect(() => {
@@ -294,12 +370,9 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
         const keepId = selectedBookDossierId;
         setLastInteractedDossierId(keepId);
         setIsEditingDossierBook(false);
+        setIsMovingDossierShelf(false);
         setEditingRelationLinkId(null);
         setSelectedBookDossierId(null);
-        setTimeout(() => {
-          const el = document.getElementById(`stat-dossier-row-${keepId}`);
-          el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }, 40);
       } else if (activeStatGroupModal) {
         setActiveStatGroupModal(null);
       }
@@ -618,9 +691,123 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
   };
 
   const openStatCardModal = (groupType: Exclude<StatGroupModalType, null>) => {
-    setStatModalSearchQuery('');
-    setStatModalSubFilter('all');
+    if (activeStatGroupModal !== groupType) {
+      setStatModalSearchQuery('');
+      setStatModalSubFilter('all');
+      saveHomeDossierNavSnapshot({ statModalScrollTop: 0 });
+    }
     setActiveStatGroupModal(groupType);
+  };
+
+  // ثبت جابه‌جایی قفسه نسخه فیزیکی کتاب (همراه با درج در تاریخچه جابه‌جایی نسخه CP-xxxxxx)
+  const handleConfirmMoveDossierShelf = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedBookDossier) return;
+    const newLocation = `${moveTargetShelf}-${moveTargetLevel}`;
+    const prevLocation = selectedBookDossier.locationCode || 'ثبت‌نشده';
+    if (newLocation === prevLocation) {
+      onNotify('قفسه و طبقه مقصد با موقعیت فعلی کتاب یکسان است.', 'warning');
+      return;
+    }
+
+    requestActionConfirmation({
+      variant: 'confirm',
+      title: 'تأیید جابه‌جایی قفسه نسخه کتاب (با ثبت در تاریخچه)',
+      message: `آیا از انتقال کتاب «${selectedBookDossier.title}» از محل «${prevLocation}» به قفسه جدید «${newLocation}» اطمینان دارید؟`,
+      details: [
+        `عنوان کتاب: ${selectedBookDossier.title} (${selectedBookDossier.bookId})`,
+        `محل قبلی: ${prevLocation} ← محل جدید: ${newLocation}`,
+        `علت جابه‌جایی: ${moveReason.trim() || 'جابه‌جایی قفسه در بازبینی میدانی'}`
+      ],
+      confirmLabel: 'بله، جابه‌جایی ثبت شود',
+      onConfirm: () => {
+        const existingCopy = selectedBookCopies[0];
+        const generatedCopyInfo = generateUniqueCopyId(bookCopies);
+        if (existingCopy && onMoveBookCopy) {
+          onMoveBookCopy(
+            existingCopy.copyId,
+            moveTargetShelf,
+            moveTargetLevel,
+            moveReason.trim() || 'جابه‌جایی قفسه در بازبینی میدانی'
+          );
+        } else if (onAddBookCopy) {
+          const newCopyId = generatedCopyInfo.copyId;
+          const nowFa = new Date().toLocaleDateString('fa-IR');
+          const createdCopy: BookCopyRecord = {
+            copyId: newCopyId,
+            bookId: selectedBookDossier.bookId,
+            bookTitle: selectedBookDossier.title,
+            copyStatus: 'verified_present',
+            shelf: moveTargetShelf,
+            level: moveTargetLevel,
+            location: newLocation,
+            observedDate: nowFa,
+            physicalCondition: 'healthy',
+            loanOrMoveStatus: 'در قفسه مرکز اسناد',
+            expertNote: selectedBookDossier.notes || '',
+            lastReviewedAt: nowFa,
+            locationHistory: [
+              {
+                fromLocation: prevLocation,
+                toLocation: newLocation,
+                movedAt: nowFa,
+                movedBy: 'کارشناس کتابخانه',
+                reason: moveReason.trim() || 'جابه‌جایی قفسه در بازبینی میدانی'
+              }
+            ]
+          };
+          onAddBookCopy(createdCopy);
+        }
+
+        // به‌روزرسانی محل نگهداری در رکورد ممیزی کتاب برای هماهنگی کامل با تاریخچه نسخه
+        const existingAudit = auditRecords[selectedBookDossier.rowKey];
+        const catRow = catalogRows.find((r) => r.tempBookId === selectedBookDossier.bookId);
+        const updatedAudit: FieldAuditRecord = {
+          key: selectedBookDossier.rowKey,
+          sheet: existingAudit?.sheet || 'فهرست کتاب‌ها',
+          tempBookId: selectedBookDossier.bookId,
+          copyId:
+            existingCopy?.copyId ||
+            existingAudit?.copyId ||
+            generatedCopyInfo.copyId,
+          title: selectedBookDossier.title,
+          author: selectedBookDossier.author === 'ثبت‌نشده' ? '' : selectedBookDossier.author,
+          publisher:
+            selectedBookDossier.publisher === 'ثبت‌نشده' ? '' : selectedBookDossier.publisher,
+          year: selectedBookDossier.year === '—' ? '' : selectedBookDossier.year,
+          edition: selectedBookDossier.edition === '—' ? '' : selectedBookDossier.edition,
+          isbn: selectedBookDossier.isbn === '—' ? '' : selectedBookDossier.isbn,
+          fipa: selectedBookDossier.fipa === '—' ? '' : selectedBookDossier.fipa,
+          registrationNo:
+            selectedBookDossier.registrationNo === '—' ? '' : selectedBookDossier.registrationNo,
+          descriptionRaw:
+            selectedBookDossier.description === '—' ? '' : selectedBookDossier.description,
+          category:
+            selectedBookDossier.category === '—'
+              ? SUBJECT_CATEGORIES[0].label
+              : selectedBookDossier.category,
+          source: selectedBookDossier.isNewRegistration ? 'outside-list' : 'catalog',
+          physical:
+            selectedBookDossier.physicalStatus === 'unchecked'
+              ? 'verified'
+              : selectedBookDossier.physicalStatus,
+          copyStatus: 'verified_present',
+          shelf: moveTargetShelf,
+          level: moveTargetLevel,
+          location: newLocation,
+          countedCopies: selectedBookDossier.countedCopies || '1',
+          checkedBy: existingAudit?.checkedBy || 'کارشناس کتابخانه',
+          notes: selectedBookDossier.notes || '',
+          backupSourceSheet: existingAudit?.backupSourceSheet || catRow?.backupSourceSheet,
+          backupSourceRow: existingAudit?.backupSourceRow || catRow?.backupSourceRow,
+          updatedAt: new Date().toISOString()
+        };
+        onSaveVoiceOrQuickBook(updatedAudit);
+        setLastInteractedDossierId(selectedBookDossier.dossierId);
+        setIsMovingDossierShelf(false);
+        onNotify(`✅ قفسه کتاب «${selectedBookDossier.title}» به «${newLocation}» منتقل شد و در تاریخچه نسخه ثبت گردید.`);
+      }
+    });
   };
 
   const filteredStatModalDossiers = useMemo(() => {
@@ -1448,19 +1635,32 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
           maxWidthClass="max-w-4xl"
         >
           <div className="space-y-3">
-            {/* کادر تفکیک دقیق منشأ آمار (پاسخ روشن درون‌برنامه‌ای به علت تفاوت ۳۰۶ در گوشی و ۱۹۸ در رایانه) */}
-            <div className="bg-[#FAF5EE] border border-[#D8C7B2] rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-[#332218]">
-              <div className="space-y-0.5">
-                <div className="font-bold text-[#6B3E26]">
-                  تفکیک دقیق ترکیب مجموعه کتاب‌ها در این دستگاه (بدون هیچ رکورد تکراری):
+            {/* کادر خلاصه ۴بخشی ترکیب مجموعه کتاب‌ها (محاسبه‌شده مستقیم از همان دیتاست فهرست، بدون متن طولانی) */}
+            <div className="bg-[#FAF5EE] border border-[#D8C7B2] rounded-xl p-3 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 text-xs text-[#332218]">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 flex-1">
+                <div className="bg-white border border-[#E2D2BE] rounded-lg px-2.5 py-1.5">
+                  <div className="text-[10.5px] text-[#5C4636]">۱. پایه پژوهشی دارای ارتباط با شهدا</div>
+                  <div className="font-mono font-bold text-sm text-[#6B3E26]" data-testid="stat-breakdown-base">
+                    {toPersianDigits(statsComposition.baseResearchCount)} عنوان
+                  </div>
                 </div>
-                <div className="text-[11px] text-[#5C4636] leading-relaxed">
-                  <strong>{toPersianDigits(statsComposition.baseResearchCount)}</strong> عنوان پژوهشی پایه (دارای ارتباط شهید) +{' '}
-                  <strong>{toPersianDigits(statsComposition.determinedCatalogWithoutMartyrCount)}</strong> عنوان تعیین‌تکلیف‌شده از کاتالوگ ۹۸۰تایی در قفسه +{' '}
-                  <strong>{toPersianDigits(statsComposition.newCount)}</strong> عنوان ثبت جدید ={' '}
-                  <strong className="text-[#2E6F40]">
-                    مجموعاً {toPersianDigits(statsComposition.totalUniqueCount)} عنوان یکتا
-                  </strong>
+                <div className="bg-white border border-[#E2D2BE] rounded-lg px-2.5 py-1.5">
+                  <div className="text-[10.5px] text-[#5C4636]">۲. کاتالوگ تعیین‌تکلیف‌شده در قفسه</div>
+                  <div className="font-mono font-bold text-sm text-[#332218]" data-testid="stat-breakdown-catalog">
+                    {toPersianDigits(statsComposition.determinedCatalogWithoutMartyrCount)} عنوان
+                  </div>
+                </div>
+                <div className="bg-white border border-[#E2D2BE] rounded-lg px-2.5 py-1.5">
+                  <div className="text-[10.5px] text-[#5C4636]">۳. کتاب‌های جدید خارج از فهرست اولیه</div>
+                  <div className="font-mono font-bold text-sm text-amber-800" data-testid="stat-breakdown-new">
+                    {toPersianDigits(statsComposition.newCount)} عنوان
+                  </div>
+                </div>
+                <div className="bg-[#EDF6F0] border border-[#A8D5B5] rounded-lg px-2.5 py-1.5">
+                  <div className="text-[10.5px] text-[#1E4D2B] font-bold">۴. مجموع پرونده‌های یکتای کتاب</div>
+                  <div className="font-mono font-bold text-sm text-[#2E6F40]" data-testid="stat-breakdown-total">
+                    {toPersianDigits(statsComposition.totalUniqueCount)} عنوان یکتا
+                  </div>
                 </div>
               </div>
 
@@ -1568,7 +1768,13 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                 </button>
               </div>
             ) : (
-              <div className="max-h-[58vh] overflow-y-auto border border-[#E2D2BE] rounded-xl divide-y divide-[#EFE5D8] bg-white">
+              <div
+                ref={statListScrollRef}
+                onScroll={(e) => {
+                  saveHomeDossierNavSnapshot({ statModalScrollTop: e.currentTarget.scrollTop });
+                }}
+                className="max-h-[58vh] overflow-y-auto border border-[#E2D2BE] rounded-xl divide-y divide-[#EFE5D8] bg-white"
+              >
                 {filteredStatModalDossiers.map((dossier, idx) => {
                   const isHighlighted =
                     lastInteractedDossierId === dossier.dossierId ||
@@ -1578,8 +1784,14 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                       id={`stat-dossier-row-${dossier.dossierId}`}
                       key={dossier.dossierId}
                       onClick={() => {
+                        if (statListScrollRef.current) {
+                          saveHomeDossierNavSnapshot({
+                            statModalScrollTop: statListScrollRef.current.scrollTop
+                          });
+                        }
                         setLastInteractedDossierId(dossier.dossierId);
                         setIsEditingDossierBook(false);
+                        setIsMovingDossierShelf(false);
                         setEditingRelationLinkId(null);
                         setSelectedBookDossierId(dossier.dossierId);
                         setShowOriginalExcelModal(false);
@@ -1637,8 +1849,14 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
+                            if (statListScrollRef.current) {
+                              saveHomeDossierNavSnapshot({
+                                statModalScrollTop: statListScrollRef.current.scrollTop
+                              });
+                            }
                             setLastInteractedDossierId(dossier.dossierId);
                             setIsEditingDossierBook(false);
+                            setIsMovingDossierShelf(false);
                             setEditingRelationLinkId(null);
                             setSelectedBookDossierId(dossier.dossierId);
                             setShowOriginalExcelModal(false);
@@ -1665,13 +1883,10 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             const keepId = selectedBookDossier.dossierId;
             setLastInteractedDossierId(keepId);
             setIsEditingDossierBook(false);
+            setIsMovingDossierShelf(false);
             setEditingRelationLinkId(null);
             setSelectedBookDossierId(null);
             setShowOriginalExcelModal(false);
-            setTimeout(() => {
-              const el = document.getElementById(`stat-dossier-row-${keepId}`);
-              el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }, 40);
           }}
           title={`پرونده اختصاصی کتاب: ${selectedBookDossier.title}`}
           maxWidthClass="max-w-3xl"
@@ -2056,19 +2271,17 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                     </div>
                   </div>
 
-                  <div className="bg-white border border-[#D8C7B2] rounded-xl p-3.5 space-y-2">
+                  <div className="bg-white border border-[#D8C7B2] rounded-xl p-3.5 space-y-2.5">
                     <div className="font-bold text-[#6B3E26] flex items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5">
                         <MapPin className="w-4 h-4" />
                         <span>محل نگهداری و قفسه</span>
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => startEditingBookDossier(selectedBookDossier)}
-                        className="text-[11px] text-[#6B3E26] hover:underline font-bold cursor-pointer"
-                      >
-                        تغییر قفسه و ردیف ✎
-                      </button>
+                      {selectedBookCopies.length > 0 && (
+                        <span className="text-[10.5px] font-mono bg-[#FAF5EE] border border-[#E2D2BE] px-2 py-0.5 rounded text-[#6B3E26]">
+                          نسخه: {selectedBookCopies.map((c) => c.copyId).join('، ')}
+                        </span>
+                      )}
                     </div>
                     {selectedBookDossier.locationCode ? (
                       <div className="space-y-1">
@@ -2085,15 +2298,126 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                         محل قفسه برای این کتاب هنوز ثبت نشده است.
                       </div>
                     )}
-                    <div className="flex flex-wrap items-center gap-2">
+
+                    {/* دو دکمه متمایز و شفاف: ۱. اصلاح مشخصات/قفسه کتاب ۲. جابه‌جایی قفسه با ثبت در تاریخچه نسخه */}
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
                       <button
                         type="button"
+                        data-testid="dossier-edit-shelf-btn"
                         onClick={() => startEditingBookDossier(selectedBookDossier)}
                         className="px-2.5 py-1 rounded-lg bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-[11px] cursor-pointer"
                       >
-                        ثبت / ویرایش قفسه در همین پرونده
+                        ثبت / اصلاح محل قفسه کتاب
+                      </button>
+
+                      <button
+                        type="button"
+                        data-testid="dossier-move-shelf-btn"
+                        onClick={() => {
+                          setMoveTargetShelf(
+                            (selectedBookDossier.shelf as ShelfCode) || 'SH-01'
+                          );
+                          setMoveTargetLevel(
+                            (selectedBookDossier.level as LevelCode) || 'T01'
+                          );
+                          setIsMovingDossierShelf((prev) => !prev);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-[#FAF5EE] hover:bg-[#F3E9DC] border border-[#D8C7B2] text-[#6B3E26] font-bold text-[11px] cursor-pointer"
+                      >
+                        جابه‌جایی قفسه (با ثبت در تاریخچه نسخه)
                       </button>
                     </div>
+
+                    {/* فرم درون‌جای جابه‌جایی قفسه نسخه فیزیکی */}
+                    {isMovingDossierShelf && (
+                      <form
+                        onSubmit={handleConfirmMoveDossierShelf}
+                        className="bg-[#FAF5EE] border border-[#D8C7B2] rounded-xl p-2.5 space-y-2 text-[11px]"
+                      >
+                        <div className="font-bold text-[#332218]">
+                          انتقال نسخه به قفسه یا طبقه جدید (ثبت در تاریخچه نسخه)
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[#5C4636] mb-0.5">قفسه مقصد</label>
+                            <select
+                              value={moveTargetShelf}
+                              onChange={(e) => setMoveTargetShelf(e.target.value as ShelfCode)}
+                              className="w-full min-h-[34px] px-2 py-1 bg-white border border-[#D8C7B2] rounded-lg font-mono font-bold"
+                            >
+                              {SHELVES.map((s) => (
+                                <option key={s.code} value={s.code}>
+                                  {s.code} ({s.title})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[#5C4636] mb-0.5">طبقه مقصد</label>
+                            <select
+                              value={moveTargetLevel}
+                              onChange={(e) => setMoveTargetLevel(e.target.value as LevelCode)}
+                              className="w-full min-h-[34px] px-2 py-1 bg-white border border-[#D8C7B2] rounded-lg font-mono font-bold"
+                            >
+                              {LEVELS.map((l) => (
+                                <option key={l.code} value={l.code}>
+                                  {l.code} ({l.title})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-[#5C4636] mb-0.5">علت جابه‌جایی</label>
+                          <input
+                            type="text"
+                            value={moveReason}
+                            onChange={(e) => setMoveReason(e.target.value)}
+                            placeholder="مثلاً: بازچینی قفسه یا انتقال به طبقه جدید..."
+                            className="w-full min-h-[34px] px-2 py-1 bg-white border border-[#D8C7B2] rounded-lg"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-1.5 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setIsMovingDossierShelf(false)}
+                            className="px-2.5 py-1 rounded-lg bg-white border border-[#D8C7B2] font-bold cursor-pointer"
+                          >
+                            انصراف
+                          </button>
+                          <button
+                            type="submit"
+                            className="px-3 py-1 rounded-lg bg-[#2E6F40] text-white font-bold cursor-pointer"
+                          >
+                            ثبت جابه‌جایی قفسه
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                    {/* نمایش تاریخچه جابه‌جایی‌های ثبت‌شده برای نسخه فیزیکی این کتاب */}
+                    {selectedBookCopies.some((cp) => (cp.locationHistory || []).length > 0) && (
+                      <div className="border-t border-[#EFE5D8] pt-2 space-y-1 text-[10.5px]">
+                        <div className="font-bold text-[#6B3E26] flex items-center gap-1">
+                          <History className="w-3 h-3" />
+                          <span>تاریخچه جابه‌جایی قفسه این کتاب:</span>
+                        </div>
+                        {selectedBookCopies.flatMap((cp) =>
+                          (cp.locationHistory || []).map((h, hIdx) => (
+                            <div
+                              key={`${cp.copyId}-hist-${hIdx}`}
+                              className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-lg px-2 py-1 text-[#5C4636]"
+                            >
+                              <span className="font-mono font-bold text-[#332218]">
+                                {h.fromLocation} ← {h.toLocation}
+                              </span>{' '}
+                              · <span>{h.movedAt}</span>
+                              {h.reason ? ` (${h.reason})` : ''}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </>
@@ -2529,19 +2853,59 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
               )}
             </div>
 
-            <div className="flex items-center justify-between pt-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
               <button
                 type="button"
+                data-testid="open-in-all-martyrs-db-btn"
                 onClick={() => {
-                  setSelectedMartyrDossierName(null);
+                  // حفظ دقیق وضعیت پرونده شهید، پرونده کتاب و فهرست کتاب‌ها در مخزن ناوبری برای بازگشت مرحله‌به‌مرحله
+                  saveHomeDossierNavSnapshot({
+                    activeStatGroupModal,
+                    statModalSearchQuery,
+                    statModalSubFilter,
+                    selectedBookDossierId,
+                    lastInteractedDossierId,
+                    selectedMartyrDossierName: selectedMartyrDossierData.fullName,
+                    selectedMartyrDossierId:
+                      selectedMartyrDossierData.personId !== 'پرونده پژوهشی شهید'
+                        ? selectedMartyrDossierData.personId
+                        : null
+                  });
+                  setMartyrsCrossTabTarget({
+                    martyrId:
+                      selectedMartyrDossierData.personId !== 'پرونده پژوهشی شهید'
+                        ? selectedMartyrDossierData.personId
+                        : undefined,
+                    fullName: selectedMartyrDossierData.fullName,
+                    normalizedName: normalizePersianText(
+                      selectedMartyrDossierData.fullName.replace(/^شهید\s+/, '')
+                    ),
+                    gravePiece:
+                      selectedMartyrDossierData.piece !== '—'
+                        ? selectedMartyrDossierData.piece
+                        : undefined,
+                    graveRow:
+                      selectedMartyrDossierData.row !== '—'
+                        ? selectedMartyrDossierData.row
+                        : undefined,
+                    graveNumber:
+                      selectedMartyrDossierData.number !== '—'
+                        ? selectedMartyrDossierData.number
+                        : undefined,
+                    sourceBookDossierId: selectedBookDossierId,
+                    sourceBookTitle: selectedBookDossier?.title,
+                    sourceMartyrDossierName: selectedMartyrDossierData.fullName,
+                    timestamp: Date.now()
+                  });
                   onNavigateTab('martyrs');
                 }}
                 className="px-3 py-1.5 rounded-xl bg-[#FAF5EE] hover:bg-[#F3E9DC] border border-[#D8C7B2] text-[#6B3E26] font-bold text-xs cursor-pointer"
               >
-                باز کردن بانک جامع پرونده شهدا ↗
+                باز کردن در بانک جامع پرونده شهدا ↗
               </button>
               <button
                 type="button"
+                data-testid="back-to-book-dossier-btn"
                 onClick={() => setSelectedMartyrDossierName(null)}
                 className="px-4 py-1.5 rounded-xl bg-[#6B3E26] text-white font-bold text-xs cursor-pointer"
               >

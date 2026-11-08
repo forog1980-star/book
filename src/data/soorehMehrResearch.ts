@@ -573,6 +573,7 @@ export interface UnifiedBookDossier {
   registrationNo: string;
   category: string;
   description: string;
+  originCategory: 'base-research' | 'catalog-determined' | 'new-registration';
   isNewRegistration: boolean;
   isDetermined: boolean;
   determinationStatusLabel: string;
@@ -835,6 +836,19 @@ export function buildUnifiedBookDossiers(params: {
     const isNewRegistration = aud?.source === 'outside-list';
     const isDetermined = Boolean(aud);
 
+    const hasInitialBaseResearchLink = grp.links.some(
+      (lnk) =>
+        lnk.id.startsWith('RL-') &&
+        !lnk.id.startsWith('RL-USR-') &&
+        lnk.sourceFile !== 'ثبت کارشناس در پرونده کتاب'
+    );
+
+    const originCategory: UnifiedBookDossier['originCategory'] = isNewRegistration
+      ? 'new-registration'
+      : hasInitialBaseResearchLink
+      ? 'base-research'
+      : 'catalog-determined';
+
     const physicalStatus: UnifiedBookDossier['physicalStatus'] = aud
       ? aud.physical
       : 'unchecked';
@@ -969,6 +983,7 @@ export function buildUnifiedBookDossiers(params: {
       registrationNo: aud?.registrationNo || catRow?.registrationNoRaw || '—',
       category: aud?.category || catRow?.categoryRaw || '—',
       description: aud?.descriptionRaw || grp.description || '—',
+      originCategory,
       isNewRegistration,
       isDetermined,
       determinationStatusLabel,

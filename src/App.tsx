@@ -67,7 +67,11 @@ import { ComprehensiveDocViewer } from './components/ComprehensiveDocViewer';
 import { ModalWindow } from './components/ModalWindow';
 import { GlobalConfirmModal } from './components/GlobalConfirmModal';
 import { requestActionConfirmation } from './utils/confirmDialogService';
-import { closeTopModalIfAny, popInnerBackStepIfAny } from './utils/navigationHistory';
+import {
+  closeTopModalIfAny,
+  popInnerBackStepIfAny,
+  clearMartyrsCrossTabTarget
+} from './utils/navigationHistory';
 import { useOnlineStatus, usePWAInstall } from './utils/usePWAInstall';
 import {
   hydrateOperationalKey,
@@ -1877,6 +1881,8 @@ export default function App() {
                   handleAddBookCopy(newCopy);
                 }
               }}
+              onAddBookCopy={handleAddBookCopy}
+              onMoveBookCopy={handleMoveBookCopy}
               onAddLink={(newLnk) => {
                 setLinks((prev) => [newLnk, ...prev]);
                 markSessionModification();
@@ -2100,8 +2106,20 @@ export default function App() {
               );
             }}
             onNavigateToSmartSearch={(martyrName: string) => {
+              clearMartyrsCrossTabTarget();
               setPreselectedSmartMartyrName(martyrName);
               setActiveTab('smart_search');
+            }}
+            onReturnToMartyrDossier={() => {
+              clearMartyrsCrossTabTarget();
+              if (
+                navHistoryRef.current.length > 0 &&
+                navHistoryRef.current[navHistoryRef.current.length - 1].tab === 'home'
+              ) {
+                navHistoryRef.current.pop();
+              }
+              isPoppingHistoryRef.current = true;
+              setActiveTab('home');
             }}
             onNotify={showNotify}
           />
@@ -2398,6 +2416,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
+              clearMartyrsCrossTabTarget();
               setShowDeviceSyncDrawer(false);
               setActiveTab('home');
               window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2415,6 +2434,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
+              clearMartyrsCrossTabTarget();
               setShowDeviceSyncDrawer(false);
               setActiveTab('library');
               window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2432,6 +2452,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
+              clearMartyrsCrossTabTarget();
               setShowDeviceSyncDrawer(false);
               setActiveTab('martyrs');
               window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2449,6 +2470,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
+              clearMartyrsCrossTabTarget();
               setShowDeviceSyncDrawer(false);
               setActiveTab('smart_search');
               window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2466,6 +2488,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
+              clearMartyrsCrossTabTarget();
               setShowDeviceSyncDrawer(false);
               setActiveTab('research');
               window.scrollTo({ top: 0, behavior: 'smooth' });

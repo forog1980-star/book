@@ -27,7 +27,12 @@ import {
 import { generateUniqueLinkId, generateUniqueMartyrId } from '../utils/idGenerator';
 import { doesLinkMatchMartyrRecord } from '../data/soorehMehrResearch';
 import { ModalWindow } from './ModalWindow';
-import { registerInnerBackStep } from '../utils/navigationHistory';
+import {
+  registerInnerBackStep,
+  getMartyrsCrossTabTarget,
+  clearMartyrsCrossTabTarget,
+  MartyrsCrossTabTarget
+} from '../utils/navigationHistory';
 import { requestActionConfirmation } from '../utils/confirmDialogService';
 
 export interface NormalizedDate {
@@ -300,6 +305,7 @@ interface AllMartyrsDatabaseTabProps {
   onUpdateCustomMartyr?: (updated: CustomMartyrRecord) => void;
   onDeleteCustomMartyr?: (martyrId: string) => void;
   onNavigateToSmartSearch?: (martyrName: string) => void;
+  onReturnToMartyrDossier?: () => void;
   onLinkMartyrToBook: (newLink: BookMartyrLinkRecord) => void;
   onNotify: (msg: string, type?: 'success' | 'warning') => void;
 }
@@ -313,6 +319,7 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
   onUpdateCustomMartyr,
   onDeleteCustomMartyr,
   onNavigateToSmartSearch,
+  onReturnToMartyrDossier,
   onLinkMartyrToBook,
   onNotify
 }) => {
@@ -321,8 +328,16 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [counts, setCounts] = useState({ golzar: 0, outside: 0, total: 0, pureMartyrs: 0 });
 
+  // زمینه انتقال مستقیم از پرونده اختصاصی شهید (برای جست‌وجوی خودکار و بازگشت مرحله‌به‌مرحله)
+  const [activeCrossTabTarget, setActiveCrossTabTarget] = useState<MartyrsCrossTabTarget | null>(
+    () => getMartyrsCrossTabTarget()
+  );
+
   // Search State
-  const [queryText, setQueryText] = useState('');
+  const [queryText, setQueryText] = useState(() => {
+    const initialTarget = getMartyrsCrossTabTarget();
+    return initialTarget ? initialTarget.normalizedName || initialTarget.fullName : '';
+  });
   const [selectedField, setSelectedField] = useState('all');
   const [extraFilters, setExtraFilters] = useState<{ id: string; key: string; val: string }[]>([]);
   const [activeResults, setActiveResults] = useState<AllMartyrRecord[]>([]);
@@ -562,8 +577,107 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
     setActiveResults(res);
   };
 
-  // ثبت وضعیت جست‌وجوی فعال شهدا در پشته بازگشت تا کلید Back ابتدا نتایج جست‌وجو را ببندد
+  // اجرای خودکار جست‌وجو و باز شدن پرونده در صورت وجود یک نتیجه یکتا هنگام ورود از «پرونده اختصاصی شهید»
   useEffect(() => {
+    const target = activeCrossTabTarget;
+    if (!target) return;
+
+    const searchName = cleanText(target.normalizedName || target.fullName.replace(/^شهید\s+/, ''));
+    if (searchName && queryText !== (target.normalizedName || target.fullName)) {
+      setQueryText(target.normalizedName || target.fullName);
+    }
+
+    // اگر هنوز رکوردهای بانک ۲۸٬۳۶۸ نفری در حال بارگذاری هستند، بررسی کن آیا در customMartyrs تطابق یکتا دارد
+    if (loading || records.length === 0) {
+      if (customMartyrs.length > 0 && searchName) {
+        const customExact = customMartyrs.filter(
+          (cm) =>
+            (target.martyrId && cm.martyrId === target.martyrId) ||
+            cleanText(cm.fullName.replace(/^شهید\s+/, '')) === searchName
+        );
+        if (customExact.length === 1 && !editingCustomMartyr) {
+          setEditingCustomMartyr(customExact[0]);
+        }
+      }
+      return;
+    }
+
+    // گام ۱: بررسی تطابق دقیق با شناسه یا نام کامل + مختصات مزار
+    let matched: AllMartyrRecord[] = [];
+    if (target.martyrId) {
+      const idMatches = records.filter((r) => r.id === target.martyrId);
+      if (idMatches.length === 1) {
+        matched = idMatches;
+      }
+    }
+
+    if (matched.length === 0 && searchName) {
+      const words = searchName.split(/\s+/).filter(Boolean);
+      const allWordMatches = records.filter((r) =>
+        words.every((w) => r.searchable_text.includes(w))
+      );
+
+      const exactFullNameMatches = allWordMatches.filter((r) => {
+        const recFull = cleanText([r.first_name, r.last_name].filter(Boolean).join(' '));
+        const recMem = cleanText(r.memorial_name);
+        return recFull === searchName || recMem === searchName;
+      });
+
+      // اگر مختصات مزار (قطعه/ردیف/شماره) در پرونده شهید موجود است و بین چند تشابه اسمی تفکیک دقیق ایجاد می‌کند:
+      if (exactFullNameMatches.length > 1 && target.gravePiece) {
+        const graveMatches = exactFullNameMatches.filter((r) => {
+          const pieceOk = cleanText(r.grave_piece) === cleanText(target.gravePiece || '');
+          const rowOk =
+            !target.graveRow || cleanText(r.grave_row) === cleanText(target.graveRow);
+          const numOk =
+            !target.graveNumber || cleanText(r.grave_number) === cleanText(target.graveNumber);
+          return pieceOk && rowOk && numOk;
+        });
+        if (graveMatches.length === 1) {
+          matched = graveMatches;
+        } else if (graveMatches.length > 1) {
+          matched = graveMatches;
+        } else {
+          matched = exactFullNameMatches;
+        }
+      } else if (exactFullNameMatches.length === 1) {
+        matched = exactFullNameMatches;
+      } else if (exactFullNameMatches.length > 1) {
+        matched = exactFullNameMatches;
+      } else {
+        matched = allWordMatches;
+      }
+    }
+
+    setHasSearched(true);
+    setActiveResults(matched);
+
+    // اگر دقیقاً یک نتیجه یکتا یافت شد، پرونده آن شهید را به‌صورت خودکار باز کن؛ اگر چند نتیجه مشابه وجود داشت، فهرست را نمایش بده تا کارشناس انتخاب کند
+    if (matched.length === 1) {
+      setInspectedRecord(matched[0]);
+    } else if (matched.length > 1) {
+      setInspectedRecord(null);
+    }
+  }, [activeCrossTabTarget, loading, records]);
+
+  // بازگشت مستقیم به «پرونده اختصاصی همان شهید» هنگام زدن بازگشت (Back)
+  const handleBackToSourceMartyrDossier = React.useCallback(() => {
+    clearMartyrsCrossTabTarget();
+    setActiveCrossTabTarget(null);
+    setInspectedRecord(null);
+    if (onReturnToMartyrDossier) {
+      onReturnToMartyrDossier();
+    }
+  }, [onReturnToMartyrDossier]);
+
+  // ثبت وضعیت بازگشت در پشته ناوبری:
+  // اگر کاربر از «پرونده اختصاصی شهید» آمده باشد، کلید Back مستقیماً او را به همان پرونده شهید برمی‌گرداند.
+  useEffect(() => {
+    if (activeCrossTabTarget && onReturnToMartyrDossier) {
+      return registerInnerBackStep('martyrs-cross-tab-return', () => {
+        handleBackToSourceMartyrDossier();
+      });
+    }
     if (!hasSearched) return;
     return registerInnerBackStep('martyrs-active-search', () => {
       setQueryText('');
@@ -572,7 +686,7 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
       setActiveResults([]);
       setHasSearched(false);
     });
-  }, [hasSearched]);
+  }, [activeCrossTabTarget, onReturnToMartyrDossier, handleBackToSourceMartyrDossier, hasSearched]);
 
   const handleFilterMartyrsWithLinkedBooks = () => {
     if (!records.length) return;
@@ -680,6 +794,46 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* نوار بازگشت سریع به پرونده اختصاصی شهید و پرونده کتاب (در صورت ورود از پرونده شهید) */}
+      {activeCrossTabTarget && (
+        <div
+          data-testid="cross-tab-martyr-return-banner"
+          className="bg-[#FAF5EE] border-2 border-[#6B3E26] rounded-2xl p-3 sm:p-3.5 flex flex-wrap items-center justify-between gap-2.5 text-xs text-[#332218] shadow-xs"
+        >
+          <div className="space-y-0.5">
+            <div className="font-bold text-[#6B3E26] flex items-center gap-1.5">
+              <span>
+                مشاهده در بانک جامع شهدا برای: «{activeCrossTabTarget.fullName}»
+              </span>
+              {activeCrossTabTarget.sourceBookTitle && (
+                <span className="text-[#5C4636] font-normal">
+                  (از پرونده کتاب «{activeCrossTabTarget.sourceBookTitle}»)
+                </span>
+              )}
+            </div>
+            <div className="text-[11px] text-[#5C4636]">
+              {loading
+                ? 'در حال بارگذاری و جست‌وجوی خودکار در بانک جامع شهدا...'
+                : activeResults.length === 1
+                ? '۱ پرونده یکتا در بانک جامع شهدا یافت و باز شد.'
+                : activeResults.length > 1
+                ? `${toPersianDigits(activeResults.length)} پرونده مشابه یافت شد؛ لطفاً شهید مورد نظر را از فهرست زیر انتخاب کنید.`
+                : 'نتایج جست‌وجو برای این شهید در پایین قابل مشاهده است.'}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            data-testid="banner-return-to-martyr-dossier-btn"
+            onClick={handleBackToSourceMartyrDossier}
+            className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer shrink-0"
+          >
+            <ArrowRight className="w-4 h-4" />
+            <span>بازگشت به پرونده اختصاصی شهید</span>
+          </button>
+        </div>
+      )}
+
       {/* Top Statistics Banner */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1359,7 +1513,13 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
       {/* Full Martyr Detail Modal */}
       {inspectedRecord && (
         <ModalWindow
-          onClose={() => setInspectedRecord(null)}
+          onClose={() => {
+            if (activeCrossTabTarget && activeResults.length <= 1 && onReturnToMartyrDossier) {
+              handleBackToSourceMartyrDossier();
+            } else {
+              setInspectedRecord(null);
+            }
+          }}
           title={`پرونده بانک جامع شهدا: ${
             [inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' ') ||
             'شهید گمنام'
@@ -1566,35 +1726,51 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
             </div>
           </div>
 
-          <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-slate-200">
-            {onNavigateToSmartSearch && (
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
+            {activeCrossTabTarget && onReturnToMartyrDossier ? (
+              <button
+                type="button"
+                data-testid="modal-return-to-martyr-dossier-btn"
+                onClick={handleBackToSourceMartyrDossier}
+                className="min-h-[40px] px-3.5 py-2 bg-[#6B3E26] hover:bg-[#56311E] text-white rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <ArrowRight className="w-4 h-4" />
+                <span>بازگشت به پرونده اختصاصی شهید</span>
+              </button>
+            ) : (
+              <span />
+            )}
+
+            <div className="flex flex-wrap justify-end gap-2">
+              {onNavigateToSmartSearch && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const name = [inspectedRecord.first_name, inspectedRecord.last_name]
+                      .filter(Boolean)
+                      .join(' ');
+                    setInspectedRecord(null);
+                    onNavigateToSmartSearch(name);
+                  }}
+                  className="min-h-[40px] px-3.5 py-2 bg-[#F6EFE6] hover:bg-[#EFE4D6] text-[#6B3E26] border border-[#E2D2BE] rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>انتقال به جست‌وجوی هوشمند کتاب‌های جدید</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => {
-                  const name = [inspectedRecord.first_name, inspectedRecord.last_name]
-                    .filter(Boolean)
-                    .join(' ');
-                  setInspectedRecord(null);
-                  onNavigateToSmartSearch(name);
+                  // باز کردن پنجره دوم (اتصال به کتاب) با حفظ امکان جابه‌جایی روی صفحه لپ‌تاپ و بازگشت به جزئیات شهید
+                  setLinkingRecord(inspectedRecord);
                 }}
-                className="min-h-[40px] px-3.5 py-2 bg-[#F6EFE6] hover:bg-[#EFE4D6] text-[#6B3E26] border border-[#E2D2BE] rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                className="min-h-[40px] px-4 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer"
               >
-                <Sparkles className="w-4 h-4" />
-                <span>انتقال به جست‌وجوی هوشمند کتاب‌های جدید</span>
+                <Link2 className="w-4 h-4" />
+                <span>اتصال این شهید به کتاب در کتابخانه</span>
               </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => {
-                // باز کردن پنجره دوم (اتصال به کتاب) با حفظ امکان جابه‌جایی روی صفحه لپ‌تاپ و بازگشت به جزئیات شهید
-                setLinkingRecord(inspectedRecord);
-              }}
-              className="min-h-[40px] px-4 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer"
-            >
-              <Link2 className="w-4 h-4" />
-              <span>اتصال این شهید به کتاب در کتابخانه</span>
-            </button>
+            </div>
           </div>
         </ModalWindow>
       )}

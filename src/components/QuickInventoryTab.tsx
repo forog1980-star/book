@@ -36,7 +36,11 @@ import {
   toPersianDigits
 } from '../data/markazAsnadData';
 import { generateUniqueCopyId, generateUniqueOutsideBookId } from '../utils/idGenerator';
-import { registerInnerBackStep } from '../utils/navigationHistory';
+import {
+  registerInnerBackStep,
+  getLibraryTabNavSnapshot,
+  saveLibraryTabNavSnapshot
+} from '../utils/navigationHistory';
 import { requestActionConfirmation } from '../utils/confirmDialogService';
 
 interface QuickInventoryTabProps {
@@ -113,14 +117,30 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
   onDeleteAuditRecord,
   onNotify
 }) => {
-  // Search & Advanced Column Filter State
-  const [searchQuery, setSearchQuery] = useState('');
-  const [authorQuery, setAuthorQuery] = useState('');
-  const [authorStatusFilter, setAuthorStatusFilter] = useState<'all' | 'has_author' | 'missing_author'>('all');
-  const [publisherQuery, setPublisherQuery] = useState('');
-  const [publisherFilter, setPublisherFilter] = useState<string>('all');
-  const [categoryFilter, setCategoryFilter] = useState<string>('all');
-  const [shelfFilter, setShelfFilter] = useState<string>('all');
+  const initialLibSnap = useMemo(() => getLibraryTabNavSnapshot(), []);
+
+  // Search & Advanced Column Filter State (با بازیابی پایدار از حافظه ناوبری)
+  const [searchQuery, setSearchQuery] = useState(initialLibSnap.searchQuery || '');
+  const [authorQuery, setAuthorQuery] = useState(initialLibSnap.authorQuery || '');
+  const [authorStatusFilter, setAuthorStatusFilter] = useState<'all' | 'has_author' | 'missing_author'>(
+    initialLibSnap.authorStatusFilter || 'all'
+  );
+  const [publisherQuery, setPublisherQuery] = useState(initialLibSnap.publisherQuery || '');
+  const [publisherFilter, setPublisherFilter] = useState<string>(
+    initialLibSnap.publisherFilter && initialLibSnap.publisherFilter !== 'همه ناشران'
+      ? initialLibSnap.publisherFilter
+      : 'all'
+  );
+  const [categoryFilter, setCategoryFilter] = useState<string>(
+    initialLibSnap.categoryFilter && initialLibSnap.categoryFilter !== 'همه دسته‌ها'
+      ? initialLibSnap.categoryFilter
+      : 'all'
+  );
+  const [shelfFilter, setShelfFilter] = useState<string>(
+    initialLibSnap.shelfFilter && initialLibSnap.shelfFilter !== 'همه قفسه‌ها'
+      ? initialLibSnap.shelfFilter
+      : 'all'
+  );
   // به صورت پیش‌فرض فیلتر ستونی بسته باشد تا صفحه در بدو ورود خلوت باشد
   const [showAdvancedColumnFilters, setShowAdvancedColumnFilters] = useState<boolean>(false);
   const [auditFilter, setAuditFilter] = useState<
@@ -131,8 +151,19 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     | 'incomplete_or_review'
     | 'outside_excel'
     | 'expected_acquisition'
-  >('all');
-  const [visibleLimit, setVisibleLimit] = useState<number>(12);
+  >(
+    initialLibSnap.auditFilter && initialLibSnap.auditFilter !== 'همه وضعیت‌ها'
+      ? (initialLibSnap.auditFilter as
+          | 'all'
+          | 'unaudited'
+          | 'audited'
+          | 'not_found_in_round'
+          | 'incomplete_or_review'
+          | 'outside_excel'
+          | 'expected_acquisition')
+      : 'all'
+  );
+  const [visibleLimit, setVisibleLimit] = useState<number>(initialLibSnap.visibleLimit || 12);
   const [showExcelLoaderSection, setShowExcelLoaderSection] = useState<boolean>(false);
   const [showColumnMapper, setShowColumnMapper] = useState(false);
   const [showSection3Drawer, setShowSection3Drawer] = useState<boolean>(false);
@@ -181,7 +212,38 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     copyId: string;
     location: string;
   } | null>(null);
-  const [lastTouchedRowKey, setLastTouchedRowKey] = useState<string>('');
+  const [lastTouchedRowKey, setLastTouchedRowKey] = useState<string>(
+    initialLibSnap.lastTouchedRowKey || ''
+  );
+
+  // همگام‌سازی خودکار وضعیت برگه کتابخانه در مخزن ناوبری برای حفظ فیلتر، جست‌وجو و ردیف انتخاب‌شده
+  useEffect(() => {
+    saveLibraryTabNavSnapshot({
+      searchQuery,
+      authorQuery,
+      authorStatusFilter,
+      publisherQuery,
+      publisherFilter,
+      categoryFilter,
+      shelfFilter,
+      auditFilter,
+      visibleLimit,
+      selectedRowKey: selectedRow?.rowKey || null,
+      lastTouchedRowKey
+    });
+  }, [
+    searchQuery,
+    authorQuery,
+    authorStatusFilter,
+    publisherQuery,
+    publisherFilter,
+    categoryFilter,
+    shelfFilter,
+    auditFilter,
+    visibleLimit,
+    selectedRow,
+    lastTouchedRowKey
+  ]);
 
   // دریافت عبارت جست‌وجوی ارسالی از صفحه خانه
   useEffect(() => {
