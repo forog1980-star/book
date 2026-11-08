@@ -181,6 +181,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     copyId: string;
     location: string;
   } | null>(null);
+  const [lastTouchedRowKey, setLastTouchedRowKey] = useState<string>('');
 
   // دریافت عبارت جست‌وجوی ارسالی از صفحه خانه
   useEffect(() => {
@@ -194,18 +195,25 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     }
   }, [initialSearchQuery, onClearInitialSearchQuery]);
 
-  // ثبت کشوی باز کتاب یا فرم ثبت کتاب جدید در پشته بازگشت (Back)
+  // ثبت کشوی باز کتاب یا فرم ثبت کتاب جدید در پشته بازگشت (Back) تا کاربر با زدن بازگشت از لیست و جست‌وجوی فعلی خارج نشود
   useEffect(() => {
-    if (!showSection3Drawer && !showOutsideForm) return;
+    if (!showSection3Drawer && !showOutsideForm && !selectedRow) return;
     return registerInnerBackStep('quick-inventory-drawer', () => {
       if (showOutsideForm) {
         setShowOutsideForm(false);
       } else if (showSection3Drawer) {
         setShowSection3Drawer(false);
+      } else if (selectedRow) {
+        const keyToKeep = selectedRow.rowKey;
+        setLastTouchedRowKey(keyToKeep);
         setSelectedRow(null);
+        setTimeout(() => {
+          const elem = document.getElementById(`book-item-${keyToKeep}`);
+          elem?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 40);
       }
     });
-  }, [showSection3Drawer, showOutsideForm]);
+  }, [showSection3Drawer, showOutsideForm, selectedRow]);
 
   // Helper to infer columns from headers of «فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx»
   const inferColumnsFromHeaders = (hdrs: string[]) => {
@@ -831,6 +839,35 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     const ws = XLSX.utils.json_to_sheet(excelRows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, reportTitle.slice(0, 31));
+
+    // شیت دوم: ریز ارتباط‌های کتاب و شهید برای تمام کتاب‌های دارای یک یا چند شهید در فیلتر جاری
+    const relationRows: Record<string, string | number>[] = [];
+    let relIdx = 1;
+    for (const r of allMatchingRows) {
+      const rec = auditRecords[r.rowKey];
+      const bookLinks = getLinksForBookRow(r);
+      for (const lnk of bookLinks) {
+        relationRows.push({
+          'ردیف': relIdx++,
+          'شناسه کتاب': r.tempBookId,
+          'عنوان کتاب': rec?.title || r.titleRaw,
+          'ناشر': rec?.publisher || r.publisherRaw || '—',
+          'نام شهید مرتبط': lnk.martyrNameRaw || '—',
+          'قطعه مزار': lnk.gravePieceRaw || '—',
+          'ردیف مزار': lnk.graveRowRaw || '—',
+          'شماره مزار': lnk.graveNumberRaw || '—',
+          'صفحه / ارجاع در کتاب': lnk.pageReferenceRaw || '—',
+          'توضیحات ارتباط': lnk.sourceDescriptionRaw || '—',
+          'وضعیت بررسی ارتباط': lnk.reviewStatus || '—',
+          'محل نگهداری کتاب': rec?.location || r.locationRaw || '—'
+        });
+      }
+    }
+    if (relationRows.length > 0) {
+      const wsRel = XLSX.utils.json_to_sheet(relationRows);
+      XLSX.utils.book_append_sheet(wb, wsRel, 'ریز ارتباط کتاب و شهید');
+    }
+
     const fileName = `${reportTitle}-${dateStr}.xlsx`;
     XLSX.writeFile(wb, fileName);
     onNotify(
@@ -838,7 +875,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     );
   };
 
-  // Core Save Catalog Book Record (reusable for both inline quick drawer and Section 3 form)
+  // Core Save Catalog Book Record (ثبت سریع قفسه بدون پنجره تأیید دومرحله‌ای و با حفظ محل کتاب در لیست)
   const handleSaveCatalogBookRecord = (
     targetRow: ReferenceCatalogRow,
     advanceToNextRow?: ReferenceCatalogRow
@@ -866,94 +903,65 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       existingRec?.source === 'outside-list' ||
       targetRow.backupSourceSheet === 'کتاب‌های خارج از فهرست';
 
-    const statusFa =
-      physicalStatus === 'verified'
-        ? 'موجود و تأییدشده در قفسه'
-        : physicalStatus === 'review'
-        ? 'نیازمند بررسی'
-        : 'پیدا نشد در قفسه';
+    const record: FieldAuditRecord = {
+      key: targetRow.rowKey,
+      source: isOutside ? 'outside-list' : 'catalog',
+      sheet: isOutside ? existingRec?.sheet || 'خارج از فهرست مرجع' : currentSheetName,
+      tempBookId: targetRow.tempBookId,
+      copyId: autoCopyId,
+      title: existingRec?.title || targetRow.titleRaw,
+      author: authorOverride.trim() || targetRow.authorRaw,
+      publisher: publisherOverride.trim() || targetRow.publisherRaw,
+      year: yearOverride.trim() || existingRec?.year || '',
+      isbn: isbnOverride.trim() || targetRow.isbnRaw,
+      fipa: fipaOverride.trim() || targetRow.fipaRaw,
+      registrationNo: regNoOverride.trim() || targetRow.registrationNoRaw,
+      descriptionRaw: existingRec?.descriptionRaw || targetRow.descriptionRaw,
+      category: categoryValue,
+      shelf: shelfValue,
+      level: levelValue,
+      location: locationCode,
+      physical: physicalStatus,
+      copyStatus:
+        physicalStatus === 'verified'
+          ? 'verified_present'
+          : physicalStatus === 'review'
+          ? 'pending_review'
+          : 'missing',
+      physicalCondition,
+      countedCopies: countedCopies.trim() || '1',
+      notes: notesValue.trim(),
+      backupSourceSheet: targetRow.backupSourceSheet,
+      backupSourceRow: targetRow.backupSourceRow,
+      updatedAt: new Date().toISOString()
+    };
 
-    requestActionConfirmation({
-      variant: physicalStatus === 'not_found' ? 'danger' : 'confirm',
-      title: 'پرسش دوم: تأیید نهایی ثبت اطلاعات کتاب در قفسه',
-      message: `آیا از ثبت و ذخیره وضعیت کتاب «${targetRow.titleRaw}» (${targetRow.tempBookId}) اطمینان دارید؟`,
-      details: [
-        `عنوان کتاب: ${targetRow.titleRaw}`,
-        `شناسه کتاب: ${targetRow.tempBookId} · کد نسخه: ${autoCopyId}`,
-        `گروه موضوعی: ${categoryValue}`,
-        `محل قفسه و طبقه: ${locationCode || 'بدون کد محل'} · وضعیت: ${statusFa}`
-      ],
-      confirmLabel: advanceToNextRow ? 'بله، ثبت نهایی و رفتن به کتاب بعدی' : 'بله، ثبت نهایی شود',
-      onConfirm: () => {
-        const record: FieldAuditRecord = {
-          key: targetRow.rowKey,
-          source: isOutside ? 'outside-list' : 'catalog',
-          sheet: isOutside ? existingRec?.sheet || 'خارج از فهرست مرجع' : currentSheetName,
-          tempBookId: targetRow.tempBookId,
-          copyId: autoCopyId,
-          title: targetRow.titleRaw,
-          author: authorOverride.trim() || targetRow.authorRaw,
-          publisher: publisherOverride.trim() || targetRow.publisherRaw,
-          year: yearOverride.trim() || existingRec?.year || '',
-          isbn: isbnOverride.trim() || targetRow.isbnRaw,
-          fipa: fipaOverride.trim() || targetRow.fipaRaw,
-          registrationNo: regNoOverride.trim() || targetRow.registrationNoRaw,
-          descriptionRaw: targetRow.descriptionRaw,
-          category: categoryValue,
-          shelf: shelfValue,
-          level: levelValue,
-          location: locationCode,
-          physical: physicalStatus,
-          copyStatus:
-            physicalStatus === 'verified'
-              ? 'verified_present'
-              : physicalStatus === 'review'
-              ? 'pending_review'
-              : 'missing',
-          physicalCondition,
-          countedCopies: countedCopies.trim() || '1',
-          notes: notesValue.trim(),
-          backupSourceSheet: targetRow.backupSourceSheet,
-          backupSourceRow: targetRow.backupSourceRow,
-          updatedAt: new Date().toISOString()
-        };
+    onSaveAuditRecord(record);
+    setLastTouchedRowKey(targetRow.rowKey);
 
-        onSaveAuditRecord(record);
-
-        if (advanceToNextRow) {
-          onNotify(
-            `✅ کتاب «${targetRow.titleRaw}» (${autoCopyId}) با موفقیت ثبت شد. کتاب بعدی آماده شد.`
-          );
-          handleSelectRow(advanceToNextRow);
-          setTimeout(() => {
-            const nextElem = document.getElementById(`book-item-${advanceToNextRow.rowKey}`);
-            if (nextElem) {
-              nextElem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
-          }, 70);
-        } else {
-          onNotify(
-            `✅ ثبت ذخیره شد: «${targetRow.titleRaw}» (${autoCopyId}) در محل ${locationCode || 'بدون محل'} (${categoryValue})`
-          );
-          setSelectedRow(null);
-          setShowSection3Drawer(false);
-          setNotesValue('');
-          setAuthorOverride('');
-          setPublisherOverride('');
-          setYearOverride('');
-          setIsbnOverride('');
-          setFipaOverride('');
-          setRegNoOverride('');
-          setCopyIdValue('');
-          setCountedCopies('1');
-          if (!isShelfLocked) {
-            setCategoryValue('');
-            setShelfValue('');
-            setLevelValue('');
-          }
+    if (advanceToNextRow) {
+      onNotify(
+        `✅ کتاب «${targetRow.titleRaw}» (${autoCopyId}) ثبت شد و کتاب بعدی باز شد.`
+      );
+      handleSelectRow(advanceToNextRow);
+      setTimeout(() => {
+        const nextElem = document.getElementById(`book-item-${advanceToNextRow.rowKey}`);
+        if (nextElem) {
+          nextElem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
-      }
-    });
+      }, 70);
+    } else {
+      onNotify(
+        `✅ تغییرات کتاب «${targetRow.titleRaw}» (${autoCopyId}) در محل ${locationCode || 'بدون محل'} ذخیره شد.`
+      );
+      // حفظ همان کتاب در حالت انتخاب‌شده و حفظ کامل جست‌وجو، فیلتر و اسکرول
+      setTimeout(() => {
+        const currentElem = document.getElementById(`book-item-${targetRow.rowKey}`);
+        if (currentElem) {
+          currentElem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }, 50);
+    }
     return true;
   };
 
@@ -1648,12 +1656,13 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
 
           <button
             type="button"
+            data-testid="quick-inventory-excel-export-btn"
             onClick={handleExportCurrentFilterExcel}
-            className="min-h-[40px] px-3.5 py-1.5 bg-[#9E5A24] hover:bg-[#83491C] text-white text-xs font-bold rounded-xl inline-flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer shrink-0"
+            className="min-h-[40px] px-3.5 py-1.5 bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold rounded-xl inline-flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer shrink-0"
             title="دریافت فایل اکسل از فهرست فعلی به تاریخ امروز"
           >
             <FileSpreadsheet className="w-4 h-4 shrink-0" />
-            <span>خروجی Excel این لیست ({toPersianDigits(allMatchingRows.length)})</span>
+            <span>خروجی Excel ({toPersianDigits(allMatchingRows.length)})</span>
           </button>
         </div>
 
@@ -1697,6 +1706,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                   savedRec?.physical === 'verified' &&
                   savedRec?.copyStatus === 'verified_present';
                 const isChosen = selectedRow?.rowKey === row.rowKey;
+                const isLastTouched = !isChosen && lastTouchedRowKey === row.rowKey;
                 const nextRow = filteredRows[idx + 1];
 
                 return (
@@ -1706,6 +1716,8 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                     className={`w-full rounded-2xl border transition-all text-right overflow-hidden ${
                       isChosen
                         ? 'border-2 border-[#1f4e79] bg-white shadow-md ring-2 ring-[#1f4e79]/15'
+                        : isLastTouched
+                        ? 'border-2 border-[#2E6F40] bg-emerald-50/50 shadow-sm ring-2 ring-[#2E6F40]/20'
                         : isOutsideBook
                         ? isOutsideApproved
                           ? 'border-emerald-300 bg-emerald-50/40 hover:bg-emerald-50/70'
@@ -1720,6 +1732,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                       role="button"
                       tabIndex={0}
                       onClick={() => {
+                        setLastTouchedRowKey(row.rowKey);
                         if (isChosen) {
                           setSelectedRow(null);
                         } else {

@@ -117,18 +117,25 @@ export class DirectWebRtcSessionManager {
   private addedRemoteCandidateKeys = new Set<string>();
   private connectionTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private connectionTimeoutMs: number;
+  private heartbeatIntervalId: ReturnType<typeof setInterval> | null = null;
+  private disconnectedGraceTimerId: ReturnType<typeof setTimeout> | null = null;
+  private lastPeerActivityMs = 0;
+  private heartbeatSentCount = 0;
+  private heartbeatReceivedCount = 0;
+  private wakeLockSentinel: { release: () => Promise<void> } | null = null;
   private pendingPhoneApproval: {
     mode: 'peer-side' | 'host-side';
     request: PendingPhoneApprovalRequest;
     sessionDoc: WebRtcSignalingDocument;
   } | null = null;
   private readonly boundWindowUnloadHandler: () => void;
+  private readonly boundVisibilityChangeHandler: () => void;
 
   constructor(
     localDeviceId: string,
     localRole: DeviceSyncRole,
     callbacks: PeerConnectionCallbacks,
-    connectionTimeoutMs = 60000
+    connectionTimeoutMs = 90000
   ) {
     this.localDeviceId = localDeviceId;
     this.localRole = localRole;
@@ -139,9 +146,26 @@ export class DirectWebRtcSessionManager {
       this.closeConnection(false);
     };
 
+    this.boundVisibilityChangeHandler = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        if (this.isConnected() || this.activeSessionId) {
+          void this.acquireWakeLock();
+          if (this.isConnected()) {
+            this.sendWireMessage({
+              type: 'PING_HEARTBEAT',
+              timestampMs: Date.now(),
+            });
+          }
+        }
+      }
+    };
+
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       window.addEventListener('beforeunload', this.boundWindowUnloadHandler);
       window.addEventListener('pagehide', this.boundWindowUnloadHandler);
+    }
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', this.boundVisibilityChangeHandler);
     }
   }
 
@@ -157,6 +181,18 @@ export class DirectWebRtcSessionManager {
     return this.activeSessionId;
   }
 
+  public getLastPeerActivityMs(): number {
+    return this.lastPeerActivityMs;
+  }
+
+  public getHeartbeatStats(): { sent: number; received: number; lastPeerActivityMs: number } {
+    return {
+      sent: this.heartbeatSentCount,
+      received: this.heartbeatReceivedCount,
+      lastPeerActivityMs: this.lastPeerActivityMs,
+    };
+  }
+
   public getPendingPhoneApproval(): PendingPhoneApprovalRequest | null {
     return this.pendingPhoneApproval ? this.pendingPhoneApproval.request : null;
   }
@@ -168,6 +204,9 @@ export class DirectWebRtcSessionManager {
     if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
       window.removeEventListener('beforeunload', this.boundWindowUnloadHandler);
       window.removeEventListener('pagehide', this.boundWindowUnloadHandler);
+    }
+    if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+      document.removeEventListener('visibilitychange', this.boundVisibilityChangeHandler);
     }
     this.closeConnection(false);
   }
@@ -773,6 +812,10 @@ export class DirectWebRtcSessionManager {
 
     channel.onopen = () => {
       this.clearConnectionTimeout();
+      this.clearDisconnectedGraceTimer();
+      this.lastPeerActivityMs = Date.now();
+      this.startHeartbeatLoop();
+      void this.acquireWakeLock();
       this.callbacks.onStatusChange(
         'connected',
         'کانال مستقیم WebRTC (DTLS) باز شد؛ در حال تبادل پیام معرفی (Handshake) و شروع همگام‌سازی خودکار...'
@@ -806,7 +849,7 @@ export class DirectWebRtcSessionManager {
     channel.onclose = () => {
       void this.cleanupSignalingAndLocalResources(
         'disconnected',
-        'کانال مستقیم DataChannel بسته شد.'
+        'کانال مستقیم DataChannel توسط دستگاه مقابل یا سیستم‌عامل بسته شد.'
       );
     };
 
@@ -823,6 +866,14 @@ export class DirectWebRtcSessionManager {
     try {
       msg = JSON.parse(rawText) as WireMessage;
     } catch {
+      return;
+    }
+
+    this.lastPeerActivityMs = Date.now();
+    this.clearDisconnectedGraceTimer();
+
+    if (msg.type === 'PING_HEARTBEAT') {
+      this.heartbeatReceivedCount += 1;
       return;
     }
 
@@ -1007,18 +1058,101 @@ export class DirectWebRtcSessionManager {
     }
   }
 
+  private startHeartbeatLoop(): void {
+    this.stopHeartbeatLoop();
+    this.heartbeatIntervalId = setInterval(() => {
+      if (this.dataChannel && this.dataChannel.readyState === 'open') {
+        this.heartbeatSentCount += 1;
+        this.sendWireMessage({
+          type: 'PING_HEARTBEAT',
+          timestampMs: Date.now(),
+        });
+      }
+    }, 10000);
+  }
+
+  private stopHeartbeatLoop(): void {
+    if (this.heartbeatIntervalId !== null) {
+      clearInterval(this.heartbeatIntervalId);
+      this.heartbeatIntervalId = null;
+    }
+  }
+
+  private clearDisconnectedGraceTimer(): void {
+    if (this.disconnectedGraceTimerId !== null) {
+      clearTimeout(this.disconnectedGraceTimerId);
+      this.disconnectedGraceTimerId = null;
+    }
+  }
+
+  private async acquireWakeLock(): Promise<void> {
+    try {
+      if (
+        typeof navigator !== 'undefined' &&
+        'wakeLock' in navigator &&
+        (navigator as unknown as { wakeLock?: { request: (type: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock
+      ) {
+        if (!this.wakeLockSentinel) {
+          this.wakeLockSentinel = await (
+            navigator as unknown as { wakeLock: { request: (type: 'screen') => Promise<{ release: () => Promise<void> }> } }
+          ).wakeLock.request('screen');
+        }
+      }
+    } catch {
+      // مرورگر یا وضعیت صفحه اجازه WakeLock نداد؛ بدون خطا ادامه می‌دهیم
+    }
+  }
+
+  private releaseWakeLock(): void {
+    if (this.wakeLockSentinel) {
+      const sentinel = this.wakeLockSentinel;
+      this.wakeLockSentinel = null;
+      void sentinel.release().catch(() => {});
+    }
+  }
+
   private setupPeerConnectionStateHandlers(pc: RTCPeerConnection): void {
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
+      if (state === 'connected') {
+        this.clearDisconnectedGraceTimer();
+        return;
+      }
       if (state === 'failed') {
+        this.clearDisconnectedGraceTimer();
         void this.cleanupSignalingAndLocalResources(
           'connection-error',
-          'اتصال مستقیم نظیربه‌نظیر (WebRTC) به علت محدودیت شبکه یا فایروال برقرار نشد و نشست موقت پاک‌سازی گردید. طبق سیاست امنیتی، استفاده از TURN Relay به‌صورت پیش‌فرض غیرفعال است.'
+          'اتصال مستقیم نظیربه‌نظیر (WebRTC) به علت قطع شبکه، تغییر Wi-Fi یا محدودیت فایروال خاتمه یافت.'
         );
-      } else if (state === 'disconnected' || state === 'closed') {
+      } else if (state === 'disconnected') {
+        // در WebRTC وضعیت disconnected موقت است (مثلاً نوسان چندثانیه‌ای وای‌فای یا کم‌نور شدن صفحه گوشی).
+        // به جای قطع فوری، ۲۰ ثانیه فرصت بازیابی خودکار می‌دهیم و یک پالس Keep-Alive ارسال می‌کنیم.
+        this.sendWireMessage({
+          type: 'PING_HEARTBEAT',
+          timestampMs: Date.now(),
+        });
+        if (this.disconnectedGraceTimerId === null) {
+          this.disconnectedGraceTimerId = setTimeout(() => {
+            this.disconnectedGraceTimerId = null;
+            if (
+              this.pc &&
+              (this.pc.connectionState === 'disconnected' ||
+                this.pc.connectionState === 'failed' ||
+                this.pc.connectionState === 'closed') &&
+              (!this.dataChannel || this.dataChannel.readyState !== 'open' || Date.now() - this.lastPeerActivityMs > 18000)
+            ) {
+              void this.cleanupSignalingAndLocalResources(
+                'disconnected',
+                'اتصال مستقیم بین دو دستگاه پس از ۲۰ ثانیه عدم پاسخ شبکه یا خاموش شدن صفحه گوشی قطع شد.'
+              );
+            }
+          }, 20000);
+        }
+      } else if (state === 'closed') {
+        this.clearDisconnectedGraceTimer();
         void this.cleanupSignalingAndLocalResources(
           'disconnected',
-          'اتصال مستقیم بین دو دستگاه قطع شد و منابع نشست آزاد گردید.'
+          'اتصال مستقیم بین دو دستگاه بسته شد و منابع نشست آزاد گردید.'
         );
       }
     };
@@ -1048,6 +1182,9 @@ export class DirectWebRtcSessionManager {
     reasonMessage: string
   ): Promise<void> {
     this.clearConnectionTimeout();
+    this.clearDisconnectedGraceTimer();
+    this.stopHeartbeatLoop();
+    this.releaseWakeLock();
 
     if (this.incomingBuffers.size > 0) {
       for (const interruptedPkgId of this.incomingBuffers.keys()) {
@@ -1125,6 +1262,9 @@ export class DirectWebRtcSessionManager {
 
   public closeConnection(notify = true): void {
     this.clearConnectionTimeout();
+    this.clearDisconnectedGraceTimer();
+    this.stopHeartbeatLoop();
+    this.releaseWakeLock();
     if (this.unsubscribeSignaling) {
       this.unsubscribeSignaling();
       this.unsubscribeSignaling = null;

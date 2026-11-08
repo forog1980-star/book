@@ -548,6 +548,7 @@ export interface BookDossierMartyrRelation {
   pageReference: string;
   certainty: MartyrRelationCertainty;
   rawStatus: string;
+  sourceDescriptionRaw: string;
   evidenceText: string;
   reviewerNote: string;
   sourceFile: string;
@@ -627,7 +628,10 @@ const INCLUDED_GROUP_PHRASE_LINK_IDS = new Set([
 ]);
 
 export function classifyMartyrLinkCertainty(link: BookMartyrLinkRecord): MartyrRelationCertainty {
-  const st = link.reviewStatus || '';
+  const st = (link.reviewStatus || '').trim();
+  if (st === 'قطعی') return 'قطعی';
+  if (st === 'احتمالی') return 'احتمالی';
+  if (st === 'نیازمند بررسی') return 'نیازمند بررسی';
   if (link.isGroupPhrase || st.includes('تفکیک نام') || st.includes('نیازمند بررسی')) {
     return 'نیازمند بررسی';
   }
@@ -743,20 +747,25 @@ export function buildUnifiedBookDossiers(params: {
     const catRow =
       (lnk.tempBookId ? catalogById.get(lnk.tempBookId) : undefined) ||
       catalogByCompactTitle.get(compactPersianForMatch(lnk.bookTitleRaw));
-    const resolvedBookId = lnk.tempBookId || catRow?.tempBookId || '';
-    const resolvedTitle = catRow?.titleRaw || lnk.bookTitleRaw;
-    const groupKey = getBookGroupKey(resolvedBookId, resolvedTitle);
+    const audById = lnk.tempBookId ? auditByBookId.get(lnk.tempBookId) : undefined;
+    const resolvedBookId = lnk.tempBookId || catRow?.tempBookId || audById?.tempBookId || '';
+    const canonicalTitleForKey = catRow?.titleRaw || audById?.title || lnk.bookTitleRaw;
+    const groupKey =
+      audById?.source === 'outside-list'
+        ? `NEW::${audById.key}`
+        : getBookGroupKey(resolvedBookId, canonicalTitleForKey);
 
     if (!bookGroups.has(groupKey)) {
       const aud =
+        audById ||
         (resolvedBookId ? auditByBookId.get(resolvedBookId) : undefined) ||
         (catRow ? auditRecords[catRow.rowKey] : undefined) ||
-        auditByCompactTitle.get(compactPersianForMatch(resolvedTitle));
+        auditByCompactTitle.get(compactPersianForMatch(canonicalTitleForKey));
 
       bookGroups.set(groupKey, {
         key: groupKey,
         primaryBookId: resolvedBookId || `BK-RES-${String(bookGroups.size + 1).padStart(4, '0')}`,
-        title: aud?.title || resolvedTitle,
+        title: aud?.title || canonicalTitleForKey,
         alternativeTitle: lnk.alternativeTitle || '',
         publisher: aud?.publisher || catRow?.publisherRaw || lnk.publisherRaw || '',
         description: aud?.descriptionRaw || catRow?.descriptionRaw || lnk.sourceDescriptionRaw || '',
@@ -781,10 +790,16 @@ export function buildUnifiedBookDossiers(params: {
     const catRow =
       (aud.tempBookId ? catalogById.get(aud.tempBookId) : undefined) ||
       catalogRows.find((r) => r.rowKey === aud.key);
+    const standardKey = getBookGroupKey(
+      aud.tempBookId || catRow?.tempBookId || aud.key,
+      catRow?.titleRaw || aud.title || ''
+    );
     const groupKey =
       aud.source === 'outside-list'
-        ? `NEW::${aud.key}`
-        : getBookGroupKey(aud.tempBookId || catRow?.tempBookId || aud.key, aud.title || catRow?.titleRaw || '');
+        ? bookGroups.has(standardKey)
+          ? standardKey
+          : `NEW::${aud.key}`
+        : standardKey;
 
     if (!bookGroups.has(groupKey)) {
       bookGroups.set(groupKey, {
@@ -800,9 +815,10 @@ export function buildUnifiedBookDossiers(params: {
       });
     } else {
       const existing = bookGroups.get(groupKey)!;
-      if (!existing.auditRecord) {
-        existing.auditRecord = aud;
-      }
+      existing.auditRecord = aud;
+      if (aud.title) existing.title = aud.title;
+      if (aud.publisher) existing.publisher = aud.publisher;
+      if (aud.descriptionRaw) existing.description = aud.descriptionRaw;
     }
   }
 
@@ -880,6 +896,7 @@ export function buildUnifiedBookDossiers(params: {
         pageReference: lnk.pageReferenceRaw || 'کل کتاب / ثبت‌نشده',
         certainty,
         rawStatus: lnk.reviewStatus || 'بررسی‌شده در پژوهش اصلی',
+        sourceDescriptionRaw: lnk.sourceDescriptionRaw || '',
         evidenceText: evidenceParts.join(' | '),
         reviewerNote: lnk.reviewerNote || '',
         sourceFile: lnk.sourceFile || 'اکسل پژوهشی کتابخانه',

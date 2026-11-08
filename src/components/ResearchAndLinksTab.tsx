@@ -183,6 +183,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
   const [extractedStatusFilter, setExtractedStatusFilter] = useState<string>('all');
   const [rejectingExtractedId, setRejectingExtractedId] = useState<string | null>(null);
   const [extractedRejectReason, setExtractedRejectReason] = useState<string>('');
+  const [expandedPassageIds, setExpandedPassageIds] = useState<Record<string, boolean>>({});
 
 
   // Open PV Review Form
@@ -1031,11 +1032,12 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  data-testid="links-excel-export-btn"
                   onClick={exportLinksExcel}
-                  className="min-h-[36px] px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
                 >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>خروجی اکسل پیوندها (.xlsx)</span>
+                  <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                  <span>خروجی Excel ({toPersianDigits(allFilteredLinks.length)})</span>
                 </button>
 
                 <button
@@ -1801,13 +1803,13 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                               ({item.tempBookId})
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 font-bold text-[#332218] tabular-nums">
+                          <td className="py-2.5 px-3 font-bold text-[#332218] tabular-nums max-w-[140px] break-words [overflow-wrap:anywhere]">
                             {toPersianDigits(item.pageReferenceRaw)}
                           </td>
                           <td className="py-2.5 px-3 text-[#5C4033]">{item.contentType}</td>
-                          <td className="py-2.5 px-3 text-[#332218] leading-relaxed">
-                            <div className="font-bold">{item.passageTitle}</div>
-                            <div className="text-[11px] text-[#5C4033] line-clamp-2">{item.extractedText}</div>
+                          <td className="py-2.5 px-3 text-[#332218] leading-relaxed max-w-[320px] break-words [overflow-wrap:anywhere]">
+                            <div className="font-bold break-words">{item.passageTitle}</div>
+                            <div className="text-[11px] text-[#5C4033] line-clamp-2 break-words">{item.extractedText}</div>
                           </td>
                           <td className="py-2.5 px-3 text-center">
                             <div className="flex items-center justify-center gap-1">
@@ -2008,9 +2010,9 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                       </div>
                     )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
-                      <div className="md:col-span-9 space-y-1.5">
-                        <div className="text-xs text-[#5C4033]">
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start min-w-0 max-w-full">
+                      <div className="md:col-span-9 space-y-1.5 min-w-0 max-w-full overflow-hidden">
+                        <div className="text-xs text-[#5C4033] break-words [overflow-wrap:anywhere]">
                           کتاب: <strong className="text-[#332218]">{item.bookTitleRaw}</strong>
                           {item.publisherRaw && ` · ناشر: ${item.publisherRaw}`}
                           {' · '}
@@ -2018,17 +2020,35 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                           {item.gravePieceRaw && ` (قطعه ${toPersianDigits(item.gravePieceRaw)})`}
                         </div>
 
-                        <h4 className="text-sm sm:text-base font-bold text-[#332218]">
+                        <h4 className="text-sm sm:text-base font-bold text-[#332218] break-words [overflow-wrap:anywhere]">
                           {item.passageTitle}
                         </h4>
 
-                        <p className="text-xs sm:text-sm text-[#332218] leading-relaxed bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3">
-                          {item.extractedText}
-                        </p>
+                        <div className="text-xs sm:text-sm text-[#332218] leading-relaxed bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3 min-w-0 max-w-full overflow-hidden">
+                          <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                            {item.extractedText.length > 220 && !expandedPassageIds[item.id]
+                              ? `${item.extractedText.slice(0, 220)}...`
+                              : item.extractedText}
+                          </p>
+                          {item.extractedText.length > 220 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedPassageIds((prev) => ({
+                                  ...prev,
+                                  [item.id]: !prev[item.id]
+                                }))
+                              }
+                              className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-[#6B3E26] hover:text-[#332218] bg-white px-2.5 py-1 rounded-lg border border-[#D8C7B2] cursor-pointer"
+                            >
+                              {expandedPassageIds[item.id] ? 'بستن متن کامل ▲' : 'مشاهده ادامه مطلب ▼'}
+                            </button>
+                          )}
+                        </div>
 
                         {item.researcherNote && (
                           <div
-                            className={`text-xs p-2 rounded-lg ${
+                            className={`text-xs p-2 rounded-lg break-words [overflow-wrap:anywhere] ${
                               item.reviewStatus.includes('رد')
                                 ? 'bg-[#FDF0F0] text-[#A63A3A] border border-[#E6B8B8]'
                                 : 'text-[#6B3E26]'
@@ -2040,15 +2060,15 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                         )}
                       </div>
 
-                      <div className="md:col-span-3 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3 text-xs space-y-1.5">
-                        <div>
+                      <div className="md:col-span-3 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3 text-xs space-y-1.5 min-w-0 max-w-full overflow-hidden">
+                        <div className="min-w-0 max-w-full">
                           <span className="text-[#6E5846] block">شماره صفحه در کتاب:</span>
-                          <strong className="text-sm font-bold text-[#332218] tabular-nums block mt-0.5">
+                          <strong className="text-xs sm:text-sm font-bold text-[#332218] tabular-nums block mt-0.5 break-words [overflow-wrap:anywhere] leading-relaxed">
                             {toPersianDigits(item.pageReferenceRaw)}
                           </strong>
                         </div>
                         {(item.pageStartNormalized || item.pageEndNormalized) && (
-                          <div className="text-[11px] text-[#5C4033] tabular-nums border-t border-[#E2D2BE] pt-1">
+                          <div className="text-[11px] text-[#5C4033] tabular-nums border-t border-[#E2D2BE] pt-1 break-words [overflow-wrap:anywhere]">
                             بازه صفحه: از {toPersianDigits(item.pageStartNormalized || '—')} تا{' '}
                             {toPersianDigits(item.pageEndNormalized || '—')}
                           </div>
@@ -2181,11 +2201,12 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
               <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <button
                   type="button"
+                  data-testid="pending-reviews-excel-export-btn"
                   onClick={exportPendingReviewsExcel}
-                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
                 >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>گزارش اکسل موارد بلاتکلیف (.xlsx)</span>
+                  <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                  <span>خروجی Excel ({toPersianDigits(filteredPendingReviews.length)})</span>
                 </button>
 
                 <button

@@ -869,25 +869,40 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           data-testid="active-connection-banner"
           className="rounded-xl bg-emerald-50 border-2 border-emerald-400 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-emerald-950 shadow-xs"
         >
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />
-            <div className="text-xs sm:text-sm font-bold">
-              <span>اتصال بین دو دستگاه با موفقیت برقرار شد</span>
-              {peerDeviceInfo && (
-                <span className="font-normal text-xs text-emerald-900 mr-1.5">
-                  ({peerDeviceInfo.role === 'phone-primary' ? 'گوشی اندروید' : 'لپ‌تاپ'} ·{' '}
-                  {peerDeviceInfo.deviceId})
-                </span>
-              )}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />
+              <div className="text-xs sm:text-sm font-bold">
+                <span>اتصال بین دو دستگاه با موفقیت برقرار شد</span>
+                {peerDeviceInfo && (
+                  <span className="font-normal text-xs text-emerald-900 mr-1.5">
+                    ({peerDeviceInfo.role === 'phone-primary' ? 'گوشی اندروید' : 'لپ‌تاپ'} ·{' '}
+                    {peerDeviceInfo.deviceId})
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="text-[11px] text-emerald-800 pr-7">
+              پالس نگه‌داشت خودکار اتصال (Keep-Alive هر ۱۰ ثانیه + تحمل ۲۰ ثانیه‌ای نوسان شبکه): فعال
             </div>
           </div>
-          <button
-            type="button"
-            onClick={handleDisconnect}
-            className="px-3 py-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-900 text-xs font-bold cursor-pointer shrink-0"
-          >
-            قطع اتصال
-          </button>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              data-testid="manual-resync-btn"
+              onClick={() => void sendSyncPackageOverOpenChannel(false)}
+              className="px-3 py-1.5 rounded-lg bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold cursor-pointer"
+            >
+              ارسال مجدد تغییرات
+            </button>
+            <button
+              type="button"
+              onClick={handleDisconnect}
+              className="px-3 py-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-900 text-xs font-bold cursor-pointer"
+            >
+              قطع اتصال
+            </button>
+          </div>
         </div>
       )}
 

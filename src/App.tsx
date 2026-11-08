@@ -1814,38 +1814,37 @@ export default function App() {
 
       {/* Main Content Container (Centered & Constrained on Mobile) */}
       <main className="flex-1 w-full max-w-6xl mx-auto px-2.5 sm:px-6 py-3 sm:py-6 overflow-x-hidden space-y-5">
-        {showDeviceSyncDrawer ? (
-          <div className="space-y-4">
-            <div className="bg-white border border-[#E6D5C1] rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-3 shadow-xs">
-              <div className="flex items-center gap-2 text-sm sm:text-base font-bold text-[#332218]">
-                <RefreshCw className="w-4 h-4 text-[#8C3B2B] shrink-0" />
-                <span>صفحه اختصاصی ارتباط گوشی و انتقال اطلاعات</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowDeviceSyncDrawer(false)}
-                className="min-h-[36px] px-3.5 py-1.5 rounded-xl bg-[#8C3B2B] hover:bg-[#702D20] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
-              >
-                <ArrowRight className="w-3.5 h-3.5" />
-                <span>بازگشت به کتابخانه</span>
-              </button>
+        <div className={showDeviceSyncDrawer ? 'space-y-4' : 'hidden'}>
+          <div className="bg-white border border-[#E6D5C1] rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-2 text-sm sm:text-base font-bold text-[#332218]">
+              <RefreshCw className="w-4 h-4 text-[#8C3B2B] shrink-0" />
+              <span>صفحه اختصاصی ارتباط گوشی و انتقال اطلاعات</span>
             </div>
-            <DeviceSyncPanel
-              dataset={{
-                auditRecords,
-                bookCopies,
-                customMartyrs,
-                links,
-                pendingReviews
-              }}
-              onApplySyncedDataset={handleApplyP2PSyncedDataset}
-              onTriggerLocalBackup={() => {
-                void handleFullJsonBackupDownload();
-              }}
-            />
+            <button
+              type="button"
+              onClick={() => setShowDeviceSyncDrawer(false)}
+              className="min-h-[36px] px-3.5 py-1.5 rounded-xl bg-[#8C3B2B] hover:bg-[#702D20] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <ArrowRight className="w-3.5 h-3.5" />
+              <span>بازگشت به کتابخانه</span>
+            </button>
           </div>
-        ) : (
-        <>
+          <DeviceSyncPanel
+            dataset={{
+              auditRecords,
+              bookCopies,
+              customMartyrs,
+              links,
+              pendingReviews
+            }}
+            onApplySyncedDataset={handleApplyP2PSyncedDataset}
+            onTriggerLocalBackup={() => {
+              void handleFullJsonBackupDownload();
+            }}
+          />
+        </div>
+
+        <div className={showDeviceSyncDrawer ? 'hidden' : 'space-y-5'}>
           {/* MENU 1: HOME (خانه) */}
           {activeTab === 'home' && (
             <HomeDashboardTab
@@ -1853,63 +1852,83 @@ export default function App() {
               auditRecords={auditRecords}
               bookCopies={bookCopies}
               links={links}
-            pendingReviews={pendingReviews}
-            workbookMartyrs={workbookMartyrs}
-            customMartyrs={customMartyrs}
-            extractedItems={extractedItems}
-            smartSuggestions={smartSuggestions}
-            auditLog={auditLog}
-            globalQuery={homeGlobalQuery}
-            onChangeGlobalQuery={setHomeGlobalQuery}
-            onNavigateTab={(tab) => {
-              setShowDeviceSyncDrawer(false);
-              setActiveTab(tab);
-            }}
-            onOpenBookInLibrary={(bookQuery) => {
-              setShowDeviceSyncDrawer(false);
-              setLibrarySubView('catalog');
-              setLibraryInitialSearchQuery(bookQuery);
-              setActiveTab('library');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            onSaveVoiceOrQuickBook={(rec, newCopy) => {
-              handleSaveAuditRecord(rec);
-              if (newCopy) {
-                handleAddBookCopy(newCopy);
-              }
-            }}
-            onApproveOutsideBook={(recordKey) => {
-              const existing = auditRecords[recordKey];
-              if (!existing) return;
-              requestActionConfirmation({
-                variant: 'confirm',
-                title: 'تأیید نهایی کارشناسی کتاب جدید',
-                message: `آیا از تأیید نهایی کارشناسی کتاب «${existing.title}» (${existing.tempBookId}) اطمینان دارید؟`,
-                details: [
-                  `عنوان کتاب: ${existing.title}`,
-                  `شناسه موقت: ${existing.tempBookId} · نسخه: ${existing.copyId || '—'}`,
-                  `محل قفسه: ${existing.location || '—'} · موضوع: ${existing.category || '—'}`
-                ],
-                confirmLabel: 'بله، تأیید نهایی کارشناس انجام شود',
-                onConfirm: () => {
-                  const updated: FieldAuditRecord = {
-                    ...existing,
-                    physical: 'verified',
-                    copyStatus: 'verified_present',
-                    notes: existing.notes.replace(/در انتظار تأیید کارشناس/g, 'تأییدشده توسط کارشناس'),
-                    updatedAt: new Date().toISOString()
-                  };
-                  handleSaveAuditRecord(updated);
-                  showNotify(`✅ کتاب «${existing.title}» (${existing.tempBookId}) توسط کارشناس تأیید نهایی شد.`);
+              pendingReviews={pendingReviews}
+              workbookMartyrs={workbookMartyrs}
+              customMartyrs={customMartyrs}
+              extractedItems={extractedItems}
+              smartSuggestions={smartSuggestions}
+              auditLog={auditLog}
+              globalQuery={homeGlobalQuery}
+              onChangeGlobalQuery={setHomeGlobalQuery}
+              onNavigateTab={(tab) => {
+                setShowDeviceSyncDrawer(false);
+                setActiveTab(tab);
+              }}
+              onOpenBookInLibrary={(bookQuery) => {
+                setShowDeviceSyncDrawer(false);
+                setLibrarySubView('catalog');
+                setLibraryInitialSearchQuery(bookQuery);
+                setActiveTab('library');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onSaveVoiceOrQuickBook={(rec, newCopy) => {
+                handleSaveAuditRecord(rec);
+                if (newCopy) {
+                  handleAddBookCopy(newCopy);
                 }
-              });
-            }}
-            onDeleteAuditRecord={handleDeleteSingleRecord}
-            onDownloadUnifiedExcel={handleQuickExcelExport}
-            onDownloadFullJsonBackup={handleFullJsonBackupDownload}
-            onNotify={showNotify}
-          />
-        )}
+              }}
+              onAddLink={(newLnk) => {
+                setLinks((prev) => [newLnk, ...prev]);
+                markSessionModification();
+                appendAuditLog(
+                  'ثبت یا ویرایش ارتباط کتاب و شهید',
+                  `${newLnk.id} / ${newLnk.tempBookId}`,
+                  `ثبت ارتباط جدید میان کتاب «${newLnk.bookTitleRaw}» و شهید «${newLnk.martyrNameRaw}» از داخل پرونده کتاب`
+                );
+              }}
+              onUpdateLink={(updatedLnk) => {
+                setLinks((prev) =>
+                  prev.map((l) => (l.id === updatedLnk.id ? updatedLnk : l))
+                );
+                markSessionModification();
+                appendAuditLog(
+                  'ثبت یا ویرایش ارتباط کتاب و شهید',
+                  `${updatedLnk.id} / ${updatedLnk.tempBookId}`,
+                  `ویرایش ارتباط کتاب «${updatedLnk.bookTitleRaw}» و شهید «${updatedLnk.martyrNameRaw}» در پرونده کتاب`
+                );
+              }}
+              onApproveOutsideBook={(recordKey) => {
+                const existing = auditRecords[recordKey];
+                if (!existing) return;
+                requestActionConfirmation({
+                  variant: 'confirm',
+                  title: 'تأیید نهایی کارشناسی کتاب جدید',
+                  message: `آیا از تأیید نهایی کارشناسی کتاب «${existing.title}» (${existing.tempBookId}) اطمینان دارید؟`,
+                  details: [
+                    `عنوان کتاب: ${existing.title}`,
+                    `شناسه موقت: ${existing.tempBookId} · نسخه: ${existing.copyId || '—'}`,
+                    `محل قفسه: ${existing.location || '—'} · موضوع: ${existing.category || '—'}`
+                  ],
+                  confirmLabel: 'بله، تأیید نهایی کارشناس انجام شود',
+                  onConfirm: () => {
+                    const updated: FieldAuditRecord = {
+                      ...existing,
+                      physical: 'verified',
+                      copyStatus: 'verified_present',
+                      notes: existing.notes.replace(/در انتظار تأیید کارشناس/g, 'تأییدشده توسط کارشناس'),
+                      updatedAt: new Date().toISOString()
+                    };
+                    handleSaveAuditRecord(updated);
+                    showNotify(`✅ کتاب «${existing.title}» (${existing.tempBookId}) توسط کارشناس تأیید نهایی شد.`);
+                  }
+                });
+              }}
+              onDeleteAuditRecord={handleDeleteSingleRecord}
+              onDownloadUnifiedExcel={handleQuickExcelExport}
+              onDownloadFullJsonBackup={handleFullJsonBackupDownload}
+              onNotify={showNotify}
+            />
+          )}
 
         {/* MENU 2: LIBRARY (کتابخانه — فهرست کتاب‌ها، نسخه‌های فیزیکی، نقشه قفسه‌ها و برچسب‌ها) */}
         {activeTab === 'library' && (
@@ -2347,8 +2366,7 @@ export default function App() {
             />
           </div>
         )}
-        </>
-        )}
+        </div>
       </main>
 
       {/* Quiet Footer for Desktop */}
