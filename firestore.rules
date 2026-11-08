@@ -20,13 +20,11 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // Validates actor UID: if Firebase Auth is active, must match request.auth.uid;
-    // also supports device-bound UID fallback when browser/console Anonymous Auth is unavailable.
+    // Validates actor UID string bounds
     function isValidActorUid(uidVal) {
       return uidVal is string
         && uidVal.size() > 0
-        && uidVal.size() <= 128
-        && (request.auth == null || request.auth.uid == uidVal);
+        && uidVal.size() <= 128;
     }
 
     // Clock-skew tolerant expiration check (+/- 24h window for timezone/DST differences across devices,
@@ -129,7 +127,7 @@ service cloud.firestore {
     function isAuthorizedPeerUpdate() {
       return (
           (!('peerUid' in existing()) && 'peerUid' in incoming() && isValidActorUid(incoming().peerUid))
-          || ('peerUid' in existing() && isValidActorUid(existing().peerUid) && incoming().peerUid == existing().peerUid)
+          || ('peerUid' in existing() && (!('peerUid' in incoming()) || incoming().peerUid == existing().peerUid))
         )
         && (!('answerSdp' in existing()) || incoming().answerSdp == existing().answerSdp)
         && incoming().diff(existing()).affectedKeys().hasOnly([
@@ -147,15 +145,9 @@ service cloud.firestore {
       // Strictly forbid listing/querying sessions so no one can enumerate active pairing sessions
       allow list: if false;
 
-      // Only session host or claiming/claimed peer knowing the 192-bit sessionId can read an unexpired session
+      // Allow get when sessionId is valid (including when resource == null during initial snapshot or post-cleanup check)
       allow get: if isValidSessionId(sessionId)
-        && isNotExpired(existing())
-        && (
-          request.auth == null
-          || request.auth.uid == existing().hostUid
-          || !('peerUid' in existing())
-          || request.auth.uid == existing().peerUid
-        );
+        && (resource == null || isNotExpired(existing()));
 
       // Creating a temporary signaling session (max 10 minutes TTL)
       allow create: if isValidSessionId(sessionId)
@@ -167,7 +159,7 @@ service cloud.firestore {
         && incoming().status == 'offer-ready'
         && isNotExpired(incoming());
 
-      // Updating SDP Answer / ICE candidates within an unexpired, active session by authorized owner only
+      // Updating SDP Answer / ICE candidates within an unexpired, active session
       allow update: if isValidSessionId(sessionId)
         && isValidSignalingSession(incoming(), sessionId)
         && isNotExpired(existing())
@@ -176,13 +168,8 @@ service cloud.firestore {
         && isImmutableSignalingCorePreserved()
         && (isAuthorizedHostUpdate() || isAuthorizedPeerUpdate());
 
-      // Immediate cleanup allowed only by the session host or bound peer knowing the 192-bit sessionId
-      allow delete: if isValidSessionId(sessionId)
-        && (
-          request.auth == null
-          || request.auth.uid == existing().hostUid
-          || ('peerUid' in existing() && request.auth.uid == existing().peerUid)
-        );
+      // Immediate cleanup allowed for any client knowing the 192-bit sessionId
+      allow delete: if isValidSessionId(sessionId);
     }
   }
 }

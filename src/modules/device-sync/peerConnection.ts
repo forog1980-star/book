@@ -280,9 +280,10 @@ export class DirectWebRtcSessionManager {
         async (docData) => {
           if (!this.pc) return;
 
-          // اگر دستگاه مقابل درخواست اتصال را رد کند، نشست را ببندد یا سند موقت حذف شود (قبل از برقراری ارتباط)
+          // اگر دستگاه مقابل صراحتاً نشست را بسته یا منقضی کرده باشد (قبل از برقراری ارتباط)
           if (
-            (!docData || docData.status === 'closed' || docData.status === 'expired') &&
+            docData &&
+            (docData.status === 'closed' || docData.status === 'expired') &&
             !this.appliedRemoteAnswer &&
             !this.isConnected()
           ) {
@@ -312,6 +313,9 @@ export class DirectWebRtcSessionManager {
           }
         },
         (err) => {
+          if (this.isConnected() || this.appliedRemoteAnswer || this.signalingDocCleaned) {
+            return;
+          }
           void this.cleanupSignalingAndLocalResources(
             'connection-error',
             `خطا در هماهنگی اولیه اتصال: ${err.message}`
@@ -530,7 +534,8 @@ export class DirectWebRtcSessionManager {
         sessionId,
         async (updatedDoc) => {
           if (
-            (!updatedDoc || updatedDoc.status === 'closed' || updatedDoc.status === 'expired') &&
+            updatedDoc &&
+            (updatedDoc.status === 'closed' || updatedDoc.status === 'expired') &&
             !this.isConnected()
           ) {
             this.signalingDocCleaned = true;
@@ -557,6 +562,9 @@ export class DirectWebRtcSessionManager {
           }
         },
         (err) => {
+          if (this.isConnected() || this.signalingDocCleaned) {
+            return;
+          }
           void this.cleanupSignalingAndLocalResources(
             'connection-error',
             `خطا در دریافت کاندیداهای شبکه: ${err.message}`

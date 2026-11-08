@@ -1,18 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
+import jsQR from 'jsqr';
 import {
   AlertTriangle,
   ArrowLeftRight,
   Camera,
   CheckCircle2,
-  Copy,
-  DatabaseBackup,
   Download,
   Laptop,
   Lock,
   QrCode,
   RotateCcw,
-  Send,
   ShieldCheck,
   Smartphone,
   Trash2,
@@ -40,7 +38,6 @@ import {
   applyApprovedSyncReport,
   createSyncTransferPackage,
   executeDurableSyncPackageApplication,
-  extractLocalEnvelopesMap,
   isStrictValidTransferAck,
   markPackageSentInBaseline,
   restoreRecordIntoDataset,
@@ -111,6 +108,14 @@ export interface LastSyncBreakdown {
   timestampMs: number;
 }
 
+const DEFAULT_SELECTED_COLLECTIONS: SyncCollectionName[] = [
+  'auditRecords',
+  'bookCopies',
+  'customMartyrs',
+  'links',
+  'pendingReviews',
+];
+
 export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
   dataset,
   onApplySyncedDataset,
@@ -119,16 +124,12 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
   const [localDeviceId] = useState<string>(() => getOrCreateLocalDeviceId());
   const [localRole, setLocalRole] = useState<DeviceSyncRole>(() => getSavedDeviceRole());
   const [status, setStatus] = useState<ConnectionUiStatus>('ready');
-  const [statusMessage, setStatusMessage] = useState<string>(
-    'آماده اتصال مستقیم با QR Code: هر یک از دو دستگاه (گوشی یا لپ‌تاپ) می‌تواند QR تولید کند و دستگاه دیگر با اسکن آن مستقیماً متصل شده و همگام‌سازی خودکار دوطرفه را آغاز می‌کند.'
-  );
+  const [statusMessage, setStatusMessage] = useState<string>('آماده برقراری اتصال');
 
   // وضعیت نشست آغازشده در دستگاه میزبان (گوشی یا لپ‌تاپ)
   const [laptopSessionCreds, setLaptopSessionCreds] =
     useState<LaptopInitiatedSessionCredentials | null>(null);
 
-  // وضعیت اسکن یا ورود توکن QR در دستگاه دوم
-  const [scannedQrInput, setScannedQrInput] = useState<string>('');
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<string>('');
 
@@ -138,11 +139,11 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
   } | null>(null);
   const [signalingCleanedSessionId, setSignalingCleanedSessionId] = useState<string>('');
 
-  // شمارنده‌های نشست فعلی طبق بخش ۲ و ۶ دستور اجرایی
+  // شمارنده‌های نشست فعلی
   const [sessionSentRecordsCount, setSessionSentRecordsCount] = useState<number>(0);
   const [sessionReceivedRecordsCount, setSessionReceivedRecordsCount] = useState<number>(0);
 
-  // شمارنده‌های قبل و بعد از همگام‌سازی برای تست واقعی دو دستگاه (بخش ۶)
+  // شمارنده‌های قبل و بعد از همگام‌سازی
   const [localPreSyncCounts, setLocalPreSyncCounts] = useState<{
     auditCount: number;
     totalCount: number;
@@ -159,16 +160,6 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     null
   );
   const [lastBaselineAckPackageId, setLastBaselineAckPackageId] = useState<string>('');
-
-  const [selectedCollections, setSelectedCollections] = useState<SyncCollectionName[]>([
-    'auditRecords',
-    'bookCopies',
-    'customMartyrs',
-    'links',
-    'pendingReviews',
-  ]);
-  const [filterOnlySelectedBooks, setFilterOnlySelectedBooks] = useState<boolean>(false);
-  const [selectedBookKeys, setSelectedBookKeys] = useState<string[]>([]);
 
   const [transferProgress, setTransferProgress] = useState<{
     packageId: string;
@@ -193,6 +184,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isHandlingScannedQrRef = useRef<boolean>(false);
 
   const datasetRef = useRef<OperationalSyncDataset>(dataset);
   useEffect(() => {
@@ -204,17 +196,12 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     roleRef.current = localRole;
   }, [localRole]);
 
-  const selectedCollectionsRef = useRef<SyncCollectionName[]>(selectedCollections);
-  useEffect(() => {
-    selectedCollectionsRef.current = selectedCollections;
-  }, [selectedCollections]);
-
   const onApplySyncedDatasetRef = useRef(onApplySyncedDataset);
   useEffect(() => {
     onApplySyncedDatasetRef.current = onApplySyncedDataset;
   }, [onApplySyncedDataset]);
 
-  // نگهداری بسته‌های ارسال‌شده که هنوز ACK اعمال واقعی از دستگاه مقصد دریافت نکرده‌اند (بخش ۵ دستور اجرایی)
+  // نگهداری بسته‌های ارسال‌شده که هنوز ACK اعمال واقعی از دستگاه مقصد دریافت نکرده‌اند
   const pendingSentPackagesRef = useRef<Map<string, SyncTransferPackage>>(new Map());
 
   const sessionManagerRef = useRef<DirectWebRtcSessionManager | null>(null);
@@ -236,7 +223,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     setIsCameraScannerOpen(false);
   }, []);
 
-  // دانلود مستقیم فایل پشتیبان JSON روی دستگاه فعلی (بخش ۶ دستور اجرایی)
+  // دانلود مستقیم فایل پشتیبان JSON روی دستگاه فعلی
   const handleDownloadLocalJsonBackup = useCallback(() => {
     try {
       const currentCounts = countDatasetRecords(datasetRef.current);
@@ -270,8 +257,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     }
   }, [localDeviceId, onTriggerLocalBackup]);
 
-  // ارسال بسته همگام‌سازی در نشست فعال (به‌صورت خودکار پس از اتصال و یا دستی)
-  // طبق بخش ۵ دستور اجرایی: Baseline در این لحظه به‌روز نمی‌شود؛ بلکه فقط پس از دریافت TRANSFER_ACK اعمال واقعی به‌روز می‌گردد.
+  // ارسال بسته همگام‌سازی در نشست فعال
   const sendSyncPackageOverOpenChannel = useCallback(
     async (isAutoBidirectional = false) => {
       const mgr = sessionManagerRef.current;
@@ -290,11 +276,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           dataset: datasetRef.current,
           localDeviceId,
           localRole: roleRef.current,
-          selectedCollections: selectedCollectionsRef.current,
-          onlyRecordKeys:
-            !isAutoBidirectional && filterOnlySelectedBooks && selectedBookKeys.length > 0
-              ? selectedBookKeys
-              : undefined,
+          selectedCollections: DEFAULT_SELECTED_COLLECTIONS,
         });
 
         pendingSentPackagesRef.current.set(pkg.packageId, pkg);
@@ -306,7 +288,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         setStatusMessage(`خطا در ارسال بسته همگام‌سازی: ${msg}`);
       }
     },
-    [filterOnlySelectedBooks, localDeviceId, selectedBookKeys]
+    [localDeviceId]
   );
 
   useEffect(() => {
@@ -317,6 +299,9 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         setStatus(nextStatus);
         if (detail) {
           setStatusMessage(detail);
+        }
+        if (nextStatus === 'connected') {
+          setLaptopSessionCreds(null);
         }
         if (nextStatus === 'disconnected' || nextStatus === 'connection-error') {
           setTransferProgress(null);
@@ -331,7 +316,6 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
       },
       onChannelReadyForAutoSync: () => {
         setLocalPreSyncCounts((prev) => prev ?? countDatasetRecords(datasetRef.current));
-        // به محض برقراری اتصال WebRTC، همگام‌سازی خودکار دوطرفه بدون نیاز به تأیید دستی جداگانه آغاز می‌شود
         void sendSyncPackageOverOpenChannel(true);
       },
       onTransferProgress: (packageId, received, total) => {
@@ -349,20 +333,19 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           conflictCount: number
         ) =>
           appliedNewCount > 0 || appliedModifiedCount > 0 || conflictCount > 0
-            ? `همگام‌سازی خودکار انجام شد: ${toPersianDigits(
+            ? `اتصال برقرار شد و همگام‌سازی خودکار انجام گردید: ${toPersianDigits(
                 appliedNewCount
               )} رکورد جدید اضافه شد، ${toPersianDigits(
                 appliedModifiedCount
-              )} رکورد تغییرکرده/تکمیلی ادغام شد، ${toPersianDigits(
+              )} رکورد تغییرکرده ادغام شد، ${toPersianDigits(
                 unchangedCount
-              )} رکورد تکراری نادیده گرفته شد و ${toPersianDigits(
+              )} رکورد مشترک یکسان بود و ${toPersianDigits(
                 conflictCount
               )} مورد تعارض ثبت گردید.`
-            : `همگام‌سازی خودکار کامل شد: تمام ${toPersianDigits(
+            : `اتصال برقرار شد و همگام‌سازی کامل گردید: تمام ${toPersianDigits(
                 unchangedCount
-              )} رکورد مشترک یکسان بودند و هیچ رکورد تکراری ایجاد نشد.`;
+              )} رکورد مشترک یکسان بودند.`;
 
-        // اجرای ترتیب قطعی ۷ مرحله‌ای: تحلیل غیراخلال‌گر -> اعمال -> ذخیره پایدار در مقصد -> تأیید ذخیره -> ارسال TRANSFER_ACK
         const appResult = await executeDurableSyncPackageApplication({
           pkg,
           currentDataset: datasetRef.current,
@@ -419,10 +402,8 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           ackMessage,
         } = appResult;
 
-        // به‌روزرسانی مرجع داده محلی تنها پس از اطمینان از ذخیره پایدار
         datasetRef.current = nextDataset;
 
-        // مرحله ۶: ارسال تأییدیه رسمی دریافت، اعمال و ذخیره پایدار (TRANSFER_ACK با ok: true و applied: true)
         mgr.sendPackageAppliedAck(ackMessage);
 
         setLastSyncBreakdown({
@@ -448,7 +429,6 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         setTransferHistory(updatedHist);
         setSoftDeletedArchive(loadSoftDeletedArchive());
 
-        // در صورت وجود تعارض واقعی یا هم‌عنوان مبهم، هر دو نسخه در بخش تعارض‌ها ثبت و نمایش داده می‌شوند تا هیچ داده‌ای بازنویسی کورکورانه نشود
         if (report.conflicts.length > 0) {
           setPendingPreviewReport({
             ...report,
@@ -465,7 +445,6 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         setStatusMessage(summaryText);
       },
       onPackageAckReceived: (ack) => {
-        // اصلاح اول: شرط پذیرش ACK و به‌روزرسانی Baseline باید صراحتاً ack.ok === true && ack.applied === true باشد
         if (ack.ok === true && ack.applied === true && isStrictValidTransferAck(ack)) {
           const sentPkg = pendingSentPackagesRef.current.get(ack.packageId);
           if (sentPkg) {
@@ -503,7 +482,6 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
       onTransferInterrupted: (packageId, reason) => {
         setTransferProgress(null);
         const wasPendingSent = pendingSentPackagesRef.current.has(packageId);
-        // بسته ناقص از صف انتظار حذف می‌شود بدون اینکه Baseline به‌روز شود
         pendingSentPackagesRef.current.delete(packageId);
 
         const updatedHist = appendTransferHistory({
@@ -560,13 +538,13 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     }
   };
 
-  // اسکن یا ورود QR Code در دستگاه دیگر و اتصال مستقیم بدون مرحله تأیید اضافی (بخش ۲ دستور اجرایی)
+  // اتصال مستقیم به محض اسکن QR Code
   const handleInspectScannedQrOnPhone = useCallback(
     async (rawQrText: string) => {
       const cleaned = String(rawQrText || '').trim();
       if (!cleaned) {
         setStatus('connection-error');
-        setStatusMessage('لطفاً ابتدا QR Code نمایش‌داده‌شده در دستگاه دیگر را اسکن یا وارد کنید.');
+        setStatusMessage('لطفاً QR Code نمایش‌داده‌شده در دستگاه دیگر را اسکن کنید.');
         return;
       }
       try {
@@ -589,25 +567,34 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     [stopCameraScanner]
   );
 
-  // باز کردن دوربین برای اسکن مستقیم QR Code
+  // باز کردن دوربین برای اسکن مستقیم QR Code (با پشتیبانی هم‌زمان BarcodeDetector و رمزگشای جهانی jsQR در تمام مرورگرها)
   const handleOpenPhoneCameraScanner = async () => {
     setCameraError('');
+    isHandlingScannedQrRef.current = false;
+
     if (
       typeof navigator === 'undefined' ||
       !navigator.mediaDevices ||
       typeof navigator.mediaDevices.getUserMedia !== 'function'
     ) {
-      setCameraError(
-        'دسترسی به دوربین در این مرورگر پشتیبانی نمی‌شود. می‌توانید رشته QR را در کادر پایین جای‌گذاری کنید.'
-      );
+      setCameraError('دسترسی به دوربین در این مرورگر امکان‌پذیر نیست.');
       return;
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-        audio: false,
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false,
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      }
+
       cameraStreamRef.current = stream;
       setIsCameraScannerOpen(true);
 
@@ -626,26 +613,55 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         }
       ).BarcodeDetector;
 
-      if (BarcodeDetectorCtor) {
-        const detector = new BarcodeDetectorCtor({ formats: ['qr_code'] });
-        scanIntervalRef.current = setInterval(async () => {
-          if (!videoRef.current || videoRef.current.readyState < 2) return;
+      const nativeDetector = BarcodeDetectorCtor
+        ? new BarcodeDetectorCtor({ formats: ['qr_code'] })
+        : null;
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+      scanIntervalRef.current = setInterval(async () => {
+        if (isHandlingScannedQrRef.current) return;
+        const videoEl = videoRef.current;
+        if (!videoEl || videoEl.readyState < 2) return;
+
+        let detectedRawValue = '';
+
+        // ۱. تلاش اول با BarcodeDetector بومی در صورت وجود
+        if (nativeDetector) {
           try {
-            const barcodes = await detector.detect(videoRef.current);
+            const barcodes = await nativeDetector.detect(videoEl);
             if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
-              const rawVal = barcodes[0].rawValue;
-              setScannedQrInput(rawVal);
-              await handleInspectScannedQrOnPhone(rawVal);
+              detectedRawValue = barcodes[0].rawValue;
+            }
+          } catch {
+            // ادامه با رمزگشای jsQR
+          }
+        }
+
+        // ۲. رمزگشای جهانی jsQR روی فریم ویدئو (قابل اجرا در تمام مرورگرهای ویندوز، اندروید و آیفون)
+        if (!detectedRawValue && ctx && videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+          try {
+            canvas.width = videoEl.videoWidth;
+            canvas.height = videoEl.videoHeight;
+            ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: 'attemptBoth',
+            });
+            if (code && code.data) {
+              detectedRawValue = code.data;
             }
           } catch {
             // ادامه تلاش در فریم بعدی
           }
-        }, 350);
-      } else {
-        setCameraError(
-          'مرورگر فعلی فاقد رمزگشای خودکار BarcodeDetector است؛ لطفاً از Chrome اندروید استفاده کنید یا توکن QR را در کادر زیر وارد نمایید.'
-        );
-      }
+        }
+
+        if (detectedRawValue && !isHandlingScannedQrRef.current) {
+          isHandlingScannedQrRef.current = true;
+          await handleInspectScannedQrOnPhone(detectedRawValue);
+        }
+      }, 250);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setCameraError(`خطا در باز کردن دوربین: ${msg}`);
@@ -803,29 +819,10 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
 
   const currentLocalCounts = useMemo(() => countDatasetRecords(dataset), [dataset]);
 
-  const localEnvelopesCount = useMemo(() => {
-    return extractLocalEnvelopesMap(
-      dataset,
-      localDeviceId,
-      localRole,
-      selectedCollections
-    ).size;
-  }, [dataset, localDeviceId, localRole, selectedCollections]);
-
-  const auditEntriesList = useMemo(() => {
-    return Object.values(dataset.auditRecords || {});
-  }, [dataset.auditRecords]);
-
   const activeConflictsCount = useMemo(() => {
     if (!pendingPreviewReport) return 0;
     return pendingPreviewReport.conflicts.length;
   }, [pendingPreviewReport]);
-
-  const toggleCollectionSelection = (col: SyncCollectionName) => {
-    setSelectedCollections((prev) =>
-      prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]
-    );
-  };
 
   const statusBadgeStyle: Record<ConnectionUiStatus, string> = {
     ready: 'bg-slate-100 text-slate-800 border-slate-300',
@@ -838,26 +835,23 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     disconnected: 'bg-slate-200 text-slate-800 border-slate-400',
   };
 
+  const isConnectionActive =
+    status === 'connected' || status === 'transferring' || status === 'transfer-success';
+
   return (
     <section
       aria-label="ارتباط گوشی و لپ‌تاپ"
       className="bg-white rounded-2xl border-2 border-[#D9C2A7] shadow-xs p-4 sm:p-6 space-y-5"
     >
-      {/* هدر بخش مستقل ارتباط گوشی و لپ‌تاپ */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-[#E6D5C1]">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <ArrowLeftRight className="w-5 h-5 text-[#8C3B2B] shrink-0" />
-            <h2 className="font-titr text-base sm:text-lg font-bold text-[#332218]">
-              همگام‌سازی مستقیم گوشی و لپ‌تاپ با QR Code (WebRTC DataChannel بدون ذخیره در ابر)
-            </h2>
-          </div>
-          <p className="text-xs text-[#6E5849] leading-relaxed">
-            هر یک از دو دستگاه (گوشی یا لپ‌تاپ) می‌تواند QR Code تولید کند و دستگاه دیگر با اسکن آن مستقیماً متصل می‌شود. به محض اتصال، همگام‌سازی دوطرفه به‌طور خودکار انجام می‌شود: رکوردهای جدید اضافه می‌شوند، تغییرات تکمیلی ادغام می‌گردند، هیچ رکوردی حذف نمی‌شود و در صورت وجود تعارض واقعی هر دو نسخه برای انتخاب شما حفظ می‌شوند.
-          </p>
+      {/* هدر بخش ارتباط گوشی و لپ‌تاپ (بدون جملات توضیحی اضافی) */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#E6D5C1]">
+        <div className="flex items-center gap-2">
+          <ArrowLeftRight className="w-5 h-5 text-[#8C3B2B] shrink-0" />
+          <h2 className="font-titr text-base sm:text-lg font-bold text-[#332218]">
+            همگام‌سازی مستقیم گوشی و لپ‌تاپ با QR Code
+          </h2>
         </div>
 
-        {/* نشانگر وضعیت اتصال */}
         <div className="flex items-center gap-2 shrink-0">
           <span
             data-testid="device-sync-status-badge"
@@ -869,10 +863,42 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         </div>
       </div>
 
-      {/* پیام وضعیت فعلی و تأیید پاک‌سازی Signaling و ACK */}
+      {/* بنر واضح برقراری اتصال */}
+      {isConnectionActive && (
+        <div
+          data-testid="active-connection-banner"
+          className="rounded-xl bg-emerald-50 border-2 border-emerald-400 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-emerald-950 shadow-xs"
+        >
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />
+            <div className="text-xs sm:text-sm font-bold">
+              <span>اتصال بین دو دستگاه با موفقیت برقرار شد</span>
+              {peerDeviceInfo && (
+                <span className="font-normal text-xs text-emerald-900 mr-1.5">
+                  ({peerDeviceInfo.role === 'phone-primary' ? 'گوشی اندروید' : 'لپ‌تاپ'} ·{' '}
+                  {peerDeviceInfo.deviceId})
+                </span>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleDisconnect}
+            className="px-3 py-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-900 text-xs font-bold cursor-pointer shrink-0"
+          >
+            قطع اتصال
+          </button>
+        </div>
+      )}
+
+      {/* پیام وضعیت فعلی */}
       <div className="rounded-xl bg-[#FDF8F2] border border-[#E6D5C1] p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-[#4A3525]">
         <div className="flex items-center gap-2">
-          <Lock className="w-4 h-4 text-[#2E6F40] shrink-0" />
+          {status === 'connection-error' ? (
+            <AlertTriangle className="w-4 h-4 text-rose-700 shrink-0" />
+          ) : (
+            <Lock className="w-4 h-4 text-[#2E6F40] shrink-0" />
+          )}
           <span className="font-medium leading-relaxed">{statusMessage}</span>
         </div>
         <div className="flex flex-wrap items-center gap-1.5 shrink-0">
@@ -881,18 +907,28 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               data-testid="baseline-ack-badge"
               className="px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-300 text-blue-900 font-bold text-[11px]"
             >
-              تأیید اعمال بسته ({lastBaselineAckPackageId}) دریافت و Baseline به‌روز شد
+              تأیید اعمال بسته ({lastBaselineAckPackageId}) دریافت شد
             </span>
           )}
           {signalingCleanedSessionId && (
             <span className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-900 font-bold text-[11px]">
-              نشست موقت Signaling ({maskSessionIdForDisplay(signalingCleanedSessionId)}) پاک‌سازی شد
+              نشست موقت ({maskSessionIdForDisplay(signalingCleanedSessionId)}) پاک‌سازی شد
             </span>
           )}
         </div>
       </div>
 
-      {/* خلاصه آماری وضعیت انتقال در نشست فعلی (بخش ۲ دستور اجرایی) */}
+      {transferProgress && (
+        <div className="rounded-xl bg-blue-50 border border-blue-200 p-2.5 text-xs text-blue-950 font-bold flex items-center justify-between">
+          <span>در حال انتقال قطعات بسته ({transferProgress.packageId})...</span>
+          <span>
+            قطعه {toPersianDigits(transferProgress.received)} از{' '}
+            {toPersianDigits(transferProgress.total)}
+          </span>
+        </div>
+      )}
+
+      {/* خلاصه آماری وضعیت انتقال در نشست فعلی */}
       <div
         data-testid="sync-session-metrics"
         className="grid grid-cols-2 sm:grid-cols-4 gap-2.5"
@@ -932,21 +968,12 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         </div>
       </div>
 
-      {/* پنل آماده‌سازی و پایش تست واقعی دو دستگاه (بخش ۶ دستور اجرایی) */}
+      {/* موجودی این دستگاه و دستگاه مقابل (بدون عنوان و توضیحات اضافی) */}
       <div
         data-testid="two-device-test-readiness-box"
         className="rounded-2xl border-2 border-[#D9C2A7] bg-[#FAF3EA]/70 p-4 space-y-3"
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-[#E6D5C1]">
-          <div>
-            <h3 className="text-xs sm:text-sm font-bold text-[#332218] flex items-center gap-1.5">
-              <DatabaseBackup className="w-4 h-4 text-[#8C3B2B]" />
-              <span>وضعیت موجودی قبل و بعد از همگام‌سازی و پشتیبان‌گیری JSON (ویژه تست واقعی دو دستگاه)</span>
-            </h3>
-            <p className="text-[11px] text-[#6E5849] mt-0.5">
-              شمارش زنده رکوردها بر اساس داده‌های واقعی موجود در حافظه هر دستگاه (بدون عدد ثابت فرضی). پیش از شروع تست واقعی، نسخه پشتیبان JSON هر دو دستگاه را دانلود کنید.
-            </p>
-          </div>
+        <div className="flex justify-end">
           <button
             type="button"
             data-testid="download-json-backup-btn"
@@ -962,7 +989,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           {/* موجودی این دستگاه قبل و بعد از Sync */}
           <div className="p-3 rounded-xl bg-white border border-[#E6D5C1] space-y-1.5">
             <div className="font-bold text-[#332218]">
-              ۱. موجودی این دستگاه ({localRole === 'phone-primary' ? 'گوشی اصلی' : 'لپ‌تاپ همراه'}):
+              ۱. موجودی این دستگاه ({localRole === 'phone-primary' ? 'گوشی' : 'لپ‌تاپ'}):
             </div>
             <div className="flex items-center justify-between text-[11px] text-[#6E5849]">
               <span>قبل از شروع همگام‌سازی:</span>
@@ -985,7 +1012,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           {/* موجودی دستگاه مقابل قبل و بعد از Sync */}
           <div className="p-3 rounded-xl bg-white border border-[#E6D5C1] space-y-1.5">
             <div className="font-bold text-[#332218]">
-              ۲. موجودی دستگاه مقابل ({localRole === 'phone-primary' ? 'لپ‌تاپ همراه' : 'گوشی اصلی'}):
+              ۲. موجودی دستگاه مقابل ({localRole === 'phone-primary' ? 'لپ‌تاپ' : 'گوشی'}):
             </div>
             <div className="flex items-center justify-between text-[11px] text-[#6E5849]">
               <span>قبل از شروع همگام‌سازی:</span>
@@ -998,7 +1025,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               </strong>
             </div>
             <div className="flex items-center justify-between text-[11px] text-[#2E6F40]">
-              <span>پس از اعمال همگام‌سازی (ACK):</span>
+              <span>پس از اعمال همگام‌سازی:</span>
               <strong data-testid="peer-post-sync-count" className="text-[#2E6F40]">
                 {peerPostSyncCounts
                   ? `${toPersianDigits(peerPostSyncCounts.auditCount)} کتاب قفسه (${toPersianDigits(
@@ -1011,7 +1038,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
             </div>
           </div>
 
-          {/* تفکیک دقیق نتیجه آخرین همگام‌سازی (جدید، تکراری، تغییرکرده، دارای تعارض) */}
+          {/* تفکیک دقیق نتیجه آخرین همگام‌سازی */}
           <div className="p-3 rounded-xl bg-white border border-[#E6D5C1] space-y-1.5">
             <div className="font-bold text-[#332218]">
               ۳. تفکیک رکوردهای آخرین بسته دریافتی:
@@ -1046,7 +1073,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         </div>
       </div>
 
-      {/* انتخاب نقش دستگاه فعلی */}
+      {/* انتخاب نقش دستگاه فعلی (بدون توضیحات زیر دکمه‌ها) */}
       <div className="rounded-xl border border-[#E6D5C1] bg-[#FAF3EA]/60 p-3.5 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-bold text-[#332218]">نقش این دستگاه در ارتباط:</span>
@@ -1059,66 +1086,41 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
           <button
             type="button"
             onClick={() => handleRoleChange('phone-primary')}
-            className={`p-2.5 rounded-xl border text-right transition-colors cursor-pointer flex items-start gap-2 ${
+            className={`p-2.5 rounded-xl border text-right transition-colors cursor-pointer flex items-center gap-2 ${
               localRole === 'phone-primary'
                 ? 'bg-[#8C3B2B] text-white border-[#702D20] shadow-xs'
                 : 'bg-white text-[#332218] border-[#D9C2A7] hover:bg-amber-50/60'
             }`}
           >
-            <Smartphone className="w-4 h-4 mt-0.5 shrink-0" />
-            <div className="min-w-0">
-              <div className="text-xs font-bold">گوشی اندروید (مرجع اصلی اطلاعات کتابخانه)</div>
-              <div
-                className={`text-[10px] mt-0.5 leading-snug ${
-                  localRole === 'phone-primary' ? 'text-amber-100' : 'text-[#6E5849]'
-                }`}
-              >
-                نگهدارنده اصلی داده‌های کتابخانه با قابلیت تولید یا اسکن QR Code
-              </div>
-            </div>
+            <Smartphone className="w-4 h-4 shrink-0" />
+            <span className="text-xs font-bold">گوشی اندروید</span>
           </button>
 
           <button
             type="button"
             onClick={() => handleRoleChange('pc-companion')}
-            className={`p-2.5 rounded-xl border text-right transition-colors cursor-pointer flex items-start gap-2 ${
+            className={`p-2.5 rounded-xl border text-right transition-colors cursor-pointer flex items-center gap-2 ${
               localRole === 'pc-companion'
                 ? 'bg-[#8C3B2B] text-white border-[#702D20] shadow-xs'
                 : 'bg-white text-[#332218] border-[#D9C2A7] hover:bg-amber-50/60'
             }`}
           >
-            <Laptop className="w-4 h-4 mt-0.5 shrink-0" />
-            <div className="min-w-0">
-              <div className="text-xs font-bold">لپ‌تاپ (دستگاه همراه و مکمل کاری)</div>
-              <div
-                className={`text-[10px] mt-0.5 leading-snug ${
-                  localRole === 'pc-companion' ? 'text-amber-100' : 'text-[#6E5849]'
-                }`}
-              >
-                محیط مکمل برای جست‌وجو، ورود و ویرایش اطلاعات با قابلیت تولید یا اسکن QR Code
-              </div>
-            </div>
+            <Laptop className="w-4 h-4 shrink-0" />
+            <span className="text-xs font-bold">لپ‌تاپ</span>
           </button>
         </div>
       </div>
 
-      {/* اتصال ساده دوطرفه با QR Code (بخش ۲ دستور اجرایی) */}
+      {/* کارت‌های تولید و اسکن QR Code (بدون جملات توضیحی اضافی و بدون کادر کد GOLZAR_P2P_V2) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* کارت ۱: تولید QR Code در این دستگاه (گوشی یا لپ‌تاپ) */}
+        {/* کارت ۱: تولید QR Code در این دستگاه */}
         <div className="rounded-2xl border-2 border-[#E6D5C1] bg-white p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-xs sm:text-sm font-bold text-[#332218] flex items-center gap-1.5">
               <QrCode className="w-4 h-4 text-[#8C3B2B]" />
               <span>۱. تولید QR Code در این دستگاه (گوشی یا لپ‌تاپ)</span>
             </h3>
-            <span className="text-[10px] px-2 py-0.5 rounded-md bg-[#FDF8F2] border border-[#E6D5C1] text-[#8C3B2B] font-bold">
-              نمایش QR
-            </span>
           </div>
-
-          <p className="text-xs text-[#6E5849] leading-relaxed">
-            با زدن دکمه زیر، QR Code اتصال در این دستگاه ساخته می‌شود. کافی است آن را با دستگاه دیگر اسکن کنید تا اتصال و همگام‌سازی خودکار دوطرفه بلافاصله انجام شود.
-          </p>
 
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -1151,12 +1153,9 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               <div className="flex flex-col items-center justify-center p-3 bg-white rounded-xl border border-[#E6D5C1] gap-2">
                 <QRCodeSVG
                   value={laptopSessionCreds.qrValue}
-                  size={168}
+                  size={176}
                   level="M"
                 />
-                <span className="text-[11px] font-bold text-[#332218]">
-                  این QR Code را با دستگاه دیگر اسکن کنید تا همگام‌سازی خودکار آغاز شود
-                </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
@@ -1171,7 +1170,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                   </strong>
                 </div>
                 <div className="p-2 rounded-lg bg-white border border-[#E6D5C1]">
-                  <span className="text-[#6E5849] block">شناسه تصادفی نشست:</span>
+                  <span className="text-[#6E5849] block">شناسه نشست:</span>
                   <strong
                     dir="ltr"
                     className="font-mono text-xs text-[#332218]"
@@ -1179,26 +1178,6 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                     {maskSessionIdForDisplay(laptopSessionCreds.sessionId)}
                   </strong>
                 </div>
-              </div>
-
-              <div className="flex items-center justify-between gap-2 pt-1">
-                <span className="text-[10px] text-[#6E5849]">
-                  یک‌بارمصرف و زمان‌دار (۱۰ دقیقه) · اتصال و همگام‌سازی فوری به محض اسکن
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    try {
-                      void navigator.clipboard.writeText(laptopSessionCreds.qrValue);
-                    } catch {
-                      // ignore
-                    }
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-white border border-[#D9C2A7] text-[11px] font-bold text-[#8C3B2B] inline-flex items-center gap-1 cursor-pointer"
-                >
-                  <Copy className="w-3 h-3" />
-                  <span>کپی توکن QR</span>
-                </button>
               </div>
             </div>
           )}
@@ -1211,14 +1190,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               <Camera className="w-4 h-4 text-[#2E6F40]" />
               <span>۲. اسکن QR Code دستگاه دیگر و اتصال مستقیم</span>
             </h3>
-            <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-[#2E6F40] font-bold">
-              اسکن و اتصال فوری
-            </span>
           </div>
-
-          <p className="text-xs text-[#6E5849] leading-relaxed">
-            QR Code نمایش‌داده‌شده در دستگاه دیگر را با دوربین اسکن کنید یا توکن آن را در کادر زیر قرار دهید. اسکن QR به‌منزله مجوز اتصال است و همگام‌سازی دوطرفه بلافاصله آغاز می‌شود.
-          </p>
 
           <div className="flex flex-wrap items-center gap-2">
             {!isCameraScannerOpen ? (
@@ -1249,10 +1221,10 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                 ref={videoRef}
                 playsInline
                 muted
-                className="w-full max-h-52 rounded-lg object-cover bg-black mx-auto"
+                className="w-full max-h-56 rounded-lg object-cover bg-black mx-auto"
               />
               <p className="text-[11px] text-amber-100">
-                دوربین را مقابل QR Code نمایش‌داده‌شده در دستگاه دیگر قرار دهید...
+                دوربین را مقابل QR Code دستگاه دیگر قرار دهید...
               </p>
             </div>
           )}
@@ -1262,168 +1234,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
               {cameraError}
             </div>
           )}
-
-          {/* ورودی جایگزین توکن QR برای محیط‌های بدون دوربین */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
-            <input
-              type="text"
-              dir="ltr"
-              data-testid="phone-qr-input"
-              value={scannedQrInput}
-              onChange={(e) => setScannedQrInput(e.target.value)}
-              placeholder="GOLZAR_P2P_V2:SESS_..."
-              aria-label="ورود یا جای‌گذاری توکن QR نشست"
-              className="flex-1 px-3 py-2 rounded-xl border border-[#D9C2A7] bg-[#FDF8F2] font-mono text-xs font-bold text-center text-[#332218] focus:outline-none focus:border-[#8C3B2B]"
-            />
-            <button
-              type="button"
-              data-testid="phone-inspect-qr-btn"
-              onClick={() => void handleInspectScannedQrOnPhone(scannedQrInput)}
-              className="px-3.5 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer shrink-0 shadow-xs"
-            >
-              <QrCode className="w-3.5 h-3.5" />
-              <span>اتصال مستقیم و شروع همگام‌سازی</span>
-            </button>
-          </div>
-
-          {status === 'connected' || status === 'transfer-success' ? (
-            <div className="rounded-xl bg-emerald-50 border border-emerald-300 p-3 flex items-center justify-between gap-2">
-              <div className="text-xs text-emerald-950 font-bold flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-                <span>
-                  کانال مستقیم WebRTC برقرار است
-                  {peerDeviceInfo
-                    ? ` (${
-                        peerDeviceInfo.role === 'phone-primary'
-                          ? 'گوشی اندروید - مرجع اصلی'
-                          : 'لپ‌تاپ - مکمل کاری'
-                      } · ${peerDeviceInfo.deviceId})`
-                    : ''}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={handleDisconnect}
-                className="px-2.5 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-900 text-[11px] font-bold cursor-pointer"
-              >
-                قطع اتصال
-              </button>
-            </div>
-          ) : null}
         </div>
-      </div>
-
-      {/* گام سوم: همگام‌سازی مجدد در همان نشست و انتخاب مجموعه‌ها */}
-      <div className="rounded-2xl border border-[#D9C2A7] bg-[#FDF8F2] p-4 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <h3 className="text-xs sm:text-sm font-bold text-[#332218]">
-              ۳. همگام‌سازی خودکار دوطرفه در نشست فعال (RTCDataChannel)
-            </h3>
-            <p className="text-[11px] text-[#6E5849]">
-              به محض برقراری اتصال، تبادل و ادغام دوطرفه به‌طور خودکار انجام می‌شود. در صورت ثبت تغییرات جدید در حین اتصال یا پس از اتصال مجدد، می‌توانید با دکمه روبه‌رو مجدداً همگام‌سازی را اجرا کنید.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => void sendSyncPackageOverOpenChannel(false)}
-            disabled={status !== 'connected' && status !== 'transfer-success'}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 shrink-0 transition-colors ${
-              status === 'connected' || status === 'transfer-success'
-                ? 'bg-[#8C3B2B] hover:bg-[#702D20] text-white cursor-pointer shadow-xs'
-                : 'bg-slate-200 text-slate-500 cursor-not-allowed'
-            }`}
-          >
-            <Send className="w-4 h-4" />
-            <span>
-              همگام‌سازی مجدد در نشست فعال ({toPersianDigits(localEnvelopesCount)} رکورد)
-            </span>
-          </button>
-        </div>
-
-        {/* چک‌باکس انتخاب مجموعه‌های عملیاتی */}
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          {(Object.keys(SYNC_COLLECTION_LABELS) as SyncCollectionName[]).map((col) => {
-            const checked = selectedCollections.includes(col);
-            return (
-              <label
-                key={col}
-                className={`px-2.5 py-1.5 rounded-xl border text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer select-none ${
-                  checked
-                    ? 'bg-white border-[#8C3B2B] text-[#332218] font-bold'
-                    : 'bg-white/60 border-[#E6D5C1] text-[#6E5849]'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => toggleCollectionSelection(col)}
-                  className="accent-[#8C3B2B]"
-                />
-                <span>{SYNC_COLLECTION_LABELS[col]}</span>
-              </label>
-            );
-          })}
-        </div>
-
-        {/* قابلیت انتخاب کتاب‌های خاص از بین کتاب‌های ثبت‌شده در قفسه */}
-        {auditEntriesList.length > 0 && (
-          <div className="pt-2 border-t border-[#E6D5C1] space-y-2">
-            <label className="inline-flex items-center gap-2 text-xs font-bold text-[#5D4636] cursor-pointer">
-              <input
-                type="checkbox"
-                checked={filterOnlySelectedBooks}
-                onChange={(e) => setFilterOnlySelectedBooks(e.target.checked)}
-                className="accent-[#8C3B2B]"
-              />
-              <span>
-                انتخاب دستی کتاب‌های خاص برای ارسال دستی (به‌جای ارسال هر{' '}
-                {toPersianDigits(auditEntriesList.length)} کتاب ثبت‌شده)
-              </span>
-            </label>
-
-            {filterOnlySelectedBooks && (
-              <div className="max-h-40 overflow-y-auto bg-white rounded-xl border border-[#E6D5C1] p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                {auditEntriesList.map((rec) => {
-                  const isSel = selectedBookKeys.includes(rec.key);
-                  return (
-                    <label
-                      key={rec.key}
-                      className="flex items-center gap-2 text-xs p-1.5 rounded-lg hover:bg-[#FDF8F2] cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isSel}
-                        onChange={() =>
-                          setSelectedBookKeys((prev) =>
-                            prev.includes(rec.key)
-                              ? prev.filter((k) => k !== rec.key)
-                              : [...prev, rec.key]
-                          )
-                        }
-                        className="accent-[#8C3B2B]"
-                      />
-                      <span className="truncate font-medium text-[#332218]">
-                        {rec.title} ({rec.location || 'بدون کد قفسه'})
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {transferProgress && (
-          <div className="rounded-xl bg-blue-50 border border-blue-200 p-2.5 text-xs text-blue-950 font-bold flex items-center justify-between">
-            <span>در حال انتقال قطعات بسته ({transferProgress.packageId})...</span>
-            <span>
-              قطعه {toPersianDigits(transferProgress.received)} از{' '}
-              {toPersianDigits(transferProgress.total)}
-            </span>
-          </div>
-        )}
       </div>
 
       {/* بخش مدیریت تعارض‌های ثبت‌شده (فقط زمانی نمایش داده می‌شود که یک رکورد در هر دو دستگاه به شکل متناقض ویرایش شده باشد) */}
@@ -1500,7 +1311,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
                     <div className="p-2.5 rounded-lg bg-white border border-[#E6D5C1] space-y-1">
-                      <div className="font-bold text-[#8C3B2B]">نسخه موجود در گوشی (مرجع اصلی):</div>
+                      <div className="font-bold text-[#8C3B2B]">نسخه موجود در گوشی:</div>
                       <div>عنوان: {String(phoneData.title || conflict.phoneEnvelope.titleSummary)}</div>
                       <div>
                         مکان قفسه: <strong>{String(phoneData.location || '—')}</strong> · تعداد نسخه:{' '}
@@ -1510,7 +1321,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
                     </div>
 
                     <div className="p-2.5 rounded-lg bg-white border border-[#E6D5C1] space-y-1">
-                      <div className="font-bold text-[#2E6F40]">نسخه موجود در لپ‌تاپ (مکمل کاری):</div>
+                      <div className="font-bold text-[#2E6F40]">نسخه موجود در لپ‌تاپ:</div>
                       <div>عنوان: {String(pcData.title || conflict.pcEnvelope.titleSummary)}</div>
                       <div>
                         مکان قفسه: <strong>{String(pcData.location || '—')}</strong> · تعداد نسخه:{' '}
@@ -1648,7 +1459,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
 
           {Object.keys(softDeletedArchive).length === 0 ? (
             <p className="text-[11px] text-[#6E5849]">
-              هیچ رکوردی در بایگانی حذف نرم وجود ندارد. (حذف خودکار رکوردها در همگام‌سازی ممنوع است.)
+              هیچ رکوردی در بایگانی حذف نرم وجود ندارد.
             </p>
           ) : (
             <div className="space-y-1.5 max-h-36 overflow-y-auto">
@@ -1675,7 +1486,7 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
         {/* تاریخچه بسته‌های انتقالی */}
         <div className="rounded-xl border border-[#E6D5C1] bg-[#FAF3EA]/50 p-3 space-y-2">
           <div className="text-xs font-bold text-[#332218] flex items-center justify-between">
-            <span>تاریخچه بسته‌های انتقالی اخیر (ثبت وضعیت و تأییدیه ACK)</span>
+            <span>تاریخچه بسته‌های انتقالی اخیر</span>
             <span className="text-[11px] text-[#6E5849]">
               {toPersianDigits(transferHistory.length)} بسته
             </span>
@@ -1724,4 +1535,3 @@ export const DeviceSyncPanel: React.FC<DeviceSyncPanelProps> = ({
     </section>
   );
 };
-
