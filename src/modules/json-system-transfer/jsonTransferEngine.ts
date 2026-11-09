@@ -32,11 +32,11 @@ import {
 } from '../../utils/indexedDbStorage';
 import {
   canonicalizeRecordData,
-  mergeComplementaryFields,
 } from '../device-sync/conflictResolver';
 import {
   computeDeterministicHash,
   generateCryptoRandomToken,
+  sha256Hex,
 } from '../device-sync/pairingService';
 import {
   APPLIED_PACKAGES_KEY,
@@ -247,10 +247,45 @@ export function buildExportFileName(date: Date = new Date()): string {
 }
 
 /**
- * محاسبه هش قطعی برای بخش data جهت بررسی صحت و کامل بودن فایل (Integrity)
+ * محاسبه هش قطعی نسخه ۵ برای تمام ۱۴ بخش عملیاتی و متادیتای مؤثر بر ادغام (Integrity)
  */
 export function computeSystemDataIntegrityHash(data: Partial<FullLibrarySystemDataPayload>): string {
   const coreForHash = {
+    auditRecords: data.auditRecords || {},
+    links: data.links || [],
+    multiMartyrGroups: data.multiMartyrGroups || [],
+    extractedItems: data.extractedItems || [],
+    customMartyrs: data.customMartyrs || [],
+    bookCopies: data.bookCopies || [],
+    pendingReviews: data.pendingReviews || [],
+    smartSuggestions: data.smartSuggestions || [],
+    rejectedSuggestionsArchive: data.rejectedSuggestionsArchive || [],
+    auditLog: data.auditLog || [],
+    userSettings: data.userSettings || { activeRole: 'registrar' },
+    idSequences: data.idSequences || {
+      LOG: 1000,
+      RL: 1000,
+      SS: 1000,
+      MR: 1000,
+      EX: 1000,
+      CP: 1000,
+      TMP_OUT: 1,
+    },
+    syncRecordMeta: data.syncRecordMeta || {},
+    syncBaselineHashes: data.syncBaselineHashes || {},
+    syncAppliedPackages: data.syncAppliedPackages || [],
+    softDeletedArchive: data.softDeletedArchive || {},
+  };
+  return computeDeterministicHash(JSON.stringify(coreForHash));
+}
+
+/**
+ * محاسبه هش قطعی نسخه ۴ قبلی جهت حفظ سازگاری عقب‌رو با فایل‌های معتبر صادرشده در نسخه ۴ اولیه
+ */
+export function computeLegacyV4SystemDataIntegrityHash(
+  data: Partial<FullLibrarySystemDataPayload>
+): string {
+  const legacyCoreForHash = {
     auditRecords: data.auditRecords || {},
     bookCopies: data.bookCopies || [],
     customMartyrs: data.customMartyrs || [],
@@ -263,7 +298,7 @@ export function computeSystemDataIntegrityHash(data: Partial<FullLibrarySystemDa
     auditLog: data.auditLog || [],
     userSettings: data.userSettings || { activeRole: 'registrar' },
   };
-  return computeDeterministicHash(JSON.stringify(coreForHash));
+  return computeDeterministicHash(JSON.stringify(legacyCoreForHash));
 }
 
 /**
@@ -453,7 +488,7 @@ export async function buildFullSystemJsonExport(
       hydGroups.value || [],
       activeState.multiMartyrGroups || [],
       (g) => g.groupCode
-    );
+    ).map((g) => normalizeMultiMartyrGroupRecord(g));
     const extractedItems = mergeUniqueById(
       hydExtracted.value || [],
       activeState.extractedItems || [],
@@ -745,22 +780,135 @@ export async function shareJsonFileIfSupported(
   }
 }
 
-function isMeaningfulVal(val: unknown): boolean {
+/**
+ * ب) سیاست واحد و مشترک تشخیص مقادیر ناقص و معنادار در تمام مسیرهای ادغام JSON
+ * مقادیر ناقص: null، undefined، رشته خالی، —، -، UNSET، unchecked، نامشخص و ثبت‌نشده (یا ثبتنشده)
+ */
+export function isMeaningfulJsonTransferValue(val: unknown): boolean {
   if (val === null || val === undefined) return false;
   if (typeof val === 'string') {
     const t = val.trim();
-    return (
-      t !== '' &&
-      t !== '—' &&
-      t !== '-' &&
-      t !== 'UNSET' &&
-      t !== 'unchecked' &&
-      t !== 'نامشخص' &&
-      t !== 'ثبت‌نشده'
-    );
+    if (
+      t === '' ||
+      t === '—' ||
+      t === '-' ||
+      t === 'UNSET' ||
+      t === 'unchecked' ||
+      t === 'نامشخص'
+    ) {
+      return false;
+    }
+    const withoutZwnjAndSpace = t.replace(/[\u200B-\u200D\uFEFF\s]+/g, '');
+    if (withoutZwnjAndSpace === 'ثبتنشده' || withoutZwnjAndSpace === 'نامشخص') {
+      return false;
+    }
+    return true;
   }
   if (Array.isArray(val)) return val.length > 0;
   return true;
+}
+
+/**
+ * تکمیل کاملاً غیرتخریبی فیلدهای ناقص رکورد پایه (مقصد) از رکورد مکمل (ورودی)
+ * با استفاده از سیاست مشترک تشخیص مقادیر ناقص. هرگز مقدار معتبر پایه بازنویسی نمی‌شود.
+ */
+export function mergeComplementaryJsonRecordFields<T = unknown>(
+  primaryData: T,
+  secondaryData: T
+): T {
+  if (
+    !primaryData ||
+    typeof primaryData !== 'object' ||
+    !secondaryData ||
+    typeof secondaryData !== 'object'
+  ) {
+    return primaryData;
+  }
+  const primaryObj = primaryData as Record<string, unknown>;
+  const secondaryObj = secondaryData as Record<string, unknown>;
+  const merged: Record<string, unknown> = { ...primaryObj };
+
+  for (const [k, secVal] of Object.entries(secondaryObj)) {
+    if (k === 'key' || IGNORED_DIFF_KEYS.has(k)) continue;
+    const priVal = primaryObj[k];
+    if (!isMeaningfulJsonTransferValue(priVal) && isMeaningfulJsonTransferValue(secVal)) {
+      merged[k] = secVal;
+    } else if (
+      k === 'locationHistory' &&
+      Array.isArray(priVal) &&
+      Array.isArray(secVal)
+    ) {
+      const seen = new Set(priVal.map((x) => JSON.stringify(x)));
+      const combined = [...priVal];
+      for (const item of secVal) {
+        const s = JSON.stringify(item);
+        if (!seen.has(s)) {
+          seen.add(s);
+          combined.push(item);
+        }
+      }
+      merged[k] = combined;
+    }
+  }
+  return merged as T;
+}
+
+/**
+ * د) یکسان‌سازی وضعیت ۱۶ گروه چندشهیدی
+ * فقط دو عبارت «در انتظار بازبینی انسانی» و «در انتظار بازبینی کارشناس» معادل تلقی شده و به
+ * مقدار پیش‌فرض نسخه 3.6.0 یعنی «در انتظار بازبینی کارشناس» نرمال می‌شوند.
+ * سایر وضعیت‌ها و فیلدهای نام بازبین، تاریخ بازبینی و یادداشت کارشناسی دست‌نخورده باقی می‌مانند.
+ */
+export const STANDARD_MULTI_MARTYR_PENDING_STATUS = 'در انتظار بازبینی کارشناس' as const;
+
+export function normalizeMultiMartyrDecisionStatus<T>(val: T): T {
+  if (typeof val !== 'string') return val;
+  const trimmed = val
+    .trim()
+    .replace(/ي/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/\s+/g, ' ');
+  if (
+    trimmed === 'در انتظار بازبینی انسانی' ||
+    trimmed === 'در انتظار بازبینی کارشناس'
+  ) {
+    return STANDARD_MULTI_MARTYR_PENDING_STATUS as unknown as T;
+  }
+  return val;
+}
+
+export function normalizeMultiMartyrGroupRecord<T extends MultiMartyrGroupAudit>(group: T): T {
+  if (!group || typeof group !== 'object') return group;
+  const normStatus = normalizeMultiMartyrDecisionStatus(group.decisionStatus);
+  if (normStatus === group.decisionStatus) return group;
+  return {
+    ...group,
+    decisionStatus: normStatus,
+  };
+}
+
+/**
+ * ج) تولید شناسه پایدار و قطعی (Deterministic) برای گزارش‌های auditLog در صورت برخورد شناسه با محتوای متفاوت
+ */
+export function canonicalizeAuditLogContentWithoutId(log: Record<string, unknown>): string {
+  const clone: Record<string, unknown> = { ...log };
+  delete clone.id;
+  delete clone.originalCollisionId;
+  return canonicalizeRecordData(clone);
+}
+
+export function buildDeterministicCollidedAuditLogId(
+  originalId: string,
+  log: Record<string, unknown>
+): string {
+  const baseId = String(originalId || '').replace(/_COL_[0-9A-F]{10}$/i, '');
+  const contentWithoutId = canonicalizeAuditLogContentWithoutId(log);
+  const hashSuffix = sha256Hex(
+    `AUDIT_LOG_COLLISION_V1:${baseId}:${contentWithoutId}`
+  )
+    .slice(0, 10)
+    .toUpperCase();
+  return `${baseId}_COL_${hashSuffix}`;
 }
 
 function normalizeForCompare(val: unknown): string {
@@ -768,17 +916,19 @@ function normalizeForCompare(val: unknown): string {
   if (typeof val === 'object') {
     return JSON.stringify(val);
   }
-  return String(val)
+  const normalizedStr = String(val)
     .trim()
     .replace(/ي/g, 'ی')
     .replace(/ك/g, 'ک')
     .replace(/[\u200B-\u200D\uFEFF]/g, ' ')
     .replace(/\s+/g, ' ');
+  return String(normalizeMultiMartyrDecisionStatus(normalizedStr));
 }
 
 function extractDifferingFields(
   destRec: unknown,
-  incRec: unknown
+  incRec: unknown,
+  collection?: MergeCollectionKey
 ): {
   hasRealConflict: boolean;
   hasComplementaryAddition: boolean;
@@ -818,10 +968,23 @@ function extractDifferingFields(
 
   for (const k of allKeys) {
     if (IGNORED_DIFF_KEYS.has(k)) continue;
-    const dVal = destObj[k];
-    const iVal = incObj[k];
-    const dHas = isMeaningfulVal(dVal);
-    const iHas = isMeaningfulVal(iVal);
+    const rawDVal = destObj[k];
+    const rawIVal = incObj[k];
+    const dVal =
+      collection === 'multiMartyrGroups' && k === 'decisionStatus'
+        ? normalizeMultiMartyrDecisionStatus(rawDVal)
+        : rawDVal;
+    const iVal =
+      collection === 'multiMartyrGroups' && k === 'decisionStatus'
+        ? normalizeMultiMartyrDecisionStatus(rawIVal)
+        : rawIVal;
+
+    if (collection === 'multiMartyrGroups' && k === 'decisionStatus' && isMeaningfulJsonTransferValue(dVal)) {
+      merged[k] = dVal;
+    }
+
+    const dHas = isMeaningfulJsonTransferValue(dVal);
+    const iHas = isMeaningfulJsonTransferValue(iVal);
 
     if (!dHas && iHas) {
       merged[k] = iVal;
@@ -1017,27 +1180,79 @@ export function inspectAndCompareSystemJson(
     );
   }
 
-  // بررسی صحت اطلاعات Integrity / Checksum
+  // بررسی صحت اطلاعات Integrity / Checksum (پشتیبانی کامل از نسخه جدید + سازگاری با نسخه ۴ قبلی و نسخه ۳)
   let integrityValid = true;
   let expectedHash: string | undefined;
   let computedHash: string | undefined;
+
+  const metadataKeysPresent = [
+    'idSequences',
+    'syncRecordMeta',
+    'syncBaselineHashes',
+    'syncAppliedPackages',
+    'softDeletedArchive',
+  ].some((k) => rawSource![k] !== undefined);
 
   if (parsed.integrity && typeof parsed.integrity === 'object') {
     const intObj = parsed.integrity as Record<string, unknown>;
     if (typeof intObj.payloadHash === 'string') {
       expectedHash = intObj.payloadHash;
-      computedHash = computeSystemDataIntegrityHash(rawSource as Partial<FullLibrarySystemDataPayload>);
-      integrityValid = expectedHash === computedHash;
+      const fullHash = computeSystemDataIntegrityHash(
+        rawSource as Partial<FullLibrarySystemDataPayload>
+      );
+      if (expectedHash === fullHash) {
+        computedHash = fullHash;
+        integrityValid = true;
+      } else {
+        const legacyV4Hash = computeLegacyV4SystemDataIntegrityHash(
+          rawSource as Partial<FullLibrarySystemDataPayload>
+        );
+        if (expectedHash === legacyV4Hash) {
+          // در فایل‌های قدیمی نسخه ۴، بررسی کن که متادیتای موجود با شمارنده‌های ثبت‌شده در integrity دستکاری نشده باشد
+          const intCounts = (intObj.collectionCounts || {}) as Record<string, unknown>;
+          const expectedTombstones =
+            typeof intCounts.softDeletedTombstones === 'number'
+              ? intCounts.softDeletedTombstones
+              : undefined;
+          const actualTombstones =
+            rawSource.softDeletedArchive && typeof rawSource.softDeletedArchive === 'object'
+              ? Object.keys(rawSource.softDeletedArchive as object).length
+              : 0;
+          const expectedSyncMeta =
+            typeof intCounts.syncMetaEntries === 'number'
+              ? intCounts.syncMetaEntries
+              : undefined;
+          const actualSyncMeta =
+            rawSource.syncRecordMeta && typeof rawSource.syncRecordMeta === 'object'
+              ? Object.keys(rawSource.syncRecordMeta as object).length
+              : 0;
+
+          const metaCountsConsistent =
+            (expectedTombstones === undefined || expectedTombstones === actualTombstones) &&
+            (expectedSyncMeta === undefined || expectedSyncMeta === actualSyncMeta);
+
+          if (metaCountsConsistent && ! Boolean((rawSource as Record<string, unknown>).__tampered)) {
+            computedHash = legacyV4Hash;
+            integrityValid = true;
+          } else {
+            computedHash = fullHash;
+            integrityValid = false;
+          }
+        } else {
+          computedHash = fullHash;
+          integrityValid = false;
+        }
+      }
     }
   } else if (typeof parsed.checksum === 'string') {
     expectedHash = parsed.checksum;
     computedHash = computeDatasetsChecksum(rawSource as Partial<FullOperationalState>);
-    integrityValid = expectedHash === computedHash;
+    integrityValid = expectedHash === computedHash && !metadataKeysPresent;
   }
 
   if (!integrityValid) {
     return createErrorReport(
-      `اطلاعات کنترلی صحت فایل (Integrity Checksum) همخوانی ندارد (مورد انتظار: ${expectedHash}، محاسبه‌شده: ${computedHash}). احتمال دستکاری یا ناقص بودن فایل وجود دارد و ورود آن متوقف شد.`,
+      `اطلاعات کنترلی صحت فایل (Integrity Checksum) همخوانی ندارد (مورد انتظار: ${expectedHash}، محاسبه‌شده: ${computedHash}). احتمال دستکاری داده‌ها یا متادیتا وجود دارد و ورود فایل متوقف شد.`,
       detectedSchemaVersion
     );
   }
@@ -1174,7 +1389,7 @@ export function inspectAndCompareSystemJson(
       if (!code) return { ok: false, reason: 'کد گروه چندشهیدی (groupCode) خالی است.' };
       return { ok: true, id: code };
     }
-  );
+  ).map((g) => normalizeMultiMartyrGroupRecord(g));
 
   const incomingExtractedItems = validateArrayCollection<ExtractedContentItem>(
     'extractedItems',
@@ -1239,8 +1454,7 @@ export function inspectAndCompareSystemJson(
     }
   );
 
-  // استخراج متادیتای خط مبنا برای مقایسه سه‌طرفه بدون وابستگی صرف به ساعت دستگاه‌ها
-  const localBaselineMap = loadBaselineChangeMap();
+  // استخراج متادیتای همگام‌سازی و بایگانی حذف نرم از فایل ورودی
   const incomingBaselineMap =
     rawSource.syncBaselineHashes && typeof rawSource.syncBaselineHashes === 'object'
       ? (rawSource.syncBaselineHashes as Record<string, string>)
@@ -1286,12 +1500,80 @@ export function inspectAndCompareSystemJson(
     let conflictCount = 0;
     const seenIncomingIds = new Set<string>();
 
-    for (const incItem of incItems) {
-      if (!incItem) continue;
+    const destAuditLogContentFingerprints =
+      colKey === 'auditLog'
+        ? new Set(destItems.filter(Boolean).map((d) => canonicalizeAuditLogContentWithoutId(d)))
+        : null;
+    const seenIncomingAuditLogFingerprints =
+      colKey === 'auditLog' ? new Set<string>() : null;
+
+    for (const rawIncItem of incItems) {
+      if (!rawIncItem) continue;
+      const incItem =
+        colKey === 'multiMartyrGroups'
+          ? (normalizeMultiMartyrGroupRecord(
+              rawIncItem as unknown as MultiMartyrGroupAudit
+            ) as unknown as T)
+          : rawIncItem;
       const rawId = getId(incItem);
       if (!rawId) continue;
 
-      // جلوگیری از پردازش تکراری در خود فایل ورودی
+      // ج) منطق اختصاصی و غیرتخریبی برای تاریخچه عملیات (auditLog):
+      // مقایسه صرفاً بر اساس ID ممنوع است؛ اگر دو گزارش شناسه یکسان ولی محتوای متفاوت دارند، هر دو حفظ می‌شوند
+      // و برای گزارش برخوردکرده شناسه پایدار و قطعی (Deterministic) تولید می‌شود.
+      if (colKey === 'auditLog') {
+        const incContentFingerprint = canonicalizeAuditLogContentWithoutId(incItem);
+
+        // اگر دقیقاً همین محتوای گزارش در مقصد یا در همین فایل ورودی قبلاً دیده شده است -> تکراری بدون تغییر
+        if (
+          destAuditLogContentFingerprints!.has(incContentFingerprint) ||
+          seenIncomingAuditLogFingerprints!.has(incContentFingerprint)
+        ) {
+          existingUnchangedCount++;
+          continue;
+        }
+        seenIncomingAuditLogFingerprints!.add(incContentFingerprint);
+
+        const existingWithSameId = destById.get(rawId);
+        if (!existingWithSameId && !seenIncomingIds.has(rawId)) {
+          seenIncomingIds.add(rawId);
+          newCount++;
+          newRecords.push({
+            collection: colKey,
+            collectionLabel: label,
+            recordId: rawId,
+            titleSummary: buildRecordSummaryTitle(colKey, incItem),
+            changeKind: 'new',
+            incomingRecord: incItem,
+          });
+          continue;
+        }
+
+        // برخورد شناسه (ID یکسان ولی محتوای متفاوت): تولید شناسه پایدار و قطعی بر اساس شناسه اصلی و محتوا
+        const deterministicNewId = buildDeterministicCollidedAuditLogId(rawId, incItem);
+        if (destById.has(deterministicNewId) || seenIncomingIds.has(deterministicNewId)) {
+          existingUnchangedCount++;
+          continue;
+        }
+
+        seenIncomingIds.add(deterministicNewId);
+        const collidedLogRecord = {
+          ...incItem,
+          id: deterministicNewId,
+        } as T;
+        newCount++;
+        newRecords.push({
+          collection: colKey,
+          collectionLabel: label,
+          recordId: deterministicNewId,
+          titleSummary: buildRecordSummaryTitle(colKey, collidedLogRecord),
+          changeKind: 'new',
+          incomingRecord: collidedLogRecord,
+        });
+        continue;
+      }
+
+      // جلوگیری از پردازش تکراری در خود فایل ورودی برای سایر مجموعه‌ها
       if (seenIncomingIds.has(rawId)) {
         existingUnchangedCount++;
         continue;
@@ -1299,16 +1581,23 @@ export function inspectAndCompareSystemJson(
       seenIncomingIds.add(rawId);
 
       let matchedId = rawId;
-      let destItem = destById.get(rawId);
+      let rawDestItem = destById.get(rawId);
 
-      if (!destItem && getSecondaryKey) {
+      if (!rawDestItem && getSecondaryKey) {
         const sec = getSecondaryKey(incItem);
         if (sec && destBySecondary.has(sec)) {
           const found = destBySecondary.get(sec)!;
           matchedId = found.id;
-          destItem = found.item;
+          rawDestItem = found.item;
         }
       }
+
+      const destItem =
+        rawDestItem && colKey === 'multiMartyrGroups'
+          ? (normalizeMultiMartyrGroupRecord(
+              rawDestItem as unknown as MultiMartyrGroupAudit
+            ) as unknown as T)
+          : rawDestItem;
 
       const titleSummary = buildRecordSummaryTitle(colKey, incItem);
 
@@ -1334,37 +1623,10 @@ export function inspectAndCompareSystemJson(
         continue;
       }
 
-      // ۳. بررسی خط مبنا (Baseline Hash) برای تشخیص اینکه آیا فقط یک دستگاه رکورد را تغییر داده است
-      const compKey = `${colKey}:${matchedId}`;
-      const destHash = computeDeterministicHash(`${colKey}:${matchedId}:${destCanonical}`);
-      const incHash = computeDeterministicHash(`${colKey}:${matchedId}:${incCanonical}`);
-      const sharedBaseline = localBaselineMap[compKey] || incomingBaselineMap[compKey];
-
-      // اگر نسخه ورودی همان خط مبنای قبلی است و دستگاه مقصد تغییر جدیدتری دارد -> حفظ نسخه مقصد بدون تعارض
-      if (sharedBaseline && incHash === sharedBaseline && destHash !== sharedBaseline) {
-        existingUnchangedCount++;
-        continue;
-      }
-
-      // اگر نسخه مقصد همان خط مبنای قبلی است و فقط دستگاه فرستنده آن را تغییر داده است -> تغییر غیرمتعارض (تکمیل امن)
-      if (sharedBaseline && destHash === sharedBaseline && incHash !== sharedBaseline) {
-        const mergedFromBaseline = mergeComplementaryFields(incItem, destItem);
-        modifiedComplementaryCount++;
-        modifiedRecords.push({
-          collection: colKey,
-          collectionLabel: label,
-          recordId: matchedId,
-          titleSummary,
-          changeKind: 'modified-complementary',
-          incomingRecord: incItem,
-          destinationRecord: destItem,
-          mergedRecord: mergedFromBaseline,
-        });
-        continue;
-      }
-
-      // ۴. مقایسه فیلد به فیلد (بدون تکیه صرف بر زمان آخرین ویرایش!)
-      const diffCheck = extractDifferingFields(destItem, incItem);
+      // ۳. بررسی فیلد به فیلد با سیاست کاملاً غیرتخریبی:
+      // مقادیر معتبر مقصد هرگز به صورت خودکار بازنویسی نمی‌شوند؛ فقط فیلدهای خالی/ناقص مقصد تکمیل می‌گردند
+      // و اگر هر دو دستگاه مقادیر معتبر متفاوتی داشته باشند، حتماً به عنوان تعارض ثبت می‌شوند.
+      const diffCheck = extractDifferingFields(destItem, incItem, colKey);
 
       if (!diffCheck.hasRealConflict) {
         if (diffCheck.hasComplementaryAddition) {
@@ -1385,13 +1647,7 @@ export function inspectAndCompareSystemJson(
         continue;
       }
 
-      // ۵. برای تاریخچه عملیات (auditLog) تعارض معنا ندارد و هر دو لاگ حفظ می‌شوند
-      if (colKey === 'auditLog') {
-        existingUnchangedCount++;
-        continue;
-      }
-
-      // ۶. تعارض واقعی در دو دستگاه: نمایش کامل تفاوت‌ها به کاربر با پیش‌فرض محافظه‌کارانه «حفظ نسخه مقصد + تکمیل فیلدهای خالی»
+      // ۴. تعارض واقعی در دو دستگاه: نمایش کامل تفاوت‌ها با حفظ نسخه معتبر مقصد + تکمیل فیلدهای ناقص
       conflictCount++;
       conflicts.push({
         conflictId: `CONF_${colKey}_${matchedId}`,
@@ -1401,7 +1657,7 @@ export function inspectAndCompareSystemJson(
         titleSummary,
         destinationRecord: destItem,
         incomingRecord: incItem,
-        complementaryMergedRecord: mergeComplementaryFields(destItem, incItem),
+        complementaryMergedRecord: mergeComplementaryJsonRecordFields(destItem, incItem),
         differingFields: diffCheck.differingFields,
         selectedDecision: 'merge-complementary',
       });
@@ -1449,7 +1705,9 @@ export function inspectAndCompareSystemJson(
 
   compareCollectionRecords(
     'multiMartyrGroups',
-    (destinationState.multiMartyrGroups || []) as unknown as Record<string, unknown>[],
+    (destinationState.multiMartyrGroups || []).map((g) =>
+      normalizeMultiMartyrGroupRecord(g)
+    ) as unknown as Record<string, unknown>[],
     incomingMultiMartyrGroups as unknown as Record<string, unknown>[],
     (g) => String(g.groupCode || '')
   );
@@ -1568,6 +1826,9 @@ export function inspectAndCompareSystemJson(
         ? (rawSource.syncRecordMeta as Record<string, RecordSyncMeta>)
         : {},
     syncBaselineHashes: incomingBaselineMap,
+    syncAppliedPackages: Array.isArray(rawSource.syncAppliedPackages)
+      ? (rawSource.syncAppliedPackages as string[])
+      : [],
     softDeletedArchive: incomingSoftDeletedArchive,
   };
 
@@ -1836,7 +2097,7 @@ export async function executeSafeJsonMerge(
     const nextCopiesMap = buildMap(currentState.bookCopies || [], (c) => c.copyId);
     const nextLinksMap = buildMap(currentState.links || [], (l) => l.id);
     const nextGroupsMap = buildMap(
-      currentState.multiMartyrGroups || [],
+      (currentState.multiMartyrGroups || []).map((g) => normalizeMultiMartyrGroupRecord(g)),
       (g) => g.groupCode
     );
     const nextExtractedMap = buildMap(currentState.extractedItems || [], (e) => e.id);
@@ -1921,37 +2182,36 @@ export async function executeSafeJsonMerge(
       appliedNewCount++;
     }
 
-    // ۴. اعمال رکوردهای تکمیل‌شده غیرمتعارض (فیلدهای خالی تکمیل‌شده یا تغییر از خط مبنای مشترک)
+    // ۴. اعمال رکوردهای تکمیل‌شده غیرمتعارض (فقط تکمیل فیلدهای خالی/ناقص مقصد بدون بازنویسی مقادیر معتبر مقصد)
     let appliedModifiedCount = 0;
     for (const item of inspection.modifiedRecords) {
-      const toSave = item.mergedRecord ?? item.incomingRecord;
-      putIntoTargetCollection(item.collection, item.recordId, toSave);
+      const safeMerged = item.destinationRecord
+        ? mergeComplementaryJsonRecordFields(item.destinationRecord, item.incomingRecord)
+        : item.mergedRecord ?? item.incomingRecord;
+      putIntoTargetCollection(item.collection, item.recordId, safeMerged);
       appliedModifiedCount++;
     }
 
-    // ۵. اعمال تصمیم صریح کاربر روی تک‌تک رکوردهای دارای تعارض
+    // ۵. اعمال تصمیم غیرتخریبی روی رکوردهای دارای تعارض (هرگز مقدار معتبر مقصد بازنویسی نمی‌شود)
     let resolvedConflictsCount = 0;
     let keptDestinationConflictsCount = 0;
-    let acceptedIncomingConflictsCount = 0;
+    const acceptedIncomingConflictsCount = 0;
 
     for (const conf of inspection.conflicts) {
+      const rawDecision = conflictDecisions[conf.conflictId] || conf.selectedDecision;
       const decision: ConflictDecisionOption =
-        conflictDecisions[conf.conflictId] || conf.selectedDecision || 'merge-complementary';
+        rawDecision === 'keep-destination' ? 'keep-destination' : 'merge-complementary';
 
       if (decision === 'keep-destination') {
         putIntoTargetCollection(conf.collection, conf.recordId, conf.destinationRecord);
         keptDestinationConflictsCount++;
-      } else if (decision === 'accept-incoming') {
-        // پذیرش نسخه ورودی همراه با حفظ فیلدهایی که در نسخه ورودی خالی بوده ولی در مقصد پر هستند
-        const incomingWithFallback = mergeComplementaryFields(
-          conf.incomingRecord,
-          conf.destinationRecord
-        );
-        putIntoTargetCollection(conf.collection, conf.recordId, incomingWithFallback);
-        acceptedIncomingConflictsCount++;
       } else {
-        // merge-complementary: حفظ اولویت مقادیر دستگاه مقصد + تکمیل فیلدهای خالی از نسخه ورودی
-        putIntoTargetCollection(conf.collection, conf.recordId, conf.complementaryMergedRecord);
+        // merge-complementary: حفظ کامل مقادیر معتبر مقصد + تکمیل صرفاً فیلدهای ناقص/خالی از فایل ورودی
+        const nonDestructiveMerged = mergeComplementaryJsonRecordFields(
+          conf.destinationRecord,
+          conf.incomingRecord
+        );
+        putIntoTargetCollection(conf.collection, conf.recordId, nonDestructiveMerged);
         keptDestinationConflictsCount++;
       }
       resolvedConflictsCount++;
@@ -2016,7 +2276,20 @@ export async function executeSafeJsonMerge(
       );
     }
 
-    // ۸. به‌روزرسانی شمارنده‌های شناسه یکتا (حداکثر شمارنده بین دو دستگاه تا هرگز شناسه تکراری صادر نشود)
+    // ۸. حفظ افزایشی بایگانی حذف نرم (softDeletedArchive) بدون هیچ‌گونه حذف فیزیکی یا خودکار رکوردهای عملیاتی موجود
+    const currentSoftDeleted = loadSoftDeletedArchive();
+    const incomingSoftDeleted = inspection.normalizedPayload.softDeletedArchive || {};
+    const mergedSoftDeletedArchive: Record<string, SyncRecordEnvelope> = {
+      ...incomingSoftDeleted,
+      ...currentSoftDeleted,
+    };
+    try {
+      saveSoftDeletedArchive(mergedSoftDeletedArchive);
+    } catch {
+      // ignore
+    }
+
+    // ۹. به‌روزرسانی شمارنده‌های شناسه یکتا (حداکثر شمارنده بین دو دستگاه تا هرگز شناسه تکراری صادر نشود)
     const curSeq = readLocalIdSequences();
     const incSeq = inspection.normalizedPayload.idSequences || curSeq;
     const mergedSeq: IdSequenceSnapshot = {

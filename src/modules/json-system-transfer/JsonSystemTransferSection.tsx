@@ -886,13 +886,6 @@ export const JsonSystemTransferSection: React.FC<JsonSystemTransferSectionProps>
                             >
                               همه: فقط نسخه فعلی دستگاه
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => setAllConflictsDecision('accept-incoming')}
-                              className="px-2.5 py-1 rounded-lg bg-white border border-amber-300 text-amber-950 text-[11px] font-bold cursor-pointer"
-                            >
-                              همه: پذیرش نسخه فایل ورودی
-                            </button>
                           </div>
                         </div>
 
@@ -933,9 +926,6 @@ export const JsonSystemTransferSection: React.FC<JsonSystemTransferSectionProps>
                                     </option>
                                     <option value="keep-destination">
                                       حفظ کامل نسخه فعلی این دستگاه (نادیده گرفتن تغییر فایل)
-                                    </option>
-                                    <option value="accept-incoming">
-                                      پذیرش نسخه فایل ورودی (همراه با حفظ فیلدهای پر مقصد)
                                     </option>
                                   </select>
                                 </div>
