@@ -1884,6 +1884,58 @@ export function inspectAndCompareSystemJson(
 }
 
 /**
+ * سریال‌سازی قطعی و بازگشتی (Deterministic Canonical Serialization)
+ * تا ترتیب کلیدهای هیچ آبجکتی در هر سطح از تودرتویی باعث تغییر بی‌دلیل Checksum نشود
+ */
+export function canonicalizeValueDeterministic(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'null';
+  }
+  if (typeof value === 'boolean' || typeof value === 'number') {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'string') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    const items = value.map((item) => canonicalizeValueDeterministic(item));
+    return `[${items.join(',')}]`;
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const sortedKeys = Object.keys(obj)
+      .filter((k) => obj[k] !== undefined)
+      .sort();
+    const pairs = sortedKeys.map(
+      (k) => `${JSON.stringify(k)}:${canonicalizeValueDeterministic(obj[k])}`
+    );
+    return `{${pairs.join(',')}}`;
+  }
+  return 'null';
+}
+
+/**
+ * محاسبه Checksum قطعی نسخه ۲ برای Recovery Point که تمام اجزای مؤثر بر بازیابی
+ * (شامل stateSnapshot، syncMetaSnapshot، recordCounts و مشخصات هویتی Recovery Point) را پوشش می‌دهد
+ */
+export function computePreMergeRecoveryPointChecksum(params: {
+  recoveryId: string;
+  timestampMs: number;
+  recordCounts: PreMergeRecoveryPoint['recordCounts'];
+  stateSnapshot: FullOperationalState;
+  syncMetaSnapshot: PreMergeRecoveryPoint['syncMetaSnapshot'];
+}): string {
+  const canonicalPayload = canonicalizeValueDeterministic({
+    recoveryId: params.recoveryId,
+    timestampMs: params.timestampMs,
+    recordCounts: params.recordCounts,
+    stateSnapshot: params.stateSnapshot,
+    syncMetaSnapshot: params.syncMetaSnapshot,
+  });
+  return `RP_SHA256_${sha256Hex(canonicalPayload)}`;
+}
+
+/**
  * تهیه و اعتبارسنجی Recovery Point از اطلاعات فعلی دستگاه مقصد پیش از اجرای ادغام (بند ۱۲ مرحله سوم)
  */
 export async function createPreMergeRecoveryPoint(
@@ -1891,27 +1943,47 @@ export async function createPreMergeRecoveryPoint(
 ): Promise<{ ok: boolean; recoveryPoint?: PreMergeRecoveryPoint; error?: string }> {
   try {
     const now = new Date();
+    const timestampMs = now.getTime();
+    const recoveryId = `RP_PRE_MERGE_${timestampMs}`;
     const stateClone: FullOperationalState = JSON.parse(JSON.stringify(currentState));
     const counts = calculateCollectionCounts(stateClone);
-    const checksum = computeDatasetsChecksum(stateClone);
     const syncMeta = await hydrateSyncMetadataFromStorage();
 
+    const syncMetaSnapshot: PreMergeRecoveryPoint['syncMetaSnapshot'] = {
+      recordMetaMap: JSON.parse(JSON.stringify(syncMeta.recordMetaMap || {})),
+      baselineChangeMap: JSON.parse(JSON.stringify(syncMeta.baselineChangeMap || {})),
+      appliedPackageIds: Array.isArray(syncMeta.appliedPackageIds)
+        ? [...syncMeta.appliedPackageIds]
+        : [],
+      softDeletedArchive: JSON.parse(JSON.stringify(loadSoftDeletedArchive() || {})),
+      idSequences: readLocalIdSequences(),
+    };
+
+    const checksum = computePreMergeRecoveryPointChecksum({
+      recoveryId,
+      timestampMs,
+      recordCounts: counts,
+      stateSnapshot: stateClone,
+      syncMetaSnapshot,
+    });
+
     const recoveryPoint: PreMergeRecoveryPoint = {
-      recoveryId: `RP_PRE_MERGE_${now.getTime()}`,
+      recoveryId,
       createdAtIso: now.toISOString(),
       createdAtJalali: formatJalaliDateTimeForDisplay(now),
-      timestampMs: now.getTime(),
+      timestampMs,
       checksum,
       recordCounts: counts,
       stateSnapshot: stateClone,
-      syncMetaSnapshot: {
-        recordMetaMap: syncMeta.recordMetaMap,
-        baselineChangeMap: syncMeta.baselineChangeMap,
-        appliedPackageIds: syncMeta.appliedPackageIds,
-        softDeletedArchive: loadSoftDeletedArchive(),
-        idSequences: readLocalIdSequences(),
-      },
+      syncMetaSnapshot,
     };
+
+    if (!isValidPreMergeRecoveryPoint(recoveryPoint)) {
+      return {
+        ok: false,
+        error: 'اعتبارسنجی ساختاری و کنترلی Recovery Point تولیدشده ناموفق بود.',
+      };
+    }
 
     const serialized = JSON.stringify(recoveryPoint);
     if (!serialized || serialized.length < 20) {
@@ -1921,15 +1993,15 @@ export async function createPreMergeRecoveryPoint(
     let localOk = false;
     try {
       localStorage.setItem(PRE_MERGE_RECOVERY_STORAGE_KEY, serialized);
-      localOk = true;
+      localOk = localStorage.getItem(PRE_MERGE_RECOVERY_STORAGE_KEY) === serialized;
     } catch {
-      // ممکن است localStorage پر باشد؛ در IndexedDB ذخیره می‌شود
+      localOk = false;
     }
 
     const idbRes = await idbSetItemWithStatus(
       PRE_MERGE_RECOVERY_STORAGE_KEY,
       recoveryPoint,
-      now.getTime()
+      timestampMs
     );
 
     if (!idbRes.ok && !localOk) {
@@ -1956,6 +2028,12 @@ export function isValidPreMergeRecoveryPoint(
   }
   const rp = candidate as PreMergeRecoveryPoint;
   if (typeof rp.recoveryId !== 'string' || !rp.recoveryId.trim()) {
+    return false;
+  }
+  if (typeof rp.createdAtIso !== 'string' || !rp.createdAtIso.trim()) {
+    return false;
+  }
+  if (typeof rp.createdAtJalali !== 'string' || !rp.createdAtJalali.trim()) {
     return false;
   }
   if (
@@ -1989,27 +2067,202 @@ export function isValidPreMergeRecoveryPoint(
   ) {
     return false;
   }
+
+  // ۱. اعتبارسنجی دقیق ساختار stateSnapshot و عناصر داخلی هر مجموعه
   const s = rp.stateSnapshot;
   if (!s.auditRecords || typeof s.auditRecords !== 'object' || Array.isArray(s.auditRecords)) {
     return false;
   }
+  for (const [key, rec] of Object.entries(s.auditRecords)) {
+    if (!key || !rec || typeof rec !== 'object' || Array.isArray(rec)) {
+      return false;
+    }
+    if (typeof (rec as FieldAuditRecord).title !== 'string') {
+      return false;
+    }
+  }
+
+  const arrayCollections: Array<{
+    arr: unknown;
+    requiredStringKey?: string;
+  }> = [
+    { arr: s.bookCopies, requiredStringKey: 'copyId' },
+    { arr: s.customMartyrs, requiredStringKey: 'martyrId' },
+    { arr: s.smartSuggestions, requiredStringKey: 'id' },
+    { arr: s.links, requiredStringKey: 'id' },
+    { arr: s.pendingReviews, requiredStringKey: 'trackingId' },
+    { arr: s.multiMartyrGroups, requiredStringKey: 'groupCode' },
+    { arr: s.extractedItems, requiredStringKey: 'id' },
+    { arr: s.auditLog, requiredStringKey: 'id' },
+    { arr: s.rejectedSuggestionsArchive },
+  ];
+
+  for (const colCheck of arrayCollections) {
+    if (!Array.isArray(colCheck.arr)) {
+      return false;
+    }
+    for (const item of colCheck.arr) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return false;
+      }
+      if (colCheck.requiredStringKey) {
+        const val = (item as Record<string, unknown>)[colCheck.requiredStringKey];
+        if (typeof val !== 'string' || !val.trim()) {
+          return false;
+        }
+      }
+    }
+  }
+
   if (
-    !Array.isArray(s.bookCopies) ||
-    !Array.isArray(s.customMartyrs) ||
-    !Array.isArray(s.smartSuggestions) ||
-    !Array.isArray(s.links) ||
-    !Array.isArray(s.pendingReviews) ||
-    !Array.isArray(s.multiMartyrGroups) ||
-    !Array.isArray(s.extractedItems) ||
-    !Array.isArray(s.auditLog) ||
-    !Array.isArray(s.rejectedSuggestionsArchive)
+    !s.userSettings ||
+    typeof s.userSettings !== 'object' ||
+    Array.isArray(s.userSettings) ||
+    typeof s.userSettings.activeRole !== 'string' ||
+    !s.userSettings.activeRole.trim()
   ) {
     return false;
   }
-  const computedChecksum = computeDatasetsChecksum(s);
-  if (computedChecksum !== rp.checksum) {
+
+  // ۲. اعتبارسنجی دقیق ساختار داخلی syncMetaSnapshot مطابق نوع واقعی داده‌ها
+  const meta = rp.syncMetaSnapshot;
+  if (
+    !meta.recordMetaMap ||
+    typeof meta.recordMetaMap !== 'object' ||
+    Array.isArray(meta.recordMetaMap)
+  ) {
     return false;
   }
+  for (const [, mVal] of Object.entries(meta.recordMetaMap)) {
+    if (!mVal || typeof mVal !== 'object' || Array.isArray(mVal)) {
+      return false;
+    }
+    const rm = mVal as RecordSyncMeta;
+    if (
+      typeof rm.recordId !== 'string' ||
+      typeof rm.collection !== 'string' ||
+      typeof rm.revision !== 'number' ||
+      !Number.isFinite(rm.revision)
+    ) {
+      return false;
+    }
+  }
+
+  if (
+    !meta.baselineChangeMap ||
+    typeof meta.baselineChangeMap !== 'object' ||
+    Array.isArray(meta.baselineChangeMap)
+  ) {
+    return false;
+  }
+  for (const [bKey, bVal] of Object.entries(meta.baselineChangeMap)) {
+    if (!bKey || typeof bVal !== 'string') {
+      return false;
+    }
+  }
+
+  if (!Array.isArray(meta.appliedPackageIds)) {
+    return false;
+  }
+  for (const pkgId of meta.appliedPackageIds) {
+    if (typeof pkgId !== 'string' || !pkgId.trim()) {
+      return false;
+    }
+  }
+
+  if (
+    !meta.softDeletedArchive ||
+    typeof meta.softDeletedArchive !== 'object' ||
+    Array.isArray(meta.softDeletedArchive)
+  ) {
+    return false;
+  }
+  for (const [, env] of Object.entries(meta.softDeletedArchive)) {
+    if (!env || typeof env !== 'object' || Array.isArray(env)) {
+      return false;
+    }
+    const eObj = env as SyncRecordEnvelope;
+    if (
+      !eObj.meta ||
+      typeof eObj.meta !== 'object' ||
+      typeof eObj.meta.recordId !== 'string' ||
+      typeof eObj.meta.collection !== 'string'
+    ) {
+      return false;
+    }
+  }
+
+  if (
+    !meta.idSequences ||
+    typeof meta.idSequences !== 'object' ||
+    Array.isArray(meta.idSequences)
+  ) {
+    return false;
+  }
+  const seqKeys: Array<keyof IdSequenceSnapshot> = [
+    'LOG',
+    'RL',
+    'SS',
+    'MR',
+    'EX',
+    'CP',
+    'TMP_OUT',
+  ];
+  for (const sk of seqKeys) {
+    const sv = meta.idSequences[sk];
+    if (typeof sv !== 'number' || !Number.isFinite(sv) || sv < 0) {
+      return false;
+    }
+  }
+
+  // ۳. اعتبارسنجی دقیق recordCounts و سازگاری ۱۰۰٪ آن با داده‌های واقعی داخل stateSnapshot
+  const actualCounts = calculateCollectionCounts(s);
+  const rc = rp.recordCounts;
+  const countKeys: Array<keyof typeof actualCounts> = [
+    'auditRecords',
+    'bookCopies',
+    'customMartyrs',
+    'smartSuggestions',
+    'links',
+    'pendingReviews',
+    'multiMartyrGroups',
+    'extractedItems',
+    'auditLog',
+    'userSettings',
+    'rejectedSuggestionsArchive',
+    'totalOperationalItems',
+  ];
+  for (const ck of countKeys) {
+    const val = rc[ck];
+    if (typeof val !== 'number' || !Number.isFinite(val) || val < 0) {
+      return false;
+    }
+    if (val !== actualCounts[ck]) {
+      return false;
+    }
+  }
+
+  // ۴. اعتبارسنجی Checksum (پوشش کامل نسخه جدید RP_SHA256_ + سازگاری عقب‌رو با FNV1A- برای Recovery Pointهای سالم قبلی)
+  if (rp.checksum.startsWith('RP_SHA256_')) {
+    const expectedFullChecksum = computePreMergeRecoveryPointChecksum({
+      recoveryId: rp.recoveryId,
+      timestampMs: rp.timestampMs,
+      recordCounts: rp.recordCounts,
+      stateSnapshot: rp.stateSnapshot,
+      syncMetaSnapshot: rp.syncMetaSnapshot,
+    });
+    if (rp.checksum !== expectedFullChecksum) {
+      return false;
+    }
+  } else if (rp.checksum.startsWith('FNV1A-')) {
+    const legacyChecksum = computeDatasetsChecksum(s);
+    if (rp.checksum !== legacyChecksum) {
+      return false;
+    }
+  } else {
+    return false;
+  }
+
   return true;
 }
 
@@ -2049,6 +2302,7 @@ export async function getLatestPreMergeRecoveryPoint(): Promise<PreMergeRecovery
 
 /**
  * بازگردانی کامل اطلاعات مقصد از Recovery Point در صورت بروز خطا یا درخواست کاربر
+ * همراه با قابلیت بازگشت امن (Rollback) و تطبیق وضعیت بازیابی‌شده با Snapshot معتبر
  */
 export async function restoreFromPreMergeRecoveryPoint(
   recoveryPoint: PreMergeRecoveryPoint
@@ -2062,11 +2316,49 @@ export async function restoreFromPreMergeRecoveryPoint(
     return {
       ok: false,
       restoredState: fallbackSnapshot,
-      error: 'ساختار یا Checksum نقطه بازیابی (Recovery Point) نامعتبر است.',
+      error: 'ساختار، شمارنده‌ها یا Checksum نقطه بازیابی (Recovery Point) نامعتبر است.',
     };
   }
 
-  const s = recoveryPoint.stateSnapshot;
+  // پشتیبان موقت از مقادیر فعلی متادیتا در localStorage جهت بازگردانی در صورت بروز خطا
+  let prevSoftDeletedRaw: string | null = null;
+  let prevIdSequencesRaw: string | null = null;
+  let prevUserRoleRaw: string | null = null;
+  try {
+    prevSoftDeletedRaw = localStorage.getItem('book_p2p_soft_deleted_archive_v1');
+    prevIdSequencesRaw = localStorage.getItem(ID_SEQUENCE_STORAGE_KEY);
+    prevUserRoleRaw = localStorage.getItem(OPERATIONAL_STORAGE_KEYS.userRole);
+  } catch {
+    // ignore
+  }
+
+  const rollbackAuxLocalStorage = () => {
+    try {
+      if (prevSoftDeletedRaw === null) {
+        localStorage.removeItem('book_p2p_soft_deleted_archive_v1');
+      } else {
+        localStorage.setItem('book_p2p_soft_deleted_archive_v1', prevSoftDeletedRaw);
+      }
+      if (prevIdSequencesRaw === null) {
+        localStorage.removeItem(ID_SEQUENCE_STORAGE_KEY);
+      } else {
+        localStorage.setItem(ID_SEQUENCE_STORAGE_KEY, prevIdSequencesRaw);
+      }
+      if (prevUserRoleRaw === null) {
+        localStorage.removeItem(OPERATIONAL_STORAGE_KEYS.userRole);
+      } else {
+        localStorage.setItem(OPERATIONAL_STORAGE_KEYS.userRole, prevUserRoleRaw);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const s: FullOperationalState = JSON.parse(JSON.stringify(recoveryPoint.stateSnapshot));
+  const metaSnap: PreMergeRecoveryPoint['syncMetaSnapshot'] = JSON.parse(
+    JSON.stringify(recoveryPoint.syncMetaSnapshot)
+  );
+
   const entries: BatchStorageSaveEntry[] = [
     { key: OPERATIONAL_STORAGE_KEYS.auditRecords, value: s.auditRecords },
     { key: OPERATIONAL_STORAGE_KEYS.bookCopies, value: s.bookCopies },
@@ -2078,9 +2370,9 @@ export async function restoreFromPreMergeRecoveryPoint(
     { key: OPERATIONAL_STORAGE_KEYS.extractedItems, value: s.extractedItems },
     { key: OPERATIONAL_STORAGE_KEYS.auditLog, value: s.auditLog },
     { key: OPERATIONAL_STORAGE_KEYS.rejectedSuggestions, value: s.rejectedSuggestionsArchive },
-    { key: RECORD_META_MAP_KEY, value: recoveryPoint.syncMetaSnapshot.recordMetaMap },
-    { key: BASELINE_CHANGE_MAP_KEY, value: recoveryPoint.syncMetaSnapshot.baselineChangeMap },
-    { key: APPLIED_PACKAGES_KEY, value: recoveryPoint.syncMetaSnapshot.appliedPackageIds },
+    { key: RECORD_META_MAP_KEY, value: metaSnap.recordMetaMap },
+    { key: BASELINE_CHANGE_MAP_KEY, value: metaSnap.baselineChangeMap },
+    { key: APPLIED_PACKAGES_KEY, value: metaSnap.appliedPackageIds },
   ];
 
   const batchRes = await saveOperationalDataBatchAtomic(entries);
@@ -2092,10 +2384,10 @@ export async function restoreFromPreMergeRecoveryPoint(
     };
   }
 
-  const targetSoftDeleted = recoveryPoint.syncMetaSnapshot.softDeletedArchive || {};
+  const targetSoftDeleted = metaSnap.softDeletedArchive || {};
   const softDeleteSavedOk = saveSoftDeletedArchive(targetSoftDeleted);
 
-  const targetIdSequences = recoveryPoint.syncMetaSnapshot.idSequences || readLocalIdSequences();
+  const targetIdSequences = metaSnap.idSequences || readLocalIdSequences();
   const serializedSeq = JSON.stringify(targetIdSequences);
   let idSequencesSavedOk = false;
   try {
@@ -2105,18 +2397,23 @@ export async function restoreFromPreMergeRecoveryPoint(
     idSequencesSavedOk = false;
   }
 
-  try {
-    if (s.userSettings?.activeRole) {
+  let userRoleSavedOk = true;
+  if (s.userSettings?.activeRole) {
+    try {
       localStorage.setItem(OPERATIONAL_STORAGE_KEYS.userRole, s.userSettings.activeRole);
+      userRoleSavedOk =
+        localStorage.getItem(OPERATIONAL_STORAGE_KEYS.userRole) === s.userSettings.activeRole;
+    } catch {
+      userRoleSavedOk = false;
     }
-  } catch {
-    // ignore
   }
 
-  if (!softDeleteSavedOk || !idSequencesSavedOk) {
+  if (!softDeleteSavedOk || !idSequencesSavedOk || !userRoleSavedOk) {
+    rollbackAuxLocalStorage();
     const failedParts: string[] = [];
     if (!softDeleteSavedOk) failedParts.push('softDeletedArchive');
     if (!idSequencesSavedOk) failedParts.push('idSequences');
+    if (!userRoleSavedOk) failedParts.push('userRole');
     return {
       ok: false,
       restoredState: s,
@@ -2124,11 +2421,31 @@ export async function restoreFromPreMergeRecoveryPoint(
     };
   }
 
+  // تطبیق وضعیت بازیابی‌شده پس از عملیات با Snapshot معتبر
+  const restoredCounts = calculateCollectionCounts(s);
+  const restoredChecksum = computeDatasetsChecksum(s);
+  const expectedSnapshotChecksum = computeDatasetsChecksum(recoveryPoint.stateSnapshot);
+  const storageVerify = await verifyExportAgainstRealStorage(s);
+
+  if (
+    restoredCounts.totalOperationalItems !==
+      recoveryPoint.recordCounts.totalOperationalItems ||
+    restoredChecksum !== expectedSnapshotChecksum ||
+    !storageVerify.verified
+  ) {
+    rollbackAuxLocalStorage();
+    return {
+      ok: false,
+      restoredState: s,
+      error: 'وضعیت بازیابی‌شده پس از عملیات با Snapshot معتبر همخوانی کامل نداشت.',
+    };
+  }
+
   applyCommittedSyncMetadataToCache(
     {
-      recordMetaMap: recoveryPoint.syncMetaSnapshot.recordMetaMap,
-      baselineChangeMap: recoveryPoint.syncMetaSnapshot.baselineChangeMap,
-      appliedPackageIds: recoveryPoint.syncMetaSnapshot.appliedPackageIds,
+      recordMetaMap: metaSnap.recordMetaMap,
+      baselineChangeMap: metaSnap.baselineChangeMap,
+      appliedPackageIds: metaSnap.appliedPackageIds,
     },
     batchRes.updatedAt
   );

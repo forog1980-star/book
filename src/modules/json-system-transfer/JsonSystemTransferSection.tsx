@@ -2,7 +2,6 @@ import React, { useRef, useState, useEffect } from 'react';
 import {
   FileUp,
   FileDown,
-  ShieldCheck,
   CheckCircle2,
   AlertTriangle,
   Share2,
@@ -12,7 +11,6 @@ import {
   GitMerge,
   XCircle,
   Eye,
-  Layers,
 } from 'lucide-react';
 import { ModalWindow } from '../../components/ModalWindow';
 import { ReferenceCatalogRow, toPersianDigits } from '../../data/markazAsnadData';
@@ -221,107 +219,84 @@ export const JsonSystemTransferSection: React.FC<JsonSystemTransferSectionProps>
         data-testid="json-system-import-file-input"
       />
 
-      {/* سرصفحه و توضیح بخش ششم */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-[#DFD2BE]">
-        <div className="space-y-1.5 text-right">
-          <div className="inline-flex items-center gap-2 text-[#1E4D3B] text-xs font-bold">
-            <ShieldCheck className="w-4 h-4 shrink-0 text-[#1E5B45]" />
-            <span>مستقل از اینترنت و فضای ابری · انتقال امن دستی بین گوشی و رایانه</span>
-          </div>
-          <h2 className="font-titr text-lg sm:text-xl font-bold text-[#24303F] tracking-normal">
-            انتقال و نگهداری اطلاعات کتابخانه
-          </h2>
-          <p className="text-xs sm:text-sm text-[#4A5568] leading-relaxed">
-            «تهیه نسخه کامل پشتیبان و انتقال اطلاعات بین گوشی و رایانه»
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 self-start sm:self-center text-[11px] text-[#4A5568]">
-          <span>حافظه فعال: IndexedDB + LocalStorage</span>
-          <span aria-hidden="true">·</span>
-          <span>فرمت استاندارد: UTF-8 JSON v4</span>
-        </div>
+      {/* ۱. عنوان بالای بخش */}
+      <div className="pb-4 border-b border-[#DFD2BE]">
+        <h2 className="font-titr text-lg sm:text-xl font-bold text-[#24303F] tracking-normal text-right">
+          انتقال و نگهداری اطلاعات کتابخانه
+        </h2>
       </div>
 
-      {/* دو دکمه بزرگ، متمایز و لمسی (منطبق با بخش پنجم و ششم) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 pt-5">
-        {/* دکمه اول: دریافت خروجی کامل JSON */}
+      {/* سه کارت هم‌اندازه، متمایز و لمسی (گزینه ۱، ۲ و ۳) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5 pt-5">
+        {/* گزینه اول: دریافت خروجی کامل JSON */}
         <button
           type="button"
           onClick={handleExportFullJson}
           disabled={isExporting}
           data-testid="btn-export-full-system-json"
-          className="w-full min-h-[108px] p-4 sm:p-5 rounded-2xl bg-[#F2F9F5] hover:bg-[#E4F3EA] active:scale-[0.99] border-2 border-[#7AB899] text-right transition-all flex items-start gap-4 cursor-pointer shadow-2xs group focus-visible:outline-2 focus-visible:outline-[#1E5B45]"
+          className="w-full min-h-[104px] p-4 sm:p-5 rounded-2xl bg-[#F2F9F5] hover:bg-[#E4F3EA] active:scale-[0.99] border-2 border-[#7AB899] text-right transition-all flex items-center gap-4 cursor-pointer shadow-2xs group focus-visible:outline-2 focus-visible:outline-[#1E5B45]"
         >
           <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#1E5B45] text-white flex items-center justify-center shrink-0 shadow-xs group-hover:bg-[#164635] transition-colors">
             <FileUp className="w-6 h-6 sm:w-7 sm:h-7" />
           </div>
 
-          <div className="flex-1 min-w-0 space-y-1.5">
-            <div className="text-[11px] font-bold text-[#1E5B45]">
-              ۱. دریافت خروجی کامل JSON از کل اطلاعات سیستم
-            </div>
+          <div className="flex-1 min-w-0">
             <div className="text-sm sm:text-base font-bold text-[#133829] leading-snug">
               دریافت خروجی کامل JSON
             </div>
-            <p className="text-xs text-[#2C5443] leading-relaxed">
-              «تهیه یک فایل کامل از تمام اطلاعات ذخیره‌شده کتابخانه»
-            </p>
           </div>
         </button>
 
-        {/* دکمه دوم: ورود فایل JSON به سیستم */}
+        {/* گزینه دوم: ورود فایل JSON به سیستم */}
         <button
           type="button"
           onClick={handleTriggerImportFilePicker}
           disabled={isMerging}
           data-testid="btn-import-full-system-json"
-          className="w-full min-h-[108px] p-4 sm:p-5 rounded-2xl bg-[#F0F6FB] hover:bg-[#E2EEF8] active:scale-[0.99] border-2 border-[#7FA8CF] text-right transition-all flex items-start gap-4 cursor-pointer shadow-2xs group focus-visible:outline-2 focus-visible:outline-[#1E4B75]"
+          className="w-full min-h-[104px] p-4 sm:p-5 rounded-2xl bg-[#F0F6FB] hover:bg-[#E2EEF8] active:scale-[0.99] border-2 border-[#7FA8CF] text-right transition-all flex items-center gap-4 cursor-pointer shadow-2xs group focus-visible:outline-2 focus-visible:outline-[#1E4B75]"
         >
           <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#1E4B75] text-white flex items-center justify-center shrink-0 shadow-xs group-hover:bg-[#163859] transition-colors">
             <FileDown className="w-6 h-6 sm:w-7 sm:h-7" />
           </div>
 
-          <div className="flex-1 min-w-0 space-y-1.5">
-            <div className="text-[11px] font-bold text-[#1E4B75]">
-              ۲. ورود فایل JSON به کل اطلاعات سیستم
-            </div>
+          <div className="flex-1 min-w-0">
             <div className="text-sm sm:text-base font-bold text-[#132F4C] leading-snug">
               ورود فایل JSON به سیستم
             </div>
-            <p className="text-xs text-[#2B4C6F] leading-relaxed">
-              «بررسی و ادغام اطلاعات فایل پشتیبان با اطلاعات موجود»
-            </p>
           </div>
         </button>
-      </div>
 
-      {/* نوار راهنمای کوتاه گردش کار بین گوشی و رایانه و دسترسی به نقطه بازیابی */}
-      <div className="mt-4 pt-3.5 border-t border-[#E5DAC8] flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#52606D]">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="font-bold text-[#24303F]">گردش کار امن:</span>
-          <span>ثبت در گوشی</span>
-          <span aria-hidden="true">←</span>
-          <span>دریافت خروجی JSON</span>
-          <span aria-hidden="true">←</span>
-          <span>انتقال فایل به رایانه و ادغام امن</span>
-          <span aria-hidden="true">←</span>
-          <span>تکمیل و بازگردانی به گوشی</span>
-        </div>
+        {/* گزینه سوم: نقطه بازیابی پیش از ادغام */}
+        <button
+          type="button"
+          onClick={() => {
+            if (!latestRecoveryPoint) {
+              onNotify('هنوز نقطه بازیابی پیش از ادغام در این دستگاه ثبت نشده است.', 'warning');
+              return;
+            }
+            setInspectionReport(null);
+            setMergeCompletedMessage(null);
+            setShowImportModal(true);
+          }}
+          data-testid="btn-open-pre-merge-recovery-point"
+          className="w-full min-h-[104px] p-4 sm:p-5 rounded-2xl bg-[#FAF4EC] hover:bg-[#F3E8D8] active:scale-[0.99] border-2 border-[#C8A986] text-right transition-all flex items-center gap-4 cursor-pointer shadow-2xs group focus-visible:outline-2 focus-visible:outline-[#7A5C3E]"
+        >
+          <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#7A5C3E] text-white flex items-center justify-center shrink-0 shadow-xs group-hover:bg-[#5E452D] transition-colors">
+            <RotateCcw className="w-6 h-6 sm:w-7 sm:h-7" />
+          </div>
 
-        {latestRecoveryPoint && (
-          <button
-            type="button"
-            onClick={() => {
-              setInspectionReport(null);
-              setShowImportModal(true);
-            }}
-            className="text-xs font-bold text-[#1E4B75] hover:underline inline-flex items-center gap-1 cursor-pointer"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>نقطه بازیابی پیش از ادغام موجود است ({latestRecoveryPoint.createdAtJalali})</span>
-          </button>
-        )}
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="text-sm sm:text-base font-bold text-[#3D2C1D] leading-snug">
+              نقطه بازیابی پیش از ادغام
+            </div>
+            <div
+              className="text-xs font-bold text-[#6B4F35] truncate"
+              data-testid="recovery-point-card-datetime"
+            >
+              {latestRecoveryPoint ? latestRecoveryPoint.createdAtJalali : 'ثبت‌نشده'}
+            </div>
+          </div>
+        </button>
       </div>
 
       {/* مودال ۱: گزارش اعتبارسنجی و تحویل فایل خروجی کامل JSON */}
@@ -499,27 +474,22 @@ export const JsonSystemTransferSection: React.FC<JsonSystemTransferSectionProps>
           maxWidthClass="max-w-4xl"
         >
           <div className="space-y-4 text-xs text-[#24303F]" dir="rtl">
-            {/* نوار انتخاب فایل جدید یا بازگردانی از Recovery Point */}
-            <div className="flex flex-wrap items-center justify-between gap-2 bg-[#FAF7F2] border border-[#DFD2BE] rounded-2xl p-3">
-              <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-[#1E4B75] shrink-0" />
-                <span>
-                  {inspectionReport
-                    ? `فایل انتخاب‌شده: ${inspectionReport.fileName}`
-                    : 'یک فایل پشتیبان JSON را برای بررسی و مقایسه انتخاب نمایید'}
-                </span>
+            {/* نوار انتخاب فایل JSON */}
+            {inspectionReport && (
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-[#FAF7F2] border border-[#DFD2BE] rounded-2xl p-3">
+                <div className="font-bold text-[#24303F]">{inspectionReport.fileName}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="min-h-[36px] px-3.5 py-1.5 rounded-xl bg-[#1E4B75] hover:bg-[#163859] text-white font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <FileDown className="w-3.5 h-3.5" />
+                    <span>انتخاب فایل JSON دیگر</span>
+                  </button>
+                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="min-h-[36px] px-3.5 py-1.5 rounded-xl bg-[#1E4B75] hover:bg-[#163859] text-white font-bold inline-flex items-center gap-1.5 cursor-pointer"
-                >
-                  <FileDown className="w-3.5 h-3.5" />
-                  <span>انتخاب فایل JSON دیگر</span>
-                </button>
-              </div>
-            </div>
+            )}
 
             {/* اگر ادغام با موفقیت انجام شده باشد */}
             {mergeCompletedMessage && (
