@@ -33,6 +33,7 @@ import {
   isIndexedDbAvailable,
   OPERATIONAL_STORAGE_KEYS,
   saveOperationalDataBatchAtomic,
+  waitForPendingStorageOperations,
 } from '../../utils/indexedDbStorage';
 import {
   canonicalizeRecordData,
@@ -210,6 +211,66 @@ function readLocalIdSequences(): IdSequenceSnapshot {
   return fallback;
 }
 
+function extractNumericSuffix(id: string | undefined | null, prefix: string): number {
+  if (!id || typeof id !== 'string') return 0;
+  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = id.match(new RegExp(`^${escaped}[-_]?(\\d+)$`, 'i'));
+  if (!match) return 0;
+  const num = Number(match[1]);
+  return Number.isFinite(num) && num > 0 ? num : 0;
+}
+
+export function computeEffectiveIdSequences(
+  state: FullOperationalState,
+  baseSeq?: IdSequenceSnapshot
+): IdSequenceSnapshot {
+  const cur = baseSeq || readLocalIdSequences();
+  let maxLOG = cur.LOG || 1000;
+  let maxRL = cur.RL || 1000;
+  let maxSS = cur.SS || 1000;
+  let maxMR = cur.MR || 1000;
+  let maxEX = cur.EX || 1000;
+  let maxCP = cur.CP || 1000;
+  let maxTMP = cur.TMP_OUT || 1;
+
+  for (const item of state.auditLog || []) {
+    maxLOG = Math.max(maxLOG, extractNumericSuffix(item?.id, 'LOG'));
+  }
+  for (const item of state.links || []) {
+    maxRL = Math.max(maxRL, extractNumericSuffix(item?.id, 'RL'));
+  }
+  for (const item of state.smartSuggestions || []) {
+    maxSS = Math.max(maxSS, extractNumericSuffix(item?.id, 'SS'));
+  }
+  for (const item of state.customMartyrs || []) {
+    maxMR = Math.max(maxMR, extractNumericSuffix(item?.martyrId, 'MR'));
+  }
+  for (const item of state.extractedItems || []) {
+    maxEX = Math.max(maxEX, extractNumericSuffix(item?.id, 'EX'));
+  }
+  for (const item of state.bookCopies || []) {
+    maxCP = Math.max(maxCP, extractNumericSuffix(item?.copyId, 'CP'));
+  }
+  for (const rec of Object.values(state.auditRecords || {})) {
+    if (!rec) continue;
+    maxTMP = Math.max(
+      maxTMP,
+      extractNumericSuffix(rec.tempBookId, 'TMP-OUT'),
+      extractNumericSuffix(rec.key, 'TMP-OUT')
+    );
+  }
+
+  return {
+    LOG: maxLOG,
+    RL: maxRL,
+    SS: maxSS,
+    MR: maxMR,
+    EX: maxEX,
+    CP: maxCP,
+    TMP_OUT: maxTMP,
+  };
+}
+
 function formatJalaliDateTimeForDisplay(date: Date): string {
   try {
     return new Intl.DateTimeFormat('fa-IR', {
@@ -308,9 +369,392 @@ export function computeLegacyV4SystemDataIntegrityHash(
 /**
  * بررسی و تطبیق تعداد رکوردهای استخراج‌شده با اطلاعات واقعی Storage (IndexedDB + localStorage)
  */
+function extractRecordTimestampMs(rec: unknown): number {
+  if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return 0;
+  const obj = rec as Record<string, unknown>;
+  const candidateKeys = ['updatedAtMs', 'updatedAt', '_updatedAt', 'lastReviewedAt'];
+  for (const k of candidateKeys) {
+    const val = obj[k];
+    if (typeof val === 'number' && Number.isFinite(val) && val > 0) {
+      return val;
+    }
+    if (typeof val === 'string' && val.trim()) {
+      const asNum = Number(val);
+      if (Number.isFinite(asNum) && asNum > 1000000000) {
+        return asNum;
+      }
+      const parsed = Date.parse(val);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+  }
+  return 0;
+}
+
+function selectFresherRecord<T>(
+  storageRec: T,
+  activeRec: T,
+  storageCollectionUpdatedAt: number
+): { chosen: T; fromActive: boolean } {
+  if (canonicalizeValueDeterministic(storageRec) === canonicalizeValueDeterministic(activeRec)) {
+    return { chosen: storageRec, fromActive: false };
+  }
+  const storageRecTs = extractRecordTimestampMs(storageRec);
+  const activeRecTs = extractRecordTimestampMs(activeRec);
+
+  if (activeRecTs > 0 && storageRecTs > 0 && activeRecTs !== storageRecTs) {
+    return activeRecTs > storageRecTs
+      ? { chosen: activeRec, fromActive: true }
+      : { chosen: storageRec, fromActive: false };
+  }
+
+  if (activeRecTs > 0 && storageRecTs === 0 && activeRecTs > storageCollectionUpdatedAt) {
+    return { chosen: activeRec, fromActive: true };
+  }
+
+  // پس از تکمیل عملیات‌های ذخیره‌سازی معلق (waitForPendingStorageOperations)،
+  // در صورتی که رکورد حافظه موقت دارای مهر زمان جدیدتری نباشد، نسخه پایدار Storage مرجع معتبر است.
+  return { chosen: storageRec, fromActive: false };
+}
+
+/**
+ * تبدیل وضعیت فعال برنامه و حافظه پایدار (IndexedDB + LocalStorage) به یک Snapshot واحد، تازه و تأییدشده:
+ * ۱. انتظار برای تکمیل تمام نوشتن‌های غیرهمزمان در حال اجرا (waitForPendingStorageOperations)
+ * ۲. خواندن سخت‌گیرانه (Strict) تمام مجموعه‌ها بدون بلعیدن خطای Storage
+ * ۳. تلفیق هوشمند بر پایه شناسه و زمان‌بندی تا نه رکورد تازه ثبت‌شده از دست برود و نه وضعیت قدیمی React روی داده جدیدتر Storage بنشیند
+ * ۴. در حالت syncUnpersistedToStorage، ثبت اتمیک هرگونه تغییر ثبت‌نشده در Storage پیش از تولید و راستی‌آزمایی خروجی
+ */
+export async function resolveLatestVerifiedOperationalState(
+  activeState: FullOperationalState,
+  options?: { syncUnpersistedToStorage?: boolean }
+): Promise<{
+  ok: boolean;
+  state: FullOperationalState;
+  syncMetaSnapshot: {
+    recordMetaMap: Record<string, RecordSyncMeta>;
+    baselineChangeMap: Record<string, string>;
+    appliedPackageIds: string[];
+  };
+  error?: string;
+}> {
+  await waitForPendingStorageOperations();
+
+  const fallbackSyncMeta = {
+    recordMetaMap: loadRecordMetaMap(),
+    baselineChangeMap: loadBaselineChangeMap(),
+    appliedPackageIds: loadAppliedPackageIds(),
+  };
+
+  const [
+    resAudit,
+    resCopies,
+    resMartyrs,
+    resSmart,
+    resGroups,
+    resExtracted,
+    resLinks,
+    resPending,
+    resLog,
+    resRejected,
+    resMetaMap,
+    resBaselineMap,
+    resAppliedPkgs,
+  ] = await Promise.all([
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.auditRecords, {}),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.bookCopies, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.customMartyrs, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.smartSuggestions, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.multiMartyrGroups, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.extractedItems, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.links, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.pendingReviews, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.auditLog, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.rejectedSuggestions, []),
+    readEffectiveKeyStrict(RECORD_META_MAP_KEY, fallbackSyncMeta.recordMetaMap),
+    readEffectiveKeyStrict(BASELINE_CHANGE_MAP_KEY, fallbackSyncMeta.baselineChangeMap),
+    readEffectiveKeyStrict(APPLIED_PACKAGES_KEY, fallbackSyncMeta.appliedPackageIds),
+  ]);
+
+  const allReads = [
+    resAudit,
+    resCopies,
+    resMartyrs,
+    resSmart,
+    resGroups,
+    resExtracted,
+    resLinks,
+    resPending,
+    resLog,
+    resRejected,
+    resMetaMap,
+    resBaselineMap,
+    resAppliedPkgs,
+  ];
+
+  for (const r of allReads) {
+    if (!r.ok) {
+      return {
+        ok: false,
+        state: activeState,
+        syncMetaSnapshot: fallbackSyncMeta,
+        error: r.error || 'خطا در خواندن اطلاعات از حافظه پایدار (Storage)',
+      };
+    }
+  }
+
+  let softDeletedArchive: Record<string, SyncRecordEnvelope> = {};
+  try {
+    softDeletedArchive = loadSoftDeletedArchive() || {};
+  } catch {
+    softDeletedArchive = {};
+  }
+
+  let needsStorageSync = false;
+
+  const reconcileDict = <T>(
+    readRes: Awaited<ReturnType<typeof readEffectiveKeyStrict>>,
+    activeDict: Record<string, T>,
+    colName: string
+  ): Record<string, T> => {
+    const storageExists = readRes.idbSnap.exists || readRes.localSnap.exists;
+    const storageDict =
+      storageExists &&
+      readRes.effectiveValue &&
+      typeof readRes.effectiveValue === 'object' &&
+      !Array.isArray(readRes.effectiveValue)
+        ? (readRes.effectiveValue as Record<string, T>)
+        : {};
+
+    if (!storageExists) {
+      if (Object.keys(activeDict || {}).length > 0) {
+        needsStorageSync = true;
+      }
+      return JSON.parse(JSON.stringify(activeDict || {}));
+    }
+
+    const result: Record<string, T> = JSON.parse(JSON.stringify(storageDict));
+    for (const [id, activeItem] of Object.entries(activeDict || {})) {
+      if (!id || !activeItem) continue;
+      if (id in result) {
+        const sel = selectFresherRecord(result[id], activeItem, readRes.effectiveUpdatedAt);
+        result[id] = JSON.parse(JSON.stringify(sel.chosen));
+        if (sel.fromActive) {
+          needsStorageSync = true;
+        }
+      } else if (!softDeletedArchive[`${colName}:${id}`]) {
+        result[id] = JSON.parse(JSON.stringify(activeItem));
+        needsStorageSync = true;
+      }
+    }
+    return result;
+  };
+
+  const reconcileArray = <T>(
+    readRes: Awaited<ReturnType<typeof readEffectiveKeyStrict>>,
+    activeArr: T[],
+    getId: (item: T) => string,
+    colName: string
+  ): T[] => {
+    const storageExists = readRes.idbSnap.exists || readRes.localSnap.exists;
+    const storageArr =
+      storageExists && Array.isArray(readRes.effectiveValue)
+        ? (readRes.effectiveValue as T[])
+        : [];
+
+    if (!storageExists) {
+      if ((activeArr || []).length > 0) {
+        needsStorageSync = true;
+      }
+      return JSON.parse(JSON.stringify(activeArr || []));
+    }
+
+    const map = new Map<string, T>();
+    for (const item of storageArr) {
+      if (!item) continue;
+      const id = getId(item);
+      if (id) {
+        map.set(id, JSON.parse(JSON.stringify(item)));
+      }
+    }
+
+    for (const activeItem of activeArr || []) {
+      if (!activeItem) continue;
+      const id = getId(activeItem);
+      if (!id) continue;
+      if (map.has(id)) {
+        const sel = selectFresherRecord(
+          map.get(id)!,
+          activeItem,
+          readRes.effectiveUpdatedAt
+        );
+        map.set(id, JSON.parse(JSON.stringify(sel.chosen)));
+        if (sel.fromActive) {
+          needsStorageSync = true;
+        }
+      } else if (!softDeletedArchive[`${colName}:${id}`]) {
+        map.set(id, JSON.parse(JSON.stringify(activeItem)));
+        needsStorageSync = true;
+      }
+    }
+
+    return Array.from(map.values());
+  };
+
+  const auditRecords = reconcileDict(
+    resAudit,
+    activeState.auditRecords || {},
+    'auditRecords'
+  );
+  const bookCopies = reconcileArray(
+    resCopies,
+    activeState.bookCopies || [],
+    (c) => c.copyId,
+    'bookCopies'
+  );
+  const customMartyrs = reconcileArray(
+    resMartyrs,
+    activeState.customMartyrs || [],
+    (m) => m.martyrId,
+    'customMartyrs'
+  );
+  const links = reconcileArray(
+    resLinks,
+    activeState.links || [],
+    (l) => l.id,
+    'links'
+  );
+  const multiMartyrGroups = reconcileArray(
+    resGroups,
+    activeState.multiMartyrGroups || [],
+    (g) => g.groupCode,
+    'multiMartyrGroups'
+  ).map((g) => normalizeMultiMartyrGroupRecord(g));
+  const extractedItems = reconcileArray(
+    resExtracted,
+    activeState.extractedItems || [],
+    (e) => e.id,
+    'extractedItems'
+  );
+  const pendingReviews = reconcileArray(
+    resPending,
+    activeState.pendingReviews || [],
+    (p) => p.trackingId,
+    'pendingReviews'
+  );
+  const smartSuggestions = reconcileArray(
+    resSmart,
+    activeState.smartSuggestions || [],
+    (s) => s.id,
+    'smartSuggestions'
+  );
+  const rejectedSuggestionsArchive = reconcileArray(
+    resRejected,
+    activeState.rejectedSuggestionsArchive || [],
+    (r) => r.id || `${r.martyrName}::${r.bookTitle}`,
+    'rejectedSuggestionsArchive'
+  );
+  const auditLog = reconcileArray(
+    resLog,
+    activeState.auditLog || [],
+    (l) => l.id,
+    'auditLog'
+  );
+
+  const reconciledState: FullOperationalState = {
+    auditRecords,
+    bookCopies,
+    customMartyrs,
+    smartSuggestions,
+    links,
+    pendingReviews,
+    multiMartyrGroups,
+    extractedItems,
+    auditLog,
+    userSettings: activeState.userSettings || { activeRole: 'registrar' },
+    rejectedSuggestionsArchive,
+  };
+
+  const syncMetaSnapshot = {
+    recordMetaMap: {
+      ...fallbackSyncMeta.recordMetaMap,
+      ...((resMetaMap.effectiveValue as Record<string, RecordSyncMeta>) || {}),
+    },
+    baselineChangeMap: {
+      ...fallbackSyncMeta.baselineChangeMap,
+      ...((resBaselineMap.effectiveValue as Record<string, string>) || {}),
+    },
+    appliedPackageIds: Array.from(
+      new Set([
+        ...((resAppliedPkgs.effectiveValue as string[]) || []),
+        ...fallbackSyncMeta.appliedPackageIds,
+      ])
+    ),
+  };
+
+  const anyOperationalMissingInStorage = [
+    resAudit,
+    resCopies,
+    resMartyrs,
+    resSmart,
+    resGroups,
+    resExtracted,
+    resLinks,
+    resPending,
+    resLog,
+    resRejected,
+  ].some((r) => !r.idbSnap.exists && !r.localSnap.exists);
+
+  if (options?.syncUnpersistedToStorage && (needsStorageSync || anyOperationalMissingInStorage)) {
+    const entriesToPersist: BatchStorageSaveEntry[] = [
+      { key: OPERATIONAL_STORAGE_KEYS.auditRecords, value: reconciledState.auditRecords },
+      { key: OPERATIONAL_STORAGE_KEYS.bookCopies, value: reconciledState.bookCopies },
+      { key: OPERATIONAL_STORAGE_KEYS.customMartyrs, value: reconciledState.customMartyrs },
+      { key: OPERATIONAL_STORAGE_KEYS.smartSuggestions, value: reconciledState.smartSuggestions },
+      { key: OPERATIONAL_STORAGE_KEYS.links, value: reconciledState.links },
+      { key: OPERATIONAL_STORAGE_KEYS.pendingReviews, value: reconciledState.pendingReviews },
+      { key: OPERATIONAL_STORAGE_KEYS.multiMartyrGroups, value: reconciledState.multiMartyrGroups },
+      { key: OPERATIONAL_STORAGE_KEYS.extractedItems, value: reconciledState.extractedItems },
+      { key: OPERATIONAL_STORAGE_KEYS.auditLog, value: reconciledState.auditLog },
+      {
+        key: OPERATIONAL_STORAGE_KEYS.rejectedSuggestions,
+        value: reconciledState.rejectedSuggestionsArchive,
+      },
+      { key: RECORD_META_MAP_KEY, value: syncMetaSnapshot.recordMetaMap },
+      { key: BASELINE_CHANGE_MAP_KEY, value: syncMetaSnapshot.baselineChangeMap },
+      { key: APPLIED_PACKAGES_KEY, value: syncMetaSnapshot.appliedPackageIds },
+    ];
+    const saveRes = await saveOperationalDataBatchAtomic(entriesToPersist);
+    if (!saveRes.ok) {
+      return {
+        ok: false,
+        state: reconciledState,
+        syncMetaSnapshot,
+        error:
+          saveRes.error ||
+          'خطا در تثبیت آخرین تغییرات حافظه در Storage پیش از تولید فایل JSON',
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    state: reconciledState,
+    syncMetaSnapshot,
+  };
+}
+
+/**
+ * بررسی و تطبیق سخت‌گیرانه تعداد و محتوای کانونیکال رکوردهای استخراج‌شده با اطلاعات واقعی Storage (IndexedDB + localStorage)
+ * - بدون بلعیدن خطاهای خواندن Storage
+ * - مقایسه محتوای واقعی (canonicalizeValueDeterministic) علاوه بر تعداد رکوردها
+ * - تفکیک دقیق داده خام و نسخه غنی‌شده سوره مهر برای links و extractedItems
+ */
 export async function verifyExportAgainstRealStorage(
   state: FullOperationalState
 ): Promise<StorageVerificationCheck> {
+  await waitForPendingStorageOperations();
+
   const checkedAtIso = new Date().toISOString();
   const idbAvail = isIndexedDbAvailable();
   let localAvail = false;
@@ -336,40 +780,148 @@ export async function verifyExportAgainstRealStorage(
   const storageActualCounts: Record<string, number> = {};
   const mismatches: string[] = [];
 
-  const keyPairs: Array<{ name: keyof typeof extractedCounts; storageKey: string; fallback: unknown }> = [
-    { name: 'auditRecords', storageKey: OPERATIONAL_STORAGE_KEYS.auditRecords, fallback: state.auditRecords },
-    { name: 'bookCopies', storageKey: OPERATIONAL_STORAGE_KEYS.bookCopies, fallback: state.bookCopies },
-    { name: 'customMartyrs', storageKey: OPERATIONAL_STORAGE_KEYS.customMartyrs, fallback: state.customMartyrs },
-    { name: 'links', storageKey: OPERATIONAL_STORAGE_KEYS.links, fallback: state.links },
-    { name: 'multiMartyrGroups', storageKey: OPERATIONAL_STORAGE_KEYS.multiMartyrGroups, fallback: state.multiMartyrGroups },
-    { name: 'extractedItems', storageKey: OPERATIONAL_STORAGE_KEYS.extractedItems, fallback: state.extractedItems },
-    { name: 'pendingReviews', storageKey: OPERATIONAL_STORAGE_KEYS.pendingReviews, fallback: state.pendingReviews },
-    { name: 'smartSuggestions', storageKey: OPERATIONAL_STORAGE_KEYS.smartSuggestions, fallback: state.smartSuggestions },
-    { name: 'rejectedSuggestionsArchive', storageKey: OPERATIONAL_STORAGE_KEYS.rejectedSuggestions, fallback: state.rejectedSuggestionsArchive },
-    { name: 'auditLog', storageKey: OPERATIONAL_STORAGE_KEYS.auditLog, fallback: state.auditLog },
+  const keyPairs: Array<{
+    name: keyof typeof extractedCounts;
+    storageKey: string;
+    expectedValue: unknown;
+  }> = [
+    {
+      name: 'auditRecords',
+      storageKey: OPERATIONAL_STORAGE_KEYS.auditRecords,
+      expectedValue: state.auditRecords || {},
+    },
+    {
+      name: 'bookCopies',
+      storageKey: OPERATIONAL_STORAGE_KEYS.bookCopies,
+      expectedValue: state.bookCopies || [],
+    },
+    {
+      name: 'customMartyrs',
+      storageKey: OPERATIONAL_STORAGE_KEYS.customMartyrs,
+      expectedValue: state.customMartyrs || [],
+    },
+    {
+      name: 'links',
+      storageKey: OPERATIONAL_STORAGE_KEYS.links,
+      expectedValue: state.links || [],
+    },
+    {
+      name: 'multiMartyrGroups',
+      storageKey: OPERATIONAL_STORAGE_KEYS.multiMartyrGroups,
+      expectedValue: (state.multiMartyrGroups || []).map((g) =>
+        normalizeMultiMartyrGroupRecord(g)
+      ),
+    },
+    {
+      name: 'extractedItems',
+      storageKey: OPERATIONAL_STORAGE_KEYS.extractedItems,
+      expectedValue: state.extractedItems || [],
+    },
+    {
+      name: 'pendingReviews',
+      storageKey: OPERATIONAL_STORAGE_KEYS.pendingReviews,
+      expectedValue: state.pendingReviews || [],
+    },
+    {
+      name: 'smartSuggestions',
+      storageKey: OPERATIONAL_STORAGE_KEYS.smartSuggestions,
+      expectedValue: state.smartSuggestions || [],
+    },
+    {
+      name: 'rejectedSuggestionsArchive',
+      storageKey: OPERATIONAL_STORAGE_KEYS.rejectedSuggestions,
+      expectedValue: state.rejectedSuggestionsArchive || [],
+    },
+    {
+      name: 'auditLog',
+      storageKey: OPERATIONAL_STORAGE_KEYS.auditLog,
+      expectedValue: state.auditLog || [],
+    },
   ];
 
   for (const item of keyPairs) {
-    try {
-      const hydrated = await hydrateOperationalKey(item.storageKey, item.fallback);
-      const val = hydrated.value;
-      const count = Array.isArray(val)
-        ? val.length
-        : val && typeof val === 'object'
-        ? Object.keys(val as object).length
-        : 0;
-      storageActualCounts[item.name] = count;
+    const strictRes = await readEffectiveKeyStrict(item.storageKey, null);
+    if (!strictRes.ok) {
+      storageActualCounts[item.name] = -1;
+      mismatches.push(
+        `خطا در خواندن مجموعه ${item.name} از Storage: ${strictRes.error || 'خطای نامشخص'}`
+      );
+      continue;
+    }
 
-      // توجه: در links و extractedItems ممکن است غنی‌سازی سوره مهر در حافظه فعال انجام شده باشد که رکوردهای بیشتری نسبت به خام دارد
-      if (item.name !== 'links' && item.name !== 'extractedItems') {
-        if (extractedCounts[item.name] < count) {
-          mismatches.push(
-            `مجموعه ${item.name}: استخراج‌شده (${extractedCounts[item.name]}) کمتر از Storage (${count})`
-          );
-        }
+    const storageExists = strictRes.idbSnap.exists || strictRes.localSnap.exists;
+    if (!storageExists || strictRes.effectiveValue === null) {
+      storageActualCounts[item.name] = 0;
+      if (extractedCounts[item.name] > 0) {
+        mismatches.push(
+          `مجموعه ${item.name}: در خروجی (${extractedCounts[item.name]}) رکورد وجود دارد اما در Storage ذخیره نشده است`
+        );
       }
-    } catch {
-      storageActualCounts[item.name] = extractedCounts[item.name];
+      continue;
+    }
+
+    const val = strictRes.effectiveValue;
+    const count = Array.isArray(val)
+      ? val.length
+      : val && typeof val === 'object'
+      ? Object.keys(val as object).length
+      : 0;
+    storageActualCounts[item.name] = count;
+
+    if (item.name === 'links') {
+      const rawStorageLinks = Array.isArray(val) ? (val as BookMartyrLinkRecord[]) : [];
+      const enrichedStorageLinks = enrichLinksWithSorehMehrResearch(rawStorageLinks);
+      const expectedCanon = canonicalizeValueDeterministic(state.links || []);
+      const matchesRaw = expectedCanon === canonicalizeValueDeterministic(rawStorageLinks);
+      const matchesEnriched =
+        expectedCanon === canonicalizeValueDeterministic(enrichedStorageLinks);
+
+      if (!matchesRaw && !matchesEnriched) {
+        mismatches.push(
+          `مجموعه links: محتوای کانونیکال یا تعداد خروجی (${extractedCounts.links}) نه با داده خام Storage (${rawStorageLinks.length}) و نه با نسخه غنی‌شده سوره مهر (${enrichedStorageLinks.length}) مطابقت دارد`
+        );
+      }
+      continue;
+    }
+
+    if (item.name === 'extractedItems') {
+      const rawStorageExtracted = Array.isArray(val) ? (val as ExtractedContentItem[]) : [];
+      const enrichedStorageExtracted = buildSorehMehrExtractedItems(
+        state.links || [],
+        rawStorageExtracted
+      );
+      const expectedCanon = canonicalizeValueDeterministic(state.extractedItems || []);
+      const matchesRaw =
+        expectedCanon === canonicalizeValueDeterministic(rawStorageExtracted);
+      const matchesEnriched =
+        expectedCanon === canonicalizeValueDeterministic(enrichedStorageExtracted);
+
+      if (!matchesRaw && !matchesEnriched) {
+        mismatches.push(
+          `مجموعه extractedItems: محتوای کانونیکال یا تعداد خروجی (${extractedCounts.extractedItems}) نه با داده خام Storage (${rawStorageExtracted.length}) و نه با نسخه غنی‌شده سوره مهر (${enrichedStorageExtracted.length}) مطابقت دارد`
+        );
+      }
+      continue;
+    }
+
+    if (extractedCounts[item.name] !== count) {
+      mismatches.push(
+        `مجموعه ${item.name}: تعداد استخراج‌شده (${extractedCounts[item.name]}) با تعداد واقعی در Storage (${count}) برابر نیست`
+      );
+      continue;
+    }
+
+    const normalizedActual =
+      item.name === 'multiMartyrGroups' && Array.isArray(val)
+        ? (val as MultiMartyrGroupAudit[]).map((g) => normalizeMultiMartyrGroupRecord(g))
+        : val;
+
+    const expectedCanon = canonicalizeValueDeterministic(item.expectedValue);
+    const actualCanon = canonicalizeValueDeterministic(normalizedActual);
+    if (expectedCanon !== actualCanon) {
+      mismatches.push(
+        `مجموعه ${item.name}: محتوای کانونیکال رکوردهای خروجی با داده ذخیره‌شده در Storage تطابق ندارد`
+      );
     }
   }
 
@@ -386,140 +938,40 @@ export async function verifyExportAgainstRealStorage(
 
 /**
  * استخراج کامل تمام منابع اطلاعاتی واقعی سیستم (IndexedDB + localStorage + State)
- * و تولید فایل JSON نسخه‌دار و معتبر بدون تغییر در داده اصلی
+ * و تولید فایل JSON نسخه‌دار و معتبر پس از اطمینان از تکمیل ذخیره‌سازی‌های معلق و راستی‌آزمایی محتوایی با Storage
  */
 export async function buildFullSystemJsonExport(
   activeState: FullOperationalState,
   catalogRows: ReferenceCatalogRow[] = []
 ): Promise<ExportExecutionResult> {
   try {
-    // ۱. بازیابی آخرین وضعیت از IndexedDB و localStorage برای اطمینان از عدم جا ماندن هیچ داده‌ای
-    const [
-      hydAudit,
-      hydCopies,
-      hydMartyrs,
-      hydSmart,
-      hydGroups,
-      hydExtracted,
-      hydLinks,
-      hydPending,
-      hydLog,
-      hydRejected,
-      syncMetaSnapshot,
-    ] = await Promise.all([
-      hydrateOperationalKey<Record<string, FieldAuditRecord>>(
-        OPERATIONAL_STORAGE_KEYS.auditRecords,
-        activeState.auditRecords
-      ),
-      hydrateOperationalKey<BookCopyRecord[]>(
-        OPERATIONAL_STORAGE_KEYS.bookCopies,
-        activeState.bookCopies
-      ),
-      hydrateOperationalKey<CustomMartyrRecord[]>(
-        OPERATIONAL_STORAGE_KEYS.customMartyrs,
-        activeState.customMartyrs
-      ),
-      hydrateOperationalKey<SmartSearchSuggestion[]>(
-        OPERATIONAL_STORAGE_KEYS.smartSuggestions,
-        activeState.smartSuggestions
-      ),
-      hydrateOperationalKey<MultiMartyrGroupAudit[]>(
-        OPERATIONAL_STORAGE_KEYS.multiMartyrGroups,
-        activeState.multiMartyrGroups
-      ),
-      hydrateOperationalKey<ExtractedContentItem[]>(
-        OPERATIONAL_STORAGE_KEYS.extractedItems,
-        activeState.extractedItems
-      ),
-      hydrateOperationalKey<BookMartyrLinkRecord[]>(
-        OPERATIONAL_STORAGE_KEYS.links,
-        activeState.links
-      ),
-      hydrateOperationalKey<PendingReviewItem[]>(
-        OPERATIONAL_STORAGE_KEYS.pendingReviews,
-        activeState.pendingReviews
-      ),
-      hydrateOperationalKey<AuditLogEntry[]>(
-        OPERATIONAL_STORAGE_KEYS.auditLog,
-        activeState.auditLog
-      ),
-      hydrateOperationalKey<RejectedSuggestionRecord[]>(
-        OPERATIONAL_STORAGE_KEYS.rejectedSuggestions,
-        activeState.rejectedSuggestionsArchive
-      ),
-      hydrateSyncMetadataFromStorage(),
-    ]);
+    // ۱. انتظار برای تکمیل ذخیره‌سازی‌های غیرهمزمان معلق و ساخت Snapshot واحد، تازه و پایدار
+    const resolved = await resolveLatestVerifiedOperationalState(activeState, {
+      syncUnpersistedToStorage: true,
+    });
 
-    // ترکیب امن بدون تغییر داده اصلی (کلون عمیق)
-    const auditRecords: Record<string, FieldAuditRecord> = JSON.parse(
-      JSON.stringify({
-        ...(hydAudit.value || {}),
-        ...(activeState.auditRecords || {}),
-      })
-    );
+    if (!resolved.ok) {
+      return {
+        ok: false,
+        error: resolved.error || 'خطا در خواندن یا تثبیت آخرین وضعیت اطلاعات از Storage دستگاه.',
+        fileName: '',
+        jsonString: '',
+        byteSize: 0,
+        envelope: null as unknown as FullLibrarySystemExportEnvelope,
+        storageVerification: {
+          verified: false,
+          checkedAtIso: new Date().toISOString(),
+          indexedDbAvailable: isIndexedDbAvailable(),
+          localStorageAvailable: true,
+          extractedCounts: {},
+          storageActualCounts: {},
+          mismatches: [resolved.error || 'خطا در خواندن Storage'],
+        },
+      };
+    }
 
-    const mergeUniqueById = <T>(a: T[], b: T[], getId: (item: T) => string): T[] => {
-      const map = new Map<string, T>();
-      for (const item of a || []) {
-        if (!item) continue;
-        const id = getId(item);
-        if (id) map.set(id, item);
-      }
-      for (const item of b || []) {
-        if (!item) continue;
-        const id = getId(item);
-        if (id) map.set(id, item);
-      }
-      return JSON.parse(JSON.stringify(Array.from(map.values())));
-    };
-
-    const bookCopies = mergeUniqueById(
-      hydCopies.value || [],
-      activeState.bookCopies || [],
-      (c) => c.copyId
-    );
-    const customMartyrs = mergeUniqueById(
-      hydMartyrs.value || [],
-      activeState.customMartyrs || [],
-      (m) => m.martyrId
-    );
-    const links = mergeUniqueById(
-      hydLinks.value || [],
-      activeState.links || [],
-      (l) => l.id
-    );
-    const multiMartyrGroups = mergeUniqueById(
-      hydGroups.value || [],
-      activeState.multiMartyrGroups || [],
-      (g) => g.groupCode
-    ).map((g) => normalizeMultiMartyrGroupRecord(g));
-    const extractedItems = mergeUniqueById(
-      hydExtracted.value || [],
-      activeState.extractedItems || [],
-      (e) => e.id
-    );
-    const pendingReviews = mergeUniqueById(
-      hydPending.value || [],
-      activeState.pendingReviews || [],
-      (p) => p.trackingId
-    );
-    const smartSuggestions = mergeUniqueById(
-      hydSmart.value || [],
-      activeState.smartSuggestions || [],
-      (s) => s.id
-    );
-    const rejectedSuggestionsArchive = mergeUniqueById(
-      hydRejected.value || [],
-      activeState.rejectedSuggestionsArchive || [],
-      (r) => r.id || `${r.martyrName}::${r.bookTitle}`
-    );
-    const auditLog = mergeUniqueById(
-      hydLog.value || [],
-      activeState.auditLog || [],
-      (l) => l.id
-    );
-
-    const completeOperationalState: FullOperationalState = {
+    const completeOperationalState = resolved.state;
+    const {
       auditRecords,
       bookCopies,
       customMartyrs,
@@ -529,9 +981,9 @@ export async function buildFullSystemJsonExport(
       multiMartyrGroups,
       extractedItems,
       auditLog,
-      userSettings: activeState.userSettings || { activeRole: 'registrar' },
       rejectedSuggestionsArchive,
-    };
+    } = completeOperationalState;
+    const syncMetaSnapshot = resolved.syncMetaSnapshot;
 
     // ۲. ساخت نماهای تحلیلی و پرونده کامل کتاب‌ها (شامل ۱۴ دسته اطلاعاتی بخش سوم)
     const booksDossiers = buildUnifiedBookDossiers({
@@ -608,7 +1060,7 @@ export async function buildFullSystemJsonExport(
     };
 
     const softDeletedArchive = loadSoftDeletedArchive();
-    const idSequences = readLocalIdSequences();
+    const idSequences = computeEffectiveIdSequences(completeOperationalState);
 
     const dataPayload: FullLibrarySystemDataPayload = sanitizeExportObject({
       auditRecords,
@@ -640,8 +1092,22 @@ export async function buildFullSystemJsonExport(
       },
     });
 
-    // ۳. اعتبارسنجی در برابر Storage واقعی
+    // ۳. اعتبارسنجی سخت‌گیرانه محتوایی و تعدادی در برابر Storage واقعی
     const storageVerification = await verifyExportAgainstRealStorage(completeOperationalState);
+    if (!storageVerification.verified) {
+      return {
+        ok: false,
+        error: `عدم تأیید تطابق خروجی JSON با حافظه پایدار دستگاه: ${storageVerification.mismatches.join(
+          '؛ '
+        )}`,
+        fileName: '',
+        jsonString: '',
+        byteSize: 0,
+        envelope: null as unknown as FullLibrarySystemExportEnvelope,
+        storageVerification,
+      };
+    }
+
     const baseCounts = calculateCollectionCounts(completeOperationalState);
     const payloadHash = computeSystemDataIntegrityHash(dataPayload);
     const fnv1aChecksum = computeDatasetsChecksum(completeOperationalState);
@@ -3254,8 +3720,32 @@ export async function executeSafeJsonMerge(
     };
   }
 
+  // ۰. انتظار برای تکمیل ذخیره‌سازی‌های معلق و دریافت آخرین وضعیت معتبر دستگاه مقصد پیش از ادغام
+  const latestDest = await resolveLatestVerifiedOperationalState(currentState, {
+    syncUnpersistedToStorage: false,
+  });
+  if (!latestDest.ok) {
+    return {
+      ok: false,
+      error:
+        latestDest.error ||
+        'خطا در بازخوانی آخرین وضعیت حافظه پایدار دستگاه مقصد پیش از شروع ادغام.',
+      recoveryPointId: '',
+      appliedNewCount: 0,
+      appliedModifiedCount: 0,
+      resolvedConflictsCount: 0,
+      keptDestinationConflictsCount: 0,
+      acceptedIncomingConflictsCount: 0,
+      unchangedCount: 0,
+      skippedInvalidCount: inspection.invalidRecords.length,
+      mergedState: currentState,
+      summaryMessage: 'ادغام انجام نشد (اطلاعات فعلی بدون تغییر محفوظ است).',
+    };
+  }
+  const effectiveDestinationState = latestDest.state;
+
   // ۱. تهیه و اعتبارسنجی Recovery Point پیش از هرگونه تغییر
-  const rpRes = await createPreMergeRecoveryPoint(currentState);
+  const rpRes = await createPreMergeRecoveryPoint(effectiveDestinationState);
   if (!rpRes.ok || !rpRes.recoveryPoint) {
     return {
       ok: false,
@@ -3270,7 +3760,7 @@ export async function executeSafeJsonMerge(
       acceptedIncomingConflictsCount: 0,
       unchangedCount: 0,
       skippedInvalidCount: inspection.invalidRecords.length,
-      mergedState: currentState,
+      mergedState: effectiveDestinationState,
       summaryMessage: 'ادغام انجام نشد (اطلاعات فعلی بدون تغییر محفوظ است).',
     };
   }
@@ -3278,9 +3768,9 @@ export async function executeSafeJsonMerge(
   const recoveryPoint = rpRes.recoveryPoint;
 
   try {
-    // ۲. ساخت نقشه‌های کاری از روی اطلاعات فعلی دستگاه مقصد (هیچ رکوردی از مقصد حذف نمی‌شود!)
+    // ۲. ساخت نقشه‌های کاری از روی آخرین اطلاعات معتبر دستگاه مقصد (هیچ رکوردی از مقصد حذف نمی‌شود!)
     const nextAuditRecords: Record<string, FieldAuditRecord> = JSON.parse(
-      JSON.stringify(currentState.auditRecords || {})
+      JSON.stringify(effectiveDestinationState.auditRecords || {})
     );
 
     const buildMap = <T>(arr: T[], getId: (item: T) => string): Map<string, T> => {
@@ -3293,24 +3783,38 @@ export async function executeSafeJsonMerge(
       return m;
     };
 
-    const nextCopiesMap = buildMap(currentState.bookCopies || [], (c) => c.copyId);
-    const nextLinksMap = buildMap(currentState.links || [], (l) => l.id);
+    const nextCopiesMap = buildMap(effectiveDestinationState.bookCopies || [], (c) => c.copyId);
+    const nextLinksMap = buildMap(effectiveDestinationState.links || [], (l) => l.id);
     const nextGroupsMap = buildMap(
-      (currentState.multiMartyrGroups || []).map((g) => normalizeMultiMartyrGroupRecord(g)),
+      (effectiveDestinationState.multiMartyrGroups || []).map((g) =>
+        normalizeMultiMartyrGroupRecord(g)
+      ),
       (g) => g.groupCode
     );
-    const nextExtractedMap = buildMap(currentState.extractedItems || [], (e) => e.id);
-    const nextMartyrsMap = buildMap(currentState.customMartyrs || [], (m) => m.martyrId);
-    const nextPendingMap = buildMap(currentState.pendingReviews || [], (p) => p.trackingId);
-    const nextSmartMap = buildMap(currentState.smartSuggestions || [], (s) => s.id);
+    const nextExtractedMap = buildMap(
+      effectiveDestinationState.extractedItems || [],
+      (e) => e.id
+    );
+    const nextMartyrsMap = buildMap(
+      effectiveDestinationState.customMartyrs || [],
+      (m) => m.martyrId
+    );
+    const nextPendingMap = buildMap(
+      effectiveDestinationState.pendingReviews || [],
+      (p) => p.trackingId
+    );
+    const nextSmartMap = buildMap(
+      effectiveDestinationState.smartSuggestions || [],
+      (s) => s.id
+    );
     const nextRejectedMap = buildMap(
-      currentState.rejectedSuggestionsArchive || [],
+      effectiveDestinationState.rejectedSuggestionsArchive || [],
       (r) => r.id || `${r.martyrName}::${r.bookTitle}`
     );
-    const nextLogMap = buildMap(currentState.auditLog || [], (l) => l.id);
+    const nextLogMap = buildMap(effectiveDestinationState.auditLog || [], (l) => l.id);
 
     const nextBaselineMap: Record<string, string> = {
-      ...loadBaselineChangeMap(),
+      ...latestDest.syncMetaSnapshot.baselineChangeMap,
       ...(inspection.normalizedPayload.syncBaselineHashes || {}),
     };
 
@@ -3439,14 +3943,23 @@ export async function executeSafeJsonMerge(
     };
 
     const mergedRecordMeta: Record<string, RecordSyncMeta> = {
-      ...loadRecordMetaMap(),
+      ...latestDest.syncMetaSnapshot.recordMetaMap,
       ...(inspection.normalizedPayload.syncRecordMeta || {}),
     };
-    const appliedPackages = loadAppliedPackageIds();
-    const nextAppliedPackages =
-      inspection.exportId && !appliedPackages.includes(inspection.exportId)
-        ? [inspection.exportId, ...appliedPackages].slice(0, 200)
-        : appliedPackages;
+    const appliedPackages = latestDest.syncMetaSnapshot.appliedPackageIds;
+    const incomingAppliedPackages = Array.isArray(
+      inspection.normalizedPayload.syncAppliedPackages
+    )
+      ? inspection.normalizedPayload.syncAppliedPackages
+      : [];
+    const combinedPackages = Array.from(
+      new Set([
+        ...(inspection.exportId ? [inspection.exportId] : []),
+        ...appliedPackages,
+        ...incomingAppliedPackages,
+      ])
+    ).slice(0, 200);
+    const nextAppliedPackages = combinedPackages;
 
     // ۷. ذخیره اتمیک تمام مجموعه‌ها در یک تراکنش واحد IndexedDB + localStorage
     const atomicEntries: BatchStorageSaveEntry[] = [
@@ -3488,10 +4001,10 @@ export async function executeSafeJsonMerge(
       // ignore
     }
 
-    // ۹. به‌روزرسانی شمارنده‌های شناسه یکتا (حداکثر شمارنده بین دو دستگاه تا هرگز شناسه تکراری صادر نشود)
+    // ۹. به‌روزرسانی شمارنده‌های شناسه یکتا (حداکثر شمارنده بین دو دستگاه و شناسه‌های موجود تا هرگز شناسه تکراری صادر نشود)
     const curSeq = readLocalIdSequences();
     const incSeq = inspection.normalizedPayload.idSequences || curSeq;
-    const mergedSeq: IdSequenceSnapshot = {
+    const baseMaxSeq: IdSequenceSnapshot = {
       LOG: Math.max(curSeq.LOG, incSeq.LOG || 1000),
       RL: Math.max(curSeq.RL, incSeq.RL || 1000),
       SS: Math.max(curSeq.SS, incSeq.SS || 1000),
@@ -3500,6 +4013,7 @@ export async function executeSafeJsonMerge(
       CP: Math.max(curSeq.CP, incSeq.CP || 1000),
       TMP_OUT: Math.max(curSeq.TMP_OUT, incSeq.TMP_OUT || 1),
     };
+    const mergedSeq = computeEffectiveIdSequences(mergedState, baseMaxSeq);
     try {
       localStorage.setItem(ID_SEQUENCE_STORAGE_KEY, JSON.stringify(mergedSeq));
     } catch {

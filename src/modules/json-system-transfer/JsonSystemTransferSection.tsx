@@ -20,6 +20,7 @@ import {
   executeSafeJsonMerge,
   getLatestPreMergeRecoveryPoint,
   inspectAndCompareSystemJson,
+  resolveLatestVerifiedOperationalState,
   restoreFromPreMergeRecoveryPoint,
   shareJsonFileIfSupported,
   triggerJsonFileDownload,
@@ -112,11 +113,16 @@ export const JsonSystemTransferSection: React.FC<JsonSystemTransferSectionProps>
 
     try {
       const rawText = await file.text();
+      const latestDest = await resolveLatestVerifiedOperationalState(fullOperationalState, {
+        syncUnpersistedToStorage: false,
+      });
+      const effectiveDestinationState = latestDest.ok ? latestDest.state : fullOperationalState;
+
       const report = inspectAndCompareSystemJson(
         rawText,
         file.name,
         file.size,
-        fullOperationalState,
+        effectiveDestinationState,
         catalogRows
       );
 

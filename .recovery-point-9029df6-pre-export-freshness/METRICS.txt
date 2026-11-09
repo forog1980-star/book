@@ -1,0 +1,5 @@
+  1034  34818 src/utils/indexedDbStorage.ts
+  3558 134680 src/modules/json-system-transfer/jsonTransferEngine.ts
+  1034  54198 src/modules/json-system-transfer/JsonSystemTransferSection.tsx
+  1105  46492 src/modules/json-system-transfer/__tests__/restoreRollbackVerification.test.ts
+  6731 270188 total
