@@ -1932,6 +1932,8 @@ export default function App() {
               onDeleteAuditRecord={handleDeleteSingleRecord}
               onDownloadUnifiedExcel={handleQuickExcelExport}
               onDownloadFullJsonBackup={handleFullJsonBackupDownload}
+              fullOperationalState={getFullOperationalState()}
+              onApplyMergedSystemState={handleApplyRestoredState}
               onNotify={showNotify}
             />
           )}

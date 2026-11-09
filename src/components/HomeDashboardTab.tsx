@@ -60,6 +60,8 @@ import {
   exportBookDossiersToExcel,
   exportShelfAuditRecordsToExcel
 } from '../utils/excelExportService';
+import { FullOperationalState } from '../utils/backupService';
+import { JsonSystemTransferSection } from '../modules/json-system-transfer';
 
 interface HomeDashboardTabProps {
   catalogRows: ReferenceCatalogRow[];
@@ -85,6 +87,8 @@ interface HomeDashboardTabProps {
   onDeleteAuditRecord?: (recordKey: string) => void;
   onDownloadUnifiedExcel?: () => void;
   onDownloadFullJsonBackup?: () => void;
+  fullOperationalState?: FullOperationalState;
+  onApplyMergedSystemState?: (merged: FullOperationalState, summaryMessage: string) => void;
   onNotify: (message: string, type?: 'success' | 'warning') => void;
 }
 
@@ -120,6 +124,8 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
   onUpdateLink,
   onApproveOutsideBook,
   onDeleteAuditRecord,
+  fullOperationalState,
+  onApplyMergedSystemState,
   onNotify
 }) => {
   const initialNavSnapshot = useMemo(() => getHomeDossierNavSnapshot(), []);
@@ -1626,6 +1632,16 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
           )}
         </div>
       </section>
+
+      {/* بخش مستقل انتقال و نگهداری کامل اطلاعات کتابخانه با JSON در پایین‌ترین بخش صفحه اصلی */}
+      {fullOperationalState && onApplyMergedSystemState && (
+        <JsonSystemTransferSection
+          fullOperationalState={fullOperationalState}
+          catalogRows={catalogRows}
+          onApplyMergedState={onApplyMergedSystemState}
+          onNotify={onNotify}
+        />
+      )}
 
       {/* پنجره ۱: فهرست کتاب‌های هر گروه آماری پس از کلیک روی کارت آماری (حفظ فیلتر و اسکرول هنگام باز و بسته شدن پرونده کتاب) */}
       {activeStatGroupModal && (
