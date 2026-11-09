@@ -1948,25 +1948,103 @@ export async function createPreMergeRecoveryPoint(
   }
 }
 
+export function isValidPreMergeRecoveryPoint(
+  candidate: unknown
+): candidate is PreMergeRecoveryPoint {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    return false;
+  }
+  const rp = candidate as PreMergeRecoveryPoint;
+  if (typeof rp.recoveryId !== 'string' || !rp.recoveryId.trim()) {
+    return false;
+  }
+  if (
+    typeof rp.timestampMs !== 'number' ||
+    !Number.isFinite(rp.timestampMs) ||
+    rp.timestampMs <= 0
+  ) {
+    return false;
+  }
+  if (typeof rp.checksum !== 'string' || !rp.checksum.trim()) {
+    return false;
+  }
+  if (
+    !rp.stateSnapshot ||
+    typeof rp.stateSnapshot !== 'object' ||
+    Array.isArray(rp.stateSnapshot)
+  ) {
+    return false;
+  }
+  if (
+    !rp.syncMetaSnapshot ||
+    typeof rp.syncMetaSnapshot !== 'object' ||
+    Array.isArray(rp.syncMetaSnapshot)
+  ) {
+    return false;
+  }
+  if (
+    !rp.recordCounts ||
+    typeof rp.recordCounts !== 'object' ||
+    Array.isArray(rp.recordCounts)
+  ) {
+    return false;
+  }
+  const s = rp.stateSnapshot;
+  if (!s.auditRecords || typeof s.auditRecords !== 'object' || Array.isArray(s.auditRecords)) {
+    return false;
+  }
+  if (
+    !Array.isArray(s.bookCopies) ||
+    !Array.isArray(s.customMartyrs) ||
+    !Array.isArray(s.smartSuggestions) ||
+    !Array.isArray(s.links) ||
+    !Array.isArray(s.pendingReviews) ||
+    !Array.isArray(s.multiMartyrGroups) ||
+    !Array.isArray(s.extractedItems) ||
+    !Array.isArray(s.auditLog) ||
+    !Array.isArray(s.rejectedSuggestionsArchive)
+  ) {
+    return false;
+  }
+  const computedChecksum = computeDatasetsChecksum(s);
+  if (computedChecksum !== rp.checksum) {
+    return false;
+  }
+  return true;
+}
+
 export async function getLatestPreMergeRecoveryPoint(): Promise<PreMergeRecoveryPoint | null> {
+  let idbCandidate: PreMergeRecoveryPoint | null = null;
+  let localCandidate: PreMergeRecoveryPoint | null = null;
+
   try {
     const idbEnv = await idbGetEnvelope<PreMergeRecoveryPoint>(PRE_MERGE_RECOVERY_STORAGE_KEY);
-    if (idbEnv.data && idbEnv.data.recoveryId) {
-      return idbEnv.data;
+    if (isValidPreMergeRecoveryPoint(idbEnv.data)) {
+      idbCandidate = idbEnv.data;
     }
   } catch {
     // ignore
   }
+
   try {
     const raw = localStorage.getItem(PRE_MERGE_RECOVERY_STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as PreMergeRecoveryPoint;
-      if (parsed && parsed.recoveryId) return parsed;
+      const parsed = JSON.parse(raw);
+      if (isValidPreMergeRecoveryPoint(parsed)) {
+        localCandidate = parsed;
+      }
     }
   } catch {
     // ignore
   }
-  return null;
+
+  if (idbCandidate && localCandidate) {
+    return localCandidate.timestampMs > idbCandidate.timestampMs
+      ? localCandidate
+      : idbCandidate;
+  }
+
+  return localCandidate ?? idbCandidate ?? null;
 }
 
 /**
@@ -1975,6 +2053,19 @@ export async function getLatestPreMergeRecoveryPoint(): Promise<PreMergeRecovery
 export async function restoreFromPreMergeRecoveryPoint(
   recoveryPoint: PreMergeRecoveryPoint
 ): Promise<{ ok: boolean; restoredState: FullOperationalState; error?: string }> {
+  const fallbackSnapshot =
+    recoveryPoint && typeof recoveryPoint === 'object' && 'stateSnapshot' in recoveryPoint
+      ? recoveryPoint.stateSnapshot
+      : ({} as FullOperationalState);
+
+  if (!isValidPreMergeRecoveryPoint(recoveryPoint)) {
+    return {
+      ok: false,
+      restoredState: fallbackSnapshot,
+      error: 'ساختار یا Checksum نقطه بازیابی (Recovery Point) نامعتبر است.',
+    };
+  }
+
   const s = recoveryPoint.stateSnapshot;
   const entries: BatchStorageSaveEntry[] = [
     { key: OPERATIONAL_STORAGE_KEYS.auditRecords, value: s.auditRecords },
@@ -2001,17 +2092,36 @@ export async function restoreFromPreMergeRecoveryPoint(
     };
   }
 
+  const targetSoftDeleted = recoveryPoint.syncMetaSnapshot.softDeletedArchive || {};
+  const softDeleteSavedOk = saveSoftDeletedArchive(targetSoftDeleted);
+
+  const targetIdSequences = recoveryPoint.syncMetaSnapshot.idSequences || readLocalIdSequences();
+  const serializedSeq = JSON.stringify(targetIdSequences);
+  let idSequencesSavedOk = false;
   try {
-    saveSoftDeletedArchive(recoveryPoint.syncMetaSnapshot.softDeletedArchive || {});
-    localStorage.setItem(
-      ID_SEQUENCE_STORAGE_KEY,
-      JSON.stringify(recoveryPoint.syncMetaSnapshot.idSequences)
-    );
+    localStorage.setItem(ID_SEQUENCE_STORAGE_KEY, serializedSeq);
+    idSequencesSavedOk = localStorage.getItem(ID_SEQUENCE_STORAGE_KEY) === serializedSeq;
+  } catch {
+    idSequencesSavedOk = false;
+  }
+
+  try {
     if (s.userSettings?.activeRole) {
       localStorage.setItem(OPERATIONAL_STORAGE_KEYS.userRole, s.userSettings.activeRole);
     }
   } catch {
     // ignore
+  }
+
+  if (!softDeleteSavedOk || !idSequencesSavedOk) {
+    const failedParts: string[] = [];
+    if (!softDeleteSavedOk) failedParts.push('softDeletedArchive');
+    if (!idSequencesSavedOk) failedParts.push('idSequences');
+    return {
+      ok: false,
+      restoredState: s,
+      error: `خطا در بازگردانی متادیتای تکمیلی از Recovery Point (${failedParts.join('، ')} ذخیره نشد).`,
+    };
   }
 
   applyCommittedSyncMetadataToCache(
