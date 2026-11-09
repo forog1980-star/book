@@ -390,6 +390,177 @@ export async function idbGetItem<T>(key: string): Promise<T | null> {
   return env.data;
 }
 
+export interface IdbKeySnapshotEntry<T = unknown> {
+  key: string;
+  exists: boolean;
+  data: T | null;
+  updatedAt: number;
+}
+
+/**
+ * خواندن دقیق وضعیت یک کلید در IndexedDB با تفکیک صریح بین «نبود کلید» (exists: false)
+ * و «خطای خواندن از IndexedDB» (ok: false) بدون تغییر در داده اصلی
+ */
+export async function idbGetEnvelopeStrict<T = unknown>(
+  key: string
+): Promise<{
+  ok: boolean;
+  exists: boolean;
+  data: T | null;
+  updatedAt: number;
+  error?: string;
+}> {
+  if (!isIndexedDbAvailable()) {
+    return { ok: true, exists: false, data: null, updatedAt: 0 };
+  }
+  try {
+    const db = await openDB();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.get(key);
+      req.onsuccess = () => {
+        db.close();
+        const raw = req.result;
+        if (raw === undefined || raw === null) {
+          resolve({ ok: true, exists: false, data: null, updatedAt: 0 });
+          return;
+        }
+        if (isEnvelope<T>(raw)) {
+          resolve({
+            ok: true,
+            exists: true,
+            data: raw.data,
+            updatedAt: raw.updatedAt || 0,
+          });
+        } else {
+          resolve({
+            ok: true,
+            exists: true,
+            data: raw as T,
+            updatedAt: 1,
+          });
+        }
+      };
+      req.onerror = () => {
+        const errMsg = req.error?.message || `خطا در خواندن کلید ${key} از IndexedDB`;
+        db.close();
+        resolve({ ok: false, exists: false, data: null, updatedAt: 0, error: errMsg });
+      };
+      tx.onerror = () => {
+        const errMsg = tx.error?.message || `خطای تراکنش خواندن کلید ${key} از IndexedDB`;
+        db.close();
+        resolve({ ok: false, exists: false, data: null, updatedAt: 0, error: errMsg });
+      };
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      exists: false,
+      data: null,
+      updatedAt: 0,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * بازگردانی اتمیک و تراکنشی وضعیت دقیق کلیدهای IndexedDB به Snapshot پیش از عملیات
+ * (اگر کلیدی قبلاً وجود نداشته حذف می‌شود و اگر وجود داشته با همان داده و updatedAt قبلی بازگردانده می‌شود)
+ */
+export async function idbRestoreKeySnapshotAtomic(
+  snapshots: IdbKeySnapshotEntry[]
+): Promise<{ ok: boolean; error?: string }> {
+  if (!isIndexedDbAvailable() || !snapshots || snapshots.length === 0) {
+    return { ok: true };
+  }
+
+  try {
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      let settled = false;
+      let opErrorMsg: string | undefined;
+
+      tx.oncomplete = () => {
+        if (settled) return;
+        settled = true;
+        db.close();
+        resolve();
+      };
+
+      tx.onerror = () => {
+        if (settled) return;
+        settled = true;
+        db.close();
+        reject(new Error(opErrorMsg || tx.error?.message || 'خطا در تراکنش Rollback در IndexedDB'));
+      };
+
+      tx.onabort = () => {
+        if (settled) return;
+        settled = true;
+        db.close();
+        reject(new Error(opErrorMsg || tx.error?.message || 'لغو تراکنش Rollback در IndexedDB'));
+      };
+
+      for (const snap of snapshots) {
+        try {
+          if (!snap.exists || snap.data === null || snap.data === undefined) {
+            const delReq = store.delete(snap.key);
+            delReq.onerror = (ev) => {
+              opErrorMsg = delReq.error?.message || `خطا در حذف کلید ${snap.key} هنگام Rollback`;
+              if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+              try {
+                tx.abort();
+              } catch {
+                // ignore
+              }
+            };
+          } else {
+            const value = snap.data;
+            const recordCount = Array.isArray(value)
+              ? value.length
+              : value && typeof value === 'object'
+              ? Object.keys(value as object).length
+              : 1;
+            const envelope: StorageEnvelope<unknown> = {
+              __envelopeVersion: 2,
+              updatedAt: snap.updatedAt || 1,
+              recordCount,
+              data: value,
+            };
+            const putReq = store.put(envelope, snap.key);
+            putReq.onerror = (ev) => {
+              opErrorMsg = putReq.error?.message || `خطا در بازگردانی کلید ${snap.key} هنگام Rollback`;
+              if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+              try {
+                tx.abort();
+              } catch {
+                // ignore
+              }
+            };
+          }
+        } catch (err) {
+          opErrorMsg = err instanceof Error ? err.message : String(err);
+          try {
+            tx.abort();
+          } catch {
+            // ignore
+          }
+          break;
+        }
+      }
+    });
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 /**
  * ذخیره هم‌زمان در localStorage و IndexedDB با گزارش دقیق وضعیت (بند ۴ دستور جامع)
  */

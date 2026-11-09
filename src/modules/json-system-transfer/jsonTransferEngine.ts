@@ -23,8 +23,12 @@ import {
 } from '../../utils/backupService';
 import {
   BatchStorageSaveEntry,
+  getLocalKeyTimestamp,
   hydrateOperationalKey,
   idbGetEnvelope,
+  idbGetEnvelopeStrict,
+  IdbKeySnapshotEntry,
+  idbRestoreKeySnapshotAtomic,
   idbSetItemWithStatus,
   isIndexedDbAvailable,
   OPERATIONAL_STORAGE_KEYS,
@@ -2300,157 +2304,890 @@ export async function getLatestPreMergeRecoveryPoint(): Promise<PreMergeRecovery
   return localCandidate ?? idbCandidate ?? null;
 }
 
+const SOFT_DELETED_ARCHIVE_STORAGE_KEY = 'book_p2p_soft_deleted_archive_v1';
+const STORAGE_META_TIMESTAMP_KEY = 'book_storage_meta_v1';
+
+const RESTORE_BATCH_STORAGE_KEYS: string[] = [
+  OPERATIONAL_STORAGE_KEYS.auditRecords,
+  OPERATIONAL_STORAGE_KEYS.bookCopies,
+  OPERATIONAL_STORAGE_KEYS.customMartyrs,
+  OPERATIONAL_STORAGE_KEYS.smartSuggestions,
+  OPERATIONAL_STORAGE_KEYS.links,
+  OPERATIONAL_STORAGE_KEYS.pendingReviews,
+  OPERATIONAL_STORAGE_KEYS.multiMartyrGroups,
+  OPERATIONAL_STORAGE_KEYS.extractedItems,
+  OPERATIONAL_STORAGE_KEYS.auditLog,
+  OPERATIONAL_STORAGE_KEYS.rejectedSuggestions,
+  RECORD_META_MAP_KEY,
+  BASELINE_CHANGE_MAP_KEY,
+  APPLIED_PACKAGES_KEY,
+];
+
+const RESTORE_AUX_LOCAL_STORAGE_KEYS: string[] = [
+  SOFT_DELETED_ARCHIVE_STORAGE_KEY,
+  ID_SEQUENCE_STORAGE_KEY,
+  OPERATIONAL_STORAGE_KEYS.userRole,
+  STORAGE_META_TIMESTAMP_KEY,
+];
+
+export interface PreRestoreDeviceSnapshot {
+  capturedAtMs: number;
+  idbAvailable: boolean;
+  idbEntries: IdbKeySnapshotEntry[];
+  localRawEntries: Record<string, { exists: boolean; rawValue: string | null }>;
+  effectiveValues: Record<string, unknown>;
+  effectiveAux: {
+    softDeletedArchive: Record<string, SyncRecordEnvelope>;
+    idSequences: IdSequenceSnapshot;
+    userRole: string | null;
+  };
+  syncCacheSnapshot: {
+    recordMetaMap: Record<string, RecordSyncMeta>;
+    baselineChangeMap: Record<string, string>;
+    appliedPackageIds: string[];
+    updatedAt: number;
+  };
+}
+
+/**
+ * خواندن مقدار مؤثر فعلی یک کلید از IndexedDB و LocalStorage بدون تغییر ناخواسته در داده‌های اصلی،
+ * با رعایت قواعد واقعی انتخاب منبع داده (Timestamp) و تشخیص صریح بین نبود کلید و خطای خواندن.
+ */
+async function readEffectiveKeyStrict(
+  key: string,
+  defaultFallback: unknown
+): Promise<{
+  ok: boolean;
+  idbSnap: IdbKeySnapshotEntry;
+  localSnap: { exists: boolean; rawValue: string | null };
+  effectiveValue: unknown;
+  effectiveUpdatedAt: number;
+  error?: string;
+}> {
+  const idbStrict = await idbGetEnvelopeStrict(key);
+  if (!idbStrict.ok) {
+    return {
+      ok: false,
+      idbSnap: { key, exists: false, data: null, updatedAt: 0 },
+      localSnap: { exists: false, rawValue: null },
+      effectiveValue: defaultFallback,
+      effectiveUpdatedAt: 0,
+      error: idbStrict.error || `خطا در خواندن کلید ${key} از IndexedDB پیش از بازیابی`,
+    };
+  }
+
+  let localRaw: string | null = null;
+  let localExists = false;
+  let localParsed: unknown = null;
+  let localUpdatedAt = 0;
+
+  try {
+    localRaw = localStorage.getItem(key);
+    if (localRaw !== null) {
+      localExists = true;
+      localParsed = JSON.parse(localRaw);
+      localUpdatedAt = getLocalKeyTimestamp(key) || 1;
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      idbSnap: {
+        key,
+        exists: idbStrict.exists,
+        data: idbStrict.data,
+        updatedAt: idbStrict.updatedAt,
+      },
+      localSnap: { exists: localExists, rawValue: localRaw },
+      effectiveValue: defaultFallback,
+      effectiveUpdatedAt: 0,
+      error: `خطا در خواندن یا تجزیه کلید ${key} از LocalStorage: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    };
+  }
+
+  const idbSnap: IdbKeySnapshotEntry = {
+    key,
+    exists: idbStrict.exists,
+    data:
+      idbStrict.exists && idbStrict.data !== undefined
+        ? JSON.parse(JSON.stringify(idbStrict.data))
+        : null,
+    updatedAt: idbStrict.updatedAt,
+  };
+
+  const localSnap = {
+    exists: localExists,
+    rawValue: localRaw,
+  };
+
+  let effectiveValue = defaultFallback;
+  let effectiveUpdatedAt = 0;
+
+  if (idbSnap.exists && idbSnap.data !== null && localExists && localParsed !== null) {
+    if (
+      idbSnap.updatedAt > localUpdatedAt ||
+      (idbSnap.updatedAt > 1 && idbSnap.updatedAt === localUpdatedAt)
+    ) {
+      effectiveValue = idbSnap.data;
+      effectiveUpdatedAt = idbSnap.updatedAt;
+    } else if (localUpdatedAt > idbSnap.updatedAt) {
+      effectiveValue = localParsed;
+      effectiveUpdatedAt = localUpdatedAt;
+    } else {
+      effectiveValue = idbSnap.data;
+      effectiveUpdatedAt = idbSnap.updatedAt;
+    }
+  } else if (idbSnap.exists && idbSnap.data !== null) {
+    effectiveValue = idbSnap.data;
+    effectiveUpdatedAt = idbSnap.updatedAt;
+  } else if (localExists && localParsed !== null) {
+    effectiveValue = localParsed;
+    effectiveUpdatedAt = localUpdatedAt;
+  }
+
+  return {
+    ok: true,
+    idbSnap,
+    localSnap,
+    effectiveValue: JSON.parse(JSON.stringify(effectiveValue)),
+    effectiveUpdatedAt,
+  };
+}
+
+/**
+ * الف) تهیه Snapshot کامل، واقعی و قابل بازگشت از وضعیت فعلی دستگاه پیش از اولین نوشتن در Restore
+ */
+export async function capturePreRestoreDeviceSnapshot(): Promise<{
+  ok: boolean;
+  snapshot?: PreRestoreDeviceSnapshot;
+  error?: string;
+}> {
+  try {
+    const defaultFallbacks: Record<string, unknown> = {
+      [OPERATIONAL_STORAGE_KEYS.auditRecords]: {},
+      [OPERATIONAL_STORAGE_KEYS.bookCopies]: [],
+      [OPERATIONAL_STORAGE_KEYS.customMartyrs]: [],
+      [OPERATIONAL_STORAGE_KEYS.smartSuggestions]: [],
+      [OPERATIONAL_STORAGE_KEYS.links]: [],
+      [OPERATIONAL_STORAGE_KEYS.pendingReviews]: [],
+      [OPERATIONAL_STORAGE_KEYS.multiMartyrGroups]: [],
+      [OPERATIONAL_STORAGE_KEYS.extractedItems]: [],
+      [OPERATIONAL_STORAGE_KEYS.auditLog]: [],
+      [OPERATIONAL_STORAGE_KEYS.rejectedSuggestions]: [],
+      [RECORD_META_MAP_KEY]: {},
+      [BASELINE_CHANGE_MAP_KEY]: {},
+      [APPLIED_PACKAGES_KEY]: [],
+    };
+
+    const idbEntries: IdbKeySnapshotEntry[] = [];
+    const localRawEntries: Record<string, { exists: boolean; rawValue: string | null }> = {};
+    const effectiveValues: Record<string, unknown> = {};
+    let maxMetaUpdatedAt = 0;
+
+    for (const key of RESTORE_BATCH_STORAGE_KEYS) {
+      const res = await readEffectiveKeyStrict(key, defaultFallbacks[key]);
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: res.error || `تهیه Snapshot پیش از بازیابی در کلید ${key} ناموفق بود.`,
+        };
+      }
+      idbEntries.push(res.idbSnap);
+      localRawEntries[key] = res.localSnap;
+      effectiveValues[key] = res.effectiveValue;
+      if (
+        (key === RECORD_META_MAP_KEY ||
+          key === BASELINE_CHANGE_MAP_KEY ||
+          key === APPLIED_PACKAGES_KEY) &&
+        res.effectiveUpdatedAt > maxMetaUpdatedAt
+      ) {
+        maxMetaUpdatedAt = res.effectiveUpdatedAt;
+      }
+    }
+
+    for (const auxKey of RESTORE_AUX_LOCAL_STORAGE_KEYS) {
+      try {
+        const raw = localStorage.getItem(auxKey);
+        localRawEntries[auxKey] = {
+          exists: raw !== null,
+          rawValue: raw,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          error: `خطا در خواندن کلید کمکی ${auxKey} از LocalStorage پیش از بازیابی: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        };
+      }
+    }
+
+    let parsedSoftDeleted: Record<string, SyncRecordEnvelope> = {};
+    const rawSoftDel = localRawEntries[SOFT_DELETED_ARCHIVE_STORAGE_KEY]?.rawValue;
+    if (rawSoftDel !== null && rawSoftDel !== undefined) {
+      try {
+        const p = JSON.parse(rawSoftDel);
+        if (!p || typeof p !== 'object' || Array.isArray(p)) {
+          return {
+            ok: false,
+            error: 'ساختار فعلی بایگانی حذف نرم (softDeletedArchive) پیش از بازیابی نامعتبر است.',
+          };
+        }
+        parsedSoftDeleted = p as Record<string, SyncRecordEnvelope>;
+      } catch (err) {
+        return {
+          ok: false,
+          error: `خطا در تجزیه بایگانی حذف نرم فعلی پیش از بازیابی: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        };
+      }
+    }
+
+    let parsedIdSeq: IdSequenceSnapshot = readLocalIdSequences();
+    const rawSeq = localRawEntries[ID_SEQUENCE_STORAGE_KEY]?.rawValue;
+    if (rawSeq !== null && rawSeq !== undefined) {
+      try {
+        const p = JSON.parse(rawSeq);
+        if (!p || typeof p !== 'object' || Array.isArray(p)) {
+          return {
+            ok: false,
+            error: 'ساختار فعلی شمارنده شناسه‌ها (idSequences) پیش از بازیابی نامعتبر است.',
+          };
+        }
+        parsedIdSeq = readLocalIdSequences();
+      } catch (err) {
+        return {
+          ok: false,
+          error: `خطا در تجزیه شمارنده شناسه‌های فعلی پیش از بازیابی: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        };
+      }
+    }
+
+    const userRoleRaw = localRawEntries[OPERATIONAL_STORAGE_KEYS.userRole]?.rawValue ?? null;
+
+    const recordMetaMap = (effectiveValues[RECORD_META_MAP_KEY] || {}) as Record<
+      string,
+      RecordSyncMeta
+    >;
+    const baselineChangeMap = (effectiveValues[BASELINE_CHANGE_MAP_KEY] || {}) as Record<
+      string,
+      string
+    >;
+    const appliedPackageIds = (effectiveValues[APPLIED_PACKAGES_KEY] || []) as string[];
+
+    return {
+      ok: true,
+      snapshot: {
+        capturedAtMs: Date.now(),
+        idbAvailable: isIndexedDbAvailable(),
+        idbEntries,
+        localRawEntries,
+        effectiveValues,
+        effectiveAux: {
+          softDeletedArchive: parsedSoftDeleted,
+          idSequences: parsedIdSeq,
+          userRole: userRoleRaw,
+        },
+        syncCacheSnapshot: {
+          recordMetaMap: JSON.parse(JSON.stringify(recordMetaMap)),
+          baselineChangeMap: JSON.parse(JSON.stringify(baselineChangeMap)),
+          appliedPackageIds: JSON.parse(JSON.stringify(appliedPackageIds)),
+          updatedAt: maxMetaUpdatedAt,
+        },
+      },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * اجرای Rollback واقعی و کامل روی IndexedDB، LocalStorage و کش‌های متادیتای همگام‌سازی
+ * همراه با بازخوانی و تطبیق ۱۰۰٪ وضعیت بازگردانده‌شده با Snapshot پیش از عملیات
+ */
+async function executeAndVerifyFullRollback(
+  preSnapshot: PreRestoreDeviceSnapshot
+): Promise<{ rollbackOk: boolean; rollbackError?: string }> {
+  const errors: string[] = [];
+
+  // ۱. بازگردانی اتمیک و تراکنشی تمام کلیدهای IndexedDB به وضعیت دقیق پیش از عملیات
+  if (isIndexedDbAvailable()) {
+    const idbRollbackRes = await idbRestoreKeySnapshotAtomic(preSnapshot.idbEntries);
+    if (!idbRollbackRes.ok) {
+      errors.push(
+        `شکست تراکنش Rollback در IndexedDB: ${idbRollbackRes.error || 'خطای نامشخص'}`
+      );
+    }
+  }
+
+  // ۲. بازگردانی تمام کلیدهای عملیاتی، متادیتا و اطلاعات کمکی در LocalStorage
+  for (const [key, entry] of Object.entries(preSnapshot.localRawEntries)) {
+    try {
+      if (!entry.exists || entry.rawValue === null) {
+        localStorage.removeItem(key);
+      } else {
+        localStorage.setItem(key, entry.rawValue);
+      }
+    } catch (err) {
+      errors.push(
+        `شکست بازگردانی کلید ${key} در LocalStorage: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
+  }
+
+  // ۳. بازگردانی کش درون‌حافظه‌ای Sync Metadata
+  applyCommittedSyncMetadataToCache(
+    {
+      recordMetaMap: preSnapshot.syncCacheSnapshot.recordMetaMap,
+      baselineChangeMap: preSnapshot.syncCacheSnapshot.baselineChangeMap,
+      appliedPackageIds: preSnapshot.syncCacheSnapshot.appliedPackageIds,
+    },
+    preSnapshot.syncCacheSnapshot.updatedAt
+  );
+
+  // ۴. بازخوانی مجدد از Storage و بررسی برابری دقیق محتوا با Snapshot پیش از عملیات
+  const defaultFallbacks: Record<string, unknown> = {
+    [OPERATIONAL_STORAGE_KEYS.auditRecords]: {},
+    [OPERATIONAL_STORAGE_KEYS.bookCopies]: [],
+    [OPERATIONAL_STORAGE_KEYS.customMartyrs]: [],
+    [OPERATIONAL_STORAGE_KEYS.smartSuggestions]: [],
+    [OPERATIONAL_STORAGE_KEYS.links]: [],
+    [OPERATIONAL_STORAGE_KEYS.pendingReviews]: [],
+    [OPERATIONAL_STORAGE_KEYS.multiMartyrGroups]: [],
+    [OPERATIONAL_STORAGE_KEYS.extractedItems]: [],
+    [OPERATIONAL_STORAGE_KEYS.auditLog]: [],
+    [OPERATIONAL_STORAGE_KEYS.rejectedSuggestions]: [],
+    [RECORD_META_MAP_KEY]: {},
+    [BASELINE_CHANGE_MAP_KEY]: {},
+    [APPLIED_PACKAGES_KEY]: [],
+  };
+
+  for (const snapEntry of preSnapshot.idbEntries) {
+    if (isIndexedDbAvailable()) {
+      const checkIdb = await idbGetEnvelopeStrict(snapEntry.key);
+      if (!checkIdb.ok) {
+        errors.push(`خطا در بازخوانی کلید ${snapEntry.key} از IndexedDB پس از Rollback`);
+        continue;
+      }
+      if (checkIdb.exists !== snapEntry.exists) {
+        errors.push(`عدم تطابق وضعیت وجود کلید ${snapEntry.key} در IndexedDB پس از Rollback`);
+        continue;
+      }
+      if (snapEntry.exists) {
+        const expectedCanon = canonicalizeValueDeterministic(snapEntry.data);
+        const actualCanon = canonicalizeValueDeterministic(checkIdb.data);
+        if (expectedCanon !== actualCanon) {
+          errors.push(`عدم تطابق محتوای کلید ${snapEntry.key} در IndexedDB پس از Rollback`);
+        }
+      }
+    }
+
+    const effAfter = await readEffectiveKeyStrict(
+      snapEntry.key,
+      defaultFallbacks[snapEntry.key]
+    );
+    if (!effAfter.ok) {
+      errors.push(`خطا در بررسی مقدار مؤثر کلید ${snapEntry.key} پس از Rollback`);
+      continue;
+    }
+    const expectedEffCanon = canonicalizeValueDeterministic(
+      preSnapshot.effectiveValues[snapEntry.key]
+    );
+    const actualEffCanon = canonicalizeValueDeterministic(effAfter.effectiveValue);
+    if (expectedEffCanon !== actualEffCanon) {
+      errors.push(`مقدار مؤثر کلید ${snapEntry.key} پس از Rollback با وضعیت قبلی برابر نیست`);
+    }
+  }
+
+  for (const [key, expectedLocal] of Object.entries(preSnapshot.localRawEntries)) {
+    try {
+      const actualRaw = localStorage.getItem(key);
+      if (expectedLocal.exists) {
+        if (actualRaw !== expectedLocal.rawValue) {
+          errors.push(`مقدار کلید ${key} در LocalStorage پس از Rollback با مقدار قبلی مطابقت ندارد`);
+        }
+      } else if (actualRaw !== null) {
+        errors.push(`کلید ${key} در LocalStorage باید پس از Rollback حذف می‌شد اما باقی مانده است`);
+      }
+    } catch {
+      errors.push(`خطا در بازخوانی کلید ${key} از LocalStorage پس از Rollback`);
+    }
+  }
+
+  return {
+    rollbackOk: errors.length === 0,
+    rollbackError: errors.length > 0 ? errors.join(' | ') : undefined,
+  };
+}
+
+/**
+ * اصلاح دوم: اعتبارسنجی اختصاصی، سخت‌گیرانه و محتوایی داده‌های ذخیره‌شده پس از Restore
+ * - مقایسه قطعی تک‌تک ۱۰ مجموعه عملیاتی (از جمله links و extractedItems بدون هیچ استثنایی)
+ * - مقایسه قطعی ۳ کلید Sync Metadata
+ * - مقایسه قطعی softDeletedArchive، idSequences و userSettings.activeRole
+ * - تطبیق تمام ۱۱ شمارنده recordCounts و totalOperationalItems و Checksum مقصد
+ */
+export async function verifyRestoredStateAgainstTargetStrict(params: {
+  targetRecoveryPoint: PreMergeRecoveryPoint;
+  expectedUpdatedAt: number;
+  localBackupSaved: boolean;
+}): Promise<{ ok: boolean; mismatches: string[] }> {
+  const { targetRecoveryPoint, expectedUpdatedAt, localBackupSaved } = params;
+  const s = targetRecoveryPoint.stateSnapshot;
+  const meta = targetRecoveryPoint.syncMetaSnapshot;
+  const mismatches: string[] = [];
+
+  const expectedKeyMap: Array<{ key: string; label: string; expectedValue: unknown }> = [
+    { key: OPERATIONAL_STORAGE_KEYS.auditRecords, label: 'auditRecords', expectedValue: s.auditRecords },
+    { key: OPERATIONAL_STORAGE_KEYS.bookCopies, label: 'bookCopies', expectedValue: s.bookCopies },
+    { key: OPERATIONAL_STORAGE_KEYS.customMartyrs, label: 'customMartyrs', expectedValue: s.customMartyrs },
+    {
+      key: OPERATIONAL_STORAGE_KEYS.smartSuggestions,
+      label: 'smartSuggestions',
+      expectedValue: s.smartSuggestions,
+    },
+    { key: OPERATIONAL_STORAGE_KEYS.links, label: 'links', expectedValue: s.links },
+    {
+      key: OPERATIONAL_STORAGE_KEYS.pendingReviews,
+      label: 'pendingReviews',
+      expectedValue: s.pendingReviews,
+    },
+    {
+      key: OPERATIONAL_STORAGE_KEYS.multiMartyrGroups,
+      label: 'multiMartyrGroups',
+      expectedValue: s.multiMartyrGroups,
+    },
+    {
+      key: OPERATIONAL_STORAGE_KEYS.extractedItems,
+      label: 'extractedItems',
+      expectedValue: s.extractedItems,
+    },
+    { key: OPERATIONAL_STORAGE_KEYS.auditLog, label: 'auditLog', expectedValue: s.auditLog },
+    {
+      key: OPERATIONAL_STORAGE_KEYS.rejectedSuggestions,
+      label: 'rejectedSuggestionsArchive',
+      expectedValue: s.rejectedSuggestionsArchive,
+    },
+    { key: RECORD_META_MAP_KEY, label: 'recordMetaMap', expectedValue: meta.recordMetaMap },
+    {
+      key: BASELINE_CHANGE_MAP_KEY,
+      label: 'baselineChangeMap',
+      expectedValue: meta.baselineChangeMap,
+    },
+    {
+      key: APPLIED_PACKAGES_KEY,
+      label: 'appliedPackageIds',
+      expectedValue: meta.appliedPackageIds,
+    },
+  ];
+
+  const hasIdb = isIndexedDbAvailable();
+  const hydratedStateForCountCheck: Partial<FullOperationalState> = {
+    userSettings: s.userSettings,
+  };
+
+  for (const item of expectedKeyMap) {
+    const expectedCanonical = canonicalizeValueDeterministic(item.expectedValue);
+
+    // ۱. اگر IndexedDB فعال است، داده ذخیره‌شده در IndexedDB باید به‌صورت مستقل بررسی شود
+    if (hasIdb) {
+      const idbCheck = await idbGetEnvelopeStrict(item.key);
+      if (!idbCheck.ok || !idbCheck.exists || idbCheck.data === null) {
+        mismatches.push(
+          `کلید ${item.label} (${item.key}) در IndexedDB یافت نشد یا خواندن آن با خطا مواجه شد.`
+        );
+        continue;
+      }
+      const actualIdbCanonical = canonicalizeValueDeterministic(idbCheck.data);
+      if (actualIdbCanonical !== expectedCanonical) {
+        mismatches.push(
+          `محتوای ذخیره‌شده برای ${item.label} در IndexedDB با Snapshot مقصد برابر نیست.`
+        );
+      }
+      if (expectedUpdatedAt > 0 && idbCheck.updatedAt < expectedUpdatedAt) {
+        mismatches.push(
+          `Timestamp کلید ${item.label} در IndexedDB (${idbCheck.updatedAt}) قدیمی‌تر از زمان بازیابی (${expectedUpdatedAt}) است.`
+        );
+      }
+    }
+
+    // ۲. اگر پشتیبان LocalStorage ذخیره شده (یا IndexedDB فعال نیست)، محتوای LocalStorage نیز باید دقیقاً برابر باشد
+    if (!hasIdb || localBackupSaved) {
+      try {
+        const rawLocal = localStorage.getItem(item.key);
+        if (rawLocal === null) {
+          mismatches.push(`کلید ${item.label} (${item.key}) در LocalStorage یافت نشد.`);
+        } else {
+          const parsedLocal = JSON.parse(rawLocal);
+          const actualLocalCanonical = canonicalizeValueDeterministic(parsedLocal);
+          if (actualLocalCanonical !== expectedCanonical) {
+            mismatches.push(
+              `محتوای ذخیره‌شده برای ${item.label} در LocalStorage با Snapshot مقصد برابر نیست.`
+            );
+          }
+        }
+      } catch {
+        mismatches.push(`خطا در بازخوانی یا تجزیه کلید ${item.label} از LocalStorage.`);
+      }
+    }
+
+    // ۳. بررسی منبع مؤثر با رعایت قواعد واقعی انتخاب منبع و Timestamp (hydrateOperationalKey)
+    const fallback = Array.isArray(item.expectedValue) ? [] : {};
+    const hydrated = await hydrateOperationalKey(item.key, fallback);
+    const hydratedCanonical = canonicalizeValueDeterministic(hydrated.value);
+    if (hydratedCanonical !== expectedCanonical) {
+      mismatches.push(
+        `داده بازیابی‌شده مؤثر (Hydrated) برای ${item.label} با Snapshot مقصد مطابقت ندارد.`
+      );
+    }
+
+    if (item.label in s) {
+      (hydratedStateForCountCheck as Record<string, unknown>)[item.label] = hydrated.value;
+    }
+  }
+
+  // ۴. بررسی دقیق اطلاعات کمکی اجباری در LocalStorage (softDeletedArchive، idSequences، userRole)
+  try {
+    const rawSoftDel = localStorage.getItem(SOFT_DELETED_ARCHIVE_STORAGE_KEY);
+    const parsedSoftDel = rawSoftDel ? JSON.parse(rawSoftDel) : null;
+    if (
+      parsedSoftDel === null ||
+      canonicalizeValueDeterministic(parsedSoftDel) !==
+        canonicalizeValueDeterministic(meta.softDeletedArchive || {})
+    ) {
+      mismatches.push(
+        'محتوای بایگانی حذف نرم (softDeletedArchive) پس از بازیابی با Snapshot مقصد برابر نیست.'
+      );
+    }
+  } catch {
+    mismatches.push('خطا در بازخوانی بایگانی حذف نرم (softDeletedArchive) پس از بازیابی.');
+  }
+
+  try {
+    const rawSeq = localStorage.getItem(ID_SEQUENCE_STORAGE_KEY);
+    const parsedSeq = rawSeq ? JSON.parse(rawSeq) : null;
+    if (
+      parsedSeq === null ||
+      canonicalizeValueDeterministic(parsedSeq) !==
+        canonicalizeValueDeterministic(meta.idSequences)
+    ) {
+      mismatches.push(
+        'محتوای شمارنده شناسه‌ها (idSequences) پس از بازیابی با Snapshot مقصد برابر نیست.'
+      );
+    }
+  } catch {
+    mismatches.push('خطا در بازخوانی شمارنده شناسه‌ها (idSequences) پس از بازیابی.');
+  }
+
+  if (s.userSettings?.activeRole) {
+    try {
+      const actualRole = localStorage.getItem(OPERATIONAL_STORAGE_KEYS.userRole);
+      if (actualRole !== s.userSettings.activeRole) {
+        mismatches.push(
+          `نقش فعال کاربر در LocalStorage (${actualRole || 'خالی'}) با نقش مقصد (${
+            s.userSettings.activeRole
+          }) مطابقت ندارد.`
+        );
+      }
+    } catch {
+      mismatches.push('خطا در بازخوانی نقش فعال کاربر (userRole) پس از بازیابی.');
+    }
+  }
+
+  // ۵. بررسی کامل تمام ۱۱ شمارنده recordCounts و totalOperationalItems و Checksumها
+  const reconstructedState = hydratedStateForCountCheck as FullOperationalState;
+  const actualCounts = calculateCollectionCounts(reconstructedState);
+  const expectedCounts = targetRecoveryPoint.recordCounts;
+  const countKeys: Array<keyof typeof actualCounts> = [
+    'auditRecords',
+    'bookCopies',
+    'customMartyrs',
+    'smartSuggestions',
+    'links',
+    'pendingReviews',
+    'multiMartyrGroups',
+    'extractedItems',
+    'auditLog',
+    'userSettings',
+    'rejectedSuggestionsArchive',
+    'totalOperationalItems',
+  ];
+  for (const ck of countKeys) {
+    if (actualCounts[ck] !== expectedCounts[ck]) {
+      mismatches.push(
+        `شمارنده ${ck} پس از بازیابی (${actualCounts[ck]}) با مقدار Snapshot مقصد (${expectedCounts[ck]}) برابر نیست.`
+      );
+    }
+  }
+
+  const actualDatasetsChecksum = computeDatasetsChecksum(reconstructedState);
+  const expectedDatasetsChecksum = computeDatasetsChecksum(s);
+  if (actualDatasetsChecksum !== expectedDatasetsChecksum) {
+    mismatches.push('Checksum مجموعه‌های عملیاتی بازیابی‌شده با Snapshot مقصد همخوانی ندارد.');
+  }
+
+  if (targetRecoveryPoint.checksum.startsWith('RP_SHA256_')) {
+    const recomputedFullChecksum = computePreMergeRecoveryPointChecksum({
+      recoveryId: targetRecoveryPoint.recoveryId,
+      timestampMs: targetRecoveryPoint.timestampMs,
+      recordCounts: actualCounts,
+      stateSnapshot: reconstructedState,
+      syncMetaSnapshot: {
+        recordMetaMap: (await hydrateOperationalKey(RECORD_META_MAP_KEY, {})).value,
+        baselineChangeMap: (await hydrateOperationalKey(BASELINE_CHANGE_MAP_KEY, {})).value,
+        appliedPackageIds: (await hydrateOperationalKey(APPLIED_PACKAGES_KEY, [])).value,
+        softDeletedArchive: loadSoftDeletedArchive(),
+        idSequences: readLocalIdSequences(),
+      },
+    });
+    if (recomputedFullChecksum !== targetRecoveryPoint.checksum) {
+      mismatches.push(
+        'Checksum جامع (RP_SHA256) داده‌ها و متادیتای بازیابی‌شده با Checksum مقصد مطابقت ندارد.'
+      );
+    }
+  }
+
+  return {
+    ok: mismatches.length === 0,
+    mismatches,
+  };
+}
+
 /**
  * بازگردانی کامل اطلاعات مقصد از Recovery Point در صورت بروز خطا یا درخواست کاربر
- * همراه با قابلیت بازگشت امن (Rollback) و تطبیق وضعیت بازیابی‌شده با Snapshot معتبر
+ * - تهیه Snapshot کامل از وضعیت فعلی پیش از اولین تغییر
+ * - اجرای Rollback واقعی و کامل روی IndexedDB، LocalStorage و کش‌های متادیتا در تمام مسیرهای شکست
+ * - بررسی موفقیت خود Rollback و گزارش صریح در صورت شکست Rollback
+ * - اعتبارسنجی دقیق محتوایی تمام مجموعه‌ها و متادیتا پس از Restore
  */
 export async function restoreFromPreMergeRecoveryPoint(
   recoveryPoint: PreMergeRecoveryPoint
-): Promise<{ ok: boolean; restoredState: FullOperationalState; error?: string }> {
+): Promise<{
+  ok: boolean;
+  restoredState: FullOperationalState;
+  error?: string;
+  warning?: string;
+  rollbackPerformed?: boolean;
+  rollbackVerified?: boolean;
+}> {
+  const rpId =
+    recoveryPoint && typeof recoveryPoint === 'object' && typeof recoveryPoint.recoveryId === 'string'
+      ? recoveryPoint.recoveryId
+      : 'UNKNOWN_RP';
+
   const fallbackSnapshot =
     recoveryPoint && typeof recoveryPoint === 'object' && 'stateSnapshot' in recoveryPoint
       ? recoveryPoint.stateSnapshot
       : ({} as FullOperationalState);
 
+  // ۱. اعتبارسنجی کامل Recovery Point مقصد پیش از هرگونه عملیات
   if (!isValidPreMergeRecoveryPoint(recoveryPoint)) {
     return {
       ok: false,
       restoredState: fallbackSnapshot,
-      error: 'ساختار، شمارنده‌ها یا Checksum نقطه بازیابی (Recovery Point) نامعتبر است.',
+      error: `ساختار، شمارنده‌ها یا Checksum نقطه بازیابی (${rpId}) نامعتبر است؛ عملیات بازیابی پیش از ایجاد هرگونه تغییر متوقف شد.`,
     };
   }
 
-  // پشتیبان موقت از مقادیر فعلی متادیتا در localStorage جهت بازگردانی در صورت بروز خطا
-  let prevSoftDeletedRaw: string | null = null;
-  let prevIdSequencesRaw: string | null = null;
-  let prevUserRoleRaw: string | null = null;
-  try {
-    prevSoftDeletedRaw = localStorage.getItem('book_p2p_soft_deleted_archive_v1');
-    prevIdSequencesRaw = localStorage.getItem(ID_SEQUENCE_STORAGE_KEY);
-    prevUserRoleRaw = localStorage.getItem(OPERATIONAL_STORAGE_KEYS.userRole);
-  } catch {
-    // ignore
+  // ۲. تهیه Snapshot کامل و معتبر از وضعیت فعلی دستگاه پیش از اولین نوشتن
+  const preCapture = await capturePreRestoreDeviceSnapshot();
+  if (!preCapture.ok || !preCapture.snapshot) {
+    return {
+      ok: false,
+      restoredState: fallbackSnapshot,
+      error: `امکان تهیه Snapshot کامل و معتبر از وضعیت فعلی دستگاه پیش از بازیابی فراهم نشد (${
+        preCapture.error || 'خطای خواندن Storage'
+      })؛ برای حفاظت از داده‌های فعلی، عملیات بازیابی قبل از اولین نوشتن متوقف شد (شناسه: ${rpId}).`,
+    };
   }
 
-  const rollbackAuxLocalStorage = () => {
-    try {
-      if (prevSoftDeletedRaw === null) {
-        localStorage.removeItem('book_p2p_soft_deleted_archive_v1');
-      } else {
-        localStorage.setItem('book_p2p_soft_deleted_archive_v1', prevSoftDeletedRaw);
-      }
-      if (prevIdSequencesRaw === null) {
-        localStorage.removeItem(ID_SEQUENCE_STORAGE_KEY);
-      } else {
-        localStorage.setItem(ID_SEQUENCE_STORAGE_KEY, prevIdSequencesRaw);
-      }
-      if (prevUserRoleRaw === null) {
-        localStorage.removeItem(OPERATIONAL_STORAGE_KEYS.userRole);
-      } else {
-        localStorage.setItem(OPERATIONAL_STORAGE_KEYS.userRole, prevUserRoleRaw);
-      }
-    } catch {
-      // ignore
+  const preSnapshot = preCapture.snapshot;
+
+  const triggerFullRollbackAndBuildError = async (
+    failureReason: string
+  ): Promise<{
+    ok: boolean;
+    restoredState: FullOperationalState;
+    error: string;
+    rollbackPerformed: boolean;
+    rollbackVerified: boolean;
+  }> => {
+    const rbRes = await executeAndVerifyFullRollback(preSnapshot);
+    const previousOperationalState: FullOperationalState = {
+      auditRecords: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.auditRecords] ||
+        {}) as Record<string, FieldAuditRecord>,
+      bookCopies: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.bookCopies] ||
+        []) as BookCopyRecord[],
+      customMartyrs: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.customMartyrs] ||
+        []) as CustomMartyrRecord[],
+      smartSuggestions: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.smartSuggestions] ||
+        []) as SmartSearchSuggestion[],
+      links: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.links] ||
+        []) as BookMartyrLinkRecord[],
+      pendingReviews: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.pendingReviews] ||
+        []) as PendingReviewItem[],
+      multiMartyrGroups: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.multiMartyrGroups] ||
+        []) as MultiMartyrGroupAudit[],
+      extractedItems: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.extractedItems] ||
+        []) as ExtractedContentItem[],
+      auditLog: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.auditLog] ||
+        []) as AuditLogEntry[],
+      rejectedSuggestionsArchive: (preSnapshot.effectiveValues[
+        OPERATIONAL_STORAGE_KEYS.rejectedSuggestions
+      ] || []) as RejectedSuggestionRecord[],
+      userSettings: {
+        activeRole:
+          (preSnapshot.effectiveAux.userRole as FullOperationalState['userSettings']['activeRole']) ||
+          'registrar',
+      },
+    };
+
+    if (rbRes.rollbackOk) {
+      return {
+        ok: false,
+        restoredState: previousOperationalState,
+        rollbackPerformed: true,
+        rollbackVerified: true,
+        error: `عملیات بازیابی از نقطه بازیابی (${rpId}) به دلیل «${failureReason}» متوقف شد؛ بازگردانی کامل (Rollback) تمام مجموعه‌های عملیاتی و متادیتا به وضعیت پیش از عملیات انجام و با موفقیت تأیید شد.`,
+      };
     }
+
+    return {
+      ok: false,
+      restoredState: previousOperationalState,
+      rollbackPerformed: true,
+      rollbackVerified: false,
+      error: `خطای بحرانی در بازیابی (${rpId}): عملیات بازیابی به دلیل «${failureReason}» شکست خورد و بازگردانی کامل وضعیت قبلی (Rollback) نیز تأیید نشد (${
+        rbRes.rollbackError || 'عدم تطابق پس از Rollback'
+      }). وضعیت نیازمند بررسی و بازیابی دستی از نقطه بازیابی ${rpId} است.`,
+    };
   };
 
-  const s: FullOperationalState = JSON.parse(JSON.stringify(recoveryPoint.stateSnapshot));
-  const metaSnap: PreMergeRecoveryPoint['syncMetaSnapshot'] = JSON.parse(
-    JSON.stringify(recoveryPoint.syncMetaSnapshot)
-  );
-
-  const entries: BatchStorageSaveEntry[] = [
-    { key: OPERATIONAL_STORAGE_KEYS.auditRecords, value: s.auditRecords },
-    { key: OPERATIONAL_STORAGE_KEYS.bookCopies, value: s.bookCopies },
-    { key: OPERATIONAL_STORAGE_KEYS.customMartyrs, value: s.customMartyrs },
-    { key: OPERATIONAL_STORAGE_KEYS.smartSuggestions, value: s.smartSuggestions },
-    { key: OPERATIONAL_STORAGE_KEYS.links, value: s.links },
-    { key: OPERATIONAL_STORAGE_KEYS.pendingReviews, value: s.pendingReviews },
-    { key: OPERATIONAL_STORAGE_KEYS.multiMartyrGroups, value: s.multiMartyrGroups },
-    { key: OPERATIONAL_STORAGE_KEYS.extractedItems, value: s.extractedItems },
-    { key: OPERATIONAL_STORAGE_KEYS.auditLog, value: s.auditLog },
-    { key: OPERATIONAL_STORAGE_KEYS.rejectedSuggestions, value: s.rejectedSuggestionsArchive },
-    { key: RECORD_META_MAP_KEY, value: metaSnap.recordMetaMap },
-    { key: BASELINE_CHANGE_MAP_KEY, value: metaSnap.baselineChangeMap },
-    { key: APPLIED_PACKAGES_KEY, value: metaSnap.appliedPackageIds },
-  ];
-
-  const batchRes = await saveOperationalDataBatchAtomic(entries);
-  if (!batchRes.ok) {
-    return {
-      ok: false,
-      restoredState: s,
-      error: batchRes.error || 'خطا در بازگردانی تراکنشی از Recovery Point',
-    };
-  }
-
-  const targetSoftDeleted = metaSnap.softDeletedArchive || {};
-  const softDeleteSavedOk = saveSoftDeletedArchive(targetSoftDeleted);
-
-  const targetIdSequences = metaSnap.idSequences || readLocalIdSequences();
-  const serializedSeq = JSON.stringify(targetIdSequences);
-  let idSequencesSavedOk = false;
   try {
-    localStorage.setItem(ID_SEQUENCE_STORAGE_KEY, serializedSeq);
-    idSequencesSavedOk = localStorage.getItem(ID_SEQUENCE_STORAGE_KEY) === serializedSeq;
-  } catch {
-    idSequencesSavedOk = false;
-  }
+    const s: FullOperationalState = JSON.parse(JSON.stringify(recoveryPoint.stateSnapshot));
+    const metaSnap: PreMergeRecoveryPoint['syncMetaSnapshot'] = JSON.parse(
+      JSON.stringify(recoveryPoint.syncMetaSnapshot)
+    );
 
-  let userRoleSavedOk = true;
-  if (s.userSettings?.activeRole) {
-    try {
-      localStorage.setItem(OPERATIONAL_STORAGE_KEYS.userRole, s.userSettings.activeRole);
-      userRoleSavedOk =
-        localStorage.getItem(OPERATIONAL_STORAGE_KEYS.userRole) === s.userSettings.activeRole;
-    } catch {
-      userRoleSavedOk = false;
+    const entries: BatchStorageSaveEntry[] = [
+      { key: OPERATIONAL_STORAGE_KEYS.auditRecords, value: s.auditRecords },
+      { key: OPERATIONAL_STORAGE_KEYS.bookCopies, value: s.bookCopies },
+      { key: OPERATIONAL_STORAGE_KEYS.customMartyrs, value: s.customMartyrs },
+      { key: OPERATIONAL_STORAGE_KEYS.smartSuggestions, value: s.smartSuggestions },
+      { key: OPERATIONAL_STORAGE_KEYS.links, value: s.links },
+      { key: OPERATIONAL_STORAGE_KEYS.pendingReviews, value: s.pendingReviews },
+      { key: OPERATIONAL_STORAGE_KEYS.multiMartyrGroups, value: s.multiMartyrGroups },
+      { key: OPERATIONAL_STORAGE_KEYS.extractedItems, value: s.extractedItems },
+      { key: OPERATIONAL_STORAGE_KEYS.auditLog, value: s.auditLog },
+      { key: OPERATIONAL_STORAGE_KEYS.rejectedSuggestions, value: s.rejectedSuggestionsArchive },
+      { key: RECORD_META_MAP_KEY, value: metaSnap.recordMetaMap },
+      { key: BASELINE_CHANGE_MAP_KEY, value: metaSnap.baselineChangeMap },
+      { key: APPLIED_PACKAGES_KEY, value: metaSnap.appliedPackageIds },
+    ];
+
+    // ۳. ذخیره تراکنشی مجموعه‌های عملیاتی و Sync Metadata
+    const batchRes = await saveOperationalDataBatchAtomic(entries);
+    if (!batchRes.ok) {
+      return await triggerFullRollbackAndBuildError(
+        batchRes.error || 'خطا در ذخیره تراکنشی مجموعه‌های عملیاتی و Sync Metadata'
+      );
     }
-  }
 
-  if (!softDeleteSavedOk || !idSequencesSavedOk || !userRoleSavedOk) {
-    rollbackAuxLocalStorage();
-    const failedParts: string[] = [];
-    if (!softDeleteSavedOk) failedParts.push('softDeletedArchive');
-    if (!idSequencesSavedOk) failedParts.push('idSequences');
-    if (!userRoleSavedOk) failedParts.push('userRole');
+    // ۴. ذخیره و بازخوانی اطلاعات کمکی اجباری (softDeletedArchive، idSequences، userRole)
+    const targetSoftDeleted = metaSnap.softDeletedArchive || {};
+    const serializedSoftDel = JSON.stringify(targetSoftDeleted);
+    let softDeleteSavedOk = false;
+    if (saveSoftDeletedArchive(targetSoftDeleted)) {
+      try {
+        softDeleteSavedOk =
+          localStorage.getItem(SOFT_DELETED_ARCHIVE_STORAGE_KEY) === serializedSoftDel;
+      } catch {
+        softDeleteSavedOk = false;
+      }
+    }
+
+    const targetIdSequences = metaSnap.idSequences || readLocalIdSequences();
+    const serializedSeq = JSON.stringify(targetIdSequences);
+    let idSequencesSavedOk = false;
+    try {
+      localStorage.setItem(ID_SEQUENCE_STORAGE_KEY, serializedSeq);
+      idSequencesSavedOk = localStorage.getItem(ID_SEQUENCE_STORAGE_KEY) === serializedSeq;
+    } catch {
+      idSequencesSavedOk = false;
+    }
+
+    let userRoleSavedOk = true;
+    if (s.userSettings?.activeRole) {
+      try {
+        localStorage.setItem(OPERATIONAL_STORAGE_KEYS.userRole, s.userSettings.activeRole);
+        userRoleSavedOk =
+          localStorage.getItem(OPERATIONAL_STORAGE_KEYS.userRole) === s.userSettings.activeRole;
+      } catch {
+        userRoleSavedOk = false;
+      }
+    }
+
+    if (!softDeleteSavedOk || !idSequencesSavedOk || !userRoleSavedOk) {
+      const failedParts: string[] = [];
+      if (!softDeleteSavedOk) failedParts.push('softDeletedArchive');
+      if (!idSequencesSavedOk) failedParts.push('idSequences');
+      if (!userRoleSavedOk) failedParts.push('userRole');
+      return await triggerFullRollbackAndBuildError(
+        `شکست ذخیره یا بازخوانی متادیتای تکمیلی (${failedParts.join('، ')})`
+      );
+    }
+
+    // ۵. به‌روزرسانی کش Sync Metadata و اجرای اعتبارسنجی دقیق محتوایی پس از Restore
+    applyCommittedSyncMetadataToCache(
+      {
+        recordMetaMap: metaSnap.recordMetaMap,
+        baselineChangeMap: metaSnap.baselineChangeMap,
+        appliedPackageIds: metaSnap.appliedPackageIds,
+      },
+      batchRes.updatedAt
+    );
+
+    const strictVerify = await verifyRestoredStateAgainstTargetStrict({
+      targetRecoveryPoint: recoveryPoint,
+      expectedUpdatedAt: batchRes.updatedAt,
+      localBackupSaved: batchRes.localSaved,
+    });
+
+    if (!strictVerify.ok) {
+      return await triggerFullRollbackAndBuildError(
+        `عدم تطابق داده‌های ذخیره‌شده پس از بازیابی با Snapshot مقصد: ${strictVerify.mismatches.join(
+          '؛ '
+        )}`
+      );
+    }
+
+    const warningMsg =
+      batchRes.idbSaved && !batchRes.localSaved
+        ? batchRes.warning ||
+          'داده اصلی در IndexedDB با موفقیت کامل بازیابی و تأیید شد، اما ذخیره کپی پشتیبان در LocalStorage به دلیل محدودیت فضا انجام نشد.'
+        : undefined;
+
     return {
-      ok: false,
+      ok: true,
       restoredState: s,
-      error: `خطا در بازگردانی متادیتای تکمیلی از Recovery Point (${failedParts.join('، ')} ذخیره نشد).`,
+      warning: warningMsg,
+      rollbackPerformed: false,
+      rollbackVerified: true,
     };
+  } catch (err) {
+    return await triggerFullRollbackAndBuildError(
+      `خطای غیرمنتظره در حین بازیابی: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
-
-  // تطبیق وضعیت بازیابی‌شده پس از عملیات با Snapshot معتبر
-  const restoredCounts = calculateCollectionCounts(s);
-  const restoredChecksum = computeDatasetsChecksum(s);
-  const expectedSnapshotChecksum = computeDatasetsChecksum(recoveryPoint.stateSnapshot);
-  const storageVerify = await verifyExportAgainstRealStorage(s);
-
-  if (
-    restoredCounts.totalOperationalItems !==
-      recoveryPoint.recordCounts.totalOperationalItems ||
-    restoredChecksum !== expectedSnapshotChecksum ||
-    !storageVerify.verified
-  ) {
-    rollbackAuxLocalStorage();
-    return {
-      ok: false,
-      restoredState: s,
-      error: 'وضعیت بازیابی‌شده پس از عملیات با Snapshot معتبر همخوانی کامل نداشت.',
-    };
-  }
-
-  applyCommittedSyncMetadataToCache(
-    {
-      recordMetaMap: metaSnap.recordMetaMap,
-      baselineChangeMap: metaSnap.baselineChangeMap,
-      appliedPackageIds: metaSnap.appliedPackageIds,
-    },
-    batchRes.updatedAt
-  );
-
-  return { ok: true, restoredState: s };
 }
 
 /**
