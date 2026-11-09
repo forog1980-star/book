@@ -255,6 +255,7 @@ export interface SystemJsonInspectionReport {
   invalidRecords: InvalidRecordDetail[];
 
   normalizedPayload?: Partial<FullLibrarySystemDataPayload>;
+  destinationStateFingerprint?: string;
 }
 
 export interface PreMergeRecoveryPoint {

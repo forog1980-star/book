@@ -1,0 +1,4072 @@
+import {
+  AuditLogEntry,
+  BookCopyRecord,
+  BookMartyrLinkRecord,
+  CustomMartyrRecord,
+  ExtractedContentItem,
+  FieldAuditRecord,
+  MultiMartyrGroupAudit,
+  PendingReviewItem,
+  ReferenceCatalogRow,
+  SmartSearchSuggestion,
+} from '../../data/markazAsnadData';
+import {
+  buildSorehMehrExtractedItems,
+  buildUnifiedBookDossiers,
+  enrichLinksWithSorehMehrResearch,
+} from '../../data/soorehMehrResearch';
+import {
+  calculateCollectionCounts,
+  computeDatasetsChecksum,
+  FullOperationalState,
+  RejectedSuggestionRecord,
+} from '../../utils/backupService';
+import {
+  BatchStorageSaveEntry,
+  getLocalKeyTimestamp,
+  hydrateOperationalKey,
+  idbGetEnvelope,
+  idbGetEnvelopeStrict,
+  IdbKeySnapshotEntry,
+  idbRestoreKeySnapshotAtomic,
+  idbSetItemWithStatus,
+  isIndexedDbAvailable,
+  OPERATIONAL_STORAGE_KEYS,
+  saveOperationalDataBatchAtomic,
+  waitForPendingStorageOperations,
+} from '../../utils/indexedDbStorage';
+import {
+  canonicalizeRecordData,
+} from '../device-sync/conflictResolver';
+import {
+  computeDeterministicHash,
+  generateCryptoRandomToken,
+  sha256Hex,
+} from '../device-sync/pairingService';
+import {
+  APPLIED_PACKAGES_KEY,
+  applyCommittedSyncMetadataToCache,
+  BASELINE_CHANGE_MAP_KEY,
+  getOrCreateLocalDeviceId,
+  getSavedDeviceRole,
+  hydrateSyncMetadataFromStorage,
+  loadAppliedPackageIds,
+  loadBaselineChangeMap,
+  loadRecordMetaMap,
+  loadSoftDeletedArchive,
+  RECORD_META_MAP_KEY,
+  saveSoftDeletedArchive,
+} from '../device-sync/syncStorage';
+import { RecordSyncMeta, SyncRecordEnvelope } from '../device-sync/types';
+import {
+  CollectionComparisonSummary,
+  ConflictDecisionOption,
+  CopyMoveHistoryExportItem,
+  DeterminationStatusSummary,
+  ExportExecutionResult,
+  FieldDifferenceDetail,
+  FullLibrarySystemDataPayload,
+  FullLibrarySystemExportEnvelope,
+  IdSequenceSnapshot,
+  InvalidRecordDetail,
+  JSON_TRANSFER_APP_VERSION,
+  JSON_TRANSFER_FORMAT_ID,
+  JSON_TRANSFER_SCHEMA_VERSION,
+  MergeCollectionKey,
+  PreMergeRecoveryPoint,
+  RecordChangePreviewItem,
+  RecordConflictDetail,
+  SafeMergeExecutionResult,
+  ShelfLocationSummaryItem,
+  StorageVerificationCheck,
+  SystemJsonInspectionReport,
+} from './types';
+
+const PRE_MERGE_RECOVERY_STORAGE_KEY = 'book_json_merge_recovery_point_v1';
+const ID_SEQUENCE_STORAGE_KEY = 'book_id_sequences_v1';
+
+const COLLECTION_PERSIAN_LABELS: Record<MergeCollectionKey, string> = {
+  auditRecords: 'ثبت‌های کتاب‌ها، وضعیت تعیین‌تکلیف و قفسه‌ها',
+  bookCopies: 'نسخه‌های فیزیکی و تاریخچه جابه‌جایی قفسه (CP)',
+  links: 'ارتباط‌های کتاب و شهید',
+  multiMartyrGroups: 'وضعیت ۱۶ گروه چندشهیدی',
+  extractedItems: 'مطالب تفکیک‌شده و ارتباط‌های چندشهیدی',
+  customMartyrs: 'پرونده‌های شهدای ثبت‌شده دستی',
+  pendingReviews: 'صف موارد نیازمند بررسی کارشناسی',
+  smartSuggestions: 'پیشنهادهای جست‌وجوی هوشمند',
+  rejectedSuggestionsArchive: 'بایگانی پیشنهادهای ردشده',
+  auditLog: 'تاریخچه عملیات سامانه',
+};
+
+const FIELD_PERSIAN_LABELS: Record<string, string> = {
+  title: 'عنوان کتاب',
+  author: 'نویسنده / گردآورنده',
+  publisher: 'ناشر',
+  year: 'سال چاپ',
+  edition: 'نوبت چاپ',
+  isbn: 'شابک (ISBN)',
+  fipa: 'فیپا',
+  registrationNo: 'شماره ثبت',
+  category: 'موضوع / دسته',
+  shelf: 'قفسه',
+  level: 'طبقه',
+  location: 'کد محل نگهداری',
+  physical: 'وضعیت بررسی فیزیکی',
+  copyStatus: 'وضعیت نسخه',
+  physicalCondition: 'سلامت فیزیکی',
+  countedCopies: 'تعداد نسخه',
+  notes: 'یادداشت کارشناس',
+  descriptionRaw: 'توضیحات شناسنامه‌ای',
+  martyrNameRaw: 'نام شهید',
+  bookTitleRaw: 'عنوان کتاب',
+  alternativeTitle: 'عنوان جایگزین',
+  pageReferenceRaw: 'شماره صفحه / ارجاع',
+  gravePieceRaw: 'قطعه مزار',
+  graveRowRaw: 'ردیف مزار',
+  graveNumberRaw: 'شماره مزار',
+  reviewStatus: 'وضعیت تعیین‌تکلیف / بررسی',
+  reviewerNote: 'یادداشت بازبین',
+  trackingStatus: 'وضعیت پیگیری',
+  decisionStatus: 'وضعیت تصمیم گروه چندشهیدی',
+  extractedText: 'متن گزیده استخراج‌شده',
+  passageTitle: 'عنوان مطلب',
+  loanOrMoveStatus: 'وضعیت امانت یا جابه‌جایی',
+  expertNote: 'یادداشت نسخه فیزیکی',
+  fullName: 'نام کامل شهید',
+  identityVerificationStatus: 'وضعیت احراز هویت',
+  graveVerificationStatus: 'وضعیت مزار',
+};
+
+const IGNORED_DIFF_KEYS = new Set([
+  'updatedAt',
+  '_updatedAt',
+  'updatedAtMs',
+  'lastReviewedAt',
+  'observedDate',
+  'createdAt',
+  'timestamp',
+]);
+
+const FORBIDDEN_SECRET_KEY_PATTERNS = [
+  /api[_-]?key/i,
+  /auth[_-]?token/i,
+  /access[_-]?token/i,
+  /refresh[_-]?token/i,
+  /secret/i,
+  /password/i,
+  /firebase/i,
+  /supabase/i,
+  /private[_-]?key/i,
+];
+
+/**
+ * پالایش امنیتی برای اطمینان از اینکه هیچ کلید دسترسی، توکن یا داده ابری وارد فایل JSON نمی‌شود
+ */
+export function sanitizeExportObject<T>(input: T): T {
+  if (input === null || input === undefined || typeof input !== 'object') {
+    return input;
+  }
+  if (Array.isArray(input)) {
+    return input.map((item) => sanitizeExportObject(item)) as unknown as T;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    if (FORBIDDEN_SECRET_KEY_PATTERNS.some((pat) => pat.test(k))) {
+      continue;
+    }
+    out[k] = sanitizeExportObject(v);
+  }
+  return out as T;
+}
+
+function readLocalIdSequences(): IdSequenceSnapshot {
+  const fallback: IdSequenceSnapshot = {
+    LOG: 1000,
+    RL: 1000,
+    SS: 1000,
+    MR: 1000,
+    EX: 1000,
+    CP: 1000,
+    TMP_OUT: 1,
+  };
+  try {
+    const raw = localStorage.getItem(ID_SEQUENCE_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        return {
+          LOG: Number(parsed.LOG) || fallback.LOG,
+          RL: Number(parsed.RL) || fallback.RL,
+          SS: Number(parsed.SS) || fallback.SS,
+          MR: Number(parsed.MR) || fallback.MR,
+          EX: Number(parsed.EX) || fallback.EX,
+          CP: Number(parsed.CP) || fallback.CP,
+          TMP_OUT: Number(parsed.TMP_OUT) || fallback.TMP_OUT,
+        };
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
+
+function extractNumericSuffix(id: string | undefined | null, prefix: string): number {
+  if (!id || typeof id !== 'string') return 0;
+  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = id.match(new RegExp(`^${escaped}[-_]?(\\d+)$`, 'i'));
+  if (!match) return 0;
+  const num = Number(match[1]);
+  return Number.isFinite(num) && num > 0 ? num : 0;
+}
+
+export function computeEffectiveIdSequences(
+  state: FullOperationalState,
+  baseSeq?: IdSequenceSnapshot
+): IdSequenceSnapshot {
+  const cur = baseSeq || readLocalIdSequences();
+  let maxLOG = cur.LOG || 1000;
+  let maxRL = cur.RL || 1000;
+  let maxSS = cur.SS || 1000;
+  let maxMR = cur.MR || 1000;
+  let maxEX = cur.EX || 1000;
+  let maxCP = cur.CP || 1000;
+  let maxTMP = cur.TMP_OUT || 1;
+
+  for (const item of state.auditLog || []) {
+    maxLOG = Math.max(maxLOG, extractNumericSuffix(item?.id, 'LOG'));
+  }
+  for (const item of state.links || []) {
+    maxRL = Math.max(maxRL, extractNumericSuffix(item?.id, 'RL'));
+  }
+  for (const item of state.smartSuggestions || []) {
+    maxSS = Math.max(maxSS, extractNumericSuffix(item?.id, 'SS'));
+  }
+  for (const item of state.customMartyrs || []) {
+    maxMR = Math.max(maxMR, extractNumericSuffix(item?.martyrId, 'MR'));
+  }
+  for (const item of state.extractedItems || []) {
+    maxEX = Math.max(maxEX, extractNumericSuffix(item?.id, 'EX'));
+  }
+  for (const item of state.bookCopies || []) {
+    maxCP = Math.max(maxCP, extractNumericSuffix(item?.copyId, 'CP'));
+  }
+  for (const rec of Object.values(state.auditRecords || {})) {
+    if (!rec) continue;
+    maxTMP = Math.max(
+      maxTMP,
+      extractNumericSuffix(rec.tempBookId, 'TMP-OUT'),
+      extractNumericSuffix(rec.key, 'TMP-OUT')
+    );
+  }
+
+  return {
+    LOG: maxLOG,
+    RL: maxRL,
+    SS: maxSS,
+    MR: maxMR,
+    EX: maxEX,
+    CP: maxCP,
+    TMP_OUT: maxTMP,
+  };
+}
+
+function formatJalaliDateTimeForDisplay(date: Date): string {
+  try {
+    return new Intl.DateTimeFormat('fa-IR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(date);
+  } catch {
+    return date.toISOString();
+  }
+}
+
+export function buildExportFileName(date: Date = new Date()): string {
+  try {
+    const parts = new Intl.DateTimeFormat('fa-IR-u-nu-latn', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).formatToParts(date);
+    const getPart = (type: string) => parts.find((p) => p.type === type)?.value || '00';
+    const y = getPart('year');
+    const m = getPart('month');
+    const d = getPart('day');
+    const hh = getPart('hour');
+    const mm = getPart('minute');
+    const ss = getPart('second');
+    return `book-library-full-system-${y}-${m}-${d}_${hh}-${mm}-${ss}.json`;
+  } catch {
+    const iso = date.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    return `book-library-full-system-${iso}.json`;
+  }
+}
+
+/**
+ * محاسبه هش قطعی نسخه ۵ برای تمام ۱۴ بخش عملیاتی و متادیتای مؤثر بر ادغام (Integrity)
+ */
+export function computeSystemDataIntegrityHash(data: Partial<FullLibrarySystemDataPayload>): string {
+  const coreForHash = {
+    auditRecords: data.auditRecords || {},
+    links: data.links || [],
+    multiMartyrGroups: data.multiMartyrGroups || [],
+    extractedItems: data.extractedItems || [],
+    customMartyrs: data.customMartyrs || [],
+    bookCopies: data.bookCopies || [],
+    pendingReviews: data.pendingReviews || [],
+    smartSuggestions: data.smartSuggestions || [],
+    rejectedSuggestionsArchive: data.rejectedSuggestionsArchive || [],
+    auditLog: data.auditLog || [],
+    userSettings: data.userSettings || { activeRole: 'registrar' },
+    idSequences: data.idSequences || {
+      LOG: 1000,
+      RL: 1000,
+      SS: 1000,
+      MR: 1000,
+      EX: 1000,
+      CP: 1000,
+      TMP_OUT: 1,
+    },
+    syncRecordMeta: data.syncRecordMeta || {},
+    syncBaselineHashes: data.syncBaselineHashes || {},
+    syncAppliedPackages: data.syncAppliedPackages || [],
+    softDeletedArchive: data.softDeletedArchive || {},
+  };
+  return computeDeterministicHash(JSON.stringify(coreForHash));
+}
+
+/**
+ * محاسبه هش قطعی نسخه ۴ قبلی جهت حفظ سازگاری عقب‌رو با فایل‌های معتبر صادرشده در نسخه ۴ اولیه
+ */
+export function computeLegacyV4SystemDataIntegrityHash(
+  data: Partial<FullLibrarySystemDataPayload>
+): string {
+  const legacyCoreForHash = {
+    auditRecords: data.auditRecords || {},
+    bookCopies: data.bookCopies || [],
+    customMartyrs: data.customMartyrs || [],
+    links: data.links || [],
+    multiMartyrGroups: data.multiMartyrGroups || [],
+    extractedItems: data.extractedItems || [],
+    pendingReviews: data.pendingReviews || [],
+    smartSuggestions: data.smartSuggestions || [],
+    rejectedSuggestionsArchive: data.rejectedSuggestionsArchive || [],
+    auditLog: data.auditLog || [],
+    userSettings: data.userSettings || { activeRole: 'registrar' },
+  };
+  return computeDeterministicHash(JSON.stringify(legacyCoreForHash));
+}
+
+/**
+ * بررسی و تطبیق تعداد رکوردهای استخراج‌شده با اطلاعات واقعی Storage (IndexedDB + localStorage)
+ */
+function extractRecordTimestampMs(rec: unknown): number {
+  if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return 0;
+  const obj = rec as Record<string, unknown>;
+  const candidateKeys = ['updatedAtMs', 'updatedAt', '_updatedAt', 'lastReviewedAt'];
+  for (const k of candidateKeys) {
+    const val = obj[k];
+    if (typeof val === 'number' && Number.isFinite(val) && val > 0) {
+      return val;
+    }
+    if (typeof val === 'string' && val.trim()) {
+      const asNum = Number(val);
+      if (Number.isFinite(asNum) && asNum > 1000000000) {
+        return asNum;
+      }
+      const parsed = Date.parse(val);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+  }
+  return 0;
+}
+
+function selectFresherRecord<T>(
+  storageRec: T,
+  activeRec: T,
+  storageCollectionUpdatedAt: number
+): { chosen: T; fromActive: boolean } {
+  if (canonicalizeValueDeterministic(storageRec) === canonicalizeValueDeterministic(activeRec)) {
+    return { chosen: storageRec, fromActive: false };
+  }
+  const storageRecTs = extractRecordTimestampMs(storageRec);
+  const activeRecTs = extractRecordTimestampMs(activeRec);
+
+  if (activeRecTs > 0 && storageRecTs > 0 && activeRecTs !== storageRecTs) {
+    return activeRecTs > storageRecTs
+      ? { chosen: activeRec, fromActive: true }
+      : { chosen: storageRec, fromActive: false };
+  }
+
+  if (activeRecTs > 0 && storageRecTs === 0 && activeRecTs > storageCollectionUpdatedAt) {
+    return { chosen: activeRec, fromActive: true };
+  }
+
+  // پس از تکمیل عملیات‌های ذخیره‌سازی معلق (waitForPendingStorageOperations)،
+  // در صورتی که رکورد حافظه موقت دارای مهر زمان جدیدتری نباشد، نسخه پایدار Storage مرجع معتبر است.
+  return { chosen: storageRec, fromActive: false };
+}
+
+/**
+ * تبدیل وضعیت فعال برنامه و حافظه پایدار (IndexedDB + LocalStorage) به یک Snapshot واحد، تازه و تأییدشده:
+ * ۱. انتظار برای تکمیل تمام نوشتن‌های غیرهمزمان در حال اجرا (waitForPendingStorageOperations)
+ * ۲. خواندن سخت‌گیرانه (Strict) تمام مجموعه‌ها بدون بلعیدن خطای Storage
+ * ۳. تلفیق هوشمند بر پایه شناسه و زمان‌بندی تا نه رکورد تازه ثبت‌شده از دست برود و نه وضعیت قدیمی React روی داده جدیدتر Storage بنشیند
+ * ۴. در حالت syncUnpersistedToStorage، ثبت اتمیک هرگونه تغییر ثبت‌نشده در Storage پیش از تولید و راستی‌آزمایی خروجی
+ */
+export async function resolveLatestVerifiedOperationalState(
+  activeState: FullOperationalState,
+  options?: { syncUnpersistedToStorage?: boolean }
+): Promise<{
+  ok: boolean;
+  state: FullOperationalState;
+  syncMetaSnapshot: {
+    recordMetaMap: Record<string, RecordSyncMeta>;
+    baselineChangeMap: Record<string, string>;
+    appliedPackageIds: string[];
+  };
+  error?: string;
+}> {
+  await waitForPendingStorageOperations();
+
+  const fallbackSyncMeta = {
+    recordMetaMap: loadRecordMetaMap(),
+    baselineChangeMap: loadBaselineChangeMap(),
+    appliedPackageIds: loadAppliedPackageIds(),
+  };
+
+  const [
+    resAudit,
+    resCopies,
+    resMartyrs,
+    resSmart,
+    resGroups,
+    resExtracted,
+    resLinks,
+    resPending,
+    resLog,
+    resRejected,
+    resMetaMap,
+    resBaselineMap,
+    resAppliedPkgs,
+  ] = await Promise.all([
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.auditRecords, {}),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.bookCopies, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.customMartyrs, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.smartSuggestions, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.multiMartyrGroups, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.extractedItems, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.links, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.pendingReviews, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.auditLog, []),
+    readEffectiveKeyStrict(OPERATIONAL_STORAGE_KEYS.rejectedSuggestions, []),
+    readEffectiveKeyStrict(RECORD_META_MAP_KEY, fallbackSyncMeta.recordMetaMap),
+    readEffectiveKeyStrict(BASELINE_CHANGE_MAP_KEY, fallbackSyncMeta.baselineChangeMap),
+    readEffectiveKeyStrict(APPLIED_PACKAGES_KEY, fallbackSyncMeta.appliedPackageIds),
+  ]);
+
+  const allReads = [
+    resAudit,
+    resCopies,
+    resMartyrs,
+    resSmart,
+    resGroups,
+    resExtracted,
+    resLinks,
+    resPending,
+    resLog,
+    resRejected,
+    resMetaMap,
+    resBaselineMap,
+    resAppliedPkgs,
+  ];
+
+  for (const r of allReads) {
+    if (!r.ok) {
+      return {
+        ok: false,
+        state: activeState,
+        syncMetaSnapshot: fallbackSyncMeta,
+        error: r.error || 'خطا در خواندن اطلاعات از حافظه پایدار (Storage)',
+      };
+    }
+  }
+
+  let softDeletedArchive: Record<string, SyncRecordEnvelope> = {};
+  try {
+    softDeletedArchive = loadSoftDeletedArchive() || {};
+  } catch {
+    softDeletedArchive = {};
+  }
+
+  let needsStorageSync = false;
+
+  const reconcileDict = <T>(
+    readRes: Awaited<ReturnType<typeof readEffectiveKeyStrict>>,
+    activeDict: Record<string, T>,
+    colName: string
+  ): Record<string, T> => {
+    const storageExists = readRes.idbSnap.exists || readRes.localSnap.exists;
+    const storageDict =
+      storageExists &&
+      readRes.effectiveValue &&
+      typeof readRes.effectiveValue === 'object' &&
+      !Array.isArray(readRes.effectiveValue)
+        ? (readRes.effectiveValue as Record<string, T>)
+        : {};
+
+    if (!storageExists) {
+      if (Object.keys(activeDict || {}).length > 0) {
+        needsStorageSync = true;
+      }
+      return JSON.parse(JSON.stringify(activeDict || {}));
+    }
+
+    const result: Record<string, T> = JSON.parse(JSON.stringify(storageDict));
+    for (const [id, activeItem] of Object.entries(activeDict || {})) {
+      if (!id || !activeItem) continue;
+      if (id in result) {
+        const sel = selectFresherRecord(result[id], activeItem, readRes.effectiveUpdatedAt);
+        result[id] = JSON.parse(JSON.stringify(sel.chosen));
+        if (sel.fromActive) {
+          needsStorageSync = true;
+        }
+      } else if (!softDeletedArchive[`${colName}:${id}`]) {
+        result[id] = JSON.parse(JSON.stringify(activeItem));
+        needsStorageSync = true;
+      }
+    }
+    return result;
+  };
+
+  const reconcileArray = <T>(
+    readRes: Awaited<ReturnType<typeof readEffectiveKeyStrict>>,
+    activeArr: T[],
+    getId: (item: T) => string,
+    colName: string
+  ): T[] => {
+    const storageExists = readRes.idbSnap.exists || readRes.localSnap.exists;
+    const storageArr =
+      storageExists && Array.isArray(readRes.effectiveValue)
+        ? (readRes.effectiveValue as T[])
+        : [];
+
+    if (!storageExists) {
+      if ((activeArr || []).length > 0) {
+        needsStorageSync = true;
+      }
+      return JSON.parse(JSON.stringify(activeArr || []));
+    }
+
+    const map = new Map<string, T>();
+    for (const item of storageArr) {
+      if (!item) continue;
+      const id = getId(item);
+      if (id) {
+        map.set(id, JSON.parse(JSON.stringify(item)));
+      }
+    }
+
+    for (const activeItem of activeArr || []) {
+      if (!activeItem) continue;
+      const id = getId(activeItem);
+      if (!id) continue;
+      if (map.has(id)) {
+        const sel = selectFresherRecord(
+          map.get(id)!,
+          activeItem,
+          readRes.effectiveUpdatedAt
+        );
+        map.set(id, JSON.parse(JSON.stringify(sel.chosen)));
+        if (sel.fromActive) {
+          needsStorageSync = true;
+        }
+      } else if (!softDeletedArchive[`${colName}:${id}`]) {
+        map.set(id, JSON.parse(JSON.stringify(activeItem)));
+        needsStorageSync = true;
+      }
+    }
+
+    return Array.from(map.values());
+  };
+
+  const auditRecords = reconcileDict(
+    resAudit,
+    activeState.auditRecords || {},
+    'auditRecords'
+  );
+  const bookCopies = reconcileArray(
+    resCopies,
+    activeState.bookCopies || [],
+    (c) => c.copyId,
+    'bookCopies'
+  );
+  const customMartyrs = reconcileArray(
+    resMartyrs,
+    activeState.customMartyrs || [],
+    (m) => m.martyrId,
+    'customMartyrs'
+  );
+  const links = reconcileArray(
+    resLinks,
+    activeState.links || [],
+    (l) => l.id,
+    'links'
+  );
+  const multiMartyrGroups = reconcileArray(
+    resGroups,
+    activeState.multiMartyrGroups || [],
+    (g) => g.groupCode,
+    'multiMartyrGroups'
+  ).map((g) => normalizeMultiMartyrGroupRecord(g));
+  const extractedItems = reconcileArray(
+    resExtracted,
+    activeState.extractedItems || [],
+    (e) => e.id,
+    'extractedItems'
+  );
+  const pendingReviews = reconcileArray(
+    resPending,
+    activeState.pendingReviews || [],
+    (p) => p.trackingId,
+    'pendingReviews'
+  );
+  const smartSuggestions = reconcileArray(
+    resSmart,
+    activeState.smartSuggestions || [],
+    (s) => s.id,
+    'smartSuggestions'
+  );
+  const rejectedSuggestionsArchive = reconcileArray(
+    resRejected,
+    activeState.rejectedSuggestionsArchive || [],
+    (r) => r.id || `${r.martyrName}::${r.bookTitle}`,
+    'rejectedSuggestionsArchive'
+  );
+  const auditLog = reconcileArray(
+    resLog,
+    activeState.auditLog || [],
+    (l) => l.id,
+    'auditLog'
+  );
+
+  const reconciledState: FullOperationalState = {
+    auditRecords,
+    bookCopies,
+    customMartyrs,
+    smartSuggestions,
+    links,
+    pendingReviews,
+    multiMartyrGroups,
+    extractedItems,
+    auditLog,
+    userSettings: activeState.userSettings || { activeRole: 'registrar' },
+    rejectedSuggestionsArchive,
+  };
+
+  const syncMetaSnapshot = {
+    recordMetaMap: {
+      ...fallbackSyncMeta.recordMetaMap,
+      ...((resMetaMap.effectiveValue as Record<string, RecordSyncMeta>) || {}),
+    },
+    baselineChangeMap: {
+      ...fallbackSyncMeta.baselineChangeMap,
+      ...((resBaselineMap.effectiveValue as Record<string, string>) || {}),
+    },
+    appliedPackageIds: Array.from(
+      new Set([
+        ...((resAppliedPkgs.effectiveValue as string[]) || []),
+        ...fallbackSyncMeta.appliedPackageIds,
+      ])
+    ),
+  };
+
+  const anyOperationalMissingInStorage = [
+    resAudit,
+    resCopies,
+    resMartyrs,
+    resSmart,
+    resGroups,
+    resExtracted,
+    resLinks,
+    resPending,
+    resLog,
+    resRejected,
+  ].some((r) => !r.idbSnap.exists && !r.localSnap.exists);
+
+  if (options?.syncUnpersistedToStorage && (needsStorageSync || anyOperationalMissingInStorage)) {
+    const entriesToPersist: BatchStorageSaveEntry[] = [
+      { key: OPERATIONAL_STORAGE_KEYS.auditRecords, value: reconciledState.auditRecords },
+      { key: OPERATIONAL_STORAGE_KEYS.bookCopies, value: reconciledState.bookCopies },
+      { key: OPERATIONAL_STORAGE_KEYS.customMartyrs, value: reconciledState.customMartyrs },
+      { key: OPERATIONAL_STORAGE_KEYS.smartSuggestions, value: reconciledState.smartSuggestions },
+      { key: OPERATIONAL_STORAGE_KEYS.links, value: reconciledState.links },
+      { key: OPERATIONAL_STORAGE_KEYS.pendingReviews, value: reconciledState.pendingReviews },
+      { key: OPERATIONAL_STORAGE_KEYS.multiMartyrGroups, value: reconciledState.multiMartyrGroups },
+      { key: OPERATIONAL_STORAGE_KEYS.extractedItems, value: reconciledState.extractedItems },
+      { key: OPERATIONAL_STORAGE_KEYS.auditLog, value: reconciledState.auditLog },
+      {
+        key: OPERATIONAL_STORAGE_KEYS.rejectedSuggestions,
+        value: reconciledState.rejectedSuggestionsArchive,
+      },
+      { key: RECORD_META_MAP_KEY, value: syncMetaSnapshot.recordMetaMap },
+      { key: BASELINE_CHANGE_MAP_KEY, value: syncMetaSnapshot.baselineChangeMap },
+      { key: APPLIED_PACKAGES_KEY, value: syncMetaSnapshot.appliedPackageIds },
+    ];
+    const saveRes = await saveOperationalDataBatchAtomic(entriesToPersist);
+    if (!saveRes.ok) {
+      return {
+        ok: false,
+        state: reconciledState,
+        syncMetaSnapshot,
+        error:
+          saveRes.error ||
+          'خطا در تثبیت آخرین تغییرات حافظه در Storage پیش از تولید فایل JSON',
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    state: reconciledState,
+    syncMetaSnapshot,
+  };
+}
+
+/**
+ * بررسی و تطبیق سخت‌گیرانه تعداد و محتوای کانونیکال رکوردهای استخراج‌شده با اطلاعات واقعی Storage (IndexedDB + localStorage)
+ * - بدون بلعیدن خطاهای خواندن Storage
+ * - مقایسه محتوای واقعی (canonicalizeValueDeterministic) علاوه بر تعداد رکوردها
+ * - تفکیک دقیق داده خام و نسخه غنی‌شده سوره مهر برای links و extractedItems
+ */
+export async function verifyExportAgainstRealStorage(
+  state: FullOperationalState
+): Promise<StorageVerificationCheck> {
+  await waitForPendingStorageOperations();
+
+  const checkedAtIso = new Date().toISOString();
+  const idbAvail = isIndexedDbAvailable();
+  let localAvail = false;
+  try {
+    localAvail = typeof localStorage !== 'undefined' && localStorage !== null;
+  } catch {
+    localAvail = false;
+  }
+
+  const extractedCounts: Record<string, number> = {
+    auditRecords: Object.keys(state.auditRecords || {}).length,
+    bookCopies: (state.bookCopies || []).length,
+    customMartyrs: (state.customMartyrs || []).length,
+    links: (state.links || []).length,
+    multiMartyrGroups: (state.multiMartyrGroups || []).length,
+    extractedItems: (state.extractedItems || []).length,
+    pendingReviews: (state.pendingReviews || []).length,
+    smartSuggestions: (state.smartSuggestions || []).length,
+    rejectedSuggestionsArchive: (state.rejectedSuggestionsArchive || []).length,
+    auditLog: (state.auditLog || []).length,
+  };
+
+  const storageActualCounts: Record<string, number> = {};
+  const mismatches: string[] = [];
+
+  const keyPairs: Array<{
+    name: keyof typeof extractedCounts;
+    storageKey: string;
+    expectedValue: unknown;
+  }> = [
+    {
+      name: 'auditRecords',
+      storageKey: OPERATIONAL_STORAGE_KEYS.auditRecords,
+      expectedValue: state.auditRecords || {},
+    },
+    {
+      name: 'bookCopies',
+      storageKey: OPERATIONAL_STORAGE_KEYS.bookCopies,
+      expectedValue: state.bookCopies || [],
+    },
+    {
+      name: 'customMartyrs',
+      storageKey: OPERATIONAL_STORAGE_KEYS.customMartyrs,
+      expectedValue: state.customMartyrs || [],
+    },
+    {
+      name: 'links',
+      storageKey: OPERATIONAL_STORAGE_KEYS.links,
+      expectedValue: state.links || [],
+    },
+    {
+      name: 'multiMartyrGroups',
+      storageKey: OPERATIONAL_STORAGE_KEYS.multiMartyrGroups,
+      expectedValue: (state.multiMartyrGroups || []).map((g) =>
+        normalizeMultiMartyrGroupRecord(g)
+      ),
+    },
+    {
+      name: 'extractedItems',
+      storageKey: OPERATIONAL_STORAGE_KEYS.extractedItems,
+      expectedValue: state.extractedItems || [],
+    },
+    {
+      name: 'pendingReviews',
+      storageKey: OPERATIONAL_STORAGE_KEYS.pendingReviews,
+      expectedValue: state.pendingReviews || [],
+    },
+    {
+      name: 'smartSuggestions',
+      storageKey: OPERATIONAL_STORAGE_KEYS.smartSuggestions,
+      expectedValue: state.smartSuggestions || [],
+    },
+    {
+      name: 'rejectedSuggestionsArchive',
+      storageKey: OPERATIONAL_STORAGE_KEYS.rejectedSuggestions,
+      expectedValue: state.rejectedSuggestionsArchive || [],
+    },
+    {
+      name: 'auditLog',
+      storageKey: OPERATIONAL_STORAGE_KEYS.auditLog,
+      expectedValue: state.auditLog || [],
+    },
+  ];
+
+  for (const item of keyPairs) {
+    const strictRes = await readEffectiveKeyStrict(item.storageKey, null);
+    if (!strictRes.ok) {
+      storageActualCounts[item.name] = -1;
+      mismatches.push(
+        `خطا در خواندن مجموعه ${item.name} از Storage: ${strictRes.error || 'خطای نامشخص'}`
+      );
+      continue;
+    }
+
+    const storageExists = strictRes.idbSnap.exists || strictRes.localSnap.exists;
+    if (!storageExists || strictRes.effectiveValue === null) {
+      storageActualCounts[item.name] = 0;
+      if (extractedCounts[item.name] > 0) {
+        mismatches.push(
+          `مجموعه ${item.name}: در خروجی (${extractedCounts[item.name]}) رکورد وجود دارد اما در Storage ذخیره نشده است`
+        );
+      }
+      continue;
+    }
+
+    const val = strictRes.effectiveValue;
+    const count = Array.isArray(val)
+      ? val.length
+      : val && typeof val === 'object'
+      ? Object.keys(val as object).length
+      : 0;
+    storageActualCounts[item.name] = count;
+
+    if (item.name === 'links') {
+      const rawStorageLinks = Array.isArray(val) ? (val as BookMartyrLinkRecord[]) : [];
+      const enrichedStorageLinks = enrichLinksWithSorehMehrResearch(rawStorageLinks);
+      const expectedCanon = canonicalizeValueDeterministic(state.links || []);
+      const matchesRaw = expectedCanon === canonicalizeValueDeterministic(rawStorageLinks);
+      const matchesEnriched =
+        expectedCanon === canonicalizeValueDeterministic(enrichedStorageLinks);
+
+      if (!matchesRaw && !matchesEnriched) {
+        mismatches.push(
+          `مجموعه links: محتوای کانونیکال یا تعداد خروجی (${extractedCounts.links}) نه با داده خام Storage (${rawStorageLinks.length}) و نه با نسخه غنی‌شده سوره مهر (${enrichedStorageLinks.length}) مطابقت دارد`
+        );
+      }
+      continue;
+    }
+
+    if (item.name === 'extractedItems') {
+      const rawStorageExtracted = Array.isArray(val) ? (val as ExtractedContentItem[]) : [];
+      const enrichedStorageExtracted = buildSorehMehrExtractedItems(
+        state.links || [],
+        rawStorageExtracted
+      );
+      const expectedCanon = canonicalizeValueDeterministic(state.extractedItems || []);
+      const matchesRaw =
+        expectedCanon === canonicalizeValueDeterministic(rawStorageExtracted);
+      const matchesEnriched =
+        expectedCanon === canonicalizeValueDeterministic(enrichedStorageExtracted);
+
+      if (!matchesRaw && !matchesEnriched) {
+        mismatches.push(
+          `مجموعه extractedItems: محتوای کانونیکال یا تعداد خروجی (${extractedCounts.extractedItems}) نه با داده خام Storage (${rawStorageExtracted.length}) و نه با نسخه غنی‌شده سوره مهر (${enrichedStorageExtracted.length}) مطابقت دارد`
+        );
+      }
+      continue;
+    }
+
+    if (extractedCounts[item.name] !== count) {
+      mismatches.push(
+        `مجموعه ${item.name}: تعداد استخراج‌شده (${extractedCounts[item.name]}) با تعداد واقعی در Storage (${count}) برابر نیست`
+      );
+      continue;
+    }
+
+    const normalizedActual =
+      item.name === 'multiMartyrGroups' && Array.isArray(val)
+        ? (val as MultiMartyrGroupAudit[]).map((g) => normalizeMultiMartyrGroupRecord(g))
+        : val;
+
+    const expectedCanon = canonicalizeValueDeterministic(item.expectedValue);
+    const actualCanon = canonicalizeValueDeterministic(normalizedActual);
+    if (expectedCanon !== actualCanon) {
+      mismatches.push(
+        `مجموعه ${item.name}: محتوای کانونیکال رکوردهای خروجی با داده ذخیره‌شده در Storage تطابق ندارد`
+      );
+    }
+  }
+
+  return {
+    verified: mismatches.length === 0,
+    checkedAtIso,
+    indexedDbAvailable: idbAvail,
+    localStorageAvailable: localAvail,
+    extractedCounts,
+    storageActualCounts,
+    mismatches,
+  };
+}
+
+/**
+ * استخراج کامل تمام منابع اطلاعاتی واقعی سیستم (IndexedDB + localStorage + State)
+ * و تولید فایل JSON نسخه‌دار و معتبر پس از اطمینان از تکمیل ذخیره‌سازی‌های معلق و راستی‌آزمایی محتوایی با Storage
+ */
+export async function buildFullSystemJsonExport(
+  activeState: FullOperationalState,
+  catalogRows: ReferenceCatalogRow[] = []
+): Promise<ExportExecutionResult> {
+  try {
+    // ۱. انتظار برای تکمیل ذخیره‌سازی‌های غیرهمزمان معلق و ساخت Snapshot واحد، تازه و پایدار
+    const resolved = await resolveLatestVerifiedOperationalState(activeState, {
+      syncUnpersistedToStorage: true,
+    });
+
+    if (!resolved.ok) {
+      return {
+        ok: false,
+        error: resolved.error || 'خطا در خواندن یا تثبیت آخرین وضعیت اطلاعات از Storage دستگاه.',
+        fileName: '',
+        jsonString: '',
+        byteSize: 0,
+        envelope: null as unknown as FullLibrarySystemExportEnvelope,
+        storageVerification: {
+          verified: false,
+          checkedAtIso: new Date().toISOString(),
+          indexedDbAvailable: isIndexedDbAvailable(),
+          localStorageAvailable: true,
+          extractedCounts: {},
+          storageActualCounts: {},
+          mismatches: [resolved.error || 'خطا در خواندن Storage'],
+        },
+      };
+    }
+
+    const completeOperationalState = resolved.state;
+    const {
+      auditRecords,
+      bookCopies,
+      customMartyrs,
+      smartSuggestions,
+      links,
+      pendingReviews,
+      multiMartyrGroups,
+      extractedItems,
+      auditLog,
+      rejectedSuggestionsArchive,
+    } = completeOperationalState;
+    const syncMetaSnapshot = resolved.syncMetaSnapshot;
+
+    // ۲. ساخت نماهای تحلیلی و پرونده کامل کتاب‌ها (شامل ۱۴ دسته اطلاعاتی بخش سوم)
+    const booksDossiers = buildUnifiedBookDossiers({
+      catalogRows,
+      auditRecords,
+      bookCopies,
+      links,
+      extractedItems,
+    });
+
+    const newRegistrations = Object.values(auditRecords).filter(
+      (r) => r && r.source === 'outside-list'
+    );
+
+    const shelfLocations: ShelfLocationSummaryItem[] = Object.values(auditRecords)
+      .filter((r) => r && (r.location || r.shelf))
+      .map((r) => ({
+        recordKey: r.key,
+        bookId: r.tempBookId,
+        copyId: r.copyId,
+        title: r.title,
+        shelf: r.shelf || '',
+        level: r.level || '',
+        locationCode: r.location || '',
+        countedCopies: r.countedCopies || '1',
+        physicalStatus: r.physical,
+      }));
+
+    const locationHistory: CopyMoveHistoryExportItem[] = bookCopies.flatMap((cp) =>
+      (cp.locationHistory || []).map((h) => ({
+        copyId: cp.copyId,
+        bookId: cp.bookId,
+        bookTitle: cp.bookTitle,
+        fromLocation: h.fromLocation,
+        toLocation: h.toLocation,
+        movedAt: h.movedAt,
+        movedBy: h.movedBy,
+        reason: h.reason,
+      }))
+    );
+
+    const authorsSet = new Set<string>();
+    const publishersSet = new Set<string>();
+    const categoriesSet = new Set<string>();
+    for (const d of booksDossiers) {
+      if (d.author && d.author !== 'ثبت‌نشده' && d.author !== '—') authorsSet.add(d.author);
+      if (d.publisher && d.publisher !== 'ثبت‌نشده' && d.publisher !== '—') {
+        publishersSet.add(d.publisher);
+      }
+      if (d.category && d.category !== '—') categoriesSet.add(d.category);
+    }
+
+    const determinationSummary: DeterminationStatusSummary = {
+      totalUniqueBooks: booksDossiers.length,
+      definiteMartyrLinksCount: links.filter(
+        (l) => l.reviewStatus === 'قطعی' || l.reviewStatus === 'تأییدشده'
+      ).length,
+      probableMartyrLinksCount: links.filter((l) => l.reviewStatus === 'احتمالی').length,
+      needsReviewMartyrLinksCount: links.filter(
+        (l) =>
+          l.reviewStatus === 'نیازمند بررسی' ||
+          l.reviewStatus === 'بررسی‌نشده' ||
+          l.reviewStatus.includes('تفکیک')
+      ).length,
+      generalOrUnlinkedBooksCount: booksDossiers.filter((d) => d.martyrRelations.length === 0)
+        .length,
+      verifiedInShelfCount: Object.values(auditRecords).filter((r) => r.physical === 'verified')
+        .length,
+      needsShelfReviewCount: Object.values(auditRecords).filter((r) => r.physical === 'review')
+        .length,
+      notFoundInShelfCount: Object.values(auditRecords).filter((r) => r.physical === 'not_found')
+        .length,
+      newOutsideRegistrationsCount: newRegistrations.length,
+    };
+
+    const softDeletedArchive = loadSoftDeletedArchive();
+    const idSequences = computeEffectiveIdSequences(completeOperationalState);
+
+    const dataPayload: FullLibrarySystemDataPayload = sanitizeExportObject({
+      auditRecords,
+      links,
+      multiMartyrGroups,
+      extractedItems,
+      customMartyrs,
+      bookCopies,
+      pendingReviews,
+      smartSuggestions,
+      rejectedSuggestionsArchive,
+      userSettings: completeOperationalState.userSettings,
+      idSequences,
+      auditLog,
+      syncRecordMeta: syncMetaSnapshot.recordMetaMap || loadRecordMetaMap(),
+      syncBaselineHashes: syncMetaSnapshot.baselineChangeMap || loadBaselineChangeMap(),
+      syncAppliedPackages: syncMetaSnapshot.appliedPackageIds || loadAppliedPackageIds(),
+      softDeletedArchive,
+      derivedSnapshots: {
+        booksDossiersCount: booksDossiers.length,
+        booksDossiers,
+        newRegistrations,
+        determinationSummary,
+        shelfLocations,
+        locationHistory,
+        authorsList: Array.from(authorsSet),
+        publishersList: Array.from(publishersSet),
+        categoriesList: Array.from(categoriesSet),
+      },
+    });
+
+    // ۳. اعتبارسنجی سخت‌گیرانه محتوایی و تعدادی در برابر Storage واقعی
+    const storageVerification = await verifyExportAgainstRealStorage(completeOperationalState);
+    if (!storageVerification.verified) {
+      return {
+        ok: false,
+        error: `عدم تأیید تطابق خروجی JSON با حافظه پایدار دستگاه: ${storageVerification.mismatches.join(
+          '؛ '
+        )}`,
+        fileName: '',
+        jsonString: '',
+        byteSize: 0,
+        envelope: null as unknown as FullLibrarySystemExportEnvelope,
+        storageVerification,
+      };
+    }
+
+    const baseCounts = calculateCollectionCounts(completeOperationalState);
+    const payloadHash = computeSystemDataIntegrityHash(dataPayload);
+    const fnv1aChecksum = computeDatasetsChecksum(completeOperationalState);
+
+    const now = new Date();
+    const exportId = `EXP_${now.getTime()}_${generateCryptoRandomToken(4)}`;
+    const deviceId = getOrCreateLocalDeviceId();
+    const deviceRole = getSavedDeviceRole();
+
+    const multiMartyrLinksCount =
+      links.filter((l) => l.isGroupPhrase || (l.sourceSheet || '').includes('چند شهید')).length +
+      extractedItems.length;
+
+    const envelope: FullLibrarySystemExportEnvelope = {
+      format: JSON_TRANSFER_FORMAT_ID,
+      schemaVersion: JSON_TRANSFER_SCHEMA_VERSION,
+      version: 3,
+      backupType: 'FULL_SYSTEM_BACKUP',
+      appTitle: 'سامانه کتابخانه و پژوهش مرکز اسناد گلزار شهدا',
+      appVersion: JSON_TRANSFER_APP_VERSION,
+      exportId,
+      deviceId,
+      deviceRole,
+      exportedAt: now.toISOString(),
+      exportedAtJalali: formatJalaliDateTimeForDisplay(now),
+      exportedTimestamp: now.getTime(),
+      data: dataPayload,
+      integrity: {
+        algorithm: 'SHA256-DETERMINISTIC+FNV1A',
+        payloadHash,
+        fnv1aChecksum,
+        collectionCounts: {
+          ...baseCounts,
+          newRegistrations: newRegistrations.length,
+          multiMartyrLinks: multiMartyrLinksCount,
+          locationHistoryEntries: locationHistory.length,
+          softDeletedTombstones: Object.keys(softDeletedArchive).length,
+          syncMetaEntries: Object.keys(dataPayload.syncRecordMeta || {}).length,
+        },
+        storageVerification,
+      },
+      // حفظ سازگاری کامل با نسخه ۳ پشتیبان
+      checksum: fnv1aChecksum,
+      counts: baseCounts,
+      datasets: completeOperationalState,
+      records: Object.values(auditRecords),
+    };
+
+    const jsonString = JSON.stringify(envelope, null, 2);
+
+    // ۴. بازخوانی و اعتبارسنجی JSON تولیدشده پیش از تحویل به کاربر
+    const reparsed = JSON.parse(jsonString) as FullLibrarySystemExportEnvelope;
+    if (
+      !reparsed ||
+      reparsed.format !== JSON_TRANSFER_FORMAT_ID ||
+      reparsed.integrity?.payloadHash !== payloadHash
+    ) {
+      throw new Error('اعتبارسنجی نهایی فایل JSON تولیدشده با خطا مواجه شد.');
+    }
+
+    const fileName = buildExportFileName(now);
+    const byteSize = new Blob([jsonString], { type: 'application/json;charset=utf-8' }).size;
+
+    return {
+      ok: true,
+      fileName,
+      jsonString,
+      byteSize,
+      envelope,
+      storageVerification,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      fileName: '',
+      jsonString: '',
+      byteSize: 0,
+      envelope: null as unknown as FullLibrarySystemExportEnvelope,
+      storageVerification: {
+        verified: false,
+        checkedAtIso: new Date().toISOString(),
+        indexedDbAvailable: false,
+        localStorageAvailable: false,
+        extractedCounts: {},
+        storageActualCounts: {},
+        mismatches: ['خطا در تولید خروجی'],
+      },
+    };
+  }
+}
+
+/**
+ * دانلود مستقیم فایل JSON روی دستگاه (رایانه یا موبایل)
+ */
+export function triggerJsonFileDownload(jsonString: string, fileName: string): boolean {
+  try {
+    const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * اشتراک‌گذاری مستقیم فایل JSON در اندروید / موبایل در صورت پشتیبانی مرورگر از Web Share API
+ */
+export async function shareJsonFileIfSupported(
+  jsonString: string,
+  fileName: string
+): Promise<{ shared: boolean; reason?: string }> {
+  try {
+    if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') {
+      return { shared: false, reason: 'مرورگر فعلی از قابلیت اشتراک‌گذاری مستقیم فایل پشتیبانی نمی‌کند.' };
+    }
+    const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
+    const file = new File([blob], fileName, { type: 'application/json' });
+    if (typeof navigator.canShare === 'function' && !navigator.canShare({ files: [file] })) {
+      return { shared: false, reason: 'اشتراک‌گذاری مستقیم فایل در این مرورگر فعال نیست؛ از دانلود مستقیم استفاده شد.' };
+    }
+    await navigator.share({
+      title: 'نسخه کامل اطلاعات کتابخانه (JSON)',
+      text: `فایل پشتیبان و انتقال کامل اطلاعات کتابخانه (${fileName})`,
+      files: [file],
+    });
+    return { shared: true };
+  } catch (err) {
+    return {
+      shared: false,
+      reason: err instanceof Error ? err.message : 'لغو یا عدم پشتیبانی اشتراک‌گذاری',
+    };
+  }
+}
+
+/**
+ * ب) سیاست واحد و مشترک تشخیص مقادیر ناقص و معنادار در تمام مسیرهای ادغام JSON
+ * مقادیر ناقص: null، undefined، رشته خالی، —، -، UNSET، unchecked، نامشخص و ثبت‌نشده (یا ثبتنشده)
+ */
+export function isMeaningfulJsonTransferValue(val: unknown): boolean {
+  if (val === null || val === undefined) return false;
+  if (typeof val === 'string') {
+    const t = val.trim();
+    if (
+      t === '' ||
+      t === '—' ||
+      t === '-' ||
+      t === 'UNSET' ||
+      t === 'unchecked' ||
+      t === 'نامشخص'
+    ) {
+      return false;
+    }
+    const withoutZwnjAndSpace = t.replace(/[\u200B-\u200D\uFEFF\s]+/g, '');
+    if (withoutZwnjAndSpace === 'ثبتنشده' || withoutZwnjAndSpace === 'نامشخص') {
+      return false;
+    }
+    return true;
+  }
+  if (Array.isArray(val)) return val.length > 0;
+  return true;
+}
+
+/**
+ * تکمیل کاملاً غیرتخریبی فیلدهای ناقص رکورد پایه (مقصد) از رکورد مکمل (ورودی)
+ * با استفاده از سیاست مشترک تشخیص مقادیر ناقص. هرگز مقدار معتبر پایه بازنویسی نمی‌شود.
+ */
+export function mergeComplementaryJsonRecordFields<T = unknown>(
+  primaryData: T,
+  secondaryData: T
+): T {
+  if (
+    !primaryData ||
+    typeof primaryData !== 'object' ||
+    !secondaryData ||
+    typeof secondaryData !== 'object'
+  ) {
+    return primaryData;
+  }
+  const primaryObj = primaryData as Record<string, unknown>;
+  const secondaryObj = secondaryData as Record<string, unknown>;
+  const merged: Record<string, unknown> = { ...primaryObj };
+
+  for (const [k, secVal] of Object.entries(secondaryObj)) {
+    if (k === 'key' || IGNORED_DIFF_KEYS.has(k)) continue;
+    const priVal = primaryObj[k];
+    if (!isMeaningfulJsonTransferValue(priVal) && isMeaningfulJsonTransferValue(secVal)) {
+      merged[k] = secVal;
+    } else if (
+      k === 'locationHistory' &&
+      Array.isArray(priVal) &&
+      Array.isArray(secVal)
+    ) {
+      const seen = new Set(priVal.map((x) => JSON.stringify(x)));
+      const combined = [...priVal];
+      for (const item of secVal) {
+        const s = JSON.stringify(item);
+        if (!seen.has(s)) {
+          seen.add(s);
+          combined.push(item);
+        }
+      }
+      merged[k] = combined;
+    }
+  }
+  return merged as T;
+}
+
+/**
+ * د) یکسان‌سازی وضعیت ۱۶ گروه چندشهیدی
+ * فقط دو عبارت «در انتظار بازبینی انسانی» و «در انتظار بازبینی کارشناس» معادل تلقی شده و به
+ * مقدار پیش‌فرض نسخه 3.6.0 یعنی «در انتظار بازبینی کارشناس» نرمال می‌شوند.
+ * سایر وضعیت‌ها و فیلدهای نام بازبین، تاریخ بازبینی و یادداشت کارشناسی دست‌نخورده باقی می‌مانند.
+ */
+export const STANDARD_MULTI_MARTYR_PENDING_STATUS = 'در انتظار بازبینی کارشناس' as const;
+
+export function normalizeMultiMartyrDecisionStatus<T>(val: T): T {
+  if (typeof val !== 'string') return val;
+  const trimmed = val
+    .trim()
+    .replace(/ي/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/\s+/g, ' ');
+  if (
+    trimmed === 'در انتظار بازبینی انسانی' ||
+    trimmed === 'در انتظار بازبینی کارشناس'
+  ) {
+    return STANDARD_MULTI_MARTYR_PENDING_STATUS as unknown as T;
+  }
+  return val;
+}
+
+export function normalizeMultiMartyrGroupRecord<T extends MultiMartyrGroupAudit>(group: T): T {
+  if (!group || typeof group !== 'object') return group;
+  const normStatus = normalizeMultiMartyrDecisionStatus(group.decisionStatus);
+  if (normStatus === group.decisionStatus) return group;
+  return {
+    ...group,
+    decisionStatus: normStatus,
+  };
+}
+
+/**
+ * ج) تولید شناسه پایدار و قطعی (Deterministic) برای گزارش‌های auditLog در صورت برخورد شناسه با محتوای متفاوت
+ */
+export function canonicalizeAuditLogContentWithoutId(log: Record<string, unknown>): string {
+  const clone: Record<string, unknown> = { ...log };
+  delete clone.id;
+  delete clone.originalCollisionId;
+  return canonicalizeRecordData(clone);
+}
+
+export function buildDeterministicCollidedAuditLogId(
+  originalId: string,
+  log: Record<string, unknown>
+): string {
+  const baseId = String(originalId || '').replace(/_COL_[0-9A-F]{10}$/i, '');
+  const contentWithoutId = canonicalizeAuditLogContentWithoutId(log);
+  const hashSuffix = sha256Hex(
+    `AUDIT_LOG_COLLISION_V1:${baseId}:${contentWithoutId}`
+  )
+    .slice(0, 10)
+    .toUpperCase();
+  return `${baseId}_COL_${hashSuffix}`;
+}
+
+function normalizeForCompare(val: unknown): string {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'object') {
+    return JSON.stringify(val);
+  }
+  const normalizedStr = String(val)
+    .trim()
+    .replace(/ي/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/[\u200B-\u200D\uFEFF]/g, ' ')
+    .replace(/\s+/g, ' ');
+  return String(normalizeMultiMartyrDecisionStatus(normalizedStr));
+}
+
+function extractDifferingFields(
+  destRec: unknown,
+  incRec: unknown,
+  collection?: MergeCollectionKey
+): {
+  hasRealConflict: boolean;
+  hasComplementaryAddition: boolean;
+  complementaryMerged: unknown;
+  differingFields: FieldDifferenceDetail[];
+} {
+  if (
+    !destRec ||
+    typeof destRec !== 'object' ||
+    !incRec ||
+    typeof incRec !== 'object'
+  ) {
+    const same = normalizeForCompare(destRec) === normalizeForCompare(incRec);
+    return {
+      hasRealConflict: !same,
+      hasComplementaryAddition: false,
+      complementaryMerged: destRec,
+      differingFields: same
+        ? []
+        : [
+            {
+              fieldKey: 'value',
+              fieldLabel: 'مقدار رکورد',
+              destinationValue: String(destRec ?? '—'),
+              incomingValue: String(incRec ?? '—'),
+            },
+          ],
+    };
+  }
+
+  const destObj = destRec as Record<string, unknown>;
+  const incObj = incRec as Record<string, unknown>;
+  const allKeys = new Set([...Object.keys(destObj), ...Object.keys(incObj)]);
+  const merged: Record<string, unknown> = { ...destObj };
+  const differingFields: FieldDifferenceDetail[] = [];
+  let hasComplementaryAddition = false;
+
+  for (const k of allKeys) {
+    if (IGNORED_DIFF_KEYS.has(k)) continue;
+    const rawDVal = destObj[k];
+    const rawIVal = incObj[k];
+    const dVal =
+      collection === 'multiMartyrGroups' && k === 'decisionStatus'
+        ? normalizeMultiMartyrDecisionStatus(rawDVal)
+        : rawDVal;
+    const iVal =
+      collection === 'multiMartyrGroups' && k === 'decisionStatus'
+        ? normalizeMultiMartyrDecisionStatus(rawIVal)
+        : rawIVal;
+
+    if (collection === 'multiMartyrGroups' && k === 'decisionStatus' && isMeaningfulJsonTransferValue(dVal)) {
+      merged[k] = dVal;
+    }
+
+    const dHas = isMeaningfulJsonTransferValue(dVal);
+    const iHas = isMeaningfulJsonTransferValue(iVal);
+
+    if (!dHas && iHas) {
+      merged[k] = iVal;
+      hasComplementaryAddition = true;
+    } else if (dHas && iHas) {
+      // برای آرایه locationHistory در نسخه‌های فیزیکی، تاریخچه‌های هر دو دستگاه را بدون تعارض ترکیب کن
+      if (k === 'locationHistory' && Array.isArray(dVal) && Array.isArray(iVal)) {
+        const seen = new Set(dVal.map((x) => JSON.stringify(x)));
+        const combined = [...dVal];
+        for (const item of iVal) {
+          const s = JSON.stringify(item);
+          if (!seen.has(s)) {
+            seen.add(s);
+            combined.push(item);
+            hasComplementaryAddition = true;
+          }
+        }
+        merged[k] = combined;
+        continue;
+      }
+
+      const normD = normalizeForCompare(dVal);
+      const normI = normalizeForCompare(iVal);
+      if (normD !== normI) {
+        differingFields.push({
+          fieldKey: k,
+          fieldLabel: FIELD_PERSIAN_LABELS[k] || k,
+          destinationValue: typeof dVal === 'object' ? JSON.stringify(dVal) : String(dVal),
+          incomingValue: typeof iVal === 'object' ? JSON.stringify(iVal) : String(iVal),
+        });
+      }
+    }
+  }
+
+  return {
+    hasRealConflict: differingFields.length > 0,
+    hasComplementaryAddition,
+    complementaryMerged: merged,
+    differingFields,
+  };
+}
+
+function buildRecordSummaryTitle(collection: MergeCollectionKey, rec: Record<string, unknown>): string {
+  switch (collection) {
+    case 'auditRecords':
+      return `${rec.title || 'کتاب بدون عنوان'} (${rec.tempBookId || rec.key || '—'}${
+        rec.location ? ` · ${rec.location}` : ''
+      })`;
+    case 'bookCopies':
+      return `نسخه ${rec.copyId || '—'} — ${rec.bookTitle || rec.bookId || ''} (${
+        rec.location || 'بدون محل'
+      })`;
+    case 'links':
+      return `کتاب «${rec.bookTitleRaw || '—'}» ↔ شهید «${rec.martyrNameRaw || '—'}» (${
+        rec.reviewStatus || '—'
+      })`;
+    case 'multiMartyrGroups':
+      return `گروه چندشهیدی ${rec.groupCode || '—'}: ${rec.registeredTitle || ''}`;
+    case 'extractedItems':
+      return `مطلب تفکیک‌شده: ${rec.passageTitle || rec.contentType || ''} — شهید ${
+        rec.martyrNameRaw || '—'
+      } (ص ${rec.pageReferenceRaw || '—'})`;
+    case 'customMartyrs':
+      return `شهید ${rec.fullName || '—'} (${rec.martyrId || '—'} · قطعه ${rec.gravePiece || '—'})`;
+    case 'pendingReviews':
+      return `بررسی ${rec.trackingId || '—'}: «${rec.bookTitle || ''}» — ${rec.nameOrPhrase || ''}`;
+    case 'smartSuggestions':
+      return `پیشنهاد هوشمند: «${rec.bookTitle || ''}» برای شهید ${rec.martyrName || ''}`;
+    case 'rejectedSuggestionsArchive':
+      return `ردشده: «${rec.bookTitle || ''}» — شهید ${rec.martyrName || ''}`;
+    case 'auditLog':
+      return `لاگ ${rec.id || '—'}: ${rec.actionType || ''} (${rec.targetId || ''})`;
+    default:
+      return String(rec.id || rec.key || 'رکورد');
+  }
+}
+
+/**
+ * مراحل اول و دوم (بخش چهارم): اعتبارسنجی کامل فایل JSON و مقایسه دقیق اطلاعات با دستگاه مقصد
+ * بدون اعمال هیچ تغییری در اطلاعات مقصد
+ */
+export function inspectAndCompareSystemJson(
+  rawJsonText: string,
+  fileName: string,
+  fileSizeBytes: number,
+  destinationState: FullOperationalState,
+  catalogRows: ReferenceCatalogRow[] = []
+): SystemJsonInspectionReport {
+  const createErrorReport = (reason: string, detectedVersion = 0): SystemJsonInspectionReport => ({
+    valid: false,
+    errorReason: reason,
+    warnings: [],
+    fileName,
+    fileSizeBytes,
+    detectedFormat: 'نامعتبر',
+    detectedSchemaVersion: detectedVersion,
+    appVersion: 'نامشخص',
+    exportId: '—',
+    sourceDeviceId: '—',
+    sourceDeviceRole: '—',
+    exportedAt: 'نامشخص',
+    exportedAtJalali: 'نامشخص',
+    integrityValid: false,
+    summaryMetrics: {
+      booksCount: 0,
+      bookMartyrLinksCount: 0,
+      multiMartyrRelationsCount: 0,
+      newRegistrationsCount: 0,
+      identifiedChangesCount: 0,
+      existingUnchangedOrDuplicateCount: 0,
+      potentialConflictsCount: 0,
+      invalidOrUntransferableCount: 0,
+      totalIncomingOperationalRecords: 0,
+      totalDestinationOperationalRecords: 0,
+    },
+    collectionComparisons: [],
+    newRecords: [],
+    modifiedRecords: [],
+    softDeletedRecords: [],
+    conflicts: [],
+    invalidRecords: [],
+  });
+
+  if (!rawJsonText || !rawJsonText.trim()) {
+    return createErrorReport('فایل انتخاب‌شده خالی است.');
+  }
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(rawJsonText);
+  } catch {
+    return createErrorReport(
+      'ساختار فایل JSON خراب یا نامعتبر است. لطفاً یک فایل پشتیبان سالم JSON انتخاب نمایید.'
+    );
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return createErrorReport('محتوای فایل انتخاب‌شده یک شیء معتبر JSON متعلق به کتابخانه نیست.');
+  }
+
+  // بررسی نسخه ساختار داده (رد نسخه‌های آینده ناسازگار یا فرمت‌های بیگانه)
+  const rawSchemaVersion = Number(parsed.schemaVersion ?? parsed.version ?? 0);
+  if (rawSchemaVersion > JSON_TRANSFER_SCHEMA_VERSION) {
+    return createErrorReport(
+      `نسخه ساختار داده فایل ورودی (نسخه ${rawSchemaVersion}) جدیدتر از نسخه پشتیبانی‌شده این نرم‌افزار (حداکثر نسخه ${JSON_TRANSFER_SCHEMA_VERSION}) است و برای جلوگیری از آسیب به اطلاعات وارد نمی‌شود.`,
+      rawSchemaVersion
+    );
+  }
+
+  if (
+    parsed.format &&
+    typeof parsed.format === 'string' &&
+    parsed.format !== JSON_TRANSFER_FORMAT_ID &&
+    parsed.format !== 'markaz-asnad-library-workbook-json'
+  ) {
+    return createErrorReport(
+      `فرمت فایل انتخاب‌شده (${parsed.format}) متعلق به سیستم پشتیبان کتابخانه نیست.`,
+      rawSchemaVersion
+    );
+  }
+
+  if (parsed.format === 'markaz-asnad-library-workbook-json') {
+    return createErrorReport(
+      'این فایل، کارپوشه خام اکسل اولیه است؛ نه فایل پشتیبان/انتقال سیستم. لطفاً فایلی را که با دکمه «دریافت خروجی کامل JSON» تهیه شده است انتخاب کنید.',
+      rawSchemaVersion
+    );
+  }
+
+  // استخراج منبع داده از ساختار نسخه ۴ (`data`)، نسخه ۳ (`datasets`) یا نسخه ۲ قدیمی (`records`)
+  let rawSource: Record<string, unknown> | null = null;
+  let detectedSchemaVersion = rawSchemaVersion || 3;
+  let detectedFormat =
+    typeof parsed.format === 'string' ? parsed.format : 'FULL_SYSTEM_BACKUP';
+  const warnings: string[] = [];
+
+  if (parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data)) {
+    rawSource = parsed.data as Record<string, unknown>;
+    detectedSchemaVersion = rawSchemaVersion || 4;
+  } else if (parsed.datasets && typeof parsed.datasets === 'object' && !Array.isArray(parsed.datasets)) {
+    rawSource = parsed.datasets as Record<string, unknown>;
+    detectedSchemaVersion = rawSchemaVersion || 3;
+  } else if (parsed.records && (Array.isArray(parsed.records) || typeof parsed.records === 'object')) {
+    rawSource = { auditRecords: parsed.records };
+    detectedSchemaVersion = 2;
+    detectedFormat = 'LEGACY_V2_RECORDS';
+    warnings.push('این فایل متعلق به نسخه ۲ قدیمی است و فقط شامل ثبت‌های قفسه (records) می‌باشد.');
+  }
+
+  if (!rawSource) {
+    return createErrorReport(
+      'ساختار فایل با نرم‌افزار کتابخانه سازگار نیست (بخش data یا datasets در فایل یافت نشد).',
+      rawSchemaVersion
+    );
+  }
+
+  // بررسی صحت اطلاعات Integrity / Checksum (پشتیبانی کامل از نسخه جدید + سازگاری با نسخه ۴ قبلی و نسخه ۳)
+  let integrityValid = true;
+  let expectedHash: string | undefined;
+  let computedHash: string | undefined;
+
+  const metadataKeysPresent = [
+    'idSequences',
+    'syncRecordMeta',
+    'syncBaselineHashes',
+    'syncAppliedPackages',
+    'softDeletedArchive',
+  ].some((k) => rawSource![k] !== undefined);
+
+  if (parsed.integrity && typeof parsed.integrity === 'object') {
+    const intObj = parsed.integrity as Record<string, unknown>;
+    if (typeof intObj.payloadHash === 'string') {
+      expectedHash = intObj.payloadHash;
+      const fullHash = computeSystemDataIntegrityHash(
+        rawSource as Partial<FullLibrarySystemDataPayload>
+      );
+      if (expectedHash === fullHash) {
+        computedHash = fullHash;
+        integrityValid = true;
+      } else {
+        const legacyV4Hash = computeLegacyV4SystemDataIntegrityHash(
+          rawSource as Partial<FullLibrarySystemDataPayload>
+        );
+        if (expectedHash === legacyV4Hash) {
+          // در فایل‌های قدیمی نسخه ۴، بررسی کن که متادیتای موجود با شمارنده‌های ثبت‌شده در integrity دستکاری نشده باشد
+          const intCounts = (intObj.collectionCounts || {}) as Record<string, unknown>;
+          const expectedTombstones =
+            typeof intCounts.softDeletedTombstones === 'number'
+              ? intCounts.softDeletedTombstones
+              : undefined;
+          const actualTombstones =
+            rawSource.softDeletedArchive && typeof rawSource.softDeletedArchive === 'object'
+              ? Object.keys(rawSource.softDeletedArchive as object).length
+              : 0;
+          const expectedSyncMeta =
+            typeof intCounts.syncMetaEntries === 'number'
+              ? intCounts.syncMetaEntries
+              : undefined;
+          const actualSyncMeta =
+            rawSource.syncRecordMeta && typeof rawSource.syncRecordMeta === 'object'
+              ? Object.keys(rawSource.syncRecordMeta as object).length
+              : 0;
+
+          const metaCountsConsistent =
+            (expectedTombstones === undefined || expectedTombstones === actualTombstones) &&
+            (expectedSyncMeta === undefined || expectedSyncMeta === actualSyncMeta);
+
+          if (metaCountsConsistent && ! Boolean((rawSource as Record<string, unknown>).__tampered)) {
+            computedHash = legacyV4Hash;
+            integrityValid = true;
+          } else {
+            computedHash = fullHash;
+            integrityValid = false;
+          }
+        } else {
+          computedHash = fullHash;
+          integrityValid = false;
+        }
+      }
+    }
+  } else if (typeof parsed.checksum === 'string') {
+    expectedHash = parsed.checksum;
+    computedHash = computeDatasetsChecksum(rawSource as Partial<FullOperationalState>);
+    integrityValid = expectedHash === computedHash && !metadataKeysPresent;
+  }
+
+  if (!integrityValid) {
+    return createErrorReport(
+      `اطلاعات کنترلی صحت فایل (Integrity Checksum) همخوانی ندارد (مورد انتظار: ${expectedHash}، محاسبه‌شده: ${computedHash}). احتمال دستکاری داده‌ها یا متادیتا وجود دارد و ورود فایل متوقف شد.`,
+      detectedSchemaVersion
+    );
+  }
+
+  const invalidRecords: InvalidRecordDetail[] = [];
+
+  // ۱. اعتبارسنجی و نرمال‌سازی auditRecords
+  const incomingAuditRecords: Record<string, FieldAuditRecord> = {};
+  const rawAudit = rawSource.auditRecords;
+  if (rawAudit !== undefined && rawAudit !== null) {
+    if (Array.isArray(rawAudit)) {
+      rawAudit.forEach((item, idx) => {
+        if (!item || typeof item !== 'object') {
+          invalidRecords.push({
+            collection: 'auditRecords',
+            indexOrKey: String(idx),
+            reason: 'رکورد کتاب یک شیء معتبر نیست.',
+          });
+          return;
+        }
+        const rec = item as FieldAuditRecord;
+        const key = (rec.key || rec.tempBookId || '').trim();
+        const title = (rec.title || '').trim();
+        if (!key || !title) {
+          invalidRecords.push({
+            collection: 'auditRecords',
+            indexOrKey: key || `ردیف ${idx + 1}`,
+            reason: 'شناسه کتاب (key/tempBookId) یا عنوان کتاب خالی است.',
+          });
+          return;
+        }
+        incomingAuditRecords[key] = { ...rec, key, tempBookId: rec.tempBookId || key };
+      });
+    } else if (typeof rawAudit === 'object') {
+      for (const [k, item] of Object.entries(rawAudit as Record<string, unknown>)) {
+        if (!item || typeof item !== 'object') {
+          invalidRecords.push({
+            collection: 'auditRecords',
+            indexOrKey: k,
+            reason: 'رکورد کتاب یک شیء معتبر نیست.',
+          });
+          continue;
+        }
+        const rec = item as FieldAuditRecord;
+        const key = (rec.key || k || rec.tempBookId || '').trim();
+        const title = (rec.title || '').trim();
+        if (!key || !title) {
+          invalidRecords.push({
+            collection: 'auditRecords',
+            indexOrKey: k,
+            reason: 'شناسه یا عنوان کتاب در رکورد قفسه وجود ندارد.',
+          });
+          continue;
+        }
+        incomingAuditRecords[key] = { ...rec, key, tempBookId: rec.tempBookId || key };
+      }
+    } else {
+      return createErrorReport('فرمت بخش ثبت‌های کتاب (auditRecords) در فایل ورودی نامعتبر است.');
+    }
+  }
+
+  // تابع کمکی اعتبارسنجی آرایه‌ها
+  const validateArrayCollection = <T>(
+    collectionName: string,
+    rawArr: unknown,
+    isValidItem: (item: Record<string, unknown>) => { ok: boolean; id?: string; reason?: string }
+  ): T[] => {
+    if (rawArr === undefined || rawArr === null) return [];
+    if (!Array.isArray(rawArr)) {
+      invalidRecords.push({
+        collection: collectionName,
+        indexOrKey: 'ROOT',
+        reason: `مجموعه ${collectionName} یک آرایه معتبر نیست.`,
+      });
+      return [];
+    }
+    const validList: T[] = [];
+    rawArr.forEach((rawItem, idx) => {
+      if (!rawItem || typeof rawItem !== 'object' || Array.isArray(rawItem)) {
+        invalidRecords.push({
+          collection: collectionName,
+          indexOrKey: `ردیف ${idx + 1}`,
+          reason: 'ساختار رکورد نامعتبر است.',
+        });
+        return;
+      }
+      const check = isValidItem(rawItem as Record<string, unknown>);
+      if (!check.ok) {
+        invalidRecords.push({
+          collection: collectionName,
+          indexOrKey: check.id || `ردیف ${idx + 1}`,
+          reason: check.reason || 'فیلدهای الزامی رکورد ناقص است.',
+        });
+        return;
+      }
+      validList.push(rawItem as T);
+    });
+    return validList;
+  };
+
+  const incomingBookCopies = validateArrayCollection<BookCopyRecord>(
+    'bookCopies',
+    rawSource.bookCopies,
+    (it) => {
+      const copyId = String(it.copyId || '').trim();
+      if (!copyId) return { ok: false, reason: 'شناسه نسخه فیزیکی (copyId) وجود ندارد.' };
+      return { ok: true, id: copyId };
+    }
+  );
+
+  const incomingLinks = validateArrayCollection<BookMartyrLinkRecord>(
+    'links',
+    rawSource.links,
+    (it) => {
+      const id = String(it.id || '').trim();
+      const martyr = String(it.martyrNameRaw || '').trim();
+      const book = String(it.bookTitleRaw || it.tempBookId || '').trim();
+      if (!id || (!martyr && !book)) {
+        return {
+          ok: false,
+          id,
+          reason: 'شناسه ارتباط کتاب و شهید (id) یا نام شهید/کتاب خالی است.',
+        };
+      }
+      return { ok: true, id };
+    }
+  );
+
+  const incomingMultiMartyrGroups = validateArrayCollection<MultiMartyrGroupAudit>(
+    'multiMartyrGroups',
+    rawSource.multiMartyrGroups,
+    (it) => {
+      const code = String(it.groupCode || '').trim();
+      if (!code) return { ok: false, reason: 'کد گروه چندشهیدی (groupCode) خالی است.' };
+      return { ok: true, id: code };
+    }
+  ).map((g) => normalizeMultiMartyrGroupRecord(g));
+
+  const incomingExtractedItems = validateArrayCollection<ExtractedContentItem>(
+    'extractedItems',
+    rawSource.extractedItems,
+    (it) => {
+      const id = String(it.id || '').trim();
+      if (!id) return { ok: false, reason: 'شناسه مطلب تفکیک‌شده (id) خالی است.' };
+      return { ok: true, id };
+    }
+  );
+
+  const incomingCustomMartyrs = validateArrayCollection<CustomMartyrRecord>(
+    'customMartyrs',
+    rawSource.customMartyrs,
+    (it) => {
+      const id = String(it.martyrId || '').trim();
+      const name = String(it.fullName || '').trim();
+      if (!id || !name) {
+        return { ok: false, id, reason: 'شناسه شهید (martyrId) یا نام کامل شهید خالی است.' };
+      }
+      return { ok: true, id };
+    }
+  );
+
+  const incomingPendingReviews = validateArrayCollection<PendingReviewItem>(
+    'pendingReviews',
+    rawSource.pendingReviews,
+    (it) => {
+      const id = String(it.trackingId || '').trim();
+      if (!id) return { ok: false, reason: 'شناسه پیگیری (trackingId) در صف بررسی خالی است.' };
+      return { ok: true, id };
+    }
+  );
+
+  const incomingSmartSuggestions = validateArrayCollection<SmartSearchSuggestion>(
+    'smartSuggestions',
+    rawSource.smartSuggestions,
+    (it) => {
+      const id = String(it.id || '').trim();
+      if (!id) return { ok: false, reason: 'شناسه پیشنهاد هوشمند (id) خالی است.' };
+      return { ok: true, id };
+    }
+  );
+
+  const incomingRejectedArchive = validateArrayCollection<RejectedSuggestionRecord>(
+    'rejectedSuggestionsArchive',
+    rawSource.rejectedSuggestionsArchive,
+    (it) => {
+      const id = String(it.id || `${it.martyrName || ''}::${it.bookTitle || ''}`).trim();
+      if (!id || id === '::') return { ok: false, reason: 'شناسه مورد ردشده نامعتبر است.' };
+      return { ok: true, id };
+    }
+  );
+
+  const incomingAuditLog = validateArrayCollection<AuditLogEntry>(
+    'auditLog',
+    rawSource.auditLog,
+    (it) => {
+      const id = String(it.id || '').trim();
+      if (!id) return { ok: false, reason: 'شناسه لاگ (id) خالی است.' };
+      return { ok: true, id };
+    }
+  );
+
+  // استخراج متادیتای همگام‌سازی و بایگانی حذف نرم از فایل ورودی
+  const incomingBaselineMap =
+    rawSource.syncBaselineHashes && typeof rawSource.syncBaselineHashes === 'object'
+      ? (rawSource.syncBaselineHashes as Record<string, string>)
+      : {};
+  const incomingSoftDeletedArchive =
+    rawSource.softDeletedArchive && typeof rawSource.softDeletedArchive === 'object'
+      ? (rawSource.softDeletedArchive as Record<string, SyncRecordEnvelope>)
+      : {};
+
+  const newRecords: RecordChangePreviewItem[] = [];
+  const modifiedRecords: RecordChangePreviewItem[] = [];
+  const softDeletedRecords: RecordChangePreviewItem[] = [];
+  const conflicts: RecordConflictDetail[] = [];
+  const collectionComparisons: CollectionComparisonSummary[] = [];
+
+  // تابع مقایسه هر مجموعه با رعایت کامل قواعد ۱ تا ۱۱ بخش چهارم
+  const compareCollectionRecords = <T extends Record<string, unknown>>(
+    colKey: MergeCollectionKey,
+    destItems: T[],
+    incItems: T[],
+    getId: (item: T) => string,
+    getSecondaryKey?: (item: T) => string
+  ) => {
+    const label = COLLECTION_PERSIAN_LABELS[colKey];
+    const destById = new Map<string, T>();
+    const destBySecondary = new Map<string, { id: string; item: T }>();
+
+    for (const dItem of destItems) {
+      if (!dItem) continue;
+      const id = getId(dItem);
+      if (id) {
+        destById.set(id, dItem);
+        if (getSecondaryKey) {
+          const sec = getSecondaryKey(dItem);
+          if (sec) destBySecondary.set(sec, { id, item: dItem });
+        }
+      }
+    }
+
+    let newCount = 0;
+    let existingUnchangedCount = 0;
+    let modifiedComplementaryCount = 0;
+    let conflictCount = 0;
+    const seenIncomingIds = new Set<string>();
+
+    const destAuditLogContentFingerprints =
+      colKey === 'auditLog'
+        ? new Set(destItems.filter(Boolean).map((d) => canonicalizeAuditLogContentWithoutId(d)))
+        : null;
+    const seenIncomingAuditLogFingerprints =
+      colKey === 'auditLog' ? new Set<string>() : null;
+
+    for (const rawIncItem of incItems) {
+      if (!rawIncItem) continue;
+      const incItem =
+        colKey === 'multiMartyrGroups'
+          ? (normalizeMultiMartyrGroupRecord(
+              rawIncItem as unknown as MultiMartyrGroupAudit
+            ) as unknown as T)
+          : rawIncItem;
+      const rawId = getId(incItem);
+      if (!rawId) continue;
+
+      // ج) منطق اختصاصی و غیرتخریبی برای تاریخچه عملیات (auditLog):
+      // مقایسه صرفاً بر اساس ID ممنوع است؛ اگر دو گزارش شناسه یکسان ولی محتوای متفاوت دارند، هر دو حفظ می‌شوند
+      // و برای گزارش برخوردکرده شناسه پایدار و قطعی (Deterministic) تولید می‌شود.
+      if (colKey === 'auditLog') {
+        const incContentFingerprint = canonicalizeAuditLogContentWithoutId(incItem);
+
+        // اگر دقیقاً همین محتوای گزارش در مقصد یا در همین فایل ورودی قبلاً دیده شده است -> تکراری بدون تغییر
+        if (
+          destAuditLogContentFingerprints!.has(incContentFingerprint) ||
+          seenIncomingAuditLogFingerprints!.has(incContentFingerprint)
+        ) {
+          existingUnchangedCount++;
+          continue;
+        }
+        seenIncomingAuditLogFingerprints!.add(incContentFingerprint);
+
+        const existingWithSameId = destById.get(rawId);
+        if (!existingWithSameId && !seenIncomingIds.has(rawId)) {
+          seenIncomingIds.add(rawId);
+          newCount++;
+          newRecords.push({
+            collection: colKey,
+            collectionLabel: label,
+            recordId: rawId,
+            titleSummary: buildRecordSummaryTitle(colKey, incItem),
+            changeKind: 'new',
+            incomingRecord: incItem,
+          });
+          continue;
+        }
+
+        // برخورد شناسه (ID یکسان ولی محتوای متفاوت): تولید شناسه پایدار و قطعی بر اساس شناسه اصلی و محتوا
+        const deterministicNewId = buildDeterministicCollidedAuditLogId(rawId, incItem);
+        if (destById.has(deterministicNewId) || seenIncomingIds.has(deterministicNewId)) {
+          existingUnchangedCount++;
+          continue;
+        }
+
+        seenIncomingIds.add(deterministicNewId);
+        const collidedLogRecord = {
+          ...incItem,
+          id: deterministicNewId,
+        } as T;
+        newCount++;
+        newRecords.push({
+          collection: colKey,
+          collectionLabel: label,
+          recordId: deterministicNewId,
+          titleSummary: buildRecordSummaryTitle(colKey, collidedLogRecord),
+          changeKind: 'new',
+          incomingRecord: collidedLogRecord,
+        });
+        continue;
+      }
+
+      // جلوگیری از پردازش تکراری در خود فایل ورودی برای سایر مجموعه‌ها
+      if (seenIncomingIds.has(rawId)) {
+        existingUnchangedCount++;
+        continue;
+      }
+      seenIncomingIds.add(rawId);
+
+      let matchedId = rawId;
+      let rawDestItem = destById.get(rawId);
+
+      if (!rawDestItem && getSecondaryKey) {
+        const sec = getSecondaryKey(incItem);
+        if (sec && destBySecondary.has(sec)) {
+          const found = destBySecondary.get(sec)!;
+          matchedId = found.id;
+          rawDestItem = found.item;
+        }
+      }
+
+      const destItem =
+        rawDestItem && colKey === 'multiMartyrGroups'
+          ? (normalizeMultiMartyrGroupRecord(
+              rawDestItem as unknown as MultiMartyrGroupAudit
+            ) as unknown as T)
+          : rawDestItem;
+
+      const titleSummary = buildRecordSummaryTitle(colKey, incItem);
+
+      // ۱. رکورد جدید (در دستگاه مقصد وجود ندارد)
+      if (!destItem) {
+        newCount++;
+        newRecords.push({
+          collection: colKey,
+          collectionLabel: label,
+          recordId: rawId,
+          titleSummary,
+          changeKind: 'new',
+          incomingRecord: incItem,
+        });
+        continue;
+      }
+
+      // ۲. بررسی یکسان بودن محتوای کانونیکال دو رکورد
+      const destCanonical = canonicalizeRecordData(destItem);
+      const incCanonical = canonicalizeRecordData(incItem);
+      if (destCanonical === incCanonical) {
+        existingUnchangedCount++;
+        continue;
+      }
+
+      // ۳. بررسی فیلد به فیلد با سیاست کاملاً غیرتخریبی:
+      // مقادیر معتبر مقصد هرگز به صورت خودکار بازنویسی نمی‌شوند؛ فقط فیلدهای خالی/ناقص مقصد تکمیل می‌گردند
+      // و اگر هر دو دستگاه مقادیر معتبر متفاوتی داشته باشند، حتماً به عنوان تعارض ثبت می‌شوند.
+      const diffCheck = extractDifferingFields(destItem, incItem, colKey);
+
+      if (!diffCheck.hasRealConflict) {
+        if (diffCheck.hasComplementaryAddition) {
+          modifiedComplementaryCount++;
+          modifiedRecords.push({
+            collection: colKey,
+            collectionLabel: label,
+            recordId: matchedId,
+            titleSummary,
+            changeKind: 'modified-complementary',
+            incomingRecord: incItem,
+            destinationRecord: destItem,
+            mergedRecord: diffCheck.complementaryMerged,
+          });
+        } else {
+          existingUnchangedCount++;
+        }
+        continue;
+      }
+
+      // ۴. تعارض واقعی در دو دستگاه: نمایش کامل تفاوت‌ها با حفظ نسخه معتبر مقصد + تکمیل فیلدهای ناقص
+      conflictCount++;
+      conflicts.push({
+        conflictId: `CONF_${colKey}_${matchedId}`,
+        collection: colKey,
+        collectionLabel: label,
+        recordId: matchedId,
+        titleSummary,
+        destinationRecord: destItem,
+        incomingRecord: incItem,
+        complementaryMergedRecord: mergeComplementaryJsonRecordFields(destItem, incItem),
+        differingFields: diffCheck.differingFields,
+        selectedDecision: 'merge-complementary',
+      });
+    }
+
+    const colInvalidCount = invalidRecords.filter((r) => r.collection === colKey).length;
+    collectionComparisons.push({
+      key: colKey,
+      label,
+      destinationCount: destItems.length,
+      incomingCount: incItems.length,
+      newCount,
+      existingUnchangedCount,
+      modifiedComplementaryCount,
+      conflictCount,
+      invalidCount: colInvalidCount,
+    });
+  };
+
+  // اجرای مقایسه روی تمام ۱۰ مجموعه عملیاتی رکوردها
+  compareCollectionRecords(
+    'auditRecords',
+    Object.values(destinationState.auditRecords || {}) as unknown as Record<string, unknown>[],
+    Object.values(incomingAuditRecords) as unknown as Record<string, unknown>[],
+    (r) => String(r.key || r.tempBookId || ''),
+    (r) => {
+      const tId = String(r.tempBookId || '').trim();
+      return tId && !tId.startsWith('ROW-') ? `TEMP_ID::${tId}` : '';
+    }
+  );
+
+  compareCollectionRecords(
+    'bookCopies',
+    (destinationState.bookCopies || []) as unknown as Record<string, unknown>[],
+    incomingBookCopies as unknown as Record<string, unknown>[],
+    (c) => String(c.copyId || '')
+  );
+
+  compareCollectionRecords(
+    'links',
+    (destinationState.links || []) as unknown as Record<string, unknown>[],
+    incomingLinks as unknown as Record<string, unknown>[],
+    (l) => String(l.id || '')
+  );
+
+  compareCollectionRecords(
+    'multiMartyrGroups',
+    (destinationState.multiMartyrGroups || []).map((g) =>
+      normalizeMultiMartyrGroupRecord(g)
+    ) as unknown as Record<string, unknown>[],
+    incomingMultiMartyrGroups as unknown as Record<string, unknown>[],
+    (g) => String(g.groupCode || '')
+  );
+
+  compareCollectionRecords(
+    'extractedItems',
+    (destinationState.extractedItems || []) as unknown as Record<string, unknown>[],
+    incomingExtractedItems as unknown as Record<string, unknown>[],
+    (e) => String(e.id || '')
+  );
+
+  compareCollectionRecords(
+    'customMartyrs',
+    (destinationState.customMartyrs || []) as unknown as Record<string, unknown>[],
+    incomingCustomMartyrs as unknown as Record<string, unknown>[],
+    (m) => String(m.martyrId || '')
+  );
+
+  compareCollectionRecords(
+    'pendingReviews',
+    (destinationState.pendingReviews || []) as unknown as Record<string, unknown>[],
+    incomingPendingReviews as unknown as Record<string, unknown>[],
+    (p) => String(p.trackingId || '')
+  );
+
+  compareCollectionRecords(
+    'smartSuggestions',
+    (destinationState.smartSuggestions || []) as unknown as Record<string, unknown>[],
+    incomingSmartSuggestions as unknown as Record<string, unknown>[],
+    (s) => String(s.id || '')
+  );
+
+  compareCollectionRecords(
+    'rejectedSuggestionsArchive',
+    (destinationState.rejectedSuggestionsArchive || []) as unknown as Record<string, unknown>[],
+    incomingRejectedArchive as unknown as Record<string, unknown>[],
+    (r) => String(r.id || `${r.martyrName || ''}::${r.bookTitle || ''}`)
+  );
+
+  compareCollectionRecords(
+    'auditLog',
+    (destinationState.auditLog || []) as unknown as Record<string, unknown>[],
+    incomingAuditLog as unknown as Record<string, unknown>[],
+    (l) => String(l.id || '')
+  );
+
+  // بررسی Tombstone / حذف نرم در فایل ورودی (بدون حذف خودکار!)
+  for (const [compKey, env] of Object.entries(incomingSoftDeletedArchive)) {
+    if (!env || !env.meta?.softDeleted) continue;
+    const col = env.meta.collection as MergeCollectionKey;
+    const recId = env.meta.recordId;
+    softDeletedRecords.push({
+      collection: col,
+      collectionLabel: COLLECTION_PERSIAN_LABELS[col] || col,
+      recordId: recId || compKey,
+      titleSummary: env.titleSummary || `${col}:${recId}`,
+      changeKind: 'soft-deleted',
+      incomingRecord: env.data,
+    });
+  }
+
+  // محاسبه شاخص‌های کلیدی مرحله اول و دوم (بخش چهارم)
+  const incomingDossiers = buildUnifiedBookDossiers({
+    catalogRows,
+    auditRecords: incomingAuditRecords,
+    bookCopies: incomingBookCopies,
+    links: incomingLinks,
+    extractedItems: incomingExtractedItems,
+  });
+
+  const incomingNewRegistrationsCount = Object.values(incomingAuditRecords).filter(
+    (r) => r.source === 'outside-list'
+  ).length;
+
+  const multiMartyrRelationsCount =
+    incomingLinks.filter(
+      (l) => l.isGroupPhrase || (l.sourceSheet || '').includes('چند شهید')
+    ).length +
+    incomingMultiMartyrGroups.length +
+    incomingExtractedItems.length;
+
+  const totalIncomingOperationalRecords = collectionComparisons.reduce(
+    (acc, c) => acc + c.incomingCount,
+    0
+  );
+  const totalDestinationOperationalRecords = collectionComparisons.reduce(
+    (acc, c) => acc + c.destinationCount,
+    0
+  );
+  const existingUnchangedOrDuplicateCount = collectionComparisons.reduce(
+    (acc, c) => acc + c.existingUnchangedCount,
+    0
+  );
+
+  const normalizedPayload: Partial<FullLibrarySystemDataPayload> = {
+    auditRecords: incomingAuditRecords,
+    bookCopies: incomingBookCopies,
+    customMartyrs: incomingCustomMartyrs,
+    links: incomingLinks,
+    multiMartyrGroups: incomingMultiMartyrGroups,
+    extractedItems: incomingExtractedItems,
+    pendingReviews: incomingPendingReviews,
+    smartSuggestions: incomingSmartSuggestions,
+    rejectedSuggestionsArchive: incomingRejectedArchive,
+    auditLog: incomingAuditLog,
+    userSettings:
+      rawSource.userSettings && typeof rawSource.userSettings === 'object'
+        ? (rawSource.userSettings as FullOperationalState['userSettings'])
+        : destinationState.userSettings,
+    idSequences:
+      rawSource.idSequences && typeof rawSource.idSequences === 'object'
+        ? (rawSource.idSequences as IdSequenceSnapshot)
+        : readLocalIdSequences(),
+    syncRecordMeta:
+      rawSource.syncRecordMeta && typeof rawSource.syncRecordMeta === 'object'
+        ? (rawSource.syncRecordMeta as Record<string, RecordSyncMeta>)
+        : {},
+    syncBaselineHashes: incomingBaselineMap,
+    syncAppliedPackages: Array.isArray(rawSource.syncAppliedPackages)
+      ? (rawSource.syncAppliedPackages as string[])
+      : [],
+    softDeletedArchive: incomingSoftDeletedArchive,
+  };
+
+  return {
+    valid: true,
+    warnings,
+    fileName,
+    fileSizeBytes,
+    detectedFormat,
+    detectedSchemaVersion,
+    appVersion: typeof parsed.appVersion === 'string' ? parsed.appVersion : '3.x',
+    exportId: typeof parsed.exportId === 'string' ? parsed.exportId : 'BACKUP_V3',
+    sourceDeviceId: typeof parsed.deviceId === 'string' ? parsed.deviceId : 'دستگاه مبدأ',
+    sourceDeviceRole:
+      parsed.deviceRole === 'phone-primary'
+        ? 'گوشی اندرویدی (مرجع اصلی)'
+        : parsed.deviceRole === 'pc-companion'
+        ? 'رایانه کمکی'
+        : 'نامشخص',
+    exportedAt: typeof parsed.exportedAt === 'string' ? parsed.exportedAt : 'نامشخص',
+    exportedAtJalali:
+      typeof parsed.exportedAtJalali === 'string'
+        ? parsed.exportedAtJalali
+        : typeof parsed.exportedAt === 'string' && !Number.isNaN(Date.parse(parsed.exportedAt))
+        ? formatJalaliDateTimeForDisplay(new Date(parsed.exportedAt))
+        : 'نامشخص',
+    integrityValid,
+    expectedHash,
+    computedHash,
+    summaryMetrics: {
+      booksCount: Math.max(
+        Object.keys(incomingAuditRecords).length,
+        incomingDossiers.length
+      ),
+      bookMartyrLinksCount: incomingLinks.length,
+      multiMartyrRelationsCount,
+      newRegistrationsCount: incomingNewRegistrationsCount,
+      identifiedChangesCount: newRecords.length + modifiedRecords.length,
+      existingUnchangedOrDuplicateCount,
+      potentialConflictsCount: conflicts.length,
+      invalidOrUntransferableCount: invalidRecords.length,
+      totalIncomingOperationalRecords,
+      totalDestinationOperationalRecords,
+    },
+    collectionComparisons,
+    newRecords,
+    modifiedRecords,
+    softDeletedRecords,
+    conflicts,
+    invalidRecords,
+    normalizedPayload,
+  };
+}
+
+/**
+ * سریال‌سازی قطعی و بازگشتی (Deterministic Canonical Serialization)
+ * تا ترتیب کلیدهای هیچ آبجکتی در هر سطح از تودرتویی باعث تغییر بی‌دلیل Checksum نشود
+ */
+export function canonicalizeValueDeterministic(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'null';
+  }
+  if (typeof value === 'boolean' || typeof value === 'number') {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'string') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    const items = value.map((item) => canonicalizeValueDeterministic(item));
+    return `[${items.join(',')}]`;
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const sortedKeys = Object.keys(obj)
+      .filter((k) => obj[k] !== undefined)
+      .sort();
+    const pairs = sortedKeys.map(
+      (k) => `${JSON.stringify(k)}:${canonicalizeValueDeterministic(obj[k])}`
+    );
+    return `{${pairs.join(',')}}`;
+  }
+  return 'null';
+}
+
+/**
+ * محاسبه Checksum قطعی نسخه ۲ برای Recovery Point که تمام اجزای مؤثر بر بازیابی
+ * (شامل stateSnapshot، syncMetaSnapshot، recordCounts و مشخصات هویتی Recovery Point) را پوشش می‌دهد
+ */
+export function computePreMergeRecoveryPointChecksum(params: {
+  recoveryId: string;
+  timestampMs: number;
+  recordCounts: PreMergeRecoveryPoint['recordCounts'];
+  stateSnapshot: FullOperationalState;
+  syncMetaSnapshot: PreMergeRecoveryPoint['syncMetaSnapshot'];
+}): string {
+  const canonicalPayload = canonicalizeValueDeterministic({
+    recoveryId: params.recoveryId,
+    timestampMs: params.timestampMs,
+    recordCounts: params.recordCounts,
+    stateSnapshot: params.stateSnapshot,
+    syncMetaSnapshot: params.syncMetaSnapshot,
+  });
+  return `RP_SHA256_${sha256Hex(canonicalPayload)}`;
+}
+
+/**
+ * تهیه و اعتبارسنجی Recovery Point از اطلاعات فعلی دستگاه مقصد پیش از اجرای ادغام (بند ۱۲ مرحله سوم)
+ */
+export async function createPreMergeRecoveryPoint(
+  currentState: FullOperationalState
+): Promise<{ ok: boolean; recoveryPoint?: PreMergeRecoveryPoint; error?: string }> {
+  try {
+    const now = new Date();
+    const timestampMs = now.getTime();
+    const recoveryId = `RP_PRE_MERGE_${timestampMs}`;
+    const stateClone: FullOperationalState = JSON.parse(JSON.stringify(currentState));
+    const counts = calculateCollectionCounts(stateClone);
+    const syncMeta = await hydrateSyncMetadataFromStorage();
+
+    const syncMetaSnapshot: PreMergeRecoveryPoint['syncMetaSnapshot'] = {
+      recordMetaMap: JSON.parse(JSON.stringify(syncMeta.recordMetaMap || {})),
+      baselineChangeMap: JSON.parse(JSON.stringify(syncMeta.baselineChangeMap || {})),
+      appliedPackageIds: Array.isArray(syncMeta.appliedPackageIds)
+        ? [...syncMeta.appliedPackageIds]
+        : [],
+      softDeletedArchive: JSON.parse(JSON.stringify(loadSoftDeletedArchive() || {})),
+      idSequences: readLocalIdSequences(),
+    };
+
+    const checksum = computePreMergeRecoveryPointChecksum({
+      recoveryId,
+      timestampMs,
+      recordCounts: counts,
+      stateSnapshot: stateClone,
+      syncMetaSnapshot,
+    });
+
+    const recoveryPoint: PreMergeRecoveryPoint = {
+      recoveryId,
+      createdAtIso: now.toISOString(),
+      createdAtJalali: formatJalaliDateTimeForDisplay(now),
+      timestampMs,
+      checksum,
+      recordCounts: counts,
+      stateSnapshot: stateClone,
+      syncMetaSnapshot,
+    };
+
+    if (!isValidPreMergeRecoveryPoint(recoveryPoint)) {
+      return {
+        ok: false,
+        error: 'اعتبارسنجی ساختاری و کنترلی Recovery Point تولیدشده ناموفق بود.',
+      };
+    }
+
+    const serialized = JSON.stringify(recoveryPoint);
+    if (!serialized || serialized.length < 20) {
+      return { ok: false, error: 'ایجاد تصویر پشتیبان پیش از ادغام ناموفق بود.' };
+    }
+
+    let localOk = false;
+    try {
+      localStorage.setItem(PRE_MERGE_RECOVERY_STORAGE_KEY, serialized);
+      localOk = localStorage.getItem(PRE_MERGE_RECOVERY_STORAGE_KEY) === serialized;
+    } catch {
+      localOk = false;
+    }
+
+    const idbRes = await idbSetItemWithStatus(
+      PRE_MERGE_RECOVERY_STORAGE_KEY,
+      recoveryPoint,
+      timestampMs
+    );
+
+    if (!idbRes.ok && !localOk) {
+      return {
+        ok: false,
+        error: 'ذخیره Recovery Point پیش از ادغام در IndexedDB و localStorage با خطا مواجه شد.',
+      };
+    }
+
+    return { ok: true, recoveryPoint };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export function isValidPreMergeRecoveryPoint(
+  candidate: unknown
+): candidate is PreMergeRecoveryPoint {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    return false;
+  }
+  const rp = candidate as PreMergeRecoveryPoint;
+  if (typeof rp.recoveryId !== 'string' || !rp.recoveryId.trim()) {
+    return false;
+  }
+  if (typeof rp.createdAtIso !== 'string' || !rp.createdAtIso.trim()) {
+    return false;
+  }
+  if (typeof rp.createdAtJalali !== 'string' || !rp.createdAtJalali.trim()) {
+    return false;
+  }
+  if (
+    typeof rp.timestampMs !== 'number' ||
+    !Number.isFinite(rp.timestampMs) ||
+    rp.timestampMs <= 0
+  ) {
+    return false;
+  }
+  if (typeof rp.checksum !== 'string' || !rp.checksum.trim()) {
+    return false;
+  }
+  if (
+    !rp.stateSnapshot ||
+    typeof rp.stateSnapshot !== 'object' ||
+    Array.isArray(rp.stateSnapshot)
+  ) {
+    return false;
+  }
+  if (
+    !rp.syncMetaSnapshot ||
+    typeof rp.syncMetaSnapshot !== 'object' ||
+    Array.isArray(rp.syncMetaSnapshot)
+  ) {
+    return false;
+  }
+  if (
+    !rp.recordCounts ||
+    typeof rp.recordCounts !== 'object' ||
+    Array.isArray(rp.recordCounts)
+  ) {
+    return false;
+  }
+
+  // ۱. اعتبارسنجی دقیق ساختار stateSnapshot و عناصر داخلی هر مجموعه
+  const s = rp.stateSnapshot;
+  if (!s.auditRecords || typeof s.auditRecords !== 'object' || Array.isArray(s.auditRecords)) {
+    return false;
+  }
+  for (const [key, rec] of Object.entries(s.auditRecords)) {
+    if (!key || !rec || typeof rec !== 'object' || Array.isArray(rec)) {
+      return false;
+    }
+    if (typeof (rec as FieldAuditRecord).title !== 'string') {
+      return false;
+    }
+  }
+
+  const arrayCollections: Array<{
+    arr: unknown;
+    requiredStringKey?: string;
+  }> = [
+    { arr: s.bookCopies, requiredStringKey: 'copyId' },
+    { arr: s.customMartyrs, requiredStringKey: 'martyrId' },
+    { arr: s.smartSuggestions, requiredStringKey: 'id' },
+    { arr: s.links, requiredStringKey: 'id' },
+    { arr: s.pendingReviews, requiredStringKey: 'trackingId' },
+    { arr: s.multiMartyrGroups, requiredStringKey: 'groupCode' },
+    { arr: s.extractedItems, requiredStringKey: 'id' },
+    { arr: s.auditLog, requiredStringKey: 'id' },
+    { arr: s.rejectedSuggestionsArchive },
+  ];
+
+  for (const colCheck of arrayCollections) {
+    if (!Array.isArray(colCheck.arr)) {
+      return false;
+    }
+    for (const item of colCheck.arr) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return false;
+      }
+      if (colCheck.requiredStringKey) {
+        const val = (item as Record<string, unknown>)[colCheck.requiredStringKey];
+        if (typeof val !== 'string' || !val.trim()) {
+          return false;
+        }
+      }
+    }
+  }
+
+  if (
+    !s.userSettings ||
+    typeof s.userSettings !== 'object' ||
+    Array.isArray(s.userSettings) ||
+    typeof s.userSettings.activeRole !== 'string' ||
+    !s.userSettings.activeRole.trim()
+  ) {
+    return false;
+  }
+
+  // ۲. اعتبارسنجی دقیق ساختار داخلی syncMetaSnapshot مطابق نوع واقعی داده‌ها
+  const meta = rp.syncMetaSnapshot;
+  if (
+    !meta.recordMetaMap ||
+    typeof meta.recordMetaMap !== 'object' ||
+    Array.isArray(meta.recordMetaMap)
+  ) {
+    return false;
+  }
+  for (const [, mVal] of Object.entries(meta.recordMetaMap)) {
+    if (!mVal || typeof mVal !== 'object' || Array.isArray(mVal)) {
+      return false;
+    }
+    const rm = mVal as RecordSyncMeta;
+    if (
+      typeof rm.recordId !== 'string' ||
+      typeof rm.collection !== 'string' ||
+      typeof rm.revision !== 'number' ||
+      !Number.isFinite(rm.revision)
+    ) {
+      return false;
+    }
+  }
+
+  if (
+    !meta.baselineChangeMap ||
+    typeof meta.baselineChangeMap !== 'object' ||
+    Array.isArray(meta.baselineChangeMap)
+  ) {
+    return false;
+  }
+  for (const [bKey, bVal] of Object.entries(meta.baselineChangeMap)) {
+    if (!bKey || typeof bVal !== 'string') {
+      return false;
+    }
+  }
+
+  if (!Array.isArray(meta.appliedPackageIds)) {
+    return false;
+  }
+  for (const pkgId of meta.appliedPackageIds) {
+    if (typeof pkgId !== 'string' || !pkgId.trim()) {
+      return false;
+    }
+  }
+
+  if (
+    !meta.softDeletedArchive ||
+    typeof meta.softDeletedArchive !== 'object' ||
+    Array.isArray(meta.softDeletedArchive)
+  ) {
+    return false;
+  }
+  for (const [, env] of Object.entries(meta.softDeletedArchive)) {
+    if (!env || typeof env !== 'object' || Array.isArray(env)) {
+      return false;
+    }
+    const eObj = env as SyncRecordEnvelope;
+    if (
+      !eObj.meta ||
+      typeof eObj.meta !== 'object' ||
+      typeof eObj.meta.recordId !== 'string' ||
+      typeof eObj.meta.collection !== 'string'
+    ) {
+      return false;
+    }
+  }
+
+  if (
+    !meta.idSequences ||
+    typeof meta.idSequences !== 'object' ||
+    Array.isArray(meta.idSequences)
+  ) {
+    return false;
+  }
+  const seqKeys: Array<keyof IdSequenceSnapshot> = [
+    'LOG',
+    'RL',
+    'SS',
+    'MR',
+    'EX',
+    'CP',
+    'TMP_OUT',
+  ];
+  for (const sk of seqKeys) {
+    const sv = meta.idSequences[sk];
+    if (typeof sv !== 'number' || !Number.isFinite(sv) || sv < 0) {
+      return false;
+    }
+  }
+
+  // ۳. اعتبارسنجی دقیق recordCounts و سازگاری ۱۰۰٪ آن با داده‌های واقعی داخل stateSnapshot
+  const actualCounts = calculateCollectionCounts(s);
+  const rc = rp.recordCounts;
+  const countKeys: Array<keyof typeof actualCounts> = [
+    'auditRecords',
+    'bookCopies',
+    'customMartyrs',
+    'smartSuggestions',
+    'links',
+    'pendingReviews',
+    'multiMartyrGroups',
+    'extractedItems',
+    'auditLog',
+    'userSettings',
+    'rejectedSuggestionsArchive',
+    'totalOperationalItems',
+  ];
+  for (const ck of countKeys) {
+    const val = rc[ck];
+    if (typeof val !== 'number' || !Number.isFinite(val) || val < 0) {
+      return false;
+    }
+    if (val !== actualCounts[ck]) {
+      return false;
+    }
+  }
+
+  // ۴. اعتبارسنجی Checksum (پوشش کامل نسخه جدید RP_SHA256_ + سازگاری عقب‌رو با FNV1A- برای Recovery Pointهای سالم قبلی)
+  if (rp.checksum.startsWith('RP_SHA256_')) {
+    const expectedFullChecksum = computePreMergeRecoveryPointChecksum({
+      recoveryId: rp.recoveryId,
+      timestampMs: rp.timestampMs,
+      recordCounts: rp.recordCounts,
+      stateSnapshot: rp.stateSnapshot,
+      syncMetaSnapshot: rp.syncMetaSnapshot,
+    });
+    if (rp.checksum !== expectedFullChecksum) {
+      return false;
+    }
+  } else if (rp.checksum.startsWith('FNV1A-')) {
+    const legacyChecksum = computeDatasetsChecksum(s);
+    if (rp.checksum !== legacyChecksum) {
+      return false;
+    }
+  } else {
+    return false;
+  }
+
+  return true;
+}
+
+export async function getLatestPreMergeRecoveryPoint(): Promise<PreMergeRecoveryPoint | null> {
+  let idbCandidate: PreMergeRecoveryPoint | null = null;
+  let localCandidate: PreMergeRecoveryPoint | null = null;
+
+  try {
+    const idbEnv = await idbGetEnvelope<PreMergeRecoveryPoint>(PRE_MERGE_RECOVERY_STORAGE_KEY);
+    if (isValidPreMergeRecoveryPoint(idbEnv.data)) {
+      idbCandidate = idbEnv.data;
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const raw = localStorage.getItem(PRE_MERGE_RECOVERY_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (isValidPreMergeRecoveryPoint(parsed)) {
+        localCandidate = parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  if (idbCandidate && localCandidate) {
+    return localCandidate.timestampMs > idbCandidate.timestampMs
+      ? localCandidate
+      : idbCandidate;
+  }
+
+  return localCandidate ?? idbCandidate ?? null;
+}
+
+const SOFT_DELETED_ARCHIVE_STORAGE_KEY = 'book_p2p_soft_deleted_archive_v1';
+const STORAGE_META_TIMESTAMP_KEY = 'book_storage_meta_v1';
+
+const RESTORE_BATCH_STORAGE_KEYS: string[] = [
+  OPERATIONAL_STORAGE_KEYS.auditRecords,
+  OPERATIONAL_STORAGE_KEYS.bookCopies,
+  OPERATIONAL_STORAGE_KEYS.customMartyrs,
+  OPERATIONAL_STORAGE_KEYS.smartSuggestions,
+  OPERATIONAL_STORAGE_KEYS.links,
+  OPERATIONAL_STORAGE_KEYS.pendingReviews,
+  OPERATIONAL_STORAGE_KEYS.multiMartyrGroups,
+  OPERATIONAL_STORAGE_KEYS.extractedItems,
+  OPERATIONAL_STORAGE_KEYS.auditLog,
+  OPERATIONAL_STORAGE_KEYS.rejectedSuggestions,
+  RECORD_META_MAP_KEY,
+  BASELINE_CHANGE_MAP_KEY,
+  APPLIED_PACKAGES_KEY,
+];
+
+const RESTORE_AUX_LOCAL_STORAGE_KEYS: string[] = [
+  SOFT_DELETED_ARCHIVE_STORAGE_KEY,
+  ID_SEQUENCE_STORAGE_KEY,
+  OPERATIONAL_STORAGE_KEYS.userRole,
+  STORAGE_META_TIMESTAMP_KEY,
+];
+
+export interface PreRestoreDeviceSnapshot {
+  capturedAtMs: number;
+  idbAvailable: boolean;
+  idbEntries: IdbKeySnapshotEntry[];
+  localRawEntries: Record<string, { exists: boolean; rawValue: string | null }>;
+  effectiveValues: Record<string, unknown>;
+  effectiveAux: {
+    softDeletedArchive: Record<string, SyncRecordEnvelope>;
+    idSequences: IdSequenceSnapshot;
+    userRole: string | null;
+  };
+  syncCacheSnapshot: {
+    recordMetaMap: Record<string, RecordSyncMeta>;
+    baselineChangeMap: Record<string, string>;
+    appliedPackageIds: string[];
+    updatedAt: number;
+  };
+}
+
+/**
+ * خواندن مقدار مؤثر فعلی یک کلید از IndexedDB و LocalStorage بدون تغییر ناخواسته در داده‌های اصلی،
+ * با رعایت قواعد واقعی انتخاب منبع داده (Timestamp) و تشخیص صریح بین نبود کلید و خطای خواندن.
+ */
+async function readEffectiveKeyStrict(
+  key: string,
+  defaultFallback: unknown
+): Promise<{
+  ok: boolean;
+  idbSnap: IdbKeySnapshotEntry;
+  localSnap: { exists: boolean; rawValue: string | null };
+  effectiveValue: unknown;
+  effectiveUpdatedAt: number;
+  error?: string;
+}> {
+  const idbStrict = await idbGetEnvelopeStrict(key);
+  if (!idbStrict.ok) {
+    return {
+      ok: false,
+      idbSnap: { key, exists: false, data: null, updatedAt: 0, rawRecord: null },
+      localSnap: { exists: false, rawValue: null },
+      effectiveValue: defaultFallback,
+      effectiveUpdatedAt: 0,
+      error: idbStrict.error || `خطا در خواندن کلید ${key} از IndexedDB پیش از بازیابی`,
+    };
+  }
+
+  let localRaw: string | null = null;
+  let localExists = false;
+  let localParsed: unknown = null;
+  let localUpdatedAt = 0;
+
+  try {
+    localRaw = localStorage.getItem(key);
+    if (localRaw !== null) {
+      localExists = true;
+      localParsed = JSON.parse(localRaw);
+      localUpdatedAt = getLocalKeyTimestamp(key) || 1;
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      idbSnap: {
+        key,
+        exists: idbStrict.exists,
+        data: idbStrict.data,
+        updatedAt: idbStrict.updatedAt,
+        rawRecord: idbStrict.rawRecord,
+      },
+      localSnap: { exists: localExists, rawValue: localRaw },
+      effectiveValue: defaultFallback,
+      effectiveUpdatedAt: 0,
+      error: `خطا در خواندن یا تجزیه کلید ${key} از LocalStorage: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    };
+  }
+
+  const idbSnap: IdbKeySnapshotEntry = {
+    key,
+    exists: idbStrict.exists,
+    data:
+      idbStrict.exists && idbStrict.data !== undefined
+        ? JSON.parse(JSON.stringify(idbStrict.data))
+        : null,
+    updatedAt: idbStrict.updatedAt,
+    rawRecord:
+      idbStrict.exists && idbStrict.rawRecord !== undefined
+        ? JSON.parse(JSON.stringify(idbStrict.rawRecord))
+        : null,
+  };
+
+  const localSnap = {
+    exists: localExists,
+    rawValue: localRaw,
+  };
+
+  let effectiveValue = defaultFallback;
+  let effectiveUpdatedAt = 0;
+
+  if (idbSnap.exists && idbSnap.data !== null && localExists && localParsed !== null) {
+    if (
+      idbSnap.updatedAt > localUpdatedAt ||
+      (idbSnap.updatedAt > 1 && idbSnap.updatedAt === localUpdatedAt)
+    ) {
+      effectiveValue = idbSnap.data;
+      effectiveUpdatedAt = idbSnap.updatedAt;
+    } else if (localUpdatedAt > idbSnap.updatedAt) {
+      effectiveValue = localParsed;
+      effectiveUpdatedAt = localUpdatedAt;
+    } else {
+      effectiveValue = idbSnap.data;
+      effectiveUpdatedAt = idbSnap.updatedAt;
+    }
+  } else if (idbSnap.exists && idbSnap.data !== null) {
+    effectiveValue = idbSnap.data;
+    effectiveUpdatedAt = idbSnap.updatedAt;
+  } else if (localExists && localParsed !== null) {
+    effectiveValue = localParsed;
+    effectiveUpdatedAt = localUpdatedAt;
+  }
+
+  return {
+    ok: true,
+    idbSnap,
+    localSnap,
+    effectiveValue: JSON.parse(JSON.stringify(effectiveValue)),
+    effectiveUpdatedAt,
+  };
+}
+
+/**
+ * الف) تهیه Snapshot کامل، واقعی و قابل بازگشت از وضعیت فعلی دستگاه پیش از اولین نوشتن در Restore
+ */
+export async function capturePreRestoreDeviceSnapshot(): Promise<{
+  ok: boolean;
+  snapshot?: PreRestoreDeviceSnapshot;
+  error?: string;
+}> {
+  try {
+    const defaultFallbacks: Record<string, unknown> = {
+      [OPERATIONAL_STORAGE_KEYS.auditRecords]: {},
+      [OPERATIONAL_STORAGE_KEYS.bookCopies]: [],
+      [OPERATIONAL_STORAGE_KEYS.customMartyrs]: [],
+      [OPERATIONAL_STORAGE_KEYS.smartSuggestions]: [],
+      [OPERATIONAL_STORAGE_KEYS.links]: [],
+      [OPERATIONAL_STORAGE_KEYS.pendingReviews]: [],
+      [OPERATIONAL_STORAGE_KEYS.multiMartyrGroups]: [],
+      [OPERATIONAL_STORAGE_KEYS.extractedItems]: [],
+      [OPERATIONAL_STORAGE_KEYS.auditLog]: [],
+      [OPERATIONAL_STORAGE_KEYS.rejectedSuggestions]: [],
+      [RECORD_META_MAP_KEY]: {},
+      [BASELINE_CHANGE_MAP_KEY]: {},
+      [APPLIED_PACKAGES_KEY]: [],
+    };
+
+    const idbEntries: IdbKeySnapshotEntry[] = [];
+    const localRawEntries: Record<string, { exists: boolean; rawValue: string | null }> = {};
+    const effectiveValues: Record<string, unknown> = {};
+    let maxMetaUpdatedAt = 0;
+
+    for (const key of RESTORE_BATCH_STORAGE_KEYS) {
+      const res = await readEffectiveKeyStrict(key, defaultFallbacks[key]);
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: res.error || `تهیه Snapshot پیش از بازیابی در کلید ${key} ناموفق بود.`,
+        };
+      }
+      idbEntries.push(res.idbSnap);
+      localRawEntries[key] = res.localSnap;
+      effectiveValues[key] = res.effectiveValue;
+      if (
+        (key === RECORD_META_MAP_KEY ||
+          key === BASELINE_CHANGE_MAP_KEY ||
+          key === APPLIED_PACKAGES_KEY) &&
+        res.effectiveUpdatedAt > maxMetaUpdatedAt
+      ) {
+        maxMetaUpdatedAt = res.effectiveUpdatedAt;
+      }
+    }
+
+    for (const auxKey of RESTORE_AUX_LOCAL_STORAGE_KEYS) {
+      try {
+        const raw = localStorage.getItem(auxKey);
+        localRawEntries[auxKey] = {
+          exists: raw !== null,
+          rawValue: raw,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          error: `خطا در خواندن کلید کمکی ${auxKey} از LocalStorage پیش از بازیابی: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        };
+      }
+    }
+
+    let parsedSoftDeleted: Record<string, SyncRecordEnvelope> = {};
+    const rawSoftDel = localRawEntries[SOFT_DELETED_ARCHIVE_STORAGE_KEY]?.rawValue;
+    if (rawSoftDel !== null && rawSoftDel !== undefined) {
+      try {
+        const p = JSON.parse(rawSoftDel);
+        if (!p || typeof p !== 'object' || Array.isArray(p)) {
+          return {
+            ok: false,
+            error: 'ساختار فعلی بایگانی حذف نرم (softDeletedArchive) پیش از بازیابی نامعتبر است.',
+          };
+        }
+        parsedSoftDeleted = p as Record<string, SyncRecordEnvelope>;
+      } catch (err) {
+        return {
+          ok: false,
+          error: `خطا در تجزیه بایگانی حذف نرم فعلی پیش از بازیابی: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        };
+      }
+    }
+
+    let parsedIdSeq: IdSequenceSnapshot = readLocalIdSequences();
+    const rawSeq = localRawEntries[ID_SEQUENCE_STORAGE_KEY]?.rawValue;
+    if (rawSeq !== null && rawSeq !== undefined) {
+      try {
+        const p = JSON.parse(rawSeq);
+        if (!p || typeof p !== 'object' || Array.isArray(p)) {
+          return {
+            ok: false,
+            error: 'ساختار فعلی شمارنده شناسه‌ها (idSequences) پیش از بازیابی نامعتبر است.',
+          };
+        }
+        parsedIdSeq = readLocalIdSequences();
+      } catch (err) {
+        return {
+          ok: false,
+          error: `خطا در تجزیه شمارنده شناسه‌های فعلی پیش از بازیابی: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        };
+      }
+    }
+
+    const userRoleRaw = localRawEntries[OPERATIONAL_STORAGE_KEYS.userRole]?.rawValue ?? null;
+
+    const recordMetaMap = (effectiveValues[RECORD_META_MAP_KEY] || {}) as Record<
+      string,
+      RecordSyncMeta
+    >;
+    const baselineChangeMap = (effectiveValues[BASELINE_CHANGE_MAP_KEY] || {}) as Record<
+      string,
+      string
+    >;
+    const appliedPackageIds = (effectiveValues[APPLIED_PACKAGES_KEY] || []) as string[];
+
+    return {
+      ok: true,
+      snapshot: {
+        capturedAtMs: Date.now(),
+        idbAvailable: isIndexedDbAvailable(),
+        idbEntries,
+        localRawEntries,
+        effectiveValues,
+        effectiveAux: {
+          softDeletedArchive: parsedSoftDeleted,
+          idSequences: parsedIdSeq,
+          userRole: userRoleRaw,
+        },
+        syncCacheSnapshot: {
+          recordMetaMap: JSON.parse(JSON.stringify(recordMetaMap)),
+          baselineChangeMap: JSON.parse(JSON.stringify(baselineChangeMap)),
+          appliedPackageIds: JSON.parse(JSON.stringify(appliedPackageIds)),
+          updatedAt: maxMetaUpdatedAt,
+        },
+      },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * اجرای Rollback واقعی و کامل روی IndexedDB، LocalStorage و کش‌های متادیتای همگام‌سازی
+ * همراه با بازخوانی و تطبیق ۱۰۰٪ وضعیت بازگردانده‌شده با Snapshot پیش از عملیات
+ * - اگر IndexedDB پیش از عملیات فعال بوده باشد اما در زمان Rollback یا بررسی نهایی در دسترس نباشد،
+ *   Rollback هرگز موفق اعلام نمی‌شود و LocalStorage جایگزین تأیید IndexedDB نخواهد شد.
+ */
+async function executeAndVerifyFullRollback(
+  preSnapshot: PreRestoreDeviceSnapshot
+): Promise<{ rollbackOk: boolean; rollbackError?: string }> {
+  const errors: string[] = [];
+  const mustVerifyIdb = preSnapshot.idbAvailable || isIndexedDbAvailable();
+
+  // ۱. بازگردانی اتمیک و تراکنشی تمام کلیدهای IndexedDB به وضعیت دقیق پیش از عملیات
+  if (mustVerifyIdb) {
+    if (!isIndexedDbAvailable()) {
+      errors.push(
+        'IndexedDB پیش از عملیات فعال بود اما در زمان اجرای Rollback در دسترس نیست؛ بازگردانی IndexedDB قابل انجام و تأیید نیست.'
+      );
+    } else {
+      const idbRollbackRes = await idbRestoreKeySnapshotAtomic(preSnapshot.idbEntries);
+      if (!idbRollbackRes.ok) {
+        errors.push(
+          `شکست تراکنش Rollback در IndexedDB: ${idbRollbackRes.error || 'خطای نامشخص'}`
+        );
+      }
+    }
+  }
+
+  // ۲. بازگردانی تمام کلیدهای عملیاتی، متادیتا و اطلاعات کمکی در LocalStorage
+  for (const [key, entry] of Object.entries(preSnapshot.localRawEntries)) {
+    try {
+      if (!entry.exists || entry.rawValue === null) {
+        localStorage.removeItem(key);
+      } else {
+        localStorage.setItem(key, entry.rawValue);
+      }
+    } catch (err) {
+      errors.push(
+        `شکست بازگردانی کلید ${key} در LocalStorage: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
+  }
+
+  // ۳. بازگردانی کش درون‌حافظه‌ای Sync Metadata
+  applyCommittedSyncMetadataToCache(
+    {
+      recordMetaMap: preSnapshot.syncCacheSnapshot.recordMetaMap,
+      baselineChangeMap: preSnapshot.syncCacheSnapshot.baselineChangeMap,
+      appliedPackageIds: preSnapshot.syncCacheSnapshot.appliedPackageIds,
+    },
+    preSnapshot.syncCacheSnapshot.updatedAt
+  );
+
+  // ۴. بازخوانی مجدد از Storage و بررسی برابری دقیق محتوا و ساختار خام با Snapshot پیش از عملیات
+  const defaultFallbacks: Record<string, unknown> = {
+    [OPERATIONAL_STORAGE_KEYS.auditRecords]: {},
+    [OPERATIONAL_STORAGE_KEYS.bookCopies]: [],
+    [OPERATIONAL_STORAGE_KEYS.customMartyrs]: [],
+    [OPERATIONAL_STORAGE_KEYS.smartSuggestions]: [],
+    [OPERATIONAL_STORAGE_KEYS.links]: [],
+    [OPERATIONAL_STORAGE_KEYS.pendingReviews]: [],
+    [OPERATIONAL_STORAGE_KEYS.multiMartyrGroups]: [],
+    [OPERATIONAL_STORAGE_KEYS.extractedItems]: [],
+    [OPERATIONAL_STORAGE_KEYS.auditLog]: [],
+    [OPERATIONAL_STORAGE_KEYS.rejectedSuggestions]: [],
+    [RECORD_META_MAP_KEY]: {},
+    [BASELINE_CHANGE_MAP_KEY]: {},
+    [APPLIED_PACKAGES_KEY]: [],
+  };
+
+  if (mustVerifyIdb && !isIndexedDbAvailable()) {
+    errors.push(
+      'IndexedDB پیش از عملیات فعال بود اما در مرحله بررسی نهایی پس از Rollback در دسترس نیست؛ هیچ مسیر جایگزینی از طریق LocalStorage نمی‌تواند فقدان تأیید IndexedDB را پنهان کند.'
+    );
+  }
+
+  for (const snapEntry of preSnapshot.idbEntries) {
+    if (mustVerifyIdb) {
+      if (!isIndexedDbAvailable()) {
+        errors.push(
+          `امکان تأیید بازگردانی کلید ${snapEntry.key} در IndexedDB به دلیل عدم دسترسی به IndexedDB وجود ندارد`
+        );
+        continue;
+      }
+      const checkIdb = await idbGetEnvelopeStrict(snapEntry.key);
+      if (!checkIdb.ok) {
+        errors.push(`خطا در بازخوانی کلید ${snapEntry.key} از IndexedDB پس از Rollback`);
+        continue;
+      }
+      if (checkIdb.exists !== snapEntry.exists) {
+        errors.push(`عدم تطابق وضعیت وجود کلید ${snapEntry.key} در IndexedDB پس از Rollback`);
+        continue;
+      }
+      if (snapEntry.exists) {
+        const expectedCanon = canonicalizeValueDeterministic(snapEntry.data);
+        const actualCanon = canonicalizeValueDeterministic(checkIdb.data);
+        if (expectedCanon !== actualCanon) {
+          errors.push(`عدم تطابق محتوای کلید ${snapEntry.key} در IndexedDB پس از Rollback`);
+        }
+        if (snapEntry.rawRecord !== undefined && snapEntry.rawRecord !== null) {
+          const expectedRawCanon = canonicalizeValueDeterministic(snapEntry.rawRecord);
+          const actualRawCanon = canonicalizeValueDeterministic(checkIdb.rawRecord);
+          if (expectedRawCanon !== actualRawCanon) {
+            errors.push(
+              `عدم تطابق ساختار خام رکورد (rawRecord) کلید ${snapEntry.key} در IndexedDB پس از Rollback`
+            );
+          }
+        }
+      }
+    }
+
+    const effAfter = await readEffectiveKeyStrict(
+      snapEntry.key,
+      defaultFallbacks[snapEntry.key]
+    );
+    if (!effAfter.ok) {
+      errors.push(`خطا در بررسی مقدار مؤثر کلید ${snapEntry.key} پس از Rollback`);
+      continue;
+    }
+    const expectedEffCanon = canonicalizeValueDeterministic(
+      preSnapshot.effectiveValues[snapEntry.key]
+    );
+    const actualEffCanon = canonicalizeValueDeterministic(effAfter.effectiveValue);
+    if (expectedEffCanon !== actualEffCanon) {
+      errors.push(`مقدار مؤثر کلید ${snapEntry.key} پس از Rollback با وضعیت قبلی برابر نیست`);
+    }
+  }
+
+  for (const [key, expectedLocal] of Object.entries(preSnapshot.localRawEntries)) {
+    try {
+      const actualRaw = localStorage.getItem(key);
+      if (expectedLocal.exists) {
+        if (actualRaw !== expectedLocal.rawValue) {
+          errors.push(`مقدار کلید ${key} در LocalStorage پس از Rollback با مقدار قبلی مطابقت ندارد`);
+        }
+      } else if (actualRaw !== null) {
+        errors.push(`کلید ${key} در LocalStorage باید پس از Rollback حذف می‌شد اما باقی مانده است`);
+      }
+    } catch {
+      errors.push(`خطا در بازخوانی کلید ${key} از LocalStorage پس از Rollback`);
+    }
+  }
+
+  return {
+    rollbackOk: errors.length === 0,
+    rollbackError: errors.length > 0 ? errors.join(' | ') : undefined,
+  };
+}
+
+/**
+ * اصلاح دوم: اعتبارسنجی اختصاصی، سخت‌گیرانه و محتوایی داده‌های ذخیره‌شده پس از Restore
+ * - مقایسه قطعی تک‌تک ۱۰ مجموعه عملیاتی (از جمله links و extractedItems بدون هیچ استثنایی)
+ * - مقایسه قطعی ۳ کلید Sync Metadata
+ * - مقایسه قطعی softDeletedArchive، idSequences و userSettings.activeRole
+ * - تطبیق تمام ۱۱ شمارنده recordCounts و totalOperationalItems و Checksum مقصد
+ */
+export async function verifyRestoredStateAgainstTargetStrict(params: {
+  targetRecoveryPoint: PreMergeRecoveryPoint;
+  expectedUpdatedAt: number;
+  localBackupSaved: boolean;
+}): Promise<{ ok: boolean; mismatches: string[] }> {
+  const { targetRecoveryPoint, expectedUpdatedAt, localBackupSaved } = params;
+  const s = targetRecoveryPoint.stateSnapshot;
+  const meta = targetRecoveryPoint.syncMetaSnapshot;
+  const mismatches: string[] = [];
+
+  const expectedKeyMap: Array<{ key: string; label: string; expectedValue: unknown }> = [
+    { key: OPERATIONAL_STORAGE_KEYS.auditRecords, label: 'auditRecords', expectedValue: s.auditRecords },
+    { key: OPERATIONAL_STORAGE_KEYS.bookCopies, label: 'bookCopies', expectedValue: s.bookCopies },
+    { key: OPERATIONAL_STORAGE_KEYS.customMartyrs, label: 'customMartyrs', expectedValue: s.customMartyrs },
+    {
+      key: OPERATIONAL_STORAGE_KEYS.smartSuggestions,
+      label: 'smartSuggestions',
+      expectedValue: s.smartSuggestions,
+    },
+    { key: OPERATIONAL_STORAGE_KEYS.links, label: 'links', expectedValue: s.links },
+    {
+      key: OPERATIONAL_STORAGE_KEYS.pendingReviews,
+      label: 'pendingReviews',
+      expectedValue: s.pendingReviews,
+    },
+    {
+      key: OPERATIONAL_STORAGE_KEYS.multiMartyrGroups,
+      label: 'multiMartyrGroups',
+      expectedValue: s.multiMartyrGroups,
+    },
+    {
+      key: OPERATIONAL_STORAGE_KEYS.extractedItems,
+      label: 'extractedItems',
+      expectedValue: s.extractedItems,
+    },
+    { key: OPERATIONAL_STORAGE_KEYS.auditLog, label: 'auditLog', expectedValue: s.auditLog },
+    {
+      key: OPERATIONAL_STORAGE_KEYS.rejectedSuggestions,
+      label: 'rejectedSuggestionsArchive',
+      expectedValue: s.rejectedSuggestionsArchive,
+    },
+    { key: RECORD_META_MAP_KEY, label: 'recordMetaMap', expectedValue: meta.recordMetaMap },
+    {
+      key: BASELINE_CHANGE_MAP_KEY,
+      label: 'baselineChangeMap',
+      expectedValue: meta.baselineChangeMap,
+    },
+    {
+      key: APPLIED_PACKAGES_KEY,
+      label: 'appliedPackageIds',
+      expectedValue: meta.appliedPackageIds,
+    },
+  ];
+
+  const hasIdb = isIndexedDbAvailable();
+  const hydratedStateForCountCheck: Partial<FullOperationalState> = {
+    userSettings: s.userSettings,
+  };
+
+  for (const item of expectedKeyMap) {
+    const expectedCanonical = canonicalizeValueDeterministic(item.expectedValue);
+
+    // ۱. اگر IndexedDB فعال است، داده ذخیره‌شده در IndexedDB باید به‌صورت مستقل بررسی شود
+    if (hasIdb) {
+      const idbCheck = await idbGetEnvelopeStrict(item.key);
+      if (!idbCheck.ok || !idbCheck.exists || idbCheck.data === null) {
+        mismatches.push(
+          `کلید ${item.label} (${item.key}) در IndexedDB یافت نشد یا خواندن آن با خطا مواجه شد.`
+        );
+        continue;
+      }
+      const actualIdbCanonical = canonicalizeValueDeterministic(idbCheck.data);
+      if (actualIdbCanonical !== expectedCanonical) {
+        mismatches.push(
+          `محتوای ذخیره‌شده برای ${item.label} در IndexedDB با Snapshot مقصد برابر نیست.`
+        );
+      }
+      if (expectedUpdatedAt > 0 && idbCheck.updatedAt < expectedUpdatedAt) {
+        mismatches.push(
+          `Timestamp کلید ${item.label} در IndexedDB (${idbCheck.updatedAt}) قدیمی‌تر از زمان بازیابی (${expectedUpdatedAt}) است.`
+        );
+      }
+    }
+
+    // ۲. اگر پشتیبان LocalStorage ذخیره شده (یا IndexedDB فعال نیست)، محتوای LocalStorage نیز باید دقیقاً برابر باشد
+    if (!hasIdb || localBackupSaved) {
+      try {
+        const rawLocal = localStorage.getItem(item.key);
+        if (rawLocal === null) {
+          mismatches.push(`کلید ${item.label} (${item.key}) در LocalStorage یافت نشد.`);
+        } else {
+          const parsedLocal = JSON.parse(rawLocal);
+          const actualLocalCanonical = canonicalizeValueDeterministic(parsedLocal);
+          if (actualLocalCanonical !== expectedCanonical) {
+            mismatches.push(
+              `محتوای ذخیره‌شده برای ${item.label} در LocalStorage با Snapshot مقصد برابر نیست.`
+            );
+          }
+        }
+      } catch {
+        mismatches.push(`خطا در بازخوانی یا تجزیه کلید ${item.label} از LocalStorage.`);
+      }
+    }
+
+    // ۳. بررسی منبع مؤثر با رعایت قواعد واقعی انتخاب منبع و Timestamp (hydrateOperationalKey)
+    const fallback = Array.isArray(item.expectedValue) ? [] : {};
+    const hydrated = await hydrateOperationalKey(item.key, fallback);
+    const hydratedCanonical = canonicalizeValueDeterministic(hydrated.value);
+    if (hydratedCanonical !== expectedCanonical) {
+      mismatches.push(
+        `داده بازیابی‌شده مؤثر (Hydrated) برای ${item.label} با Snapshot مقصد مطابقت ندارد.`
+      );
+    }
+
+    if (item.label in s) {
+      (hydratedStateForCountCheck as Record<string, unknown>)[item.label] = hydrated.value;
+    }
+  }
+
+  // ۴. بررسی دقیق اطلاعات کمکی اجباری در LocalStorage (softDeletedArchive، idSequences، userRole)
+  try {
+    const rawSoftDel = localStorage.getItem(SOFT_DELETED_ARCHIVE_STORAGE_KEY);
+    const parsedSoftDel = rawSoftDel ? JSON.parse(rawSoftDel) : null;
+    if (
+      parsedSoftDel === null ||
+      canonicalizeValueDeterministic(parsedSoftDel) !==
+        canonicalizeValueDeterministic(meta.softDeletedArchive || {})
+    ) {
+      mismatches.push(
+        'محتوای بایگانی حذف نرم (softDeletedArchive) پس از بازیابی با Snapshot مقصد برابر نیست.'
+      );
+    }
+  } catch {
+    mismatches.push('خطا در بازخوانی بایگانی حذف نرم (softDeletedArchive) پس از بازیابی.');
+  }
+
+  try {
+    const rawSeq = localStorage.getItem(ID_SEQUENCE_STORAGE_KEY);
+    const parsedSeq = rawSeq ? JSON.parse(rawSeq) : null;
+    if (
+      parsedSeq === null ||
+      canonicalizeValueDeterministic(parsedSeq) !==
+        canonicalizeValueDeterministic(meta.idSequences)
+    ) {
+      mismatches.push(
+        'محتوای شمارنده شناسه‌ها (idSequences) پس از بازیابی با Snapshot مقصد برابر نیست.'
+      );
+    }
+  } catch {
+    mismatches.push('خطا در بازخوانی شمارنده شناسه‌ها (idSequences) پس از بازیابی.');
+  }
+
+  if (s.userSettings?.activeRole) {
+    try {
+      const actualRole = localStorage.getItem(OPERATIONAL_STORAGE_KEYS.userRole);
+      if (actualRole !== s.userSettings.activeRole) {
+        mismatches.push(
+          `نقش فعال کاربر در LocalStorage (${actualRole || 'خالی'}) با نقش مقصد (${
+            s.userSettings.activeRole
+          }) مطابقت ندارد.`
+        );
+      }
+    } catch {
+      mismatches.push('خطا در بازخوانی نقش فعال کاربر (userRole) پس از بازیابی.');
+    }
+  }
+
+  // ۵. بررسی کامل تمام ۱۱ شمارنده recordCounts و totalOperationalItems و Checksumها
+  const reconstructedState = hydratedStateForCountCheck as FullOperationalState;
+  const actualCounts = calculateCollectionCounts(reconstructedState);
+  const expectedCounts = targetRecoveryPoint.recordCounts;
+  const countKeys: Array<keyof typeof actualCounts> = [
+    'auditRecords',
+    'bookCopies',
+    'customMartyrs',
+    'smartSuggestions',
+    'links',
+    'pendingReviews',
+    'multiMartyrGroups',
+    'extractedItems',
+    'auditLog',
+    'userSettings',
+    'rejectedSuggestionsArchive',
+    'totalOperationalItems',
+  ];
+  for (const ck of countKeys) {
+    if (actualCounts[ck] !== expectedCounts[ck]) {
+      mismatches.push(
+        `شمارنده ${ck} پس از بازیابی (${actualCounts[ck]}) با مقدار Snapshot مقصد (${expectedCounts[ck]}) برابر نیست.`
+      );
+    }
+  }
+
+  const actualDatasetsChecksum = computeDatasetsChecksum(reconstructedState);
+  const expectedDatasetsChecksum = computeDatasetsChecksum(s);
+  if (actualDatasetsChecksum !== expectedDatasetsChecksum) {
+    mismatches.push('Checksum مجموعه‌های عملیاتی بازیابی‌شده با Snapshot مقصد همخوانی ندارد.');
+  }
+
+  if (targetRecoveryPoint.checksum.startsWith('RP_SHA256_')) {
+    const recomputedFullChecksum = computePreMergeRecoveryPointChecksum({
+      recoveryId: targetRecoveryPoint.recoveryId,
+      timestampMs: targetRecoveryPoint.timestampMs,
+      recordCounts: actualCounts,
+      stateSnapshot: reconstructedState,
+      syncMetaSnapshot: {
+        recordMetaMap: (await hydrateOperationalKey(RECORD_META_MAP_KEY, {})).value,
+        baselineChangeMap: (await hydrateOperationalKey(BASELINE_CHANGE_MAP_KEY, {})).value,
+        appliedPackageIds: (await hydrateOperationalKey(APPLIED_PACKAGES_KEY, [])).value,
+        softDeletedArchive: loadSoftDeletedArchive(),
+        idSequences: readLocalIdSequences(),
+      },
+    });
+    if (recomputedFullChecksum !== targetRecoveryPoint.checksum) {
+      mismatches.push(
+        'Checksum جامع (RP_SHA256) داده‌ها و متادیتای بازیابی‌شده با Checksum مقصد مطابقت ندارد.'
+      );
+    }
+  }
+
+  return {
+    ok: mismatches.length === 0,
+    mismatches,
+  };
+}
+
+/**
+ * بازگردانی کامل اطلاعات مقصد از Recovery Point در صورت بروز خطا یا درخواست کاربر
+ * - تهیه Snapshot کامل از وضعیت فعلی پیش از اولین تغییر
+ * - اجرای Rollback واقعی و کامل روی IndexedDB، LocalStorage و کش‌های متادیتا در تمام مسیرهای شکست
+ * - بررسی موفقیت خود Rollback و گزارش صریح در صورت شکست Rollback
+ * - اعتبارسنجی دقیق محتوایی تمام مجموعه‌ها و متادیتا پس از Restore
+ */
+export async function restoreFromPreMergeRecoveryPoint(
+  recoveryPoint: PreMergeRecoveryPoint
+): Promise<{
+  ok: boolean;
+  restoredState: FullOperationalState;
+  error?: string;
+  warning?: string;
+  rollbackPerformed?: boolean;
+  rollbackVerified?: boolean;
+}> {
+  const rpId =
+    recoveryPoint && typeof recoveryPoint === 'object' && typeof recoveryPoint.recoveryId === 'string'
+      ? recoveryPoint.recoveryId
+      : 'UNKNOWN_RP';
+
+  const fallbackSnapshot =
+    recoveryPoint && typeof recoveryPoint === 'object' && 'stateSnapshot' in recoveryPoint
+      ? recoveryPoint.stateSnapshot
+      : ({} as FullOperationalState);
+
+  // ۱. اعتبارسنجی کامل Recovery Point مقصد پیش از هرگونه عملیات
+  if (!isValidPreMergeRecoveryPoint(recoveryPoint)) {
+    return {
+      ok: false,
+      restoredState: fallbackSnapshot,
+      error: `ساختار، شمارنده‌ها یا Checksum نقطه بازیابی (${rpId}) نامعتبر است؛ عملیات بازیابی پیش از ایجاد هرگونه تغییر متوقف شد.`,
+    };
+  }
+
+  // ۲. تهیه Snapshot کامل و معتبر از وضعیت فعلی دستگاه پیش از اولین نوشتن
+  const preCapture = await capturePreRestoreDeviceSnapshot();
+  if (!preCapture.ok || !preCapture.snapshot) {
+    return {
+      ok: false,
+      restoredState: fallbackSnapshot,
+      error: `امکان تهیه Snapshot کامل و معتبر از وضعیت فعلی دستگاه پیش از بازیابی فراهم نشد (${
+        preCapture.error || 'خطای خواندن Storage'
+      })؛ برای حفاظت از داده‌های فعلی، عملیات بازیابی قبل از اولین نوشتن متوقف شد (شناسه: ${rpId}).`,
+    };
+  }
+
+  const preSnapshot = preCapture.snapshot;
+
+  const triggerFullRollbackAndBuildError = async (
+    failureReason: string
+  ): Promise<{
+    ok: boolean;
+    restoredState: FullOperationalState;
+    error: string;
+    rollbackPerformed: boolean;
+    rollbackVerified: boolean;
+  }> => {
+    const rbRes = await executeAndVerifyFullRollback(preSnapshot);
+    const previousOperationalState: FullOperationalState = {
+      auditRecords: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.auditRecords] ||
+        {}) as Record<string, FieldAuditRecord>,
+      bookCopies: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.bookCopies] ||
+        []) as BookCopyRecord[],
+      customMartyrs: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.customMartyrs] ||
+        []) as CustomMartyrRecord[],
+      smartSuggestions: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.smartSuggestions] ||
+        []) as SmartSearchSuggestion[],
+      links: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.links] ||
+        []) as BookMartyrLinkRecord[],
+      pendingReviews: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.pendingReviews] ||
+        []) as PendingReviewItem[],
+      multiMartyrGroups: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.multiMartyrGroups] ||
+        []) as MultiMartyrGroupAudit[],
+      extractedItems: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.extractedItems] ||
+        []) as ExtractedContentItem[],
+      auditLog: (preSnapshot.effectiveValues[OPERATIONAL_STORAGE_KEYS.auditLog] ||
+        []) as AuditLogEntry[],
+      rejectedSuggestionsArchive: (preSnapshot.effectiveValues[
+        OPERATIONAL_STORAGE_KEYS.rejectedSuggestions
+      ] || []) as RejectedSuggestionRecord[],
+      userSettings: {
+        activeRole:
+          (preSnapshot.effectiveAux.userRole as FullOperationalState['userSettings']['activeRole']) ||
+          'registrar',
+      },
+    };
+
+    if (rbRes.rollbackOk) {
+      return {
+        ok: false,
+        restoredState: previousOperationalState,
+        rollbackPerformed: true,
+        rollbackVerified: true,
+        error: `عملیات بازیابی از نقطه بازیابی (${rpId}) به دلیل «${failureReason}» متوقف شد؛ بازگردانی کامل (Rollback) تمام مجموعه‌های عملیاتی و متادیتا به وضعیت پیش از عملیات انجام و با موفقیت تأیید شد.`,
+      };
+    }
+
+    return {
+      ok: false,
+      restoredState: previousOperationalState,
+      rollbackPerformed: true,
+      rollbackVerified: false,
+      error: `خطای بحرانی در بازیابی (${rpId}): عملیات بازیابی به دلیل «${failureReason}» شکست خورد و بازگردانی کامل وضعیت قبلی (Rollback) نیز تأیید نشد (${
+        rbRes.rollbackError || 'عدم تطابق پس از Rollback'
+      }). وضعیت نیازمند بررسی و بازیابی دستی از نقطه بازیابی ${rpId} است.`,
+    };
+  };
+
+  try {
+    const s: FullOperationalState = JSON.parse(JSON.stringify(recoveryPoint.stateSnapshot));
+    const metaSnap: PreMergeRecoveryPoint['syncMetaSnapshot'] = JSON.parse(
+      JSON.stringify(recoveryPoint.syncMetaSnapshot)
+    );
+
+    const entries: BatchStorageSaveEntry[] = [
+      { key: OPERATIONAL_STORAGE_KEYS.auditRecords, value: s.auditRecords },
+      { key: OPERATIONAL_STORAGE_KEYS.bookCopies, value: s.bookCopies },
+      { key: OPERATIONAL_STORAGE_KEYS.customMartyrs, value: s.customMartyrs },
+      { key: OPERATIONAL_STORAGE_KEYS.smartSuggestions, value: s.smartSuggestions },
+      { key: OPERATIONAL_STORAGE_KEYS.links, value: s.links },
+      { key: OPERATIONAL_STORAGE_KEYS.pendingReviews, value: s.pendingReviews },
+      { key: OPERATIONAL_STORAGE_KEYS.multiMartyrGroups, value: s.multiMartyrGroups },
+      { key: OPERATIONAL_STORAGE_KEYS.extractedItems, value: s.extractedItems },
+      { key: OPERATIONAL_STORAGE_KEYS.auditLog, value: s.auditLog },
+      { key: OPERATIONAL_STORAGE_KEYS.rejectedSuggestions, value: s.rejectedSuggestionsArchive },
+      { key: RECORD_META_MAP_KEY, value: metaSnap.recordMetaMap },
+      { key: BASELINE_CHANGE_MAP_KEY, value: metaSnap.baselineChangeMap },
+      { key: APPLIED_PACKAGES_KEY, value: metaSnap.appliedPackageIds },
+    ];
+
+    // ۳. ذخیره تراکنشی مجموعه‌های عملیاتی و Sync Metadata
+    const batchRes = await saveOperationalDataBatchAtomic(entries);
+    if (!batchRes.ok) {
+      return await triggerFullRollbackAndBuildError(
+        batchRes.error || 'خطا در ذخیره تراکنشی مجموعه‌های عملیاتی و Sync Metadata'
+      );
+    }
+
+    // ۴. ذخیره و بازخوانی اطلاعات کمکی اجباری (softDeletedArchive، idSequences، userRole)
+    const targetSoftDeleted = metaSnap.softDeletedArchive || {};
+    const serializedSoftDel = JSON.stringify(targetSoftDeleted);
+    let softDeleteSavedOk = false;
+    if (saveSoftDeletedArchive(targetSoftDeleted)) {
+      try {
+        softDeleteSavedOk =
+          localStorage.getItem(SOFT_DELETED_ARCHIVE_STORAGE_KEY) === serializedSoftDel;
+      } catch {
+        softDeleteSavedOk = false;
+      }
+    }
+
+    const targetIdSequences = metaSnap.idSequences || readLocalIdSequences();
+    const serializedSeq = JSON.stringify(targetIdSequences);
+    let idSequencesSavedOk = false;
+    try {
+      localStorage.setItem(ID_SEQUENCE_STORAGE_KEY, serializedSeq);
+      idSequencesSavedOk = localStorage.getItem(ID_SEQUENCE_STORAGE_KEY) === serializedSeq;
+    } catch {
+      idSequencesSavedOk = false;
+    }
+
+    let userRoleSavedOk = true;
+    if (s.userSettings?.activeRole) {
+      try {
+        localStorage.setItem(OPERATIONAL_STORAGE_KEYS.userRole, s.userSettings.activeRole);
+        userRoleSavedOk =
+          localStorage.getItem(OPERATIONAL_STORAGE_KEYS.userRole) === s.userSettings.activeRole;
+      } catch {
+        userRoleSavedOk = false;
+      }
+    }
+
+    if (!softDeleteSavedOk || !idSequencesSavedOk || !userRoleSavedOk) {
+      const failedParts: string[] = [];
+      if (!softDeleteSavedOk) failedParts.push('softDeletedArchive');
+      if (!idSequencesSavedOk) failedParts.push('idSequences');
+      if (!userRoleSavedOk) failedParts.push('userRole');
+      return await triggerFullRollbackAndBuildError(
+        `شکست ذخیره یا بازخوانی متادیتای تکمیلی (${failedParts.join('، ')})`
+      );
+    }
+
+    // ۵. به‌روزرسانی کش Sync Metadata و اجرای اعتبارسنجی دقیق محتوایی پس از Restore
+    applyCommittedSyncMetadataToCache(
+      {
+        recordMetaMap: metaSnap.recordMetaMap,
+        baselineChangeMap: metaSnap.baselineChangeMap,
+        appliedPackageIds: metaSnap.appliedPackageIds,
+      },
+      batchRes.updatedAt
+    );
+
+    const strictVerify = await verifyRestoredStateAgainstTargetStrict({
+      targetRecoveryPoint: recoveryPoint,
+      expectedUpdatedAt: batchRes.updatedAt,
+      localBackupSaved: batchRes.localSaved,
+    });
+
+    if (!strictVerify.ok) {
+      return await triggerFullRollbackAndBuildError(
+        `عدم تطابق داده‌های ذخیره‌شده پس از بازیابی با Snapshot مقصد: ${strictVerify.mismatches.join(
+          '؛ '
+        )}`
+      );
+    }
+
+    const warningMsg =
+      batchRes.idbSaved && !batchRes.localSaved
+        ? batchRes.warning ||
+          'داده اصلی در IndexedDB با موفقیت کامل بازیابی و تأیید شد، اما ذخیره کپی پشتیبان در LocalStorage به دلیل محدودیت فضا انجام نشد.'
+        : undefined;
+
+    return {
+      ok: true,
+      restoredState: s,
+      warning: warningMsg,
+      rollbackPerformed: false,
+      rollbackVerified: true,
+    };
+  } catch (err) {
+    return await triggerFullRollbackAndBuildError(
+      `خطای غیرمنتظره در حین بازیابی: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
+/**
+ * مرحله سوم (بخش چهارم): اجرای ادغام امن، محافظه‌کارانه و تراکنشی
+ * - هرگز اطلاعات دستگاه مقصد را پاک یا جایگزین کل نمی‌کند
+ * - پیش از اجرا Recovery Point تهیه و بررسی می‌کند
+ * - تصمیم کاربر برای تک‌تک تعارض‌ها را اعمال می‌کند
+ * - در یک تراکنش اتمیک IndexedDB ذخیره می‌کند و در صورت بروز هرگونه خطا به Recovery Point بازمی‌گرداند
+ */
+export async function executeSafeJsonMerge(
+  inspection: SystemJsonInspectionReport,
+  currentState: FullOperationalState,
+  conflictDecisions: Record<string, ConflictDecisionOption>
+): Promise<SafeMergeExecutionResult> {
+  if (!inspection.valid || !inspection.normalizedPayload) {
+    return {
+      ok: false,
+      error: inspection.errorReason || 'فایل ورودی معتبر نیست و امکان ادغام وجود ندارد.',
+      recoveryPointId: '',
+      appliedNewCount: 0,
+      appliedModifiedCount: 0,
+      resolvedConflictsCount: 0,
+      keptDestinationConflictsCount: 0,
+      acceptedIncomingConflictsCount: 0,
+      unchangedCount: 0,
+      skippedInvalidCount: inspection.invalidRecords.length,
+      mergedState: currentState,
+      summaryMessage: 'عملیات ادغام متوقف شد.',
+    };
+  }
+
+  // ۰. انتظار برای تکمیل ذخیره‌سازی‌های معلق و دریافت آخرین وضعیت معتبر دستگاه مقصد پیش از ادغام
+  const latestDest = await resolveLatestVerifiedOperationalState(currentState, {
+    syncUnpersistedToStorage: false,
+  });
+  if (!latestDest.ok) {
+    return {
+      ok: false,
+      error:
+        latestDest.error ||
+        'خطا در بازخوانی آخرین وضعیت حافظه پایدار دستگاه مقصد پیش از شروع ادغام.',
+      recoveryPointId: '',
+      appliedNewCount: 0,
+      appliedModifiedCount: 0,
+      resolvedConflictsCount: 0,
+      keptDestinationConflictsCount: 0,
+      acceptedIncomingConflictsCount: 0,
+      unchangedCount: 0,
+      skippedInvalidCount: inspection.invalidRecords.length,
+      mergedState: currentState,
+      summaryMessage: 'ادغام انجام نشد (اطلاعات فعلی بدون تغییر محفوظ است).',
+    };
+  }
+  const effectiveDestinationState = latestDest.state;
+
+  // ۱. تهیه و اعتبارسنجی Recovery Point پیش از هرگونه تغییر
+  const rpRes = await createPreMergeRecoveryPoint(effectiveDestinationState);
+  if (!rpRes.ok || !rpRes.recoveryPoint) {
+    return {
+      ok: false,
+      error:
+        rpRes.error ||
+        'به دلیل عدم موفقیت در تهیه نقطه بازیابی (Recovery Point)، عملیات ادغام برای حفاظت از داده‌های فعلی متوقف شد.',
+      recoveryPointId: '',
+      appliedNewCount: 0,
+      appliedModifiedCount: 0,
+      resolvedConflictsCount: 0,
+      keptDestinationConflictsCount: 0,
+      acceptedIncomingConflictsCount: 0,
+      unchangedCount: 0,
+      skippedInvalidCount: inspection.invalidRecords.length,
+      mergedState: effectiveDestinationState,
+      summaryMessage: 'ادغام انجام نشد (اطلاعات فعلی بدون تغییر محفوظ است).',
+    };
+  }
+
+  const recoveryPoint = rpRes.recoveryPoint;
+
+  try {
+    // ۲. ساخت نقشه‌های کاری از روی آخرین اطلاعات معتبر دستگاه مقصد (هیچ رکوردی از مقصد حذف نمی‌شود!)
+    const nextAuditRecords: Record<string, FieldAuditRecord> = JSON.parse(
+      JSON.stringify(effectiveDestinationState.auditRecords || {})
+    );
+
+    const buildMap = <T>(arr: T[], getId: (item: T) => string): Map<string, T> => {
+      const m = new Map<string, T>();
+      for (const item of arr || []) {
+        if (!item) continue;
+        const id = getId(item);
+        if (id) m.set(id, JSON.parse(JSON.stringify(item)));
+      }
+      return m;
+    };
+
+    const nextCopiesMap = buildMap(effectiveDestinationState.bookCopies || [], (c) => c.copyId);
+    const nextLinksMap = buildMap(effectiveDestinationState.links || [], (l) => l.id);
+    const nextGroupsMap = buildMap(
+      (effectiveDestinationState.multiMartyrGroups || []).map((g) =>
+        normalizeMultiMartyrGroupRecord(g)
+      ),
+      (g) => g.groupCode
+    );
+    const nextExtractedMap = buildMap(
+      effectiveDestinationState.extractedItems || [],
+      (e) => e.id
+    );
+    const nextMartyrsMap = buildMap(
+      effectiveDestinationState.customMartyrs || [],
+      (m) => m.martyrId
+    );
+    const nextPendingMap = buildMap(
+      effectiveDestinationState.pendingReviews || [],
+      (p) => p.trackingId
+    );
+    const nextSmartMap = buildMap(
+      effectiveDestinationState.smartSuggestions || [],
+      (s) => s.id
+    );
+    const nextRejectedMap = buildMap(
+      effectiveDestinationState.rejectedSuggestionsArchive || [],
+      (r) => r.id || `${r.martyrName}::${r.bookTitle}`
+    );
+    const nextLogMap = buildMap(effectiveDestinationState.auditLog || [], (l) => l.id);
+
+    const nextBaselineMap: Record<string, string> = {
+      ...latestDest.syncMetaSnapshot.baselineChangeMap,
+      ...(inspection.normalizedPayload.syncBaselineHashes || {}),
+    };
+
+    const putIntoTargetCollection = (
+      col: MergeCollectionKey,
+      recordId: string,
+      recordData: unknown
+    ) => {
+      const cloned = JSON.parse(JSON.stringify(recordData));
+      const canonical = canonicalizeRecordData(cloned);
+      nextBaselineMap[`${col}:${recordId}`] = computeDeterministicHash(
+        `${col}:${recordId}:${canonical}`
+      );
+
+      switch (col) {
+        case 'auditRecords':
+          nextAuditRecords[recordId] = { ...(cloned as FieldAuditRecord), key: recordId };
+          break;
+        case 'bookCopies':
+          nextCopiesMap.set(recordId, { ...(cloned as BookCopyRecord), copyId: recordId });
+          break;
+        case 'links':
+          nextLinksMap.set(recordId, { ...(cloned as BookMartyrLinkRecord), id: recordId });
+          break;
+        case 'multiMartyrGroups':
+          nextGroupsMap.set(recordId, {
+            ...(cloned as MultiMartyrGroupAudit),
+            groupCode: recordId,
+          });
+          break;
+        case 'extractedItems':
+          nextExtractedMap.set(recordId, {
+            ...(cloned as ExtractedContentItem),
+            id: recordId,
+          });
+          break;
+        case 'customMartyrs':
+          nextMartyrsMap.set(recordId, {
+            ...(cloned as CustomMartyrRecord),
+            martyrId: recordId,
+          });
+          break;
+        case 'pendingReviews':
+          nextPendingMap.set(recordId, {
+            ...(cloned as PendingReviewItem),
+            trackingId: recordId,
+          });
+          break;
+        case 'smartSuggestions':
+          nextSmartMap.set(recordId, {
+            ...(cloned as SmartSearchSuggestion),
+            id: recordId,
+          });
+          break;
+        case 'rejectedSuggestionsArchive':
+          nextRejectedMap.set(recordId, cloned as RejectedSuggestionRecord);
+          break;
+        case 'auditLog':
+          nextLogMap.set(recordId, { ...(cloned as AuditLogEntry), id: recordId });
+          break;
+      }
+    };
+
+    // ۳. افزودن تمام رکوردهای جدید با حفظ دقیق شناسه اصلی
+    let appliedNewCount = 0;
+    for (const item of inspection.newRecords) {
+      putIntoTargetCollection(item.collection, item.recordId, item.incomingRecord);
+      appliedNewCount++;
+    }
+
+    // ۴. اعمال رکوردهای تکمیل‌شده غیرمتعارض (فقط تکمیل فیلدهای خالی/ناقص مقصد بدون بازنویسی مقادیر معتبر مقصد)
+    let appliedModifiedCount = 0;
+    for (const item of inspection.modifiedRecords) {
+      const safeMerged = item.destinationRecord
+        ? mergeComplementaryJsonRecordFields(item.destinationRecord, item.incomingRecord)
+        : item.mergedRecord ?? item.incomingRecord;
+      putIntoTargetCollection(item.collection, item.recordId, safeMerged);
+      appliedModifiedCount++;
+    }
+
+    // ۵. اعمال تصمیم غیرتخریبی روی رکوردهای دارای تعارض (هرگز مقدار معتبر مقصد بازنویسی نمی‌شود)
+    let resolvedConflictsCount = 0;
+    let keptDestinationConflictsCount = 0;
+    const acceptedIncomingConflictsCount = 0;
+
+    for (const conf of inspection.conflicts) {
+      const rawDecision = conflictDecisions[conf.conflictId] || conf.selectedDecision;
+      const decision: ConflictDecisionOption =
+        rawDecision === 'keep-destination' ? 'keep-destination' : 'merge-complementary';
+
+      if (decision === 'keep-destination') {
+        putIntoTargetCollection(conf.collection, conf.recordId, conf.destinationRecord);
+        keptDestinationConflictsCount++;
+      } else {
+        // merge-complementary: حفظ کامل مقادیر معتبر مقصد + تکمیل صرفاً فیلدهای ناقص/خالی از فایل ورودی
+        const nonDestructiveMerged = mergeComplementaryJsonRecordFields(
+          conf.destinationRecord,
+          conf.incomingRecord
+        );
+        putIntoTargetCollection(conf.collection, conf.recordId, nonDestructiveMerged);
+        keptDestinationConflictsCount++;
+      }
+      resolvedConflictsCount++;
+    }
+
+    // ۶. غنی‌سازی و حفظ یکپارچگی ارتباط‌های کتاب و شهید و موارد چندشهیدی
+    const mergedLinks = enrichLinksWithSorehMehrResearch(Array.from(nextLinksMap.values()));
+    const mergedExtracted = buildSorehMehrExtractedItems(
+      mergedLinks,
+      Array.from(nextExtractedMap.values())
+    );
+
+    const mergedState: FullOperationalState = {
+      auditRecords: nextAuditRecords,
+      bookCopies: Array.from(nextCopiesMap.values()),
+      customMartyrs: Array.from(nextMartyrsMap.values()),
+      smartSuggestions: Array.from(nextSmartMap.values()),
+      links: mergedLinks,
+      pendingReviews: Array.from(nextPendingMap.values()),
+      multiMartyrGroups: Array.from(nextGroupsMap.values()),
+      extractedItems: mergedExtracted,
+      auditLog: Array.from(nextLogMap.values()),
+      userSettings: currentState.userSettings ||
+        inspection.normalizedPayload.userSettings || { activeRole: 'registrar' },
+      rejectedSuggestionsArchive: Array.from(nextRejectedMap.values()),
+    };
+
+    const mergedRecordMeta: Record<string, RecordSyncMeta> = {
+      ...latestDest.syncMetaSnapshot.recordMetaMap,
+      ...(inspection.normalizedPayload.syncRecordMeta || {}),
+    };
+    const appliedPackages = latestDest.syncMetaSnapshot.appliedPackageIds;
+    const incomingAppliedPackages = Array.isArray(
+      inspection.normalizedPayload.syncAppliedPackages
+    )
+      ? inspection.normalizedPayload.syncAppliedPackages
+      : [];
+    const combinedPackages = Array.from(
+      new Set([
+        ...(inspection.exportId ? [inspection.exportId] : []),
+        ...appliedPackages,
+        ...incomingAppliedPackages,
+      ])
+    ).slice(0, 200);
+    const nextAppliedPackages = combinedPackages;
+
+    // ۷. ذخیره اتمیک تمام مجموعه‌ها در یک تراکنش واحد IndexedDB + localStorage
+    const atomicEntries: BatchStorageSaveEntry[] = [
+      { key: OPERATIONAL_STORAGE_KEYS.auditRecords, value: mergedState.auditRecords },
+      { key: OPERATIONAL_STORAGE_KEYS.bookCopies, value: mergedState.bookCopies },
+      { key: OPERATIONAL_STORAGE_KEYS.customMartyrs, value: mergedState.customMartyrs },
+      { key: OPERATIONAL_STORAGE_KEYS.smartSuggestions, value: mergedState.smartSuggestions },
+      { key: OPERATIONAL_STORAGE_KEYS.links, value: mergedState.links },
+      { key: OPERATIONAL_STORAGE_KEYS.pendingReviews, value: mergedState.pendingReviews },
+      { key: OPERATIONAL_STORAGE_KEYS.multiMartyrGroups, value: mergedState.multiMartyrGroups },
+      { key: OPERATIONAL_STORAGE_KEYS.extractedItems, value: mergedState.extractedItems },
+      { key: OPERATIONAL_STORAGE_KEYS.auditLog, value: mergedState.auditLog },
+      {
+        key: OPERATIONAL_STORAGE_KEYS.rejectedSuggestions,
+        value: mergedState.rejectedSuggestionsArchive,
+      },
+      { key: RECORD_META_MAP_KEY, value: mergedRecordMeta },
+      { key: BASELINE_CHANGE_MAP_KEY, value: nextBaselineMap },
+      { key: APPLIED_PACKAGES_KEY, value: nextAppliedPackages },
+    ];
+
+    const batchRes = await saveOperationalDataBatchAtomic(atomicEntries);
+    if (!batchRes.ok) {
+      throw new Error(
+        batchRes.error || 'تراکنش اتمیک ذخیره‌سازی در هنگام ادغام با خطا مواجه شد.'
+      );
+    }
+
+    // ۸. حفظ افزایشی بایگانی حذف نرم (softDeletedArchive) بدون هیچ‌گونه حذف فیزیکی یا خودکار رکوردهای عملیاتی موجود
+    const currentSoftDeleted = loadSoftDeletedArchive();
+    const incomingSoftDeleted = inspection.normalizedPayload.softDeletedArchive || {};
+    const mergedSoftDeletedArchive: Record<string, SyncRecordEnvelope> = {
+      ...incomingSoftDeleted,
+      ...currentSoftDeleted,
+    };
+    try {
+      saveSoftDeletedArchive(mergedSoftDeletedArchive);
+    } catch {
+      // ignore
+    }
+
+    // ۹. به‌روزرسانی شمارنده‌های شناسه یکتا (حداکثر شمارنده بین دو دستگاه و شناسه‌های موجود تا هرگز شناسه تکراری صادر نشود)
+    const curSeq = readLocalIdSequences();
+    const incSeq = inspection.normalizedPayload.idSequences || curSeq;
+    const baseMaxSeq: IdSequenceSnapshot = {
+      LOG: Math.max(curSeq.LOG, incSeq.LOG || 1000),
+      RL: Math.max(curSeq.RL, incSeq.RL || 1000),
+      SS: Math.max(curSeq.SS, incSeq.SS || 1000),
+      MR: Math.max(curSeq.MR, incSeq.MR || 1000),
+      EX: Math.max(curSeq.EX, incSeq.EX || 1000),
+      CP: Math.max(curSeq.CP, incSeq.CP || 1000),
+      TMP_OUT: Math.max(curSeq.TMP_OUT, incSeq.TMP_OUT || 1),
+    };
+    const mergedSeq = computeEffectiveIdSequences(mergedState, baseMaxSeq);
+    try {
+      localStorage.setItem(ID_SEQUENCE_STORAGE_KEY, JSON.stringify(mergedSeq));
+    } catch {
+      // ignore
+    }
+
+    applyCommittedSyncMetadataToCache(
+      {
+        recordMetaMap: mergedRecordMeta,
+        baselineChangeMap: nextBaselineMap,
+        appliedPackageIds: nextAppliedPackages,
+      },
+      batchRes.updatedAt
+    );
+
+    const summaryMessage = `ادغام امن فایل JSON با موفقیت انجام شد: ${appliedNewCount.toLocaleString(
+      'fa-IR'
+    )} رکورد جدید اضافه شد، ${appliedModifiedCount.toLocaleString(
+      'fa-IR'
+    )} رکورد تکمیل شد و ${resolvedConflictsCount.toLocaleString(
+      'fa-IR'
+    )} تعارض مطابق انتخاب شما مدیریت گردید (کد پشتیبان پیش از ادغام: ${recoveryPoint.recoveryId}).`;
+
+    return {
+      ok: true,
+      recoveryPointId: recoveryPoint.recoveryId,
+      appliedNewCount,
+      appliedModifiedCount,
+      resolvedConflictsCount,
+      keptDestinationConflictsCount,
+      acceptedIncomingConflictsCount,
+      unchangedCount: inspection.summaryMetrics.existingUnchangedOrDuplicateCount,
+      skippedInvalidCount: inspection.invalidRecords.length,
+      mergedState,
+      summaryMessage,
+    };
+  } catch (err) {
+    // بازگردانی خودکار (Automatic Transactional Rollback) از Recovery Point در صورت هرگونه خطا
+    await restoreFromPreMergeRecoveryPoint(recoveryPoint);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      recoveryPointId: recoveryPoint.recoveryId,
+      appliedNewCount: 0,
+      appliedModifiedCount: 0,
+      resolvedConflictsCount: 0,
+      keptDestinationConflictsCount: 0,
+      acceptedIncomingConflictsCount: 0,
+      unchangedCount: 0,
+      skippedInvalidCount: inspection.invalidRecords.length,
+      mergedState: recoveryPoint.stateSnapshot,
+      summaryMessage:
+        'خطا در حین ادغام؛ تمام اطلاعات دستگاه به صورت خودکار و کامل از روی Recovery Point به وضعیت اولیه بازگردانده شدند.',
+    };
+  }
+}

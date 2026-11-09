@@ -116,13 +116,23 @@ export const JsonSystemTransferSection: React.FC<JsonSystemTransferSectionProps>
       const latestDest = await resolveLatestVerifiedOperationalState(fullOperationalState, {
         syncUnpersistedToStorage: false,
       });
-      const effectiveDestinationState = latestDest.ok ? latestDest.state : fullOperationalState;
+      if (!latestDest.ok) {
+        setInspectionReport(null);
+        setConflictDecisions({});
+        setShowImportModal(false);
+        onNotify(
+          latestDest.error ||
+            'خطا در خواندن آخرین وضعیت حافظه پایدار دستگاه مقصد؛ ساخت پیش‌نمایش متوقف شد.',
+          'warning'
+        );
+        return;
+      }
 
       const report = inspectAndCompareSystemJson(
         rawText,
         file.name,
         file.size,
-        effectiveDestinationState,
+        latestDest.state,
         catalogRows
       );
 

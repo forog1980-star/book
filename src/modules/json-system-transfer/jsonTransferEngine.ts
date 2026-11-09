@@ -1533,6 +1533,69 @@ function buildRecordSummaryTitle(collection: MergeCollectionKey, rec: Record<str
 }
 
 /**
+ * محاسبه اثرانگشت قطعی (Deterministic Fingerprint) از وضعیت عملیاتی دستگاه مقصد
+ * برای تضمین اینکه وضعیت مقصد در فاصله زمانی میان ساخت Preview تا اجرای Apply تغییر نکرده است
+ */
+export function computeOperationalDestinationFingerprint(
+  state: FullOperationalState
+): string {
+  const canonicalPayload = canonicalizeValueDeterministic({
+    auditRecords: state.auditRecords || {},
+    bookCopies: state.bookCopies || [],
+    customMartyrs: state.customMartyrs || [],
+    smartSuggestions: state.smartSuggestions || [],
+    links: state.links || [],
+    pendingReviews: state.pendingReviews || [],
+    multiMartyrGroups: (state.multiMartyrGroups || []).map((g) =>
+      normalizeMultiMartyrGroupRecord(g)
+    ),
+    extractedItems: state.extractedItems || [],
+    auditLog: state.auditLog || [],
+    rejectedSuggestionsArchive: state.rejectedSuggestionsArchive || [],
+  });
+  return `DEST_FP_SHA256_${sha256Hex(canonicalPayload)}`;
+}
+
+/**
+ * آماده‌سازی پیش‌نمایش ورود فایل JSON با خواندن سخت‌گیرانه آخرین وضعیت حافظه پایدار مقصد:
+ * در صورت شکست خواندن Storage، پیش‌نمایش متوقف شده و هرگز از وضعیت جایگزین (Fallback) استفاده نمی‌شود.
+ */
+export async function prepareVerifiedJsonImportPreview(
+  rawJsonText: string,
+  fileName: string,
+  fileSizeBytes: number,
+  activeDestinationState: FullOperationalState,
+  catalogRows: ReferenceCatalogRow[] = []
+): Promise<{
+  ok: boolean;
+  report?: SystemJsonInspectionReport;
+  error?: string;
+}> {
+  const latestDest = await resolveLatestVerifiedOperationalState(activeDestinationState, {
+    syncUnpersistedToStorage: false,
+  });
+  if (!latestDest.ok) {
+    return {
+      ok: false,
+      error:
+        latestDest.error ||
+        'خطا در خواندن آخرین وضعیت حافظه پایدار دستگاه مقصد؛ ساخت پیش‌نمایش متوقف شد.',
+    };
+  }
+  const report = inspectAndCompareSystemJson(
+    rawJsonText,
+    fileName,
+    fileSizeBytes,
+    latestDest.state,
+    catalogRows
+  );
+  return {
+    ok: true,
+    report,
+  };
+}
+
+/**
  * مراحل اول و دوم (بخش چهارم): اعتبارسنجی کامل فایل JSON و مقایسه دقیق اطلاعات با دستگاه مقصد
  * بدون اعمال هیچ تغییری در اطلاعات مقصد
  */
@@ -2350,6 +2413,7 @@ export function inspectAndCompareSystemJson(
     conflicts,
     invalidRecords,
     normalizedPayload,
+    destinationStateFingerprint: computeOperationalDestinationFingerprint(destinationState),
   };
 }
 
@@ -3743,6 +3807,32 @@ export async function executeSafeJsonMerge(
     };
   }
   const effectiveDestinationState = latestDest.state;
+
+  // ۰-ب. بررسی قطعی عدم تغییر وضعیت مقصد در فاصله میان ساخت Preview تا اجرای Apply
+  const currentDestinationFingerprint = computeOperationalDestinationFingerprint(
+    effectiveDestinationState
+  );
+  if (
+    !inspection.destinationStateFingerprint ||
+    inspection.destinationStateFingerprint !== currentDestinationFingerprint
+  ) {
+    return {
+      ok: false,
+      error:
+        'وضعیت اطلاعات دستگاه مقصد پس از ساخت پیش‌نمایش تغییر کرده است؛ برای جلوگیری از بازنویسی ناخواسته داده‌های جدید مقصد، عملیات ادغام متوقف شد. لطفاً فایل JSON را مجدداً انتخاب و پیش‌نمایش جدید دریافت کنید.',
+      recoveryPointId: '',
+      appliedNewCount: 0,
+      appliedModifiedCount: 0,
+      resolvedConflictsCount: 0,
+      keptDestinationConflictsCount: 0,
+      acceptedIncomingConflictsCount: 0,
+      unchangedCount: 0,
+      skippedInvalidCount: inspection.invalidRecords.length,
+      mergedState: effectiveDestinationState,
+      summaryMessage:
+        'ادغام به دلیل تغییر وضعیت مقصد پس از پیش‌نمایش متوقف شد (اطلاعات فعلی کاملاً محفوظ است).',
+    };
+  }
 
   // ۱. تهیه و اعتبارسنجی Recovery Point پیش از هرگونه تغییر
   const rpRes = await createPreMergeRecoveryPoint(effectiveDestinationState);

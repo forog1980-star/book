@@ -271,6 +271,9 @@ import {
   isValidPreMergeRecoveryPoint,
   computePreMergeRecoveryPointChecksum,
   inspectAndCompareSystemJson,
+  prepareVerifiedJsonImportPreview,
+  resolveLatestVerifiedOperationalState,
+  computeOperationalDestinationFingerprint,
   buildFullSystemJsonExport,
   computeSystemDataIntegrityHash,
   executeSafeJsonMerge,
@@ -1569,7 +1572,191 @@ async function runAllTests() {
     passed++;
   }
 
-  console.log(`=== ALL ${passed}/22 RESTORE/ROLLBACK + EXPORT FRESHNESS & REVERSE TRANSFER SCENARIOS + REGRESSION SUITE PASSED (EXIT 0) ===`);
+  // Scenario 24 (تست رگرسیون جدید ۱): شکست خواندن Storage هنگام انتخاب فایل باید مانع ساخت Preview معتبر شود (بدون استفاده از وضعیت جایگزین و بدون ایجاد تغییر یا Recovery Point)
+  {
+    lsStore.clear();
+    idbStores.clear();
+    resetFaults();
+
+    const pcSeeded = await seedDeviceState('PC_FOR_PREVIEW_ERR');
+    const pcExport = await buildFullSystemJsonExport(pcSeeded.state, []);
+    assertEqual(pcExport.ok, true);
+
+    lsStore.clear();
+    idbStores.clear();
+    resetFaults();
+    const phoneSeeded = await seedDeviceState('PHONE_PREVIEW_ERR');
+    const beforeSnap = await dumpBothStoragesSnapshot();
+    const rpBefore = await getLatestPreMergeRecoveryPoint();
+    assertEqual(rpBefore, null, 'Scenario 24: No recovery point should exist before preview');
+
+    // شبیه‌سازی خطای خواندن Storage در لحظه انتخاب فایل برای ساخت پیش‌نمایش
+    failIdbTxMode = 'always';
+    const latestDestCheck = await resolveLatestVerifiedOperationalState(phoneSeeded.state, {
+      syncUnpersistedToStorage: false,
+    });
+    const previewRes = await prepareVerifiedJsonImportPreview(
+      pcExport.jsonString,
+      pcExport.fileName,
+      pcExport.byteSize,
+      phoneSeeded.state,
+      []
+    );
+    resetFaults();
+
+    assertEqual(latestDestCheck.ok, false, 'Scenario 24: resolveLatestVerifiedOperationalState must return ok: false');
+    assertEqual(previewRes.ok, false, 'Scenario 24: Preview must be blocked when Storage read fails');
+    assertEqual(previewRes.report, undefined, 'Scenario 24: No fallback preview report may be created from fullOperationalState');
+    assertOk(Boolean(previewRes.error && previewRes.error.length > 0), 'Scenario 24: Clear error message must be returned');
+
+    const rpAfter = await getLatestPreMergeRecoveryPoint();
+    assertEqual(rpAfter, null, 'Scenario 24: No Recovery Point may be created during failed preview');
+    const afterSnap = await dumpBothStoragesSnapshot();
+    assertEqual(afterSnap, beforeSnap, 'Scenario 24: Destination storage must remain 100% untouched');
+
+    console.log('[PASS] Scenario 24 (تست رگرسیون ۱): شکست خواندن Storage هنگام انتخاب فایل -> توقف کامل ساخت Preview بدون جایگزینی با fullOperationalState و بدون تغییر داده');
+    passed++;
+  }
+
+  // Scenario 25 (تست رگرسیون جدید ۲): تغییر وضعیت مقصد پس از Preview و پیش از Apply (به‌ویژه ایجاد رکورد هم‌شناسه با رکورد جدید Preview قبلی) -> توقف ادغام و حفظ ۱۰۰٪ رکورد جدید گوشی
+  {
+    lsStore.clear();
+    idbStores.clear();
+    resetFaults();
+
+    // ۱) رایانه یک رکورد جدید با شناسه 'SHARED-NEW-ID-500' در فایل JSON خروجی دارد
+    const pcSeeded = await seedDeviceState('PC_STALE_PREVIEW');
+    const pcState = deepClone(pcSeeded.state);
+    pcState.auditRecords['SHARED-NEW-ID-500'] = {
+      id: 'SHARED-NEW-ID-500',
+      key: 'SHARED-NEW-ID-500',
+      tempBookId: 'TMP-OUT-500',
+      copyId: 'CP-5000',
+      rowNumber: 500,
+      title: 'عنوان واردشده در فایل رایانه برای رکورد ۵۰۰',
+      author: 'نویسنده نسخه رایانه',
+      publisher: 'نشر رایانه',
+      year: '1403',
+      category: 'پژوهش',
+      countedCopies: '1',
+      shelf: 'C',
+      level: '1',
+      location: 'C-1',
+      isbn: '978-600-00-0500-1',
+      fipa: 'FIPA-PC-500',
+      registrationNo: 'REG-PC-500',
+      edition: 'اول',
+      physical: 'verified',
+      copyStatus: 'available',
+      notes: 'نسخه رایانه',
+      observedDate: '1403/12/20',
+      source: 'outside-list',
+    } as unknown as FullOperationalState['auditRecords'][string];
+    await saveOperationalData(OPERATIONAL_STORAGE_KEYS.auditRecords, pcState.auditRecords);
+    const pcExport = await buildFullSystemJsonExport(pcState, []);
+    assertEqual(pcExport.ok, true);
+
+    // ۲) در گوشی ابتدا رکورد 'SHARED-NEW-ID-500' وجود ندارد و Preview ساخته می‌شود (در Preview رکورد ۵۰۰ به عنوان 'new' تشخیص داده می‌شود)
+    lsStore.clear();
+    idbStores.clear();
+    resetFaults();
+    const phoneSeeded = await seedDeviceState('PHONE_STALE_PREVIEW');
+    const previewRes = await prepareVerifiedJsonImportPreview(
+      pcExport.jsonString,
+      pcExport.fileName,
+      pcExport.byteSize,
+      phoneSeeded.state,
+      []
+    );
+    assertEqual(previewRes.ok, true);
+    const stalePreviewReport = previewRes.report!;
+    assertEqual(stalePreviewReport.valid, true);
+    assertOk(
+      Boolean(stalePreviewReport.destinationStateFingerprint),
+      'Scenario 25: Preview must record destinationStateFingerprint'
+    );
+    assertOk(
+      stalePreviewReport.newRecords.some(
+        (r) => r.collection === 'auditRecords' && r.recordId === 'SHARED-NEW-ID-500'
+      ),
+      'Scenario 25: In initial Preview, SHARED-NEW-ID-500 is classified as a new record'
+    );
+
+    // ۳) پس از ساخت Preview و پیش از زدن Apply، روی گوشی رکورد 'SHARED-NEW-ID-500' با اطلاعات معتبر اختصاصی گوشی ایجاد و ذخیره می‌شود
+    const updatedPhoneState = deepClone(phoneSeeded.state);
+    updatedPhoneState.auditRecords['SHARED-NEW-ID-500'] = {
+      id: 'SHARED-NEW-ID-500',
+      key: 'SHARED-NEW-ID-500',
+      tempBookId: 'TMP-OUT-500',
+      copyId: 'CP-5000',
+      rowNumber: 500,
+      title: 'عنوان تازه ثبت‌شده روی گوشی پس از پیش‌نمایش (نباید بازنویسی شود)',
+      author: 'نویسنده اختصاصی گوشی',
+      publisher: 'نشر اختصاصی گوشی',
+      year: '1403',
+      category: 'خاطرات',
+      countedCopies: '3',
+      shelf: 'A',
+      level: '2',
+      location: 'A-2',
+      isbn: '978-600-99-9500-9',
+      fipa: 'FIPA-PHONE-PROTECTED-500',
+      registrationNo: 'REG-PHONE-500',
+      edition: 'دوم',
+      physical: 'verified',
+      copyStatus: 'available',
+      notes: 'ایجادشده در گوشی بین Preview و Apply',
+      observedDate: '1403/12/21',
+      source: 'outside-list',
+    } as unknown as FullOperationalState['auditRecords'][string];
+    await saveOperationalData(
+      OPERATIONAL_STORAGE_KEYS.auditRecords,
+      updatedPhoneState.auditRecords
+    );
+
+    const fpAfterPhoneEdit = computeOperationalDestinationFingerprint(updatedPhoneState);
+    assertOk(
+      fpAfterPhoneEdit !== stalePreviewReport.destinationStateFingerprint,
+      'Scenario 25: Destination fingerprint must change when destination records change'
+    );
+
+    const snapBeforeApply = await dumpBothStoragesSnapshot();
+
+    // ۴) تلاش برای اجرای Apply با Preview قدیمی -> باید متوقف شود و رکورد تازه ایجادشده گوشی را بازنویسی نکند
+    const mergeAttempt = await executeSafeJsonMerge(stalePreviewReport, phoneSeeded.state, {});
+    assertEqual(
+      mergeAttempt.ok,
+      false,
+      'Scenario 25: executeSafeJsonMerge must reject stale Preview when destination state has changed'
+    );
+    assertMatch(
+      mergeAttempt.error ?? '',
+      /وضعیت اطلاعات دستگاه مقصد پس از ساخت پیش‌نمایش تغییر کرده است/
+    );
+    assertEqual(mergeAttempt.appliedNewCount, 0);
+    assertEqual(mergeAttempt.appliedModifiedCount, 0);
+    assertEqual(mergeAttempt.resolvedConflictsCount, 0);
+    assertEqual(
+      mergeAttempt.mergedState.auditRecords['SHARED-NEW-ID-500'].title,
+      'عنوان تازه ثبت‌شده روی گوشی پس از پیش‌نمایش (نباید بازنویسی شود)',
+      'Scenario 25: Newly created Phone record must never be overwritten by a stale newRecords classification'
+    );
+    assertEqual(
+      mergeAttempt.mergedState.auditRecords['SHARED-NEW-ID-500'].author,
+      'نویسنده اختصاصی گوشی'
+    );
+
+    const snapAfterApply = await dumpBothStoragesSnapshot();
+    assertEqual(
+      snapAfterApply,
+      snapBeforeApply,
+      'Scenario 25: Storage on Phone must remain 100% unchanged when stale Preview is rejected'
+    );
+    console.log('[PASS] Scenario 25 (تست رگرسیون ۲): تغییر وضعیت مقصد پس از Preview و پیش از Apply -> تشخیص تغییر اثرانگشت مقصد، توقف ادغام و حفاظت ۱۰۰٪ از رکورد تازه ایجادشده روی گوشی');
+    passed++;
+  }
+
+  console.log(`=== ALL ${passed}/24 RESTORE/ROLLBACK + EXPORT FRESHNESS + PREVIEW-APPLY SAFETY SCENARIOS + REGRESSION SUITE PASSED (EXIT 0) ===`);
 }
 
 runAllTests().catch((err) => {
