@@ -395,11 +395,12 @@ export interface IdbKeySnapshotEntry<T = unknown> {
   exists: boolean;
   data: T | null;
   updatedAt: number;
+  rawRecord?: unknown;
 }
 
 /**
- * خواندن دقیق وضعیت یک کلید در IndexedDB با تفکیک صریح بین «نبود کلید» (exists: false)
- * و «خطای خواندن از IndexedDB» (ok: false) بدون تغییر در داده اصلی
+ * خواندن دقیق وضعیت یک کلید در IndexedDB با حفظ ساختار خام کامل رکورد (rawRecord)
+ * و تفکیک صریح بین «نبود کلید» (exists: false) و «خطای خواندن از IndexedDB» (ok: false)
  */
 export async function idbGetEnvelopeStrict<T = unknown>(
   key: string
@@ -408,10 +409,11 @@ export async function idbGetEnvelopeStrict<T = unknown>(
   exists: boolean;
   data: T | null;
   updatedAt: number;
+  rawRecord: unknown;
   error?: string;
 }> {
   if (!isIndexedDbAvailable()) {
-    return { ok: true, exists: false, data: null, updatedAt: 0 };
+    return { ok: true, exists: false, data: null, updatedAt: 0, rawRecord: null };
   }
   try {
     const db = await openDB();
@@ -423,15 +425,17 @@ export async function idbGetEnvelopeStrict<T = unknown>(
         db.close();
         const raw = req.result;
         if (raw === undefined || raw === null) {
-          resolve({ ok: true, exists: false, data: null, updatedAt: 0 });
+          resolve({ ok: true, exists: false, data: null, updatedAt: 0, rawRecord: null });
           return;
         }
+        const clonedRaw = JSON.parse(JSON.stringify(raw));
         if (isEnvelope<T>(raw)) {
           resolve({
             ok: true,
             exists: true,
             data: raw.data,
             updatedAt: raw.updatedAt || 0,
+            rawRecord: clonedRaw,
           });
         } else {
           resolve({
@@ -439,18 +443,33 @@ export async function idbGetEnvelopeStrict<T = unknown>(
             exists: true,
             data: raw as T,
             updatedAt: 1,
+            rawRecord: clonedRaw,
           });
         }
       };
       req.onerror = () => {
         const errMsg = req.error?.message || `خطا در خواندن کلید ${key} از IndexedDB`;
         db.close();
-        resolve({ ok: false, exists: false, data: null, updatedAt: 0, error: errMsg });
+        resolve({
+          ok: false,
+          exists: false,
+          data: null,
+          updatedAt: 0,
+          rawRecord: null,
+          error: errMsg,
+        });
       };
       tx.onerror = () => {
         const errMsg = tx.error?.message || `خطای تراکنش خواندن کلید ${key} از IndexedDB`;
         db.close();
-        resolve({ ok: false, exists: false, data: null, updatedAt: 0, error: errMsg });
+        resolve({
+          ok: false,
+          exists: false,
+          data: null,
+          updatedAt: 0,
+          rawRecord: null,
+          error: errMsg,
+        });
       };
     });
   } catch (err) {
@@ -459,6 +478,7 @@ export async function idbGetEnvelopeStrict<T = unknown>(
       exists: false,
       data: null,
       updatedAt: 0,
+      rawRecord: null,
       error: err instanceof Error ? err.message : String(err),
     };
   }
@@ -466,13 +486,22 @@ export async function idbGetEnvelopeStrict<T = unknown>(
 
 /**
  * بازگردانی اتمیک و تراکنشی وضعیت دقیق کلیدهای IndexedDB به Snapshot پیش از عملیات
- * (اگر کلیدی قبلاً وجود نداشته حذف می‌شود و اگر وجود داشته با همان داده و updatedAt قبلی بازگردانده می‌شود)
+ * - اگر کلیدی قبلاً وجود نداشته، حذف می‌شود.
+ * - اگر کلیدی وجود داشته و ساختار خام قبلی آن (rawRecord) در Snapshot موجود است، دقیقاً همان ساختار خام قبلی
+ *   (شامل نسخه Envelope، updatedAt، recordCount، سایر فیلدهای موجود یا ساختار قدیمی غیر Envelope) بازگردانده می‌شود.
+ * - برای سازگاری عقب‌رو، در صورت نبود rawRecord از ساخت Envelope بر پایه data و updatedAt استفاده می‌شود.
  */
 export async function idbRestoreKeySnapshotAtomic(
   snapshots: IdbKeySnapshotEntry[]
 ): Promise<{ ok: boolean; error?: string }> {
-  if (!isIndexedDbAvailable() || !snapshots || snapshots.length === 0) {
+  if (!snapshots || snapshots.length === 0) {
     return { ok: true };
+  }
+  if (!isIndexedDbAvailable()) {
+    return {
+      ok: false,
+      error: 'IndexedDB در زمان اجرای تراکنش Rollback در دسترس نیست.',
+    };
   }
 
   try {
@@ -506,7 +535,8 @@ export async function idbRestoreKeySnapshotAtomic(
 
       for (const snap of snapshots) {
         try {
-          if (!snap.exists || snap.data === null || snap.data === undefined) {
+          const hasRawRecord = snap.rawRecord !== undefined && snap.rawRecord !== null;
+          if (!snap.exists || (!hasRawRecord && (snap.data === null || snap.data === undefined))) {
             const delReq = store.delete(snap.key);
             delReq.onerror = (ev) => {
               opErrorMsg = delReq.error?.message || `خطا در حذف کلید ${snap.key} هنگام Rollback`;
@@ -518,19 +548,25 @@ export async function idbRestoreKeySnapshotAtomic(
               }
             };
           } else {
-            const value = snap.data;
-            const recordCount = Array.isArray(value)
-              ? value.length
-              : value && typeof value === 'object'
-              ? Object.keys(value as object).length
-              : 1;
-            const envelope: StorageEnvelope<unknown> = {
-              __envelopeVersion: 2,
-              updatedAt: snap.updatedAt || 1,
-              recordCount,
-              data: value,
-            };
-            const putReq = store.put(envelope, snap.key);
+            let recordToPut: unknown;
+            if (hasRawRecord) {
+              recordToPut = JSON.parse(JSON.stringify(snap.rawRecord));
+            } else {
+              const value = snap.data;
+              const recordCount = Array.isArray(value)
+                ? value.length
+                : value && typeof value === 'object'
+                ? Object.keys(value as object).length
+                : 1;
+              const fallbackEnvelope: StorageEnvelope<unknown> = {
+                __envelopeVersion: 2,
+                updatedAt: snap.updatedAt || 1,
+                recordCount,
+                data: value,
+              };
+              recordToPut = fallbackEnvelope;
+            }
+            const putReq = store.put(recordToPut, snap.key);
             putReq.onerror = (ev) => {
               opErrorMsg = putReq.error?.message || `خطا در بازگردانی کلید ${snap.key} هنگام Rollback`;
               if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();

@@ -2368,7 +2368,7 @@ async function readEffectiveKeyStrict(
   if (!idbStrict.ok) {
     return {
       ok: false,
-      idbSnap: { key, exists: false, data: null, updatedAt: 0 },
+      idbSnap: { key, exists: false, data: null, updatedAt: 0, rawRecord: null },
       localSnap: { exists: false, rawValue: null },
       effectiveValue: defaultFallback,
       effectiveUpdatedAt: 0,
@@ -2396,6 +2396,7 @@ async function readEffectiveKeyStrict(
         exists: idbStrict.exists,
         data: idbStrict.data,
         updatedAt: idbStrict.updatedAt,
+        rawRecord: idbStrict.rawRecord,
       },
       localSnap: { exists: localExists, rawValue: localRaw },
       effectiveValue: defaultFallback,
@@ -2414,6 +2415,10 @@ async function readEffectiveKeyStrict(
         ? JSON.parse(JSON.stringify(idbStrict.data))
         : null,
     updatedAt: idbStrict.updatedAt,
+    rawRecord:
+      idbStrict.exists && idbStrict.rawRecord !== undefined
+        ? JSON.parse(JSON.stringify(idbStrict.rawRecord))
+        : null,
   };
 
   const localSnap = {
@@ -2611,19 +2616,28 @@ export async function capturePreRestoreDeviceSnapshot(): Promise<{
 /**
  * اجرای Rollback واقعی و کامل روی IndexedDB، LocalStorage و کش‌های متادیتای همگام‌سازی
  * همراه با بازخوانی و تطبیق ۱۰۰٪ وضعیت بازگردانده‌شده با Snapshot پیش از عملیات
+ * - اگر IndexedDB پیش از عملیات فعال بوده باشد اما در زمان Rollback یا بررسی نهایی در دسترس نباشد،
+ *   Rollback هرگز موفق اعلام نمی‌شود و LocalStorage جایگزین تأیید IndexedDB نخواهد شد.
  */
 async function executeAndVerifyFullRollback(
   preSnapshot: PreRestoreDeviceSnapshot
 ): Promise<{ rollbackOk: boolean; rollbackError?: string }> {
   const errors: string[] = [];
+  const mustVerifyIdb = preSnapshot.idbAvailable || isIndexedDbAvailable();
 
   // ۱. بازگردانی اتمیک و تراکنشی تمام کلیدهای IndexedDB به وضعیت دقیق پیش از عملیات
-  if (isIndexedDbAvailable()) {
-    const idbRollbackRes = await idbRestoreKeySnapshotAtomic(preSnapshot.idbEntries);
-    if (!idbRollbackRes.ok) {
+  if (mustVerifyIdb) {
+    if (!isIndexedDbAvailable()) {
       errors.push(
-        `شکست تراکنش Rollback در IndexedDB: ${idbRollbackRes.error || 'خطای نامشخص'}`
+        'IndexedDB پیش از عملیات فعال بود اما در زمان اجرای Rollback در دسترس نیست؛ بازگردانی IndexedDB قابل انجام و تأیید نیست.'
       );
+    } else {
+      const idbRollbackRes = await idbRestoreKeySnapshotAtomic(preSnapshot.idbEntries);
+      if (!idbRollbackRes.ok) {
+        errors.push(
+          `شکست تراکنش Rollback در IndexedDB: ${idbRollbackRes.error || 'خطای نامشخص'}`
+        );
+      }
     }
   }
 
@@ -2654,7 +2668,7 @@ async function executeAndVerifyFullRollback(
     preSnapshot.syncCacheSnapshot.updatedAt
   );
 
-  // ۴. بازخوانی مجدد از Storage و بررسی برابری دقیق محتوا با Snapshot پیش از عملیات
+  // ۴. بازخوانی مجدد از Storage و بررسی برابری دقیق محتوا و ساختار خام با Snapshot پیش از عملیات
   const defaultFallbacks: Record<string, unknown> = {
     [OPERATIONAL_STORAGE_KEYS.auditRecords]: {},
     [OPERATIONAL_STORAGE_KEYS.bookCopies]: [],
@@ -2671,8 +2685,20 @@ async function executeAndVerifyFullRollback(
     [APPLIED_PACKAGES_KEY]: [],
   };
 
+  if (mustVerifyIdb && !isIndexedDbAvailable()) {
+    errors.push(
+      'IndexedDB پیش از عملیات فعال بود اما در مرحله بررسی نهایی پس از Rollback در دسترس نیست؛ هیچ مسیر جایگزینی از طریق LocalStorage نمی‌تواند فقدان تأیید IndexedDB را پنهان کند.'
+    );
+  }
+
   for (const snapEntry of preSnapshot.idbEntries) {
-    if (isIndexedDbAvailable()) {
+    if (mustVerifyIdb) {
+      if (!isIndexedDbAvailable()) {
+        errors.push(
+          `امکان تأیید بازگردانی کلید ${snapEntry.key} در IndexedDB به دلیل عدم دسترسی به IndexedDB وجود ندارد`
+        );
+        continue;
+      }
       const checkIdb = await idbGetEnvelopeStrict(snapEntry.key);
       if (!checkIdb.ok) {
         errors.push(`خطا در بازخوانی کلید ${snapEntry.key} از IndexedDB پس از Rollback`);
@@ -2687,6 +2713,15 @@ async function executeAndVerifyFullRollback(
         const actualCanon = canonicalizeValueDeterministic(checkIdb.data);
         if (expectedCanon !== actualCanon) {
           errors.push(`عدم تطابق محتوای کلید ${snapEntry.key} در IndexedDB پس از Rollback`);
+        }
+        if (snapEntry.rawRecord !== undefined && snapEntry.rawRecord !== null) {
+          const expectedRawCanon = canonicalizeValueDeterministic(snapEntry.rawRecord);
+          const actualRawCanon = canonicalizeValueDeterministic(checkIdb.rawRecord);
+          if (expectedRawCanon !== actualRawCanon) {
+            errors.push(
+              `عدم تطابق ساختار خام رکورد (rawRecord) کلید ${snapEntry.key} در IndexedDB پس از Rollback`
+            );
+          }
         }
       }
     }
