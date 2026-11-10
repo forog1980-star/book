@@ -265,6 +265,123 @@ interface StyledColumnSpec {
   isLongText?: boolean;
 }
 
+export const EXCEL_UNIFIED_FONT_NAME = 'Vazirmatn';
+
+export const EXCEL_VAZIRMATN_THEME_XML = [
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+  '<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="MarkazAsnadVazirmatnTheme">',
+  '<a:themeElements>',
+  '<a:clrScheme name="Office">',
+  '<a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>',
+  '<a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1>',
+  '<a:dk2><a:srgbClr val="1F497D"/></a:dk2>',
+  '<a:lt2><a:srgbClr val="EEECE1"/></a:lt2>',
+  '<a:accent1><a:srgbClr val="4F81BD"/></a:accent1>',
+  '<a:accent2><a:srgbClr val="C0504D"/></a:accent2>',
+  '<a:accent3><a:srgbClr val="9BBB59"/></a:accent3>',
+  '<a:accent4><a:srgbClr val="8064A2"/></a:accent4>',
+  '<a:accent5><a:srgbClr val="4BACC6"/></a:accent5>',
+  '<a:accent6><a:srgbClr val="F79646"/></a:accent6>',
+  '<a:hlink><a:srgbClr val="0000FF"/></a:hlink>',
+  '<a:folHlink><a:srgbClr val="800080"/></a:folHlink>',
+  '</a:clrScheme>',
+  '<a:fontScheme name="VazirmatnScheme">',
+  '<a:majorFont>',
+  `<a:latin typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  `<a:ea typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  `<a:cs typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  `<a:font script="Arab" typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  '</a:majorFont>',
+  '<a:minorFont>',
+  `<a:latin typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  `<a:ea typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  `<a:cs typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  `<a:font script="Arab" typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  '</a:minorFont>',
+  '</a:fontScheme>',
+  '<a:fmtScheme name="Office">',
+  '<a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst>',
+  '<a:lnStyleLst><a:ln w="9525" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln><a:ln w="25400" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln><a:ln w="38100" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln></a:lnStyleLst>',
+  '<a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst>',
+  '<a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst>',
+  '</a:fmtScheme>',
+  '</a:themeElements>',
+  '<a:objectDefaults/>',
+  '<a:extraClrSchemeLst/>',
+  '</a:theme>',
+].join('');
+
+export const EXCEL_UNIFIED_WRITE_OPTIONS = {
+  bookType: 'xlsx' as const,
+  defaultCellStyle: {
+    font: {
+      name: EXCEL_UNIFIED_FONT_NAME,
+      sz: 10,
+      color: { rgb: '24303F' },
+    },
+  },
+  themeXLSX: EXCEL_VAZIRMATN_THEME_XML,
+};
+
+function createUnifiedWorksheetStyles() {
+  const thinBorder = {
+    top: { style: 'thin', color: { rgb: 'C8B69B' } },
+    bottom: { style: 'thin', color: { rgb: 'C8B69B' } },
+    left: { style: 'thin', color: { rgb: 'C8B69B' } },
+    right: { style: 'thin', color: { rgb: 'C8B69B' } },
+  };
+
+  return {
+    titleBannerStyle: {
+      font: { name: EXCEL_UNIFIED_FONT_NAME, sz: 13, bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FF6B3E26' }, bgColor: { indexed: '64' } },
+      alignment: { horizontal: 'center', vertical: 'center', readingOrder: 2, wrapText: true },
+      border: thinBorder,
+    },
+    subBannerStyle: {
+      font: { name: EXCEL_UNIFIED_FONT_NAME, sz: 10, bold: true, color: { rgb: '332218' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FFF5E6D3' }, bgColor: { indexed: '64' } },
+      alignment: { horizontal: 'right', vertical: 'center', readingOrder: 2, wrapText: true },
+      border: thinBorder,
+    },
+    tableHeaderStyle: {
+      font: { name: EXCEL_UNIFIED_FONT_NAME, sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FF1E4D2B' }, bgColor: { indexed: '64' } },
+      alignment: { horizontal: 'center', vertical: 'center', readingOrder: 2, wrapText: true },
+      border: {
+        top: { style: 'medium', color: { rgb: '14361E' } },
+        bottom: { style: 'medium', color: { rgb: '14361E' } },
+        left: { style: 'thin', color: { rgb: 'A8D5B5' } },
+        right: { style: 'thin', color: { rgb: 'A8D5B5' } },
+      },
+    },
+    dataRowOddIndexColStyle: {
+      font: { name: EXCEL_UNIFIED_FONT_NAME, sz: 10, bold: true, color: { rgb: '24303F' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FFFFFFFF' }, bgColor: { indexed: '64' } },
+      alignment: { horizontal: 'center', vertical: 'center', readingOrder: 2, wrapText: true },
+      border: thinBorder,
+    },
+    dataRowOddTextColStyle: {
+      font: { name: EXCEL_UNIFIED_FONT_NAME, sz: 10, bold: false, color: { rgb: '24303F' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FFFFFFFF' }, bgColor: { indexed: '64' } },
+      alignment: { horizontal: 'right', vertical: 'center', readingOrder: 2, wrapText: true },
+      border: thinBorder,
+    },
+    dataRowEvenIndexColStyle: {
+      font: { name: EXCEL_UNIFIED_FONT_NAME, sz: 10, bold: true, color: { rgb: '24303F' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FFFAF6EE' }, bgColor: { indexed: '64' } },
+      alignment: { horizontal: 'center', vertical: 'center', readingOrder: 2, wrapText: true },
+      border: thinBorder,
+    },
+    dataRowEvenTextColStyle: {
+      font: { name: EXCEL_UNIFIED_FONT_NAME, sz: 10, bold: false, color: { rgb: '24303F' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FFFAF6EE' }, bgColor: { indexed: '64' } },
+      alignment: { horizontal: 'right', vertical: 'center', readingOrder: 2, wrapText: true },
+      border: thinBorder,
+    },
+  };
+}
+
 /**
  * ساخت شیت اکسل استاندارد با فونت فارسی Vazirmatn، راست‌به‌چپ، سرصفحه رسمی مرکز اسناد گلزار شهدای تهران،
  * قاب‌بندی کامل سلول‌ها، سطر عنوان متمایز، فیلتر ستون‌ها، تثبیت سطر عنوان و تنظیمات چاپ
@@ -374,39 +491,9 @@ function buildStyledWorksheet(
     footer: 0.3,
   };
 
-  // ۷. استایل‌دهی تمام سلول‌ها با فونت فارسی Vazirmatn و قاب‌بندی جدول
-  const thinBorder = {
-    top: { style: 'thin', color: { rgb: 'C8B69B' } },
-    bottom: { style: 'thin', color: { rgb: 'C8B69B' } },
-    left: { style: 'thin', color: { rgb: 'C8B69B' } },
-    right: { style: 'thin', color: { rgb: 'C8B69B' } },
-  };
-
-  const titleBannerStyle = {
-    font: { name: 'Vazirmatn', sz: 13, bold: true, color: { rgb: 'FFFFFF' } },
-    fill: { fgColor: { rgb: '6B3E26' } },
-    alignment: { horizontal: 'center', vertical: 'center', readingOrder: 2, wrapText: true },
-    border: thinBorder,
-  };
-
-  const subBannerStyle = {
-    font: { name: 'Vazirmatn', sz: 10, bold: true, color: { rgb: '332218' } },
-    fill: { fgColor: { rgb: 'F5E6D3' } },
-    alignment: { horizontal: 'right', vertical: 'center', readingOrder: 2, wrapText: true },
-    border: thinBorder,
-  };
-
-  const tableHeaderStyle = {
-    font: { name: 'Vazirmatn', sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
-    fill: { fgColor: { rgb: '1E4D2B' } },
-    alignment: { horizontal: 'center', vertical: 'center', readingOrder: 2, wrapText: true },
-    border: {
-      top: { style: 'medium', color: { rgb: '14361E' } },
-      bottom: { style: 'medium', color: { rgb: '14361E' } },
-      left: { style: 'thin', color: { rgb: 'A8D5B5' } },
-      right: { style: 'thin', color: { rgb: 'A8D5B5' } },
-    },
-  };
+  // ۷. استایل‌دهی یکپارچه تمام سلول‌ها با فونت فارسی Vazirmatn و قاب‌بندی جدول
+  // استفاده از کدهای رنگ ۸ کاراکتری ARGB برای جلوگیری از تغییر درجای استایل در برگه اول توسط xlsx-js-style
+  const styles = createUnifiedWorksheetStyles();
 
   for (let r = 0; r < matrix.length; r++) {
     for (let c = 0; c < colCount; c++) {
@@ -415,32 +502,41 @@ function buildStyledWorksheet(
         ws[cellRef] = { t: 's', v: '' };
       }
       if (r === 0) {
-        ws[cellRef].s = titleBannerStyle;
+        ws[cellRef].s = styles.titleBannerStyle;
       } else if (r === 1) {
-        ws[cellRef].s = subBannerStyle;
+        ws[cellRef].s = styles.subBannerStyle;
       } else if (r === 2) {
-        ws[cellRef].s = tableHeaderStyle;
+        ws[cellRef].s = styles.tableHeaderStyle;
       } else {
         const isEvenDataRow = (r - 3) % 2 === 1;
-        const colSpec = columns[c];
         const isFirstRowNumCol = c === 0;
-        ws[cellRef].s = {
+        if (isEvenDataRow) {
+          ws[cellRef].s = isFirstRowNumCol
+            ? styles.dataRowEvenIndexColStyle
+            : styles.dataRowEvenTextColStyle;
+        } else {
+          ws[cellRef].s = isFirstRowNumCol
+            ? styles.dataRowOddIndexColStyle
+            : styles.dataRowOddTextColStyle;
+        }
+      }
+    }
+  }
+
+  for (const key of Object.keys(ws)) {
+    if (key.startsWith('!')) continue;
+    const cell = ws[key];
+    if (cell && typeof cell === 'object') {
+      if (!cell.s) {
+        cell.s = styles.dataRowOddTextColStyle;
+      } else if (!cell.s.font || cell.s.font.name !== EXCEL_UNIFIED_FONT_NAME) {
+        cell.s = {
+          ...cell.s,
           font: {
-            name: 'Vazirmatn',
-            sz: 10,
-            bold: isFirstRowNumCol,
-            color: { rgb: '24303F' },
+            ...(cell.s.font || {}),
+            name: EXCEL_UNIFIED_FONT_NAME,
+            sz: cell.s.font?.sz || 10,
           },
-          fill: {
-            fgColor: { rgb: isEvenDataRow ? 'FAF6EE' : 'FFFFFF' },
-          },
-          alignment: {
-            horizontal: isFirstRowNumCol ? 'center' : 'right',
-            vertical: 'center',
-            readingOrder: 2,
-            wrapText: Boolean(colSpec?.isLongText) || true,
-          },
-          border: thinBorder,
         };
       }
     }
@@ -464,6 +560,7 @@ export function generateStandardizedMartyrCentricExcel(
   const wb = XLSXStyle.utils.book_new();
   if (!wb.Workbook) wb.Workbook = {};
   wb.Workbook.Views = [{ RTL: true }];
+  (wb as Record<string, unknown>).Themes = { raw: EXCEL_VAZIRMATN_THEME_XML };
 
   let sheetsCreated = 0;
   let totalRowsExported = 0;
@@ -1183,7 +1280,7 @@ export function generateStandardizedMartyrCentricExcel(
     '_'
   );
   const fileName = `${safePrefix}_${getPersianDateStamp()}.xlsx`;
-  XLSXStyle.writeFile(wb, fileName);
+  XLSXStyle.writeFile(wb, fileName, EXCEL_UNIFIED_WRITE_OPTIONS);
 
   return {
     ok: true,
