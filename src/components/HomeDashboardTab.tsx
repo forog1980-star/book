@@ -18,7 +18,9 @@ import {
   Edit3,
   Plus,
   Check,
-  X
+  X,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { ModalWindow } from './ModalWindow';
 import {
@@ -213,8 +215,10 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
   const [relSourceDesc, setRelSourceDesc] = useState('');
   const [relReviewerNote, setRelReviewerNote] = useState('');
 
-  // جست‌وجو در فهرست ثبت‌های قفسه ذخیره‌شده در پایین صفحه اصلی
+  // جست‌وجو در فهرست ثبت‌های قفسه ذخیره‌شده در پایین صفحه اصلی + وضعیت باز و بسته شدن بخش‌های جمع‌شونده پایین صفحه خانه (به‌صورت پیش‌فرض بسته)
   const [savedShelfSearchQuery, setSavedShelfSearchQuery] = useState('');
+  const [isSavedShelfSectionOpen, setIsSavedShelfSectionOpen] = useState(false);
+  const [isJsonTransferSectionOpen, setIsJsonTransferSectionOpen] = useState(false);
 
   // Voice Input State
   const [voiceConsentChecked, setVoiceConsentChecked] = useState(true);
@@ -1529,20 +1533,38 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
           </button>
         </div>
 
-        {/* فهرست ثبت‌های قفسه ذخیره‌شده در حافظه دستگاه */}
+        {/* فهرست ثبت‌های قفسه ذخیره‌شده در حافظه دستگاه (به‌صورت جمع‌شونده / Accordion و در حالت پیش‌فرض بسته) */}
         <div
           data-testid="saved-shelf-records-section"
           className="bg-white border border-[#D8C7B2] rounded-2xl p-4 space-y-3 shadow-2xs"
         >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-[#EFE5D8] pb-3">
-            <div>
-              <h3 className="text-xs sm:text-sm font-bold text-[#332218]">
-                فهرست ثبت‌های قفسه ذخیره‌شده در حافظه دستگاه ({toPersianDigits(Object.keys(auditRecords).length)} مورد)
-              </h3>
-              <p className="text-[11px] text-[#6E5846] mt-0.5">
-                شامل تمام کتاب‌های تعیین‌تکلیف‌شده در قفسه‌ها و ثبت‌های جدید ذخیره‌شده روی این دستگاه
-              </p>
-            </div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <button
+              type="button"
+              data-testid="saved-shelf-accordion-toggle"
+              aria-expanded={isSavedShelfSectionOpen}
+              onClick={() => setIsSavedShelfSectionOpen((prev) => !prev)}
+              className="flex-1 flex items-center justify-between gap-3 text-right cursor-pointer group"
+            >
+              <div>
+                <h3 className="text-xs sm:text-sm font-bold text-[#332218] group-hover:text-[#6B3E26] transition-colors flex items-center gap-2">
+                  <span>
+                    فهرست ثبت‌های قفسه ذخیره‌شده در حافظه دستگاه ({toPersianDigits(Object.keys(auditRecords).length)} مورد)
+                  </span>
+                </h3>
+                <p className="text-[11px] text-[#6E5846] mt-0.5">
+                  شامل تمام کتاب‌های تعیین‌تکلیف‌شده در قفسه‌ها و ثبت‌های جدید ذخیره‌شده روی این دستگاه (برای مشاهده یا بستن کلیک کنید)
+                </p>
+              </div>
+              <span className="px-2.5 py-1.5 rounded-xl bg-[#FAF5EE] border border-[#D8C7B2] text-[#6B3E26] text-[11px] font-bold inline-flex items-center gap-1 shrink-0">
+                <span>{isSavedShelfSectionOpen ? 'بستن فهرست' : 'مشاهده فهرست'}</span>
+                {isSavedShelfSectionOpen ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </span>
+            </button>
 
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               <button
@@ -1551,10 +1573,16 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                 onClick={() => {
                   exportShelfAuditRecordsToExcel(
                     savedDeviceAuditRecords,
-                    'فهرست_ثبت_های_قفسه_ذخیره_شده'
-                  );
-                  onNotify(
-                    `فایل اکسل ثبت‌های قفسه (${toPersianDigits(savedDeviceAuditRecords.length)} رکورد) دانلود شد.`
+                    'فهرست_ثبت_های_قفسه_ذخیره_شده',
+                    {
+                      catalogRows,
+                      auditRecords,
+                      bookCopies,
+                      links,
+                      extractedItems,
+                      customMartyrs,
+                      workbookMartyrs
+                    }
                   );
                 }}
                 className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
@@ -1565,82 +1593,120 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             </div>
           </div>
 
-          {Object.keys(auditRecords).length > 0 && (
-            <div className="relative">
-              <Search className="w-4 h-4 text-[#6E5846] absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="search"
-                value={savedShelfSearchQuery}
-                onChange={(e) => setSavedShelfSearchQuery(e.target.value)}
-                placeholder="جست‌وجو در ثبت‌های قفسه ذخیره‌شده (عنوان کتاب، کد قفسه، نویسنده، ناشر)..."
-                className="w-full min-h-[38px] pr-9 pl-3 py-1.5 text-xs bg-[#FAF5EE] border border-[#D8C7B2] rounded-xl focus:outline-none focus:border-[#6B3E26] focus:bg-white text-[#332218]"
-              />
-            </div>
-          )}
-
-          {savedDeviceAuditRecords.length === 0 ? (
-            <div className="p-4 text-center bg-[#FAF5EE] rounded-xl text-xs text-[#6E5846]">
-              {Object.keys(auditRecords).length === 0
-                ? 'هنوز هیچ ثبت قفسه‌ای در حافظه این دستگاه ذخیره نشده است.'
-                : 'موردی منطبق با عبارت جست‌وجو در ثبت‌های قفسه یافت نشد.'}
-            </div>
-          ) : (
-            <div className="max-h-72 overflow-y-auto divide-y divide-[#EFE5D8] border border-[#E2D2BE] rounded-xl bg-white">
-              {savedDeviceAuditRecords.slice(0, 60).map((rec, idx) => (
-                <div
-                  key={rec.key}
-                  className="p-2.5 sm:p-3 hover:bg-[#FAF5EE] transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
-                >
-                  <div className="space-y-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-[#FAF5EE] border border-[#D8C7B2] text-[#6B3E26]">
-                        {toPersianDigits(idx + 1)}
-                      </span>
-                      <span className="font-bold text-[#332218] break-words">{rec.title}</span>
-                      <span className="font-mono text-[11px] text-[#6E5846]" dir="ltr">
-                        ({rec.tempBookId})
-                      </span>
-                      {rec.source === 'outside-list' && (
-                        <span className="px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-900 font-bold text-[10.5px]">
-                          ثبت جدید
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#5C4636]">
-                      {rec.location && (
-                        <span className="font-mono font-bold px-2 py-0.5 rounded bg-[#EDF6F0] text-[#1E4D2B] border border-[#A8D5B5]">
-                          محل: {rec.location}
-                        </span>
-                      )}
-                      {rec.category && <span>دسته: {rec.category}</span>}
-                      {rec.publisher && <span>· ناشر: {rec.publisher}</span>}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
-                    <button
-                      type="button"
-                      onClick={() => openBookDossierByTitleOrId(rec.tempBookId || rec.title)}
-                      className="px-2.5 py-1 rounded-lg bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-[11px] cursor-pointer"
-                    >
-                      پرونده کتاب
-                    </button>
-                  </div>
+          {isSavedShelfSectionOpen && (
+            <div className="space-y-3 border-t border-[#EFE5D8] pt-3">
+              {Object.keys(auditRecords).length > 0 && (
+                <div className="relative">
+                  <Search className="w-4 h-4 text-[#6E5846] absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="search"
+                    value={savedShelfSearchQuery}
+                    onChange={(e) => setSavedShelfSearchQuery(e.target.value)}
+                    placeholder="جست‌وجو در ثبت‌های قفسه ذخیره‌شده (عنوان کتاب، کد قفسه، نویسنده، ناشر)..."
+                    className="w-full min-h-[38px] pr-9 pl-3 py-1.5 text-xs bg-[#FAF5EE] border border-[#D8C7B2] rounded-xl focus:outline-none focus:border-[#6B3E26] focus:bg-white text-[#332218]"
+                  />
                 </div>
-              ))}
+              )}
+
+              {savedDeviceAuditRecords.length === 0 ? (
+                <div className="p-4 text-center bg-[#FAF5EE] rounded-xl text-xs text-[#6E5846]">
+                  {Object.keys(auditRecords).length === 0
+                    ? 'هنوز هیچ ثبت قفسه‌ای در حافظه این دستگاه ذخیره نشده است.'
+                    : 'موردی منطبق با عبارت جست‌وجو در ثبت‌های قفسه یافت نشد.'}
+                </div>
+              ) : (
+                <div className="max-h-72 overflow-y-auto divide-y divide-[#EFE5D8] border border-[#E2D2BE] rounded-xl bg-white">
+                  {savedDeviceAuditRecords.slice(0, 60).map((rec, idx) => (
+                    <div
+                      key={rec.key}
+                      className="p-2.5 sm:p-3 hover:bg-[#FAF5EE] transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-[#FAF5EE] border border-[#D8C7B2] text-[#6B3E26]">
+                            {toPersianDigits(idx + 1)}
+                          </span>
+                          <span className="font-bold text-[#332218] break-words">{rec.title}</span>
+                          <span className="font-mono text-[11px] text-[#6E5846]" dir="ltr">
+                            ({rec.tempBookId})
+                          </span>
+                          {rec.source === 'outside-list' && (
+                            <span className="px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-900 font-bold text-[10.5px]">
+                              ثبت جدید
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#5C4636]">
+                          {rec.location && (
+                            <span className="font-mono font-bold px-2 py-0.5 rounded bg-[#EDF6F0] text-[#1E4D2B] border border-[#A8D5B5]">
+                              محل: {rec.location}
+                            </span>
+                          )}
+                          {rec.category && <span>دسته: {rec.category}</span>}
+                          {rec.publisher && <span>· ناشر: {rec.publisher}</span>}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                        <button
+                          type="button"
+                          onClick={() => openBookDossierByTitleOrId(rec.tempBookId || rec.title)}
+                          className="px-2.5 py-1 rounded-lg bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-[11px] cursor-pointer"
+                        >
+                          پرونده کتاب
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
       </section>
 
-      {/* بخش مستقل انتقال و نگهداری کامل اطلاعات کتابخانه با JSON در پایین‌ترین بخش صفحه اصلی */}
+      {/* بخش مستقل انتقال و نگهداری اطلاعات کتابخانه با JSON (به‌صورت جمع‌شونده / Accordion و در حالت پیش‌فرض بسته) */}
       {fullOperationalState && onApplyMergedSystemState && (
-        <JsonSystemTransferSection
-          fullOperationalState={fullOperationalState}
-          catalogRows={catalogRows}
-          onApplyMergedState={onApplyMergedSystemState}
-          onNotify={onNotify}
-        />
+        <section
+          data-testid="json-transfer-accordion-wrapper"
+          className="bg-white border border-[#D8C7B2] rounded-2xl p-4 space-y-3 shadow-2xs"
+        >
+          <button
+            type="button"
+            data-testid="json-transfer-accordion-toggle"
+            aria-expanded={isJsonTransferSectionOpen}
+            onClick={() => setIsJsonTransferSectionOpen((prev) => !prev)}
+            className="w-full flex items-center justify-between gap-3 text-right cursor-pointer group"
+          >
+            <div>
+              <h3 className="text-xs sm:text-sm font-bold text-[#332218] group-hover:text-[#6B3E26] transition-colors">
+                انتقال و نگهداری اطلاعات کتابخانه
+              </h3>
+              <p className="text-[11px] text-[#6E5846] mt-0.5">
+                خروجی کامل JSON، ورود و ادغام امن فایل بین رایانه و گوشی و نقاط بازیابی خودکار (برای باز و بسته کردن کلیک کنید)
+              </p>
+            </div>
+            <span className="px-2.5 py-1.5 rounded-xl bg-[#FAF5EE] border border-[#D8C7B2] text-[#6B3E26] text-[11px] font-bold inline-flex items-center gap-1 shrink-0">
+              <span>{isJsonTransferSectionOpen ? 'بستن بخش انتقال' : 'باز کردن بخش انتقال'}</span>
+              {isJsonTransferSectionOpen ? (
+                <ChevronUp className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
+            </span>
+          </button>
+
+          {isJsonTransferSectionOpen && (
+            <div className="border-t border-[#EFE5D8] pt-3">
+              <JsonSystemTransferSection
+                fullOperationalState={fullOperationalState}
+                catalogRows={catalogRows}
+                onApplyMergedState={onApplyMergedSystemState}
+                onNotify={onNotify}
+              />
+            </div>
+          )}
+        </section>
       )}
 
       {/* پنجره ۱: فهرست کتاب‌های هر گروه آماری پس از کلیک روی کارت آماری (حفظ فیلتر و اسکرول هنگام باز و بسته شدن پرونده کتاب) */}
@@ -1699,10 +1765,16 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                     exportBookDossiersToExcel(
                       filteredStatModalDossiers,
                       listTitle,
-                      `فهرست_کتاب_ها_${activeStatGroupModal}_${statModalSubFilter}`
-                    );
-                    onNotify(
-                      `فایل اکسل این فهرست (${toPersianDigits(filteredStatModalDossiers.length)} عنوان کتاب به همراه شیت ریز ارتباط شهدا) دانلود شد.`
+                      `فهرست_کتاب_ها_${activeStatGroupModal}_${statModalSubFilter}`,
+                      {
+                        catalogRows,
+                        auditRecords,
+                        bookCopies,
+                        links,
+                        extractedItems,
+                        customMartyrs,
+                        workbookMartyrs
+                      }
                     );
                   }}
                   className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
@@ -1942,9 +2014,17 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                     exportBookDossiersToExcel(
                       [selectedBookDossier],
                       `پرونده کتاب ${selectedBookDossier.title}`,
-                      `پرونده_کتاب_${selectedBookDossier.bookId}`
+                      `پرونده_کتاب_${selectedBookDossier.bookId}`,
+                      {
+                        catalogRows,
+                        auditRecords,
+                        bookCopies,
+                        links,
+                        extractedItems,
+                        customMartyrs,
+                        workbookMartyrs
+                      }
                     );
-                    onNotify(`فایل اکسل پرونده کتاب «${selectedBookDossier.title}» دانلود شد.`);
                   }}
                   className="px-3 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
                 >

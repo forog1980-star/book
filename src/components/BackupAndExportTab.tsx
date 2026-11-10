@@ -32,6 +32,7 @@ import {
   inspectBackupFile
 } from '../utils/backupService';
 import { requestActionConfirmation } from '../utils/confirmDialogService';
+import { openStandardExcelExportModal } from '../modules/excel-export';
 
 interface BackupAndExportTabProps {
   auditRecords: Record<string, FieldAuditRecord>;
@@ -166,105 +167,42 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
     onNotify('فایل «خروجی-تخصصی-ثبت-فیزیکی-کتابخانه.csv» با موفقیت دانلود شد.');
   };
 
-  // ۳. خروجی تخصصی تغییرات پیشنهادی Excel (بدون دستکاری فایل مرجع اصلی)
+  // ۳. خروجی تخصصی تغییرات پیشنهادی Excel (با ارتباط کتاب، شهید و محتوای مستند)
   const handleExportProposedExcel = () => {
     if (!recordsList.length) {
       onNotify('هنوز ثبتی برای تهیه خروجی تخصصی تغییرات Excel وجود ندارد.', 'warning');
       return;
     }
 
-    const rowsForSheet = recordsList.map((r) => ({
-      'کلید تطبیق/ردیف': r.key,
-      'شناسه موقت کتاب': r.tempBookId || '',
-      'نوع رکورد': r.source === 'outside-list' ? 'خارج از فهرست (نیازمند تطبیق)' : 'موجود در فهرست مرجع',
-      'شیت مرجع': r.sheet,
-      'عنوان کتاب': r.title,
-      'نویسنده/گردآورنده': r.author,
-      'ناشر': r.publisher,
-      'سال چاپ': r.year,
-      'دسته موضوعی': r.category,
-      'قفسه': r.shelf,
-      'طبقه': r.level,
-      'محل نگهداری/قفسه (SH-xx-Txx)': r.location,
-      'تعداد نسخه‌های موجود پس از شمارش': r.countedCopies || '1',
-      'وضعیت بررسی کتاب':
-        r.physical === 'verified'
-          ? 'دیده شد و ثبت شد'
-          : r.physical === 'review'
-          ? 'نیازمند بررسی مشخصات'
-          : 'در این نوبت پیدا نشد',
-      'یادداشت': r.notes,
-      'زمان ثبت': r.updatedAt
-    }));
-
-    const ws = XLSX.utils.json_to_sheet(rowsForSheet);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'پیشنهاد تغییرات');
-    XLSX.writeFile(wb, 'خروجی-تخصصی-پیشنهاد-تغییرات-قفسه.xlsx');
-    onNotify(
-      'فایل «خروجی-تخصصی-پیشنهاد-تغییرات-قفسه.xlsx» تولید شد؛ فایل مرجع اصلی بدون تغییر باقی ماند.'
-    );
+    openStandardExcelExportModal({
+      mode: 'shelf_records',
+      reportTitle: 'گزارش تخصصی ثبت‌های قفسه، تغییرات پیشنهادی و شهدای مرتبط',
+      fileNamePrefix: 'خروجی_تخصصی_پیشنهاد_تغییرات_قفسه',
+      shelfRecords: recordsList,
+      catalogRows,
+      auditRecords,
+      bookCopies: effectiveState.bookCopies,
+      links: effectiveState.links,
+      extractedItems: effectiveState.extractedItems,
+      customMartyrs: effectiveState.customMartyrs,
+      presetId: 'books_with_martyrs'
+    });
   };
 
-  // ۴. خروجی تخصصی تلفیقی شیت مرجع + ثبت‌های فیزیکی قفسه (.xlsx)
+  // ۴. خروجی تخصصی تلفیقی شیت مرجع + ثبت‌های فیزیکی قفسه + ارتباط شهدا (.xlsx)
   const handleExportCombinedWorkbook = () => {
-    const combinedHeader = [
-      ...headers,
-      'گروه موضوعی ثبت‌شده',
-      'قفسه (SH)',
-      'طبقه (T)',
-      'کد محل (SH-xx-Txx)',
-      'تعداد شمارش‌شده',
-      'وضعیت مشاهده میدانی',
-      'توضیحات میدانی',
-      'زمان ثبت'
-    ];
-
-    const matrix: string[][] = [combinedHeader];
-
-    for (const row of catalogRows) {
-      const rec = auditRecords[row.rowKey];
-      const baseValues = headers.map((_, idx) => row.allValues[idx] ?? '');
-      matrix.push([
-        ...baseValues,
-        rec?.category || '',
-        rec?.shelf || '',
-        rec?.level || '',
-        rec?.location || '',
-        rec?.countedCopies || '',
-        rec?.physical || '',
-        rec?.notes || '',
-        rec?.updatedAt || ''
-      ]);
-    }
-
-    const outsideRecords = recordsList.filter((r) => r.source === 'outside-list');
-
-    const wb = XLSX.utils.book_new();
-    const wsMain = XLSX.utils.aoa_to_sheet(matrix);
-    XLSX.utils.book_append_sheet(wb, wsMain, currentSheetName.slice(0, 31) || 'فهرست همراه ثبت');
-
-    if (outsideRecords.length > 0) {
-      const wsOutside = XLSX.utils.json_to_sheet(
-        outsideRecords.map((r) => ({
-          'شناسه موقت': r.tempBookId,
-          'کلید ثبت': r.key,
-          'عنوان روی کتاب': r.title,
-          'نویسنده': r.author,
-          'ناشر': r.publisher,
-          'سال چاپ': r.year,
-          'گروه موضوعی': r.category,
-          'کد محل': r.location,
-          'تعداد نسخه': r.countedCopies,
-          'یادداشت': r.notes,
-          'زمان ثبت': r.updatedAt
-        }))
-      );
-      XLSX.utils.book_append_sheet(wb, wsOutside, 'کتاب‌های خارج از فهرست');
-    }
-
-    XLSX.writeFile(wb, 'خروجی-تخصصی-فهرست-کاری-و-ثبت-فیزیکی.xlsx');
-    onNotify('گزارش تخصصی اکسل تلفیقی شیت مرجع + ثبت‌های فیزیکی و کتاب‌های خارج از فهرست دانلود شد.');
+    openStandardExcelExportModal({
+      mode: 'books_list',
+      reportTitle: `گزارش تلفیقی فهرست کاری کتابخانه (${currentSheetName})، ثبت‌های قفسه و شهدای مرتبط`,
+      fileNamePrefix: 'خروجی_تخصصی_فهرست_کاری_و_ثبت_فیزیکی',
+      catalogRows,
+      auditRecords,
+      bookCopies: effectiveState.bookCopies,
+      links: effectiveState.links,
+      extractedItems: effectiveState.extractedItems,
+      customMartyrs: effectiveState.customMartyrs,
+      presetId: 'complete_report'
+    });
   };
 
   // ۵. بررسی و پیش‌نمایش فایل پشتیبان JSON (پشتیبانی از نسخه ۳ کامل و نسخه ۲ قدیمی)

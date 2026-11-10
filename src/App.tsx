@@ -68,6 +68,10 @@ import { ModalWindow } from './components/ModalWindow';
 import { GlobalConfirmModal } from './components/GlobalConfirmModal';
 import { requestActionConfirmation } from './utils/confirmDialogService';
 import {
+  GlobalExcelExportConfigModal,
+  openStandardExcelExportModal
+} from './modules/excel-export';
+import {
   closeTopModalIfAny,
   popInnerBackStepIfAny,
   clearMartyrsCrossTabTarget
@@ -991,152 +995,20 @@ export default function App() {
   };
 
   const handleQuickExcelExport = () => {
-    try {
-      const wb = XLSX.utils.book_new();
-
-      // شیت ۱ (اصلی): بانک تجمیعی و یکپارچه کل کتاب‌ها (۹۸۰ کتاب پایه + تمام کتاب‌های جدید ثبت‌شده کنار هم)
-      const baseCatalogMergedRows = catalogRows.map((row, idx) => {
-        const audited =
-          auditRecords[row.rowKey] ||
-          Object.values(auditRecords).find(
-            (r) => r.source !== 'outside-list' && r.tempBookId === row.tempBookId
-          );
-        return {
-          'ردیف تجمیعی': idx + 1,
-          'شناسه کتاب': row.tempBookId,
-          'کد نسخه فیزیکی CP':
-            audited?.copyId || `CP-${String(Math.max(1, row.rowIndex - 1)).padStart(6, '0')}`,
-          'عنوان کتاب': audited?.title || row.titleRaw,
-          'نویسنده': audited?.author || row.authorRaw || '',
-          'ناشر': audited?.publisher || row.publisherRaw || '',
-          'گروه موضوعی': audited?.category || row.categoryRaw || '',
-          'محل فیزیکی (قفسه-طبقه)': audited?.location || row.locationRaw || '',
-          'قفسه': audited?.shelf || '',
-          'طبقه': audited?.level || '',
-          'تعداد نسخه': audited?.countedCopies || row.countedCopiesRaw || '1',
-          'منبع در بانک تجمیعی': `فهرست پایه (${catalogRows.length} کتاب موجود)`,
-          'وضعیت در قفسه': audited
-            ? audited.physical === 'verified'
-              ? 'موجود و تأییدشده در قفسه'
-              : audited.physical === 'review'
-              ? 'نیازمند بررسی'
-              : 'پیدا نشد در قفسه'
-            : 'ثبت اولیه کاتالوگ (بررسی‌نشده در قفسه)',
-          'تأیید کارشناس': audited
-            ? audited.physical === 'verified' && audited.copyStatus === 'verified_present'
-              ? 'تأییدشده کارشناس'
-              : 'در انتظار تأیید کارشناس'
-            : 'فهرست مرجع اولیه',
-          'تاریخ آخرین ثبت/ویرایش': audited?.updatedAt || '',
-          'یادداشت': audited?.notes || row.noteRaw || ''
-        };
-      });
-
-      const outsideAddedRows = Object.values(auditRecords)
-        .filter((rec) => rec.source === 'outside-list')
-        .sort((a, b) => (a.updatedAt || '').localeCompare(b.updatedAt || ''))
-        .map((rec, i) => ({
-          'ردیف تجمیعی': catalogRows.length + i + 1,
-          'شناسه کتاب': rec.tempBookId,
-          'کد نسخه فیزیکی CP': rec.copyId || '-',
-          'عنوان کتاب': rec.title,
-          'نویسنده': rec.author || '',
-          'ناشر': rec.publisher || '',
-          'گروه موضوعی': rec.category || '',
-          'محل فیزیکی (قفسه-طبقه)': rec.location || '',
-          'قفسه': rec.shelf || '',
-          'طبقه': rec.level || '',
-          'تعداد نسخه': rec.countedCopies || '1',
-          'منبع در بانک تجمیعی': 'ثبت جدید اضافه‌شده کنار ۹۸۰ کتاب',
-          'وضعیت در قفسه':
-            rec.physical === 'verified'
-              ? 'موجود و تأییدشده در قفسه'
-              : rec.physical === 'review'
-              ? 'نیازمند بررسی'
-              : 'پیدا نشد در قفسه',
-          'تأیید کارشناس':
-            rec.physical === 'verified' && rec.copyStatus === 'verified_present'
-              ? 'تأییدشده کارشناس'
-              : 'در انتظار تأیید کارشناس',
-          'تاریخ آخرین ثبت/ویرایش': rec.updatedAt || '',
-          'یادداشت': rec.notes || ''
-        }));
-
-      const unifiedMasterRows = [...baseCatalogMergedRows, ...outsideAddedRows];
-      const wsUnified = XLSX.utils.json_to_sheet(unifiedMasterRows);
-      XLSX.utils.book_append_sheet(wb, wsUnified, 'بانک تجمیعی کل کتاب‌ها');
-
-      // شیت ۲: فقط ثبت‌ها و تغییرات قفسه
-      const auditRows = Object.values(auditRecords).map((rec, i) => ({
-        'ردیف': i + 1,
-        'شناسه موقت کتاب': rec.tempBookId,
-        'کد نسخه فیزیکی CP': rec.copyId || '-',
-        'عنوان کتاب': rec.title,
-        'نویسنده': rec.author || '',
-        'ناشر': rec.publisher || '',
-        'گروه موضوعی': rec.category,
-        'محل فیزیکی (قفسه-طبقه)': rec.location,
-        'قفسه': rec.shelf,
-        'طبقه': rec.level,
-        'تعداد نسخه شمرده‌شده': rec.countedCopies,
-        'نوع رکورد':
-          rec.source === 'outside-list'
-            ? 'کتاب جدید (اضافه‌شده کنار ۹۸۰ کتاب)'
-            : 'تعیین‌تکلیف‌شده از ۹۸۰ کتاب پایه',
-        'وضعیت فیزیکی':
-          rec.physical === 'verified'
-            ? 'موجود و تأییدشده'
-            : rec.physical === 'review'
-            ? 'نیازمند بررسی'
-            : 'پیدا نشد',
-        'تاریخ ثبت': rec.updatedAt || '',
-        'یادداشت میدانی': rec.notes || ''
-      }));
-      const wsAudit = XLSX.utils.json_to_sheet(
-        auditRows.length ? auditRows : [{ 'پیام': 'هنوز رکوردی ثبت نشده است' }]
-      );
-      XLSX.utils.book_append_sheet(wb, wsAudit, 'ثبت‌های میدانی قفسه');
-
-      // شیت ۳: شناسنامه نسخه‌های فیزیکی CP
-      const copyRows = bookCopies.map((cp, i) => ({
-        'ردیف': i + 1,
-        'کد نسخه مستقل CP': cp.copyId,
-        'شناسه کتاب مرجع': cp.bookId,
-        'عنوان کتاب': cp.bookTitle,
-        'محل فعلی': cp.location,
-        'قفسه': cp.shelf,
-        'طبقه': cp.level,
-        'وضعیت امانت یا جابه‌جایی': cp.loanOrMoveStatus,
-        'سلامت فیزیکی': cp.physicalCondition,
-        'تاریخ آخرین بررسی': cp.lastReviewedAt,
-        'سوابق جابه‌جایی': cp.locationHistory
-          .map((h) => `${h.fromLocation} به ${h.toLocation}`)
-          .join(' | ')
-      }));
-      const wsCopies = XLSX.utils.json_to_sheet(
-        copyRows.length ? copyRows : [{ 'پیام': 'نسخه‌ای ثبت نشده است' }]
-      );
-      XLSX.utils.book_append_sheet(wb, wsCopies, 'نسخه‌های فیزیکی CP');
-
-      const nowFormatted = new Intl.DateTimeFormat('fa-IR-u-nu-latn')
-        .format(new Date())
-        .replace(/\//g, '-');
-      const fileName = `بانک-تجمیعی-یکپارچه-کل-کتابها-${unifiedMasterRows.length}-جلد-${nowFormatted}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-      showNotify(
-        `فایل اکسل یکپارچه «${fileName}» شامل ${toPersianDigits(
-          catalogRows.length
-        )} کتاب پایه و ${toPersianDigits(
-          outsideAddedRows.length
-        )} کتاب جدید در کنار هم (جمعاً ${toPersianDigits(
-          unifiedMasterRows.length
-        )} کتاب) دانلود شد.`
-      );
-      return true;
-    } catch {
-      showNotify('خطا در صدور فایل اکسل.', 'warning');
-      return false;
-    }
+    openStandardExcelExportModal({
+      mode: 'books_list',
+      reportTitle: 'بانک تجمیعی و یکپارچه کتاب‌ها و شهدای مرتبط (مرکز اسناد گلزار شهدای تهران)',
+      fileNamePrefix: 'بانک_تجمیعی_کتابها_و_شهدای_مرتبط',
+      catalogRows,
+      auditRecords,
+      bookCopies,
+      links,
+      extractedItems,
+      customMartyrs,
+      workbookMartyrs,
+      presetId: 'complete_report'
+    });
+    return true;
   };
 
   const getFullOperationalState = (): FullOperationalState => ({
@@ -2571,6 +2443,7 @@ export default function App() {
           </div>
         </ModalWindow>
       )}
+      <GlobalExcelExportConfigModal onNotify={showNotify} />
       <GlobalConfirmModal />
     </div>
   );

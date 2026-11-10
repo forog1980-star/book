@@ -52,9 +52,17 @@ function extractMaxNumericSuffix(existingIds: string[], prefix: string): number 
   for (const id of existingIds) {
     if (!id || !id.startsWith(prefix)) continue;
     const rest = id.slice(prefix.length);
-    const match = rest.match(/^(\d+)/);
-    if (match) {
-      const num = parseInt(match[1], 10);
+    const directMatch = rest.match(/^(\d+)/);
+    if (directMatch) {
+      const num = parseInt(directMatch[1], 10);
+      if (!Number.isNaN(num) && num > maxNum) {
+        maxNum = num;
+      }
+      continue;
+    }
+    const taggedMatch = rest.match(/^[A-Za-z0-9]+-(\d+)/);
+    if (taggedMatch) {
+      const num = parseInt(taggedMatch[1], 10);
       if (!Number.isNaN(num) && num > maxNum) {
         maxNum = num;
       }

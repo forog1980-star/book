@@ -31,6 +31,7 @@ import {
   normalizePersianText,
   toPersianDigits
 } from '../data/markazAsnadData';
+import { openStandardExcelExportModal } from '../modules/excel-export';
 
 export type DepositoryStatusFilter =
   | 'verified_only'
@@ -417,131 +418,59 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
 
   // ================= EXPORT ENGINES =================
 
+  const resolveActiveExportLinks = (): BookMartyrLinkRecord[] => {
+    const activeRows = exportScope === 'filtered' ? filteredMartyrRows : allMartyrRows;
+    const allowedIds = new Set(activeRows.map((r) => r.id));
+    const matched = links.filter((l) => allowedIds.has(l.id));
+    return matched.length > 0 ? matched : links;
+  };
+
   const handleExportComprehensiveExcel = () => {
-    const martyrData = (exportScope === 'filtered' ? filteredMartyrRows : allMartyrRows).map((m, idx) => ({
-      'ردیف': idx + 1,
-      'شناسه پیوند': m.id,
-      'نام و نام خانوادگی شهید': m.martyrName,
-      'قطعه مزار': m.gravePiece,
-      'ردیف مزار': m.graveRow,
-      'شماره مزار': m.graveNumber,
-      'شناسه کتاب (مخزن)': m.bookId,
-      'عنوان کتاب': m.bookTitle,
-      'ناشر / پدیدآورنده': m.publisher,
-      'موضوع و نحوه ارتباط با شهید': m.relationSubject,
-      'ارجاع صفحه در اثر': m.pageReference,
-      'تعداد متون استخراج‌شده': m.extractedPassageCount,
-      'وضعیت بررسی کارشناسی': m.reviewStatus,
-      'یادداشت کارشناس اسناد': m.reviewerNote,
-      'منبع اطلاعات': `${m.sourceFile} / ${m.sourceSheet}`
-    }));
-
-    const bookData = (exportScope === 'filtered' ? filteredBookRows : allBookRows).map((b, idx) => ({
-      'ردیف': idx + 1,
-      'کد کتاب (مخزن)': b.bookId,
-      'عنوان کامل کتاب': b.bookTitle,
-      'نویسنده / گردآورنده': b.author,
-      'ناشر': b.publisher,
-      'سال نشر': b.year,
-      'رده موضوعی': b.category,
-      'قفسه': b.shelf,
-      'طبقه': b.floor,
-      'کد موقعیت فیزیکی': b.locationCode,
-      'تعداد شهدای مرتبط': b.linkedMartyrsCount,
-      'فهرست شهدای مرتبط و صفحات': b.martyrsListSummary,
-      'خلاصه ارجاعات صفحه': b.pageReferencesSummary,
-      'تعداد متون و استنادات استخراج‌شده': b.extractedPassagesCount,
-      'وضعیت نهایی بازبینی': b.reviewStatus
-    }));
-
-    const extractData = extractedItems.map((e, idx) => ({
-      'ردیف': idx + 1,
-      'شناسه مطلب': e.id,
-      'کد کتاب': e.tempBookId,
-      'عنوان اثر': e.bookTitleRaw,
-      'نام شهید': e.martyrNameRaw,
-      'قطعه مزار': e.gravePieceRaw || '—',
-      'نوع مطلب': e.contentType,
-      'عنوان بخش': e.passageTitle,
-      'ارجاع صفحه': e.pageReferenceRaw,
-      'متن و استناد پژوهشی': e.extractedText,
-      'وضعیت بازبینی': e.reviewStatus,
-      'کارشناس ثبت‌کننده': e.recordedBy || '—'
-    }));
-
-    const statsData = [
-      { 'شاخص': 'کل شهدای دارای کتاب در سامانه', 'مقدار': stats.uniqueMartyrs },
-      { 'شاخص': 'کل پیوندهای دارای نام شهید', 'مقدار': stats.totalLinks },
-      { 'شاخص': 'کتاب‌های مخزن دارای پیوند شهید', 'مقدار': stats.booksWithLinks },
-      { 'شاخص': 'کل کتاب‌های ثبت‌شده در سامانه', 'مقدار': totalSystemBooksCount },
-      { 'شاخص': 'مطالب و استنادات استخراج‌شده', 'مقدار': extractedItems.length },
-      { 'شاخص': 'تاریخ تولید گزارش', 'مقدار': new Intl.DateTimeFormat('fa-IR').format(new Date()) }
-    ];
-
-    const wb = XLSX.utils.book_new();
-    const wsMartyrs = XLSX.utils.json_to_sheet(martyrData);
-    const wsBooks = XLSX.utils.json_to_sheet(bookData);
-    const wsExtracts = XLSX.utils.json_to_sheet(extractData);
-    const wsStats = XLSX.utils.json_to_sheet(statsData);
-
-    XLSX.utils.book_append_sheet(wb, wsMartyrs, 'شهدای دارای کتاب');
-    XLSX.utils.book_append_sheet(wb, wsBooks, 'کتاب‌های متصل به شهدا');
-    XLSX.utils.book_append_sheet(wb, wsExtracts, 'مطالب استخراج‌شده');
-    XLSX.utils.book_append_sheet(wb, wsStats, 'خلاصه آماری');
-
-    const fileName = `دپوی-جامع-اسناد-و-پیوندها-${new Date().toISOString().slice(0, 10)}.xlsx`;
-    XLSX.writeFile(wb, fileName);
-    onNotify(`بسته اکسل ۴ شیت جامع «${fileName}» با موفقیت دانلود شد.`);
+    openStandardExcelExportModal({
+      mode: 'depository_comprehensive',
+      reportTitle:
+        exportScope === 'filtered'
+          ? 'گزارش دپوی جامع اسناد، کتاب‌ها و شهدای مرتبط (فیلتر فعال)'
+          : 'گزارش دپوی جامع اسناد، کتاب‌ها و شهدای مرتبط (کل مخزن)',
+      fileNamePrefix: 'دپوی_جامع_اسناد_کتاب_و_شهید',
+      catalogRows,
+      auditRecords,
+      bookCopies,
+      links: resolveActiveExportLinks(),
+      extractedItems,
+      workbookMartyrs,
+      presetId: 'complete_report'
+    });
   };
 
   const handleExportMartyrExcel = () => {
-    const list = exportScope === 'filtered' ? filteredMartyrRows : allMartyrRows;
-    const rows = list.map((m, idx) => ({
-      'ردیف': idx + 1,
-      'شناسه پیوند': m.id,
-      'نام و نام خانوادگی شهید': m.martyrName,
-      'قطعه مزار': m.gravePiece,
-      'ردیف مزار': m.graveRow,
-      'شماره مزار': m.graveNumber,
-      'شناسه کتاب': m.bookId,
-      'عنوان کتاب': m.bookTitle,
-      'ناشر / پدیدآورنده': m.publisher,
-      'موضوع ارتباط شهید با اثر': m.relationSubject,
-      'ارجاع صفحه در اثر': m.pageReference,
-      'شیت منبع': m.sourceSheet,
-      'وضعیت بررسی': m.reviewStatus,
-      'یادداشت کارشناس': m.reviewerNote
-    }));
-
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'خروجی بر پایه شهدا');
-    XLSX.writeFile(wb, `خروجی-پیوندها-بر-پایه-نام-شهید-${new Date().toISOString().slice(0, 10)}.xlsx`);
-    onNotify(`فایل اکسل بر پایه نام شهدا شامل ${toPersianDigits(rows.length)} رکورد دانلود شد.`);
+    openStandardExcelExportModal({
+      mode: 'martyr_links',
+      reportTitle: 'گزارش ارتباط کتاب‌ها بر پایه نام شهید و نشانی مزار',
+      fileNamePrefix: 'خروجی_پیوندها_بر_پایه_نام_شهید',
+      catalogRows,
+      auditRecords,
+      bookCopies,
+      links: resolveActiveExportLinks(),
+      extractedItems,
+      workbookMartyrs,
+      presetId: 'martyr_dossier'
+    });
   };
 
   const handleExportBookExcel = () => {
-    const list = exportScope === 'filtered' ? filteredBookRows : allBookRows;
-    const rows = list.map((b, idx) => ({
-      'ردیف': idx + 1,
-      'کد کتاب': b.bookId,
-      'عنوان کتاب': b.bookTitle,
-      'نویسنده': b.author,
-      'ناشر': b.publisher,
-      'سال نشر': b.year,
-      'رده موضوعی': b.category,
-      'موقعیت فیزیکی (قفسه و طبقه)': b.locationCode,
-      'تعداد شهدای متصل': b.linkedMartyrsCount,
-      'فهرست شهدای مرتبط و صفحات': b.martyrsListSummary,
-      'ارجاعات صفحه': b.pageReferencesSummary,
-      'وضعیت بررسی': b.reviewStatus
-    }));
-
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'خروجی بر پایه کتاب‌ها');
-    XLSX.writeFile(wb, `خروجی-پیوندها-بر-پایه-کتاب‌ها-${new Date().toISOString().slice(0, 10)}.xlsx`);
-    onNotify(`فایل اکسل بر پایه کتاب‌ها شامل ${toPersianDigits(rows.length)} عنوان دانلود شد.`);
+    openStandardExcelExportModal({
+      mode: 'martyr_links',
+      reportTitle: 'گزارش کتاب‌های متصل به شهدا، صفحات و متون استخراج‌شده',
+      fileNamePrefix: 'خروجی_پیوندها_بر_پایه_کتاب_ها',
+      catalogRows,
+      auditRecords,
+      bookCopies,
+      links: resolveActiveExportLinks(),
+      extractedItems,
+      workbookMartyrs,
+      presetId: 'books_with_martyrs'
+    });
   };
 
   const handleExportJson = () => {

@@ -34,6 +34,7 @@ import {
   MartyrsCrossTabTarget
 } from '../utils/navigationHistory';
 import { requestActionConfirmation } from '../utils/confirmDialogService';
+import { openStandardExcelExportModal } from '../modules/excel-export';
 
 export interface NormalizedDate {
   day: string;
@@ -708,42 +709,22 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
     setHasSearched(false);
   };
 
-  // Export Search Results to Excel
+  // Export Search Results to Excel (with Martyr ⇄ Book ⇄ Grave ⇄ Extracted Passages)
   const handleExportResultsExcel = () => {
     if (!activeResults.length) return;
-    const exportDate = new Intl.DateTimeFormat('fa-IR-u-ca-persian', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    }).format(new Date());
-
-    const rows = activeResults.map((r) => ({
-      نام: r.first_name,
-      'نام خانوادگی': r.last_name,
-      'نام پدر': r.father_name,
-      جنسیت: r.gender,
-      'روز تولد': r.birth_date.day,
-      'ماه تولد': r.birth_date.month_name || r.birth_date.month,
-      'سال تولد': r.birth_date.year,
-      'روز شهادت': r.death_date.day,
-      'ماه شهادت': r.death_date.month_name || r.death_date.month,
-      'سال شهادت': r.death_date.year,
-      سن: r.age_display,
-      عملیات: r.martyrdom_operation,
-      'دسته‌بندی شهادت': r.martyrdom_category,
-      'منطقه / محل شهادت': r.martyrdom_location,
-      'قطعه مزار': r.grave_piece,
-      'ردیف مزار': r.grave_row,
-      'شماره مزار': r.grave_number,
-      منبع: r.source === 'outside' ? 'قطعات عمومی بهشت زهرا' : 'گلزار',
-      'تاریخ خروجی': exportDate
-    }));
-
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'نتایج جستجو');
-    XLSX.writeFile(wb, `جستجوی-کل-شهدا-${exportDate.replace(/\//g, '-')}.xlsx`);
-    onNotify(`خروجی اکسل شامل ${toPersianDigits(activeResults.length)} رکورد دانلود شد.`);
+    openStandardExcelExportModal({
+      mode: 'martyr_search',
+      reportTitle: `گزارش نتایج جست‌وجوی بانک جامع شهدا و کتاب‌های مرتبط (${toPersianDigits(
+        activeResults.length
+      )} شهید)`,
+      fileNamePrefix: 'گزارش_شهدای_گلزار_و_کتابهای_مرتبط',
+      martyrRecords: activeResults,
+      catalogRows,
+      links,
+      extractedItems,
+      customMartyrs,
+      presetId: 'martyr_dossier'
+    });
   };
 
   const handleSaveMartyrBookLink = (e: React.FormEvent) => {

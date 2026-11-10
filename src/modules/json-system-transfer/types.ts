@@ -164,7 +164,8 @@ export type MergeCollectionKey =
 
 export type ConflictDecisionOption =
   | 'keep-destination'
-  | 'merge-complementary';
+  | 'merge-complementary'
+  | 'accept-incoming';
 
 export interface FieldDifferenceDetail {
   fieldKey: string;

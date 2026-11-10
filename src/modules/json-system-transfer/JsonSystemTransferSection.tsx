@@ -867,6 +867,13 @@ export const JsonSystemTransferSection: React.FC<JsonSystemTransferSectionProps>
                             </button>
                             <button
                               type="button"
+                              onClick={() => setAllConflictsDecision('accept-incoming')}
+                              className="px-2.5 py-1 rounded-lg bg-white border border-amber-300 text-amber-950 text-[11px] font-bold cursor-pointer"
+                            >
+                              همه: پذیرش مقدار فایل ورودی
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => setAllConflictsDecision('keep-destination')}
                               className="px-2.5 py-1 rounded-lg bg-white border border-amber-300 text-amber-950 text-[11px] font-bold cursor-pointer"
                             >
@@ -909,6 +916,9 @@ export const JsonSystemTransferSection: React.FC<JsonSystemTransferSectionProps>
                                   >
                                     <option value="merge-complementary">
                                       حفظ نسخه فعلی این دستگاه + تکمیل فیلدهای خالی از فایل
+                                    </option>
+                                    <option value="accept-incoming">
+                                      پذیرش تغییرات فایل ورودی + حفظ فیلدهای خالی‌مانده از این دستگاه
                                     </option>
                                     <option value="keep-destination">
                                       حفظ کامل نسخه فعلی این دستگاه (نادیده گرفتن تغییر فایل)

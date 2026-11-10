@@ -3903,10 +3903,17 @@ export async function executeSafeJsonMerge(
     );
     const nextLogMap = buildMap(effectiveDestinationState.auditLog || [], (l) => l.id);
 
-    const nextBaselineMap: Record<string, string> = {
+    const nextBaselineMap: Record<string, string> = {};
+    for (const [k, v] of Object.entries({
       ...latestDest.syncMetaSnapshot.baselineChangeMap,
       ...(inspection.normalizedPayload.syncBaselineHashes || {}),
-    };
+    })) {
+      if (!k.startsWith('auditLog:')) {
+        nextBaselineMap[k] = v;
+      }
+    }
+
+    const newlyAddedAuditLogs: AuditLogEntry[] = [];
 
     const putIntoTargetCollection = (
       col: MergeCollectionKey,
@@ -3915,9 +3922,11 @@ export async function executeSafeJsonMerge(
     ) => {
       const cloned = JSON.parse(JSON.stringify(recordData));
       const canonical = canonicalizeRecordData(cloned);
-      nextBaselineMap[`${col}:${recordId}`] = computeDeterministicHash(
-        `${col}:${recordId}:${canonical}`
-      );
+      if (col !== 'auditLog') {
+        nextBaselineMap[`${col}:${recordId}`] = computeDeterministicHash(
+          `${col}:${recordId}:${canonical}`
+        );
+      }
 
       switch (col) {
         case 'auditRecords':
@@ -3962,9 +3971,14 @@ export async function executeSafeJsonMerge(
         case 'rejectedSuggestionsArchive':
           nextRejectedMap.set(recordId, cloned as RejectedSuggestionRecord);
           break;
-        case 'auditLog':
-          nextLogMap.set(recordId, { ...(cloned as AuditLogEntry), id: recordId });
+        case 'auditLog': {
+          const logEntry = { ...(cloned as AuditLogEntry), id: recordId };
+          if (!nextLogMap.has(recordId)) {
+            newlyAddedAuditLogs.push(logEntry);
+          }
+          nextLogMap.set(recordId, logEntry);
           break;
+        }
       }
     };
 
@@ -3985,19 +3999,30 @@ export async function executeSafeJsonMerge(
       appliedModifiedCount++;
     }
 
-    // ۵. اعمال تصمیم غیرتخریبی روی رکوردهای دارای تعارض (هرگز مقدار معتبر مقصد بازنویسی نمی‌شود)
+    // ۵. اعمال تصمیم کاربر روی رکوردهای دارای تعارض
     let resolvedConflictsCount = 0;
     let keptDestinationConflictsCount = 0;
-    const acceptedIncomingConflictsCount = 0;
+    let acceptedIncomingConflictsCount = 0;
 
     for (const conf of inspection.conflicts) {
       const rawDecision = conflictDecisions[conf.conflictId] || conf.selectedDecision;
       const decision: ConflictDecisionOption =
-        rawDecision === 'keep-destination' ? 'keep-destination' : 'merge-complementary';
+        rawDecision === 'keep-destination'
+          ? 'keep-destination'
+          : rawDecision === 'accept-incoming'
+          ? 'accept-incoming'
+          : 'merge-complementary';
 
       if (decision === 'keep-destination') {
         putIntoTargetCollection(conf.collection, conf.recordId, conf.destinationRecord);
         keptDestinationConflictsCount++;
+      } else if (decision === 'accept-incoming') {
+        const incomingWithComplementary = mergeComplementaryJsonRecordFields(
+          conf.incomingRecord,
+          conf.destinationRecord
+        );
+        putIntoTargetCollection(conf.collection, conf.recordId, incomingWithComplementary);
+        acceptedIncomingConflictsCount++;
       } else {
         // merge-complementary: حفظ کامل مقادیر معتبر مقصد + تکمیل صرفاً فیلدهای ناقص/خالی از فایل ورودی
         const nonDestructiveMerged = mergeComplementaryJsonRecordFields(
@@ -4017,6 +4042,12 @@ export async function executeSafeJsonMerge(
       Array.from(nextExtractedMap.values())
     );
 
+    const existingAuditLogIds = new Set(newlyAddedAuditLogs.map((l) => l.id));
+    const orderedAuditLog: AuditLogEntry[] = [
+      ...newlyAddedAuditLogs,
+      ...(effectiveDestinationState.auditLog || []).filter((l) => !existingAuditLogIds.has(l.id)),
+    ].slice(0, 300);
+
     const mergedState: FullOperationalState = {
       auditRecords: nextAuditRecords,
       bookCopies: Array.from(nextCopiesMap.values()),
@@ -4026,7 +4057,7 @@ export async function executeSafeJsonMerge(
       pendingReviews: Array.from(nextPendingMap.values()),
       multiMartyrGroups: Array.from(nextGroupsMap.values()),
       extractedItems: mergedExtracted,
-      auditLog: Array.from(nextLogMap.values()),
+      auditLog: orderedAuditLog,
       userSettings: currentState.userSettings ||
         inspection.normalizedPayload.userSettings || { activeRole: 'registrar' },
       rejectedSuggestionsArchive: Array.from(nextRejectedMap.values()),
