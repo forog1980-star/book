@@ -31,7 +31,10 @@ export type ExcelSheetKey =
   | 'extracted_passages'
   | 'related_martyrs';
 
+export type BookMainSubjectCode = 'R' | 'P' | 'H' | 'A' | 'K' | 'M';
+
 export type ExcelPresetId =
+  | 'books_by_subject_category'
   | 'book_title_author'
   | 'book_title_author_publisher'
   | 'book_with_martyr_name'
@@ -39,6 +42,13 @@ export type ExcelPresetId =
   | 'book_with_martyr_subject_page'
   | 'book_with_extracted_text'
   | 'full_comprehensive';
+
+export interface ExcelMainSubjectCategoryMeta {
+  code: BookMainSubjectCode;
+  label: string;
+  shortTitle: string;
+  description: string;
+}
 
 export interface ExcelFieldDefinition {
   id: string;
@@ -144,8 +154,10 @@ export type ExcelExportSourcePayload = ExcelExportDatasetContext;
 export interface ExcelExportUserSelection {
   reportTitle: string;
   fileNamePrefix: string;
-  direction: ExcelReportDirection;
+  direction?: ExcelReportDirection | null;
   selectedFields: Set<string>;
   selectedSheets: Set<ExcelSheetKey>;
+  selectedSubjectCategories?: Set<BookMainSubjectCode>;
 }
+
 

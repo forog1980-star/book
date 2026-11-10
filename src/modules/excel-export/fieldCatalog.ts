@@ -1,9 +1,50 @@
 import {
   ExcelFieldCategoryMeta,
   ExcelFieldDefinition,
+  ExcelMainSubjectCategoryMeta,
   ExcelPresetDefinition,
   ExcelSheetDefinition,
 } from './types';
+
+export const EXCEL_MAIN_SUBJECT_CATEGORIES: ExcelMainSubjectCategoryMeta[] = [
+  {
+    code: 'R',
+    label: 'R — روایت و خاطرات',
+    shortTitle: 'روایت و خاطرات',
+    description: 'فهرست کتاب‌ها و آثار روایت، زندگینامه و خاطرات شهدا',
+  },
+  {
+    code: 'P',
+    label: 'P — پژوهش و تحلیل',
+    shortTitle: 'پژوهش و تحلیل',
+    description: 'فهرست منابع پژوهشی، تحلیلی و مطالعاتی',
+  },
+  {
+    code: 'H',
+    label: 'H — تاریخ و اسناد',
+    shortTitle: 'تاریخ و اسناد',
+    description: 'فهرست آثار تاریخی، کارنامه عملیات‌ها و اسناد',
+  },
+  {
+    code: 'A',
+    label: 'A — ادبیات و هنر',
+    shortTitle: 'ادبیات و هنر',
+    description: 'فهرست آثار ادبی، شعر، داستان و هنر',
+  },
+  {
+    code: 'K',
+    label: 'K — کودک و نوجوان',
+    shortTitle: 'کودک و نوجوان',
+    description: 'فهرست آثار مناسب گروه سنی کودک و نوجوان',
+  },
+  {
+    code: 'M',
+    label: 'M — متفرقه',
+    shortTitle: 'متفرقه و متنوع',
+    description: 'سایر آثار و منابع متنوع کتابخانه مرکز اسناد',
+  },
+];
+
 
 export const EXCEL_FIELD_CATEGORIES: ExcelFieldCategoryMeta[] = [
   {
@@ -448,22 +489,50 @@ export const EXCEL_SHEETS_CATALOG: ExcelSheetDefinition[] = [
 
 export const EXCEL_PRESETS: ExcelPresetDefinition[] = [
   {
+    id: 'books_by_subject_category',
+    label: '۱. گزارش بر اساس ۶ عنوان موضوعی کتاب‌ها (R، P، H، A، K، M)',
+    description: 'خروجی کتاب‌ها و شهدای مرتبط به تفکیک ۶ موضوع اصلی کتابخانه (با قابلیت تیک زدن همه یا هر یک از موضوعات)',
+    selectedFields: [
+      'book_id',
+      'book_title',
+      'book_author',
+      'book_publisher',
+      'book_subject_category',
+      'physical_status',
+      'shelf_code',
+      'level_code',
+      'location_code',
+      'counted_copies',
+      'martyr_name',
+      'martyr_id',
+      'grave_full_address',
+      'grave_piece',
+      'grave_row',
+      'grave_number',
+      'martyr_relation_subject',
+      'page_reference_raw',
+      'link_id',
+      'relation_certainty',
+    ],
+    selectedSheets: ['main_books', 'book_martyr_relations', 'subjects_and_pages'],
+  },
+  {
     id: 'book_title_author',
-    label: 'فقط عنوان کتاب و نویسنده',
+    label: '۲. فقط عنوان کتاب و نویسنده',
     description: 'فهرست خلاصه شامل شناسه کتاب، عنوان کتاب و نویسنده',
     selectedFields: ['book_id', 'book_title', 'book_author'],
     selectedSheets: ['main_books'],
   },
   {
     id: 'book_title_author_publisher',
-    label: 'عنوان کتاب، نویسنده و ناشر',
+    label: '۳. عنوان کتاب، نویسنده و ناشر',
     description: 'مشخصات پایه کتاب‌شناختی شامل عنوان، نویسنده، ناشر و کد محل نگهداری',
     selectedFields: ['book_id', 'book_title', 'book_author', 'book_publisher', 'location_code'],
     selectedSheets: ['main_books'],
   },
   {
     id: 'book_with_martyr_name',
-    label: 'کتاب به همراه نام شهید مرتبط',
+    label: '۴. کتاب به همراه نام شهید مرتبط',
     description: 'عنوان، نویسنده و ناشر کتاب به همراه نام و شناسه شهدای مرتبط در دو برگه',
     selectedFields: [
       'book_id',
@@ -481,7 +550,7 @@ export const EXCEL_PRESETS: ExcelPresetDefinition[] = [
   },
   {
     id: 'book_with_martyr_and_grave',
-    label: 'کتاب به همراه نام شهید و آدرس مزار',
+    label: '۵. کتاب به همراه نام شهید و آدرس مزار',
     description: 'مشخصات کتاب، نام شهید و اطلاعات کامل مزار (قطعه، ردیف، شماره و آدرس مزار)',
     selectedFields: [
       'book_id',
@@ -502,7 +571,7 @@ export const EXCEL_PRESETS: ExcelPresetDefinition[] = [
   },
   {
     id: 'book_with_martyr_subject_page',
-    label: 'کتاب به همراه شهید، موضوع و شماره صفحه',
+    label: '۶. کتاب به همراه شهید، موضوع و شماره صفحه',
     description: 'کتاب، نام شهید، نشانی مزار، موضوع کتاب، موضوع ارتباط و شماره صفحات کتاب',
     selectedFields: [
       'book_id',
@@ -528,7 +597,7 @@ export const EXCEL_PRESETS: ExcelPresetDefinition[] = [
   },
   {
     id: 'book_with_extracted_text',
-    label: 'کتاب به همراه متن استخراج‌شده درباره شهید',
+    label: '۷. کتاب به همراه متن استخراج‌شده درباره شهید',
     description: 'کتاب، شهید، نشانی مزار، شماره صفحه و متن کامل استخراج‌شده از کتاب درباره شهید',
     selectedFields: [
       'book_id',
@@ -554,7 +623,7 @@ export const EXCEL_PRESETS: ExcelPresetDefinition[] = [
   },
   {
     id: 'full_comprehensive',
-    label: 'تمام اطلاعات کتاب و شهید و ارتباط‌های مستند',
+    label: '۸. تمام اطلاعات کتاب و شهید و ارتباط‌های مستند',
     description: 'پوشش کامل هر ۹ گروه اطلاعاتی و هر ۵ برگه مرتبط (کتاب، شهید، مزار، موضوع، صفحات و متون استخراج‌شده)',
     selectedFields: EXCEL_FIELDS_CATALOG.map((f) => f.id),
     selectedSheets: [
@@ -566,3 +635,4 @@ export const EXCEL_PRESETS: ExcelPresetDefinition[] = [
     ],
   },
 ];
+

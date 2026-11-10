@@ -18,13 +18,76 @@ import {
   classifyMartyrLinkCertainty,
   compactPersianForMatch,
 } from '../../data/soorehMehrResearch';
-import { EXCEL_FIELDS_CATALOG, EXCEL_SHEETS_CATALOG } from './fieldCatalog';
 import {
+  EXCEL_FIELDS_CATALOG,
+  EXCEL_MAIN_SUBJECT_CATEGORIES,
+  EXCEL_SHEETS_CATALOG,
+} from './fieldCatalog';
+import {
+  BookMainSubjectCode,
   ExcelExportDatasetContext,
   ExcelExportUserSelection,
   ExcelSheetKey,
   StandardizedMartyrEntry,
 } from './types';
+
+export function resolveBookMainSubjectCode(
+  book: Pick<UnifiedBookDossier, 'category' | 'shelf' | 'level' | 'locationCode'>
+): BookMainSubjectCode | 'UNSET' {
+  const raw = (book.category || '').trim();
+  if (raw && raw !== '—' && raw !== 'ثبت نشده' && raw !== 'UNSET') {
+    const firstToken = raw.split(/[\s—\-:،/]+/)[0]?.toUpperCase();
+    if (
+      firstToken === 'R' ||
+      firstToken === 'P' ||
+      firstToken === 'H' ||
+      firstToken === 'A' ||
+      firstToken === 'K' ||
+      firstToken === 'M'
+    ) {
+      return firstToken;
+    }
+    if (raw.includes('روایت') || raw.includes('خاطرات')) return 'R';
+    if (raw.includes('پژوهش') || raw.includes('تحلیل')) return 'P';
+    if (raw.includes('تاریخ') || raw.includes('اسناد')) return 'H';
+    if (raw.includes('ادبیات') || raw.includes('هنر')) return 'A';
+    if (raw.includes('کودک') || raw.includes('نوجوان')) return 'K';
+    if (raw.includes('متفرقه')) return 'M';
+  }
+
+  const shelf = (book.shelf || book.locationCode?.slice(0, 5) || '').trim().toUpperCase();
+  const level = (
+    book.level ||
+    (book.locationCode && book.locationCode.includes('-')
+      ? book.locationCode.split('-').pop()
+      : '') ||
+    ''
+  )
+    .trim()
+    .toUpperCase();
+
+  if (shelf === 'SH-01' || shelf === 'SH-02') return 'R';
+  if (shelf === 'SH-03') {
+    if (level === 'T01') return 'H';
+    if (level === 'T02') return 'A';
+    if (level === 'T03' || level === 'T04') return 'P';
+    if (level === 'T05' || level === 'T06') return 'M';
+  }
+  if (shelf === 'SH-04' && level === 'T01') return 'K';
+
+  return 'UNSET';
+}
+
+export function formatBookSubjectCategoryDisplay(
+  book: Pick<UnifiedBookDossier, 'category' | 'shelf' | 'level' | 'locationCode'>
+): string {
+  const code = resolveBookMainSubjectCode(book);
+  if (code !== 'UNSET') {
+    const meta = EXCEL_MAIN_SUBJECT_CATEGORIES.find((c) => c.code === code);
+    if (meta) return meta.label;
+  }
+  return book.category && book.category !== '—' ? book.category : '—';
+}
 
 function getPersianDateStamp(): string {
   try {
@@ -76,7 +139,7 @@ function formatGraveAddress(piece?: string, row?: string, num?: string): string 
  * تجمیع پرونده‌های یکتای کتاب و ارتباط‌های دوطرفه با شهدا، مزار، موضوعات، صفحات و متون استخراج‌شده
  * بدون حذف، ادغام اشتباه یا ساخت اطلاعات حدسی برای فیلدهای ناقص
  */
-function resolveDossiersAndMartyrIndex(ctx: ExcelExportDatasetContext): {
+export function resolveDossiersAndMartyrIndex(ctx: ExcelExportDatasetContext): {
   dossiers: UnifiedBookDossier[];
   martyrMap: Map<string, StandardizedMartyrEntry>;
   copiesByBookId: Map<string, BookCopyRecord[]>;
@@ -553,8 +616,28 @@ export function generateStandardizedMartyrCentricExcel(
   ctx: ExcelExportDatasetContext,
   selection: ExcelExportUserSelection
 ): { ok: boolean; fileName: string; sheetsCount: number; totalRowsExported: number } {
-  const { dossiers, martyrMap, copiesByBookId, extractedItems } =
+  const { dossiers: allResolvedDossiers, martyrMap, copiesByBookId, extractedItems } =
     resolveDossiersAndMartyrIndex(ctx);
+
+  const activeSubjectFilter =
+    selection.selectedSubjectCategories && selection.selectedSubjectCategories.size > 0
+      ? selection.selectedSubjectCategories
+      : null;
+
+  const dossiers = activeSubjectFilter
+    ? allResolvedDossiers.filter((b) => {
+        const code = resolveBookMainSubjectCode(b);
+        return code !== 'UNSET' && activeSubjectFilter.has(code);
+      })
+    : allResolvedDossiers;
+
+  const subjectCodesSuffix = activeSubjectFilter
+    ? Array.from(activeSubjectFilter).join('، ')
+    : '';
+  const effectiveReportTitle =
+    activeSubjectFilter && !selection.reportTitle.includes('موضوع:')
+      ? `${selection.reportTitle} (موضوع: ${subjectCodesSuffix})`
+      : selection.reportTitle;
 
   const hasField = (id: string) => selection.selectedFields.has(id);
   const wb = XLSXStyle.utils.book_new();
@@ -736,7 +819,7 @@ export function generateStandardizedMartyrCentricExcel(
         book_isbn: book.isbn || '—',
         book_fipa: book.fipa || '—',
         book_reg_no: book.registrationNo || '—',
-        book_subject_category: book.category || '—',
+        book_subject_category: formatBookSubjectCategoryDisplay(book),
         physical_status:
           book.determinationStatusLabel || formatPhysicalStatusLabel(book.physicalStatus),
         shelf_code: book.shelf || '—',
@@ -766,7 +849,7 @@ export function generateStandardizedMartyrCentricExcel(
     });
 
     const sheetMeta = EXCEL_SHEETS_CATALOG.find((s) => s.key === 'main_books')!;
-    const ws = buildStyledWorksheet(sheetMeta.title, selection.reportTitle, cols, rows);
+    const ws = buildStyledWorksheet(sheetMeta.title, effectiveReportTitle, cols, rows);
     XLSXStyle.utils.book_append_sheet(wb, ws, sheetMeta.sheetTabName);
     sheetsCreated++;
     totalRowsExported += rows.length;
@@ -836,7 +919,7 @@ export function generateStandardizedMartyrCentricExcel(
             grave_number: '—',
             grave_status: '—',
             relation_category: book.sheetCategory,
-            book_subject_category: book.category || '—',
+            book_subject_category: formatBookSubjectCategoryDisplay(book),
             martyr_relation_subject: book.description || '—',
             page_reference_raw: '—',
             extracted_text: '—',
@@ -883,7 +966,7 @@ export function generateStandardizedMartyrCentricExcel(
             grave_number: mMeta.graveNumber,
             grave_status: mMeta.graveStatus,
             relation_category: rel.sourceSheetCategory,
-            book_subject_category: book.category || '—',
+            book_subject_category: formatBookSubjectCategoryDisplay(book),
             martyr_relation_subject: rel.sourceDescriptionRaw || book.description || '—',
             page_reference_raw: rel.pageReference || '—',
             extracted_text: passageText,
@@ -899,7 +982,7 @@ export function generateStandardizedMartyrCentricExcel(
     }
 
     const sheetMeta = EXCEL_SHEETS_CATALOG.find((s) => s.key === 'book_martyr_relations')!;
-    const ws = buildStyledWorksheet(sheetMeta.title, selection.reportTitle, cols, rows);
+    const ws = buildStyledWorksheet(sheetMeta.title, effectiveReportTitle, cols, rows);
     XLSXStyle.utils.book_append_sheet(wb, ws, sheetMeta.sheetTabName);
     sheetsCreated++;
     totalRowsExported += rows.length;
@@ -966,7 +1049,7 @@ export function generateStandardizedMartyrCentricExcel(
           book_title: book.title,
           book_author: book.author || '—',
           book_publisher: book.publisher || '—',
-          book_subject_category: book.category || '—',
+          book_subject_category: formatBookSubjectCategoryDisplay(book),
           martyr_id: mMeta.martyrId,
           martyr_name: rel.martyrName,
           grave_full_address: mMeta.graveAddressDisplay,
@@ -984,7 +1067,7 @@ export function generateStandardizedMartyrCentricExcel(
     }
 
     const sheetMeta = EXCEL_SHEETS_CATALOG.find((s) => s.key === 'subjects_and_pages')!;
-    const ws = buildStyledWorksheet(sheetMeta.title, selection.reportTitle, cols, rows);
+    const ws = buildStyledWorksheet(sheetMeta.title, effectiveReportTitle, cols, rows);
     XLSXStyle.utils.book_append_sheet(wb, ws, sheetMeta.sheetTabName);
     sheetsCreated++;
     totalRowsExported += rows.length;
@@ -1038,10 +1121,10 @@ export function generateStandardizedMartyrCentricExcel(
     }
 
     const activeExtracts: ExtractedContentItem[] =
-      ctx.dossiers && ctx.dossiers.length > 0
+      activeSubjectFilter || (ctx.dossiers && ctx.dossiers.length > 0)
         ? Array.from(
             new Map(
-              ctx.dossiers.flatMap((d) => d.extractedPassages).map((e) => [e.id, e])
+              dossiers.flatMap((d) => d.extractedPassages).map((e) => [e.id, e])
             ).values()
           )
         : extractedItems;
@@ -1083,7 +1166,7 @@ export function generateStandardizedMartyrCentricExcel(
     });
 
     const sheetMeta = EXCEL_SHEETS_CATALOG.find((s) => s.key === 'extracted_passages')!;
-    const ws = buildStyledWorksheet(sheetMeta.title, selection.reportTitle, cols, rows);
+    const ws = buildStyledWorksheet(sheetMeta.title, effectiveReportTitle, cols, rows);
     XLSXStyle.utils.book_append_sheet(wb, ws, sheetMeta.sheetTabName);
     sheetsCreated++;
     totalRowsExported += rows.length;
@@ -1260,10 +1343,23 @@ export function generateStandardizedMartyrCentricExcel(
     });
 
     const sheetMeta = EXCEL_SHEETS_CATALOG.find((s) => s.key === 'related_martyrs')!;
-    const ws = buildStyledWorksheet(sheetMeta.title, selection.reportTitle, cols, rows);
+    const ws = buildStyledWorksheet(sheetMeta.title, effectiveReportTitle, cols, rows);
     XLSXStyle.utils.book_append_sheet(wb, ws, sheetMeta.sheetTabName);
     sheetsCreated++;
     totalRowsExported += rows.length;
+  }
+
+  // اگر کاربر جهت «از شهید به کتاب» را انتخاب کرده باشد، برگه ۵ (اطلاعات شهدای مرتبط) را در ابتدای فایل قرار بده
+  if (selection.direction === 'martyr_to_book' && wb.SheetNames.length > 1) {
+    const martyrTab = '۵-اطلاعات شهدای مرتبط';
+    const relTab = '۲-ارتباط کتاب و شهید';
+    wb.SheetNames.sort((a, b) => {
+      if (a === martyrTab) return -1;
+      if (b === martyrTab) return 1;
+      if (a === relTab) return -1;
+      if (b === relTab) return 1;
+      return 0;
+    });
   }
 
   // اگر کاربر برگه‌ای را انتخاب نکرده بود، حداقل برگه اول ساخته شود
@@ -1275,10 +1371,12 @@ export function generateStandardizedMartyrCentricExcel(
     return generateStandardizedMartyrCentricExcel(ctx, fallbackSel);
   }
 
-  const safePrefix = (selection.fileNamePrefix || 'گزارش_مرکز_اسناد_گلزار_شهدا').replace(
-    /[\\/:*?"<>|\s]+/g,
-    '_'
-  );
+  const subjectFileTag = activeSubjectFilter
+    ? `_موضوع_${Array.from(activeSubjectFilter).join('_')}`
+    : '';
+  const safePrefix = (
+    (selection.fileNamePrefix || 'گزارش_مرکز_اسناد_گلزار_شهدا') + subjectFileTag
+  ).replace(/[\\/:*?"<>|\s]+/g, '_');
   const fileName = `${safePrefix}_${getPersianDateStamp()}.xlsx`;
   XLSXStyle.writeFile(wb, fileName, EXCEL_UNIFIED_WRITE_OPTIONS);
 
