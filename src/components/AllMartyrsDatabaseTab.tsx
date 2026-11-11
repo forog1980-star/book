@@ -992,64 +992,62 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                     </div>
 
                     {/* Action Buttons Toolbar */}
-                    <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-slate-100">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {/* Quick Approve Button */}
-                        {(!isIdentVerified || !isGraveVerified) && onUpdateCustomMartyr && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              requestActionConfirmation({
-                                title: 'تأیید نهایی هویت و مزار پرونده شهید',
-                                message: `آیا از تأیید نهایی هویت و نشانی مزار شهید «${cm.fullName}» (${cm.martyrId}) اطمینان دارید؟`,
-                                details: `نشانی مزار: ${cm.graveDisplayAddress || 'فاقد نشانی دقیق'}`,
-                                confirmLabel: 'بله، تأیید نهایی شود',
-                                variant: 'approve',
-                                onConfirm: () => {
-                                  const updated: CustomMartyrRecord = {
-                                    ...cm,
-                                    identityVerificationStatus: 'تأییدشده',
-                                    graveVerificationStatus: 'تأییدشده میدانی/سند'
-                                  };
-                                  onUpdateCustomMartyr(updated);
-                                  onNotify(`پرونده شهید «${cm.fullName}» (${cm.martyrId}) به وضعیت تأییدشده تغییر یافت.`, 'success');
-                                }
-                              });
-                            }}
-                            title="تأیید سریع هویت و مزار شهید"
-                            className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer transition-colors"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>تأیید پرونده</span>
-                          </button>
-                        )}
+                    <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-slate-100">
+                      {/* Quick Approve Button */}
+                      {(!isIdentVerified || !isGraveVerified) && onUpdateCustomMartyr && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            requestActionConfirmation({
+                              title: 'تأیید نهایی هویت و مزار پرونده شهید',
+                              message: `آیا از تأیید نهایی هویت و نشانی مزار شهید «${cm.fullName}» (${cm.martyrId}) اطمینان دارید؟`,
+                              details: `نشانی مزار: ${cm.graveDisplayAddress || 'فاقد نشانی دقیق'}`,
+                              confirmLabel: 'بله، تأیید نهایی شود',
+                              variant: 'approve',
+                              onConfirm: () => {
+                                const updated: CustomMartyrRecord = {
+                                  ...cm,
+                                  identityVerificationStatus: 'تأییدشده',
+                                  graveVerificationStatus: 'تأییدشده میدانی/سند'
+                                };
+                                onUpdateCustomMartyr(updated);
+                                onNotify(`پرونده شهید «${cm.fullName}» (${cm.martyrId}) به وضعیت تأییدشده تغییر یافت.`, 'success');
+                              }
+                            });
+                          }}
+                          title="تأیید سریع هویت و مزار شهید"
+                          className="min-h-[34px] px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-[11px] inline-flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>تأیید پرونده</span>
+                        </button>
+                      )}
 
-                        {/* Edit & Verification Modal Button */}
-                        {onUpdateCustomMartyr && (
-                          <button
-                            type="button"
-                            onClick={() => setEditingCustomMartyr(cm)}
-                            title="ویرایش مشخصات و تعیین وضعیت صحت‌سنجی"
-                            className="px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-[#1F4E79] border border-blue-200 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer transition-colors"
-                          >
-                            <Edit3 className="w-3.5 h-3.5 text-[#1F4E79]" />
-                            <span>ویرایش و صحت‌سنجی</span>
-                          </button>
-                        )}
+                      {/* Edit & Verification Modal Button */}
+                      {onUpdateCustomMartyr && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingCustomMartyr(cm)}
+                          title="ویرایش مشخصات و تعیین وضعیت صحت‌سنجی"
+                          className="min-h-[34px] px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-[#1F4E79] border border-blue-200 font-bold text-[11px] inline-flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <Edit3 className="w-3.5 h-3.5 text-[#1F4E79] shrink-0" />
+                          <span>ویرایش و صحت‌سنجی</span>
+                        </button>
+                      )}
 
-                        {/* Smart Book Search Button */}
-                        {onNavigateToSmartSearch && (
-                          <button
-                            type="button"
-                            onClick={() => onNavigateToSmartSearch(cm.fullName)}
-                            title="کاوش هوشمند کتاب‌های مرتبط با این شهید"
-                            className="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer transition-colors"
-                          >
-                            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                            <span>جست‌وجوی کتاب</span>
-                          </button>
-                        )}
-                      </div>
+                      {/* Smart Book Search Button */}
+                      {onNavigateToSmartSearch && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigateToSmartSearch(cm.fullName)}
+                          title="کاوش هوشمند کتاب‌های مرتبط با این شهید"
+                          className="min-h-[34px] px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 font-bold text-[11px] inline-flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>جست‌وجوی کتاب</span>
+                        </button>
+                      )}
 
                       {/* Delete Custom Martyr Button */}
                       {onDeleteCustomMartyr && (
@@ -1057,9 +1055,9 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                           type="button"
                           onClick={() => setDeletingCustomMartyr(cm)}
                           title="حذف این پرونده مستقل از حافظه دستگاه"
-                          className="px-2 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer transition-colors"
+                          className="min-h-[34px] px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[11px] inline-flex items-center justify-center gap-1 cursor-pointer transition-colors sm:mr-auto"
                         >
-                          <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                          <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
                           <span>حذف</span>
                         </button>
                       )}
@@ -1345,19 +1343,19 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setLinkingRecord(null)}
-                className="min-h-[40px] px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-semibold cursor-pointer"
+                className="min-h-[40px] px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold flex items-center justify-center cursor-pointer transition-colors"
               >
                 انصراف
               </button>
               <button
                 type="submit"
-                className="min-h-[40px] px-5 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                className="min-h-[40px] px-5 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
               >
-                <CheckCircle2 className="w-4 h-4" />
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
                 <span>ثبت پیوند کتاب و شهید</span>
               </button>
             </div>
@@ -1534,20 +1532,20 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                     </div>
                   </div>
 
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                  <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => setInspectedRecord(rec)}
-                      className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl"
+                      className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl flex items-center justify-center transition-colors cursor-pointer"
                     >
                       جزئیات کامل
                     </button>
                     <button
                       type="button"
                       onClick={() => setLinkingRecord(rec)}
-                      className="min-h-[38px] px-3 py-1.5 text-xs font-bold text-white bg-[#1f4e79] hover:bg-[#163a5b] rounded-xl inline-flex items-center gap-1"
+                      className="min-h-[38px] px-3 py-1.5 text-xs font-bold text-white bg-[#1f4e79] hover:bg-[#163a5b] rounded-xl inline-flex items-center justify-center gap-1 transition-colors cursor-pointer"
                     >
-                      <Link2 className="w-3.5 h-3.5" />
+                      <Link2 className="w-3.5 h-3.5 shrink-0" />
                       <span>اتصال به کتاب</span>
                     </button>
                   </div>
@@ -1740,62 +1738,48 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                 <span>کاوش در اینترنت و پایگاه‌های آنلاین برای «{[inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' ') || 'شهید'}»</span>
               </span>
             </div>
-            <div className="flex flex-wrap gap-2 text-[11px]">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
               <a
                 href={`https://www.google.com/search?q=${encodeURIComponent('کتاب "شهید ' + ([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' ') || '') + '"')}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                className="min-h-[34px] px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center justify-center gap-1.5 font-semibold transition-colors"
               >
-                <ExternalLink className="w-3 h-3 text-blue-600" />
+                <ExternalLink className="w-3 h-3 text-blue-600 shrink-0" />
                 <span>گوگل (کتاب و زندگینامه)</span>
               </a>
               <a
                 href={`https://ketab.ir/search?query=${encodeURIComponent([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' '))}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                className="min-h-[34px] px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center justify-center gap-1.5 font-semibold transition-colors"
               >
-                <ExternalLink className="w-3 h-3 text-emerald-600" />
+                <ExternalLink className="w-3 h-3 text-emerald-600 shrink-0" />
                 <span>خانه کتاب و ادبیات (Ketab.ir)</span>
               </a>
               <a
                 href={`http://opac.nlai.ir/opac-prod/bibliographic/searchCalc.do?action=search&bibData.title=&bibData.author=${encodeURIComponent([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' '))}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                className="min-h-[34px] px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center justify-center gap-1.5 font-semibold transition-colors"
               >
-                <ExternalLink className="w-3 h-3 text-amber-700" />
+                <ExternalLink className="w-3 h-3 text-amber-700 shrink-0" />
                 <span>کتابخانه ملی (OPAC NLAI)</span>
               </a>
               <a
                 href={`https://www.noorlib.ir/fa/search?q=${encodeURIComponent([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' '))}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center gap-1 font-semibold"
+                className="min-h-[34px] px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center justify-center gap-1.5 font-semibold transition-colors"
               >
-                <ExternalLink className="w-3 h-3 text-indigo-600" />
+                <ExternalLink className="w-3 h-3 text-indigo-600 shrink-0" />
                 <span>پایگاه تخصصی نور (NoorLib)</span>
               </a>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
-            {activeCrossTabTarget && onReturnToMartyrDossier ? (
-              <button
-                type="button"
-                data-testid="modal-return-to-martyr-dossier-btn"
-                onClick={handleBackToSourceMartyrDossier}
-                className="min-h-[40px] px-3.5 py-2 bg-[#6B3E26] hover:bg-[#56311E] text-white rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer"
-              >
-                <ArrowRight className="w-4 h-4" />
-                <span>بازگشت به پرونده اختصاصی شهید</span>
-              </button>
-            ) : (
-              <span />
-            )}
-
-            <div className="flex flex-wrap justify-end gap-2">
+          <div className="space-y-2 pt-2 border-t border-slate-200">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {onNavigateToSmartSearch && (
                 <button
                   type="button"
@@ -1806,10 +1790,10 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                     setInspectedRecord(null);
                     onNavigateToSmartSearch(name);
                   }}
-                  className="min-h-[40px] px-3.5 py-2 bg-[#F6EFE6] hover:bg-[#EFE4D6] text-[#6B3E26] border border-[#E2D2BE] rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                  className="min-h-[40px] px-3 py-2 bg-[#F6EFE6] hover:bg-[#EFE4D6] text-[#6B3E26] border border-[#E2D2BE] rounded-xl font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors text-xs"
                 >
-                  <Sparkles className="w-4 h-4" />
-                  <span>انتقال به جست‌وجوی هوشمند کتاب‌های جدید</span>
+                  <Sparkles className="w-4 h-4 shrink-0" />
+                  <span>جست‌وجوی هوشمند کتاب‌های جدید</span>
                 </button>
               )}
 
@@ -1819,12 +1803,26 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                   // باز کردن پنجره دوم (اتصال به کتاب) با حفظ امکان جابه‌جایی روی صفحه لپ‌تاپ و بازگشت به جزئیات شهید
                   setLinkingRecord(inspectedRecord);
                 }}
-                className="min-h-[40px] px-4 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                className={`min-h-[40px] px-4 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors text-xs ${
+                  !onNavigateToSmartSearch ? 'sm:col-span-2' : ''
+                }`}
               >
-                <Link2 className="w-4 h-4" />
+                <Link2 className="w-4 h-4 shrink-0" />
                 <span>اتصال این شهید به کتاب در کتابخانه</span>
               </button>
             </div>
+
+            {activeCrossTabTarget && onReturnToMartyrDossier && (
+              <button
+                type="button"
+                data-testid="modal-return-to-martyr-dossier-btn"
+                onClick={handleBackToSourceMartyrDossier}
+                className="w-full min-h-[40px] px-3.5 py-2 bg-[#6B3E26] hover:bg-[#56311E] text-white rounded-xl font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors text-xs"
+              >
+                <ArrowRight className="w-4 h-4 shrink-0" />
+                <span>بازگشت به پرونده اختصاصی شهید</span>
+              </button>
+            )}
           </div>
         </ModalWindow>
       )}
@@ -2033,17 +2031,17 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setShowNewMartyrModal(false)}
-                className="px-4 py-2 bg-slate-100 rounded-xl font-semibold cursor-pointer"
+                className="min-h-[40px] px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold flex items-center justify-center cursor-pointer transition-colors"
               >
                 انصراف
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold cursor-pointer"
+                className="min-h-[40px] px-5 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold flex items-center justify-center cursor-pointer transition-colors"
               >
                 ثبت پرونده شهید
               </button>
@@ -2087,11 +2085,11 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200">
             <button
               type="button"
               onClick={() => setDeletingCustomMartyr(null)}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
+              className="min-h-[40px] px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center justify-center cursor-pointer transition-colors"
             >
               انصراف
             </button>
@@ -2107,9 +2105,9 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                 }
                 setDeletingCustomMartyr(null);
               }}
-              className="px-5 py-2 bg-[#A63A3A] hover:bg-[#872D2D] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+              className="min-h-[40px] px-5 py-2 bg-[#A63A3A] hover:bg-[#872D2D] text-white rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors"
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className="w-3.5 h-3.5 shrink-0" />
               <span>بله، حذف شود</span>
             </button>
           </div>
@@ -2316,19 +2314,19 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
               />
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setEditingCustomMartyr(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold cursor-pointer"
+                className="min-h-[40px] px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold flex items-center justify-center cursor-pointer transition-colors"
               >
                 انصراف
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+                className="min-h-[40px] px-5 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors"
               >
-                <CheckCircle2 className="w-4 h-4" />
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
                 <span>ذخیره تغییرات و وضعیت</span>
               </button>
             </div>

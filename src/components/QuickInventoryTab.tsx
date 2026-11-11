@@ -1631,21 +1631,21 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
               </button>
             </div>
 
-            {/* Subject Category Chips */}
-            <div className="flex flex-wrap gap-1.5">
+            {/* Subject Category Chips — 8 items in a flush 2/4-column grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
               <button
                 type="button"
                 onClick={() => {
                   setCategoryFilter('all');
                   setVisibleLimit(12);
                 }}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${
+                className={`min-h-[36px] px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer flex items-center justify-center text-center whitespace-nowrap ${
                   categoryFilter === 'all'
                     ? 'bg-[#1F4E79] text-white border-[#1F4E79]'
                     : 'bg-white text-[#253247] border-slate-200 hover:bg-slate-100'
                 }`}
               >
-                همه دسته‌ها ({toPersianDigits(categoryCounts.all || 0)})
+                <span className="truncate">همه دسته‌ها ({toPersianDigits(categoryCounts.all || 0)})</span>
               </button>
               {SUBJECT_CATEGORIES.map((cat) => (
                 <button
@@ -1655,15 +1655,17 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                     setCategoryFilter(cat.code === categoryFilter ? 'all' : cat.code);
                     setVisibleLimit(12);
                   }}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer ${
+                  className={`min-h-[36px] px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer flex items-center justify-center gap-1 text-center whitespace-nowrap ${
                     categoryFilter === cat.code
                       ? 'bg-[#1F4E79] text-white border-[#1F4E79]'
                       : 'bg-white text-[#253247] border-slate-200 hover:bg-slate-100'
                   }`}
                 >
-                  {cat.code === 'UNSET' ? 'بدون دسته' : `${cat.code} (${cat.fullTitle})`}{' '}
-                  <span className="opacity-80 tabular-nums">
-                    ({toPersianDigits(categoryCounts[cat.code] || 0)})
+                  <span className="truncate">
+                    {cat.code === 'UNSET' ? 'بدون دسته' : `${cat.code} (${cat.fullTitle})`}{' '}
+                    <span className="opacity-80 tabular-nums">
+                      ({toPersianDigits(categoryCounts[cat.code] || 0)})
+                    </span>
                   </span>
                 </button>
               ))}
@@ -1778,8 +1780,8 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
           </div>
         )}
 
-        {/* ردیف فیلتر وضعیت موجودی و دکمه خروجی اکسل */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+        {/* ردیف فیلتر وضعیت موجودی و دکمه خروجی اکسل کنار هم */}
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
           <select
             value={auditFilter}
             onChange={(e) => {
@@ -1787,7 +1789,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
               setSelectedRow(null);
               setVisibleLimit(12);
             }}
-            className="flex-1 min-h-[40px] px-3 py-1.5 bg-[#EAF1F7]/60 border border-[#1F4E79]/30 rounded-xl text-xs font-bold text-[#1F4E79] cursor-pointer"
+            className="sm:col-span-9 w-full min-h-[42px] px-3 py-1.5 bg-[#EAF1F7]/60 border border-[#1F4E79]/30 rounded-xl text-xs font-bold text-[#1F4E79] cursor-pointer"
           >
             <option value="all">
               ۱. همه کتاب‌ها ({toPersianDigits(totalCatalogCount + outsideCount)} مورد)
@@ -1816,7 +1818,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
             type="button"
             data-testid="quick-inventory-excel-export-btn"
             onClick={handleExportCurrentFilterExcel}
-            className="min-h-[40px] px-3.5 py-1.5 bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold rounded-xl inline-flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer shrink-0"
+            className="sm:col-span-3 w-full min-h-[42px] px-3.5 py-1.5 bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer whitespace-nowrap"
             title="دریافت فایل اکسل از فهرست فعلی به تاریخ امروز"
           >
             <FileSpreadsheet className="w-4 h-4 shrink-0" />
@@ -1932,203 +1934,180 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                           }}
                           className="p-3 sm:p-3.5 cursor-pointer select-none transition-colors"
                         >
-                          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] mb-1">
-                            <div className="flex flex-wrap items-center gap-1.5">
+                          {/* سطر اول: عنوان کتاب، شناسه، ناشر و نویسنده در یک خط تراز */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-2 min-w-0">
                               <span
-                                className="font-mono tabular-nums font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200"
+                                className="font-mono tabular-nums font-bold text-[11px] text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 shrink-0"
                                 dir="ltr"
                               >
                                 {row.tempBookId}
                               </span>
-                              {isOutsideBook ? (
-                                <span className="px-2 py-0.5 rounded-md bg-[#8C3B2B]/10 text-[#8C3B2B] border border-[#8C3B2B]/25 font-bold text-[10.5px]">
-                                  ثبت جدید (خارج از فهرست)
-                                </span>
-                              ) : (
-                                <span className="text-slate-500 font-medium">
-                                  ردیف {toPersianDigits(row.rowIndex)}
-                                </span>
+                              <span className="font-bold text-sm sm:text-base text-slate-900 leading-snug break-words">
+                                {row.titleRaw || '(بدون عنوان)'}
+                              </span>
+                              {precomputedSearchMap.get(row.rowKey)?.hasTehranMartyr && (
+                                <TehranMartyrBadge size="sm" />
                               )}
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              {isOutsideBook ? (
-                                isOutsideApproved ? (
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-300">
-                                    <ShieldCheck className="w-3.5 h-3.5" />
-                                    <span>
-                                      تأییدشده کارشناس · {savedRec?.location || row.locationRaw || 'بدون محل'}
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 shrink-0">
+                              <span>
+                                <strong className="text-slate-800">ناشر:</strong>{' '}
+                                {savedRec?.publisher || row.publisherRaw || 'ثبت‌نشده'}
+                              </span>
+                              <span>·</span>
+                              <span>
+                                <strong className="text-slate-800">نویسنده:</strong>{' '}
+                                {savedRec?.author || row.authorRaw || 'ثبت‌نشده'}
+                              </span>
+                              {savedRec?.year && (
+                                <>
+                                  <span>·</span>
+                                  <span>سال: {savedRec.year}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {savedRec?.notes && (
+                            <div className="mt-1.5 text-[11px] text-amber-900 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
+                              توضیحات: {savedRec.notes}
+                            </div>
+                          )}
+
+                          {/* سطر دوم: ۴ نشانگر و کلید عملیاتی (قفسه، منشأ/ثبت جدید، شهید مرتبط/وضعیت، ثبت سریع) در یک ردیف ۴ستونه کاملاً هم‌تراز */}
+                          {(() => {
+                            const rowLinks = getLinksForBookRow(row);
+                            const locLabel = savedRec?.location || row.locationRaw || '';
+                            return (
+                              <>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-2 pt-2 border-t border-slate-100 text-[11px]">
+                                  <span
+                                    className={`min-h-[32px] px-2.5 py-1 rounded-lg font-mono font-bold flex items-center justify-center text-center truncate ${
+                                      locLabel
+                                        ? 'bg-emerald-50 text-emerald-900 border border-emerald-300'
+                                        : 'bg-slate-50 text-slate-600 border border-slate-200'
+                                    }`}
+                                  >
+                                    قفسه: {locLabel || 'ثبت‌نشده'}
+                                  </span>
+
+                                  <span
+                                    className={`min-h-[32px] px-2.5 py-1 rounded-lg font-bold flex items-center justify-center text-center truncate ${
+                                      isOutsideBook
+                                        ? 'bg-[#8C3B2B]/10 text-[#8C3B2B] border border-[#8C3B2B]/25'
+                                        : 'bg-[#FAF5EE] text-[#6B3E26] border border-[#E2D2BE]'
+                                    }`}
+                                  >
+                                    {isOutsideBook
+                                      ? 'ثبت جدید'
+                                      : `ردیف ${toPersianDigits(row.rowIndex)} فهرست`}
+                                  </span>
+
+                                  <span
+                                    className={`min-h-[32px] px-2.5 py-1 rounded-lg font-bold flex items-center justify-center text-center truncate ${
+                                      rowLinks.length > 0
+                                        ? 'bg-amber-50 text-amber-900 border border-amber-200'
+                                        : savedRec?.physical === 'verified'
+                                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                        : 'bg-slate-50 text-slate-500 border border-slate-200'
+                                    }`}
+                                  >
+                                    {rowLinks.length > 0
+                                      ? `${toPersianDigits(rowLinks.length)} شهید مرتبط`
+                                      : savedRec?.physical === 'verified'
+                                      ? '✓ تأییدشده در قفسه'
+                                      : savedRec?.physical === 'review'
+                                      ? '⚠️ نیازمند بررسی'
+                                      : 'بررسی‌نشده در قفسه'}
+                                  </span>
+
+                                  <span className="min-h-[32px] px-2.5 py-1 rounded-lg bg-[#1f4e79] hover:bg-[#163a5b] text-white font-bold flex items-center justify-center gap-1 text-center truncate">
+                                    <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+                                    <span className="truncate">
+                                      {isChosen ? 'بستن ثبت سریع ▲' : 'ثبت سریع قفسه ▼'}
                                     </span>
                                   </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-300">
-                                    <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
-                                    <span>
-                                      در انتظار تأیید کارشناس ({savedRec?.location || row.locationRaw || 'بدون محل'})
+                                </div>
+
+                                {/* دکمه‌های تأیید یا حذف کارشناس برای کتاب‌های خارج از فهرست یا نیازمند بررسی */}
+                                {(isOutsideBook ||
+                                  savedRec?.physical === 'review' ||
+                                  savedRec?.needsReview === true ||
+                                  savedRec?.copyStatus === 'pending_review') && (
+                                  <div
+                                    className="flex flex-wrap items-center justify-end gap-1.5 mt-2 pt-1.5 border-t border-slate-100"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {(!savedRec ||
+                                      savedRec.physical !== 'verified' ||
+                                      savedRec.needsReview ||
+                                      savedRec.copyStatus === 'pending_review') && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleApproveOutsideRecord(row.rowKey, row)}
+                                        className="min-h-[30px] px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center justify-center cursor-pointer"
+                                      >
+                                        ✓ تأیید کارشناس
+                                      </button>
+                                    )}
+                                    {isOutsideBook && onDeleteAuditRecord && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          onDeleteAuditRecord(row.rowKey);
+                                        }}
+                                        className="min-h-[30px] px-2.5 py-1 rounded-lg text-rose-600 hover:bg-rose-100 border border-rose-200 bg-white text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer"
+                                        title="حذف این کتاب ثبت‌شده"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        <span>حذف</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* نمایش شهدای مرتبط با این کتاب */}
+                                {rowLinks.length > 0 && (
+                                  <div className="mt-2 pt-2 border-t border-amber-200/70 bg-amber-50/60 rounded-xl px-2.5 py-1.5 flex flex-wrap items-center gap-1.5">
+                                    <span className="text-[11px] font-bold text-[#8C3B2B] ml-1">
+                                      شهدای مرتبط ({toPersianDigits(rowLinks.length)}):
                                     </span>
-                                  </span>
-                                )
-                              ) : savedRec ? (
-                                savedRec.physical === 'verified' ? (
-                                  <div className="flex flex-wrap items-center gap-1">
-                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-300">
-                                      <CheckCircle2 className="w-3.5 h-3.5" />
-                                      <span>
-                                        ثبت‌شده در {savedRec.location || 'بدون محل'} ({savedRec.category?.split(' ')[0] || '—'})
-                                      </span>
-                                    </span>
-                                    {(savedRec.needsReview || savedRec.copyStatus === 'pending_review') && (
-                                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-300">
-                                        <AlertCircle className="w-3.5 h-3.5" />
-                                        <span>نیازمند بررسی</span>
+                                    {rowLinks.slice(0, 6).map((lnk) => {
+                                      const isTehranLnk = evaluateMartyrTehranStatus({
+                                        martyrName: lnk.martyrNameRaw,
+                                        gravePiece: lnk.gravePieceRaw,
+                                        graveRow: lnk.graveRowRaw,
+                                        graveNumber: lnk.graveNumberRaw,
+                                        sourceDesc: lnk.sourceDescriptionRaw,
+                                        reviewerNote: lnk.reviewerNote,
+                                        reviewStatus: lnk.reviewStatus,
+                                        isGroupPhrase: lnk.isGroupPhrase
+                                      }).isTehran;
+                                      return (
+                                        <span
+                                          key={lnk.id}
+                                          className="inline-flex items-center gap-1.5 text-[11px] text-slate-800 bg-white px-2 py-0.5 rounded-md border border-amber-200/80"
+                                        >
+                                          <strong>{lnk.martyrNameRaw}</strong>
+                                          {isTehranLnk && <TehranMartyrBadge size="xs" />}
+                                          {lnk.pageReferenceRaw ? (
+                                            <span>(ص {toPersianDigits(lnk.pageReferenceRaw)})</span>
+                                          ) : null}
+                                        </span>
+                                      );
+                                    })}
+                                    {rowLinks.length > 6 && (
+                                      <span className="text-[11px] text-slate-500 px-1">
+                                        + {toPersianDigits(rowLinks.length - 6)} مورد دیگر
                                       </span>
                                     )}
                                   </div>
-                                ) : savedRec.physical === 'review' ? (
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-300">
-                                    <AlertCircle className="w-3.5 h-3.5" />
-                                    <span>نیازمند بررسی {savedRec.location ? `(${savedRec.location})` : ''}</span>
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-800 bg-rose-100 px-2 py-0.5 rounded-md border border-rose-300">
-                                    <X className="w-3.5 h-3.5" />
-                                    <span>پیدا نشد در قفسه</span>
-                                  </span>
-                                )
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
-                                  <span>بررسی‌نشده در قفسه</span>
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div>
-                              <div className="font-bold text-sm sm:text-base text-slate-900 leading-snug flex flex-wrap items-center gap-2">
-                                <span>{row.titleRaw || '(بدون عنوان)'}</span>
-                                {precomputedSearchMap.get(row.rowKey)?.hasTehranMartyr && (
-                                  <TehranMartyrBadge size="sm" />
                                 )}
-                              </div>
-                              <div className="text-xs text-slate-600 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                                {(savedRec?.author || row.authorRaw) && (
-                                  <span className="font-medium text-slate-700">
-                                    نویسنده: <span className="text-slate-900 font-bold">{savedRec?.author || row.authorRaw}</span>
-                                  </span>
-                                )}
-                                {(savedRec?.publisher || row.publisherRaw) && (
-                                  <span>
-                                    ناشر: <span className="text-slate-800 font-medium">{savedRec?.publisher || row.publisherRaw}</span>
-                                  </span>
-                                )}
-                                {savedRec?.year && (
-                                  <span>
-                                    سال چاپ: <span className="text-slate-800 font-medium">{savedRec.year}</span>
-                                  </span>
-                                )}
-                                {savedRec?.notes && (
-                                  <span className="text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                                    توضیحات: {savedRec.notes}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            {(isOutsideBook ||
-                              savedRec?.physical === 'review' ||
-                              savedRec?.needsReview === true ||
-                              savedRec?.copyStatus === 'pending_review') && (
-                              <div
-                                className="flex items-center gap-1.5"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {(!savedRec ||
-                                  savedRec.physical !== 'verified' ||
-                                  savedRec.needsReview ||
-                                  savedRec.copyStatus === 'pending_review') && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleApproveOutsideRecord(row.rowKey, row)}
-                                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] cursor-pointer"
-                                  >
-                                    ✓ تأیید کارشناس
-                                  </button>
-                                )}
-                                {isOutsideBook && onDeleteAuditRecord && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      onDeleteAuditRecord(row.rowKey);
-                                    }}
-                                    className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-100 border border-rose-200 bg-white cursor-pointer"
-                                    title="حذف این کتاب ثبت‌شده"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* نمایش شهدای مرتبط با این کتاب */}
-                          {(() => {
-                            const rowLinks = getLinksForBookRow(row);
-                            if (rowLinks.length === 0) return null;
-                            return (
-                              <div className="mt-2 pt-2 border-t border-amber-200/70 bg-amber-50/60 rounded-xl px-2.5 py-1.5 space-y-1">
-                                <div className="flex items-center justify-between text-[11px] font-bold text-[#8C3B2B]">
-                                  <span>
-                                    شهدای مرتبط ثبت‌شده در پژوهش ({toPersianDigits(rowLinks.length)} مورد):
-                                  </span>
-                                </div>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {rowLinks.slice(0, 6).map((lnk) => {
-                                    const isTehranLnk = evaluateMartyrTehranStatus({
-                                      martyrName: lnk.martyrNameRaw,
-                                      gravePiece: lnk.gravePieceRaw,
-                                      graveRow: lnk.graveRowRaw,
-                                      graveNumber: lnk.graveNumberRaw,
-                                      sourceDesc: lnk.sourceDescriptionRaw,
-                                      reviewerNote: lnk.reviewerNote,
-                                      reviewStatus: lnk.reviewStatus,
-                                      isGroupPhrase: lnk.isGroupPhrase
-                                    }).isTehran;
-                                    return (
-                                      <span
-                                        key={lnk.id}
-                                        className="inline-flex items-center gap-1.5 text-[11px] text-slate-800 bg-white px-2 py-0.5 rounded-md border border-amber-200/80"
-                                      >
-                                        <strong>{lnk.martyrNameRaw}</strong>
-                                        {isTehranLnk && <TehranMartyrBadge size="xs" />}
-                                        {lnk.pageReferenceRaw ? (
-                                          <span>(ص {toPersianDigits(lnk.pageReferenceRaw)})</span>
-                                        ) : null}
-                                      </span>
-                                    );
-                                  })}
-                                  {rowLinks.length > 6 && (
-                                    <span className="text-[11px] text-slate-500 px-1">
-                                      + {toPersianDigits(rowLinks.length - 6)} مورد دیگر
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
+                              </>
                             );
                           })()}
-
-                          {!isChosen && (
-                            <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between text-[11px] text-[#1f4e79]">
-                              <span className="flex items-center gap-1 font-semibold">
-                                <SlidersHorizontal className="w-3.5 h-3.5" />
-                                <span>کلیک برای باز شدن کشوی ثبت سریع قفسه و طبقه</span>
-                              </span>
-                              <span className="text-slate-400 text-[10.5px] flex items-center gap-0.5">
-                                <span>باز کردن کشو</span>
-                                <ChevronDown className="w-3.5 h-3.5" />
-                              </span>
-                            </div>
-                          )}
                         </div>
 
                         {/* Inline Quick Inventory Accordion */}
@@ -2350,30 +2329,30 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                               </button>
                             </div>
 
-                            {/* 4. Action Buttons */}
-                            <div className="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                            {/* 4. Action Buttons — هم‌تراز در یک ردیف */}
+                            <div className="pt-1 grid grid-cols-1 sm:grid-cols-12 gap-2">
                               <button
                                 type="button"
                                 onClick={() => handleSaveCatalogBookRecord(row, nextRow)}
-                                className="flex-1 min-h-[44px] px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer"
+                                className="sm:col-span-6 min-h-[44px] px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
                               >
                                 <span>ذخیره سریع و رفتن به کتاب بعدی</span>
-                                <ArrowDown className="w-4 h-4" />
+                                <ArrowDown className="w-4 h-4 shrink-0" />
                               </button>
 
                               <button
                                 type="button"
                                 onClick={() => handleSaveCatalogBookRecord(row)}
-                                className="min-h-[44px] px-4 py-2 bg-[#1f4e79] hover:bg-[#163a5c] text-white rounded-xl font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                                className="sm:col-span-4 min-h-[44px] px-4 py-2 bg-[#1f4e79] hover:bg-[#163a5c] text-white rounded-xl font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                               >
-                                <CheckCircle2 className="w-4 h-4" />
+                                <CheckCircle2 className="w-4 h-4 shrink-0" />
                                 <span>ذخیره همین کتاب ✓</span>
                               </button>
 
                               <button
                                 type="button"
                                 onClick={() => setSelectedRow(null)}
-                                className="min-h-[44px] px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium text-xs cursor-pointer"
+                                className="sm:col-span-2 min-h-[44px] px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium text-xs flex items-center justify-center cursor-pointer whitespace-nowrap"
                               >
                                 <span>بستن ✕</span>
                               </button>

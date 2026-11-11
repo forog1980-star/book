@@ -887,14 +887,14 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
         </div>
 
         {/* Tab Buttons Grid */}
-        <div className="flex flex-wrap gap-2 p-1.5 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 p-1.5 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs">
           {/* 1. MASTER DEPOSITORY & 2-WAY EXPORT (آبی ملایم و روشن) */}
           <button
             type="button"
             onClick={() => {
               setSubView('depository');
             }}
-            className={`min-h-[42px] px-4 py-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 flex-1 min-w-[180px] cursor-pointer ${
+            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
               subView === 'depository'
                 ? 'bg-[#2B547E] text-white shadow-2xs'
                 : 'bg-[#EDF4FB] text-[#1E3A5F] border border-[#C2D8EC] hover:bg-[#E1EEF9]'
@@ -911,7 +911,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
               setSubView('extracted');
               setExtractedPage(1);
             }}
-            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[170px] cursor-pointer ${
+            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer text-center ${
               subView === 'extracted'
                 ? 'bg-[#6B3E26] text-white shadow-2xs'
                 : 'text-[#332218] hover:bg-[#EFE4D6] bg-white border border-[#E2D2BE]'
@@ -928,7 +928,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
               setSubView('publish_gateway');
               setPublishPage(1);
             }}
-            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[150px] cursor-pointer ${
+            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer text-center ${
               subView === 'publish_gateway'
                 ? 'bg-[#2E6F40] text-white shadow-2xs'
                 : 'text-[#2E6F40] hover:bg-[#EAF4EC] bg-white border border-[#C6DFCD]'
@@ -945,7 +945,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
               setSubView('ghatat_sheets');
               setGhatatPage(1);
             }}
-            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[160px] cursor-pointer ${
+            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer text-center ${
               subView === 'ghatat_sheets'
                 ? 'bg-[#6B3E26] text-white shadow-2xs'
                 : 'text-[#332218] hover:bg-[#EFE4D6] bg-white border border-[#E2D2BE]'
@@ -963,7 +963,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
               setStatusFilter('named_only');
               setVisibleLimit(60);
             }}
-            className={`min-h-[42px] px-3.5 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 flex-1 min-w-[140px] cursor-pointer ${
+            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer text-center sm:col-span-2 lg:col-span-1 ${
               subView === 'links'
                 ? 'bg-[#6B3E26] text-white shadow-2xs'
                 : 'text-[#332218] hover:bg-[#EFE4D6] bg-white border border-[#E2D2BE]'
@@ -981,8 +981,8 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
         <div className="space-y-4">
           {/* Search & Filter Bar + Export Toolbar */}
           <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="relative flex-1">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
+              <div className="md:col-span-6 relative">
                 <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="search"
@@ -1004,14 +1004,14 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                 />
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="md:col-span-4">
                 <select
                   value={statusFilter}
                   onChange={(e) => {
                     setStatusFilter(e.target.value);
                     setVisibleLimit(60);
                   }}
-                  className="min-h-[44px] px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl text-slate-800 font-medium"
+                  className="w-full min-h-[44px] px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl text-slate-800 font-medium"
                 >
                   <option value="named_only">رکوردهای دارای نام/عبارت ثبت‌شده (حذف خالی و *)</option>
                   <option value="tehran_martyrs_only">شهدای تهرانی (منطبق با گلزار شهدای تهران)</option>
@@ -1025,30 +1025,32 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                   <option value="نیازمند تطبیق کتاب">نیازمند تطبیق کتاب</option>
                   <option value="تأییدشده کارشناسی">تأییدشده کارشناسی</option>
                 </select>
+              </div>
 
+              <div className="md:col-span-2">
                 <button
                   type="button"
                   onClick={() => setShowAddLink((prev) => !prev)}
-                  className="min-h-[44px] px-4 py-2 bg-[#1f4e79] hover:bg-[#163a5b] text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                  className="w-full min-h-[44px] px-4 py-2 bg-[#1f4e79] hover:bg-[#163a5b] text-white text-xs font-bold rounded-xl inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                 >
-                  <Plus className="w-4 h-4" />
+                  <Plus className="w-4 h-4 shrink-0" />
                   <span>ثبت پیوند جدید</span>
                 </button>
               </div>
             </div>
 
             {/* Links Export Buttons Toolbar */}
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
               <div className="text-slate-600 font-medium">
                 تعداد رکوردهای منطبق: <strong className="text-slate-900 tabular-nums">{toPersianDigits(allFilteredLinks.length)}</strong> پیوند
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="grid grid-cols-3 sm:flex items-center gap-2">
                 <button
                   type="button"
                   data-testid="links-excel-export-btn"
                   onClick={exportLinksExcel}
-                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
                 >
                   <FileSpreadsheet className="w-4 h-4 shrink-0" />
                   <span>خروجی Excel ({toPersianDigits(allFilteredLinks.length)})</span>
@@ -1057,18 +1059,18 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                 <button
                   type="button"
                   onClick={exportLinksCsv}
-                  className="min-h-[36px] px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                 >
-                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <Download className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                   <span>خروجی CSV</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={exportLinksJson}
-                  className="min-h-[36px] px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                 >
-                  <FileJson className="w-3.5 h-3.5 text-amber-600" />
+                  <FileJson className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                   <span>خروجی JSON</span>
                 </button>
               </div>
@@ -1538,9 +1540,8 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
               </div>
 
               {/* نوار فیلتر وضعیت بازبینی مطالب + دکمه تأیید یکجای مطالب برای انتشار سایت */}
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 text-xs border-t border-[#EFE4D6]">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[#6E5846] font-medium ml-1">فیلتر وضعیت:</span>
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 pt-2 text-xs border-t border-[#EFE4D6]">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 flex-1">
                   {(
                     [
                       { key: 'all', label: `همه مطالب (${toPersianDigits(extractedItems.length)})` },
@@ -1569,7 +1570,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                         )})`
                       }
                     ] as const
-                  ).map((tab) => (
+                  ).map((tab, idx) => (
                     <button
                       key={tab.key}
                       type="button"
@@ -1577,7 +1578,9 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                         setExtractedStatusFilter(tab.key);
                         setExtractedPage(1);
                       }}
-                      className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer ${
+                      className={`min-h-[36px] px-2.5 py-1.5 rounded-xl font-bold transition-colors flex items-center justify-center text-center cursor-pointer ${
+                        idx === 0 ? 'col-span-2 sm:col-span-1' : ''
+                      } ${
                         extractedStatusFilter === tab.key
                           ? 'bg-[#6B3E26] text-white'
                           : 'bg-[#FAF5EE] border border-[#E2D2BE] text-[#332218] hover:bg-[#F3E9DC]'
@@ -2286,8 +2289,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
             </div>
 
             {/* نوار فیلتر وضعیت پیگیری */}
-            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs border-t border-slate-100">
-              <span className="text-slate-500 font-medium ml-1">فیلتر وضعیت:</span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-2 text-xs border-t border-slate-100">
               {(
                 [
                   {
@@ -2321,7 +2323,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                     setPendingStatusFilter(tab.key);
                     setVisibleLimit(60);
                   }}
-                  className={`px-3 py-1.5 rounded-xl font-bold transition-colors ${
+                  className={`min-h-[36px] px-3 py-1.5 rounded-xl font-bold transition-colors flex items-center justify-center text-center cursor-pointer ${
                     pendingStatusFilter === tab.key
                       ? 'bg-[#1f4e79] text-white shadow-xs'
                       : 'bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100'
