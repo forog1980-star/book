@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
-const ACTIVE_SW_CACHE = 'markaz-asnad-main-book-v11';
+const ACTIVE_SW_CACHE = 'markaz-asnad-main-book-v12';
 
 // پاک‌سازی فوری کش‌های قدیمی سرویس‌ورکر در لحظه بارگذاری اولیه در گوشی و سیستم
 if (typeof window !== 'undefined' && 'caches' in window) {
@@ -24,7 +24,7 @@ if (typeof window !== 'undefined' && 'caches' in window) {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('./sw.js?v=11', { updateViaCache: 'none' })
+      .register('./sw.js?v=12', { updateViaCache: 'none' })
       .then((reg) => {
         reg.update().catch(() => {});
         if (reg.waiting) {
@@ -43,13 +43,6 @@ if ('serviceWorker' in navigator) {
       .catch(() => {
         // Service worker registration optional in dev iframe
       });
-
-    let refreshing = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (refreshing) return;
-      refreshing = true;
-      window.location.reload();
-    });
   });
 }
 

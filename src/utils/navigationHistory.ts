@@ -83,6 +83,15 @@ export interface HomeDossierNavSnapshot {
 
 const HOME_SNAPSHOT_STORAGE_KEY = 'book_nav_home_dossier_snapshot_v1';
 
+// پاک‌سازی وضعیت پنجره‌های باز از sessionStorage در هنگام رفرش کامل صفحه تا کاربر پس از رفرش روی پنجره قبلی قفل نشود
+try {
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    window.sessionStorage.removeItem(HOME_SNAPSHOT_STORAGE_KEY);
+  }
+} catch {
+  // ignore
+}
+
 const defaultHomeSnapshot: HomeDossierNavSnapshot = {
   activeStatGroupModal: null,
   statModalSearchQuery: '',
@@ -99,18 +108,6 @@ let memoryHomeSnapshot: HomeDossierNavSnapshot | null = null;
 
 export function getHomeDossierNavSnapshot(): HomeDossierNavSnapshot {
   if (memoryHomeSnapshot) return { ...memoryHomeSnapshot };
-  try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      const raw = window.sessionStorage.getItem(HOME_SNAPSHOT_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<HomeDossierNavSnapshot>;
-        memoryHomeSnapshot = { ...defaultHomeSnapshot, ...parsed };
-        return { ...memoryHomeSnapshot };
-      }
-    }
-  } catch {
-    // ignore storage errors
-  }
   memoryHomeSnapshot = { ...defaultHomeSnapshot };
   return { ...memoryHomeSnapshot };
 }
@@ -118,25 +115,11 @@ export function getHomeDossierNavSnapshot(): HomeDossierNavSnapshot {
 export function saveHomeDossierNavSnapshot(partial: Partial<HomeDossierNavSnapshot>): HomeDossierNavSnapshot {
   const current = getHomeDossierNavSnapshot();
   memoryHomeSnapshot = { ...current, ...partial };
-  try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      window.sessionStorage.setItem(HOME_SNAPSHOT_STORAGE_KEY, JSON.stringify(memoryHomeSnapshot));
-    }
-  } catch {
-    // ignore storage errors
-  }
   return { ...memoryHomeSnapshot };
 }
 
 export function resetHomeDossierNavSnapshot(): void {
   memoryHomeSnapshot = { ...defaultHomeSnapshot };
-  try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      window.sessionStorage.removeItem(HOME_SNAPSHOT_STORAGE_KEY);
-    }
-  } catch {
-    // ignore
-  }
 }
 
 /**

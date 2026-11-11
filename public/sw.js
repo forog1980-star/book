@@ -1,10 +1,7 @@
 // Service Worker اختصاصی سامانه اصلی مرکز اسناد (مسیر /book/)
-// استراتژی Network-First واقعی برای موبایل و دسکتاپ جهت دریافت فوری آخرین تغییرات با اولین رفرش
-const CACHE_PREFIX = 'markaz-asnad-main-book-';
-const LEGACY_PREFIX = 'markaz-asnad-pwa-';
-const CACHE_NAME = 'markaz-asnad-main-book-v11';
+// استراتژی Network-First برای کدها (HTML/JS/CSS) و Cache-First برای فایل‌های داده سنگین (/data/) جهت سرعت بالا و بدون قفل‌شدن
+const CACHE_NAME = 'markaz-asnad-main-book-v12';
 
-// عدم پیش‌کش کردن index.html در زمان نصب تا هرگز فایل HTML قدیمی در کش ذخیره نشود
 const PRECACHE_ASSETS = [
   './manifest.webmanifest',
   './data/library_books.json',
@@ -52,6 +49,11 @@ self.addEventListener('fetch', (event) => {
 
   const reqUrl = new URL(event.request.url);
 
+  // عدم مداخله در درخواست‌های خارج از دامنه (فونت‌ها و غیره)
+  if (reqUrl.origin !== self.location.origin) {
+    return;
+  }
+
   // عدم مداخله در درخواست‌های زیربرنامه مستقل /library-research/
   if (reqUrl.pathname.includes('/library-research/')) {
     return;
@@ -69,14 +71,33 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // برای فایل‌های داده حجیم (/data/golzar_martyrs.xlsx و /data/library_books.json):
+  // استفاده از کش برای بارگذاری فوری در چند میلی‌ثانیه بدون دانلود مجدد چند مگابایت در هر رفرش
+  if (reqUrl.pathname.includes('/data/')) {
+    event.respondWith(
+      caches.match(event.request).then((cachedResp) => {
+        if (cachedResp) {
+          return cachedResp;
+        }
+        return fetch(event.request).then((netResp) => {
+          if (netResp && netResp.status === 200) {
+            const copy = netResp.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, copy).catch(() => {});
+            });
+          }
+          return netResp;
+        });
+      })
+    );
+    return;
+  }
+
   const isHtmlNavigation =
     event.request.mode === 'navigate' ||
     (event.request.headers.get('accept') || '').includes('text/html');
 
   if (isHtmlNavigation) {
-    // در مرورگرهای موبایل (iOS Safari / Chrome Android)، پاس دادن شیء Request با mode='navigate'
-    // همراه با { cache: 'no-store' } خطای TypeError ایجاد می‌کرد و باعث بازگشت به کش قدیمی می‌شد!
-    // بنابراین همیشه با رشته URL مستقل و پارامتر زمان روز، مستقیم از شبکه دریافت می‌کنیم.
     const freshHtmlUrl = new URL('./index.html', self.location.href);
     freshHtmlUrl.searchParams.set('_sw_t', String(Date.now()));
 
@@ -98,9 +119,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // برای فایل‌های JS و CSS و استاتیک، استفاده از رشته reqUrl.toString() برای جلوگیری از خطای RequestInit در موبایل
+  // برای فایل‌های JS و CSS: دریافت نسخه روز از شبکه با پشتیبان آفلاین
   event.respondWith(
-    fetch(reqUrl.toString(), { cache: 'no-store', credentials: 'same-origin' })
+    fetch(reqUrl.toString(), { cache: 'no-cache', credentials: 'same-origin' })
       .then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
           const responseClone = networkResponse.clone();

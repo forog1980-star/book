@@ -12,6 +12,7 @@ export interface LightweightGolzarMartyr {
   id: string;
   fullName: string;
   normalizedFullName: string;
+  compactFullName: string;
   firstName: string;
   lastName: string;
   fatherName: string;
@@ -26,8 +27,20 @@ let cachedGolzarMartyrs: LightweightGolzarMartyr[] | null = null;
 let cachedGolzarByNormName = new Map<string, LightweightGolzarMartyr>();
 let cachedGolzarByCompactName = new Map<string, LightweightGolzarMartyr>();
 let cachedTotalRecordsCount = 28368;
+let golzarCacheEpoch = 0;
 let loadingPromise: Promise<LightweightGolzarMartyr[]> | null = null;
 const golzarLoadListeners = new Set<() => void>();
+
+// کش‌های O(1) برای جلوگیری از تکرار پردازش‌های متنی در رندرها
+let evaluationCache = new Map<string, MartyrTehranEvaluation>();
+let bookExtractCache = new Map<string, LightweightGolzarMartyr[]>();
+let lastEnrichedLinksCache: {
+  catalogRowsRef: ReferenceCatalogRow[];
+  auditRecordsRef: Record<string, FieldAuditRecord>;
+  linksRef: BookMartyrLinkRecord[];
+  epoch: number;
+  result: BookMartyrLinkRecord[];
+} | null = null;
 
 export function subscribeToGolzarMartyrsLoaded(listener: () => void): () => void {
   golzarLoadListeners.add(listener);
@@ -260,6 +273,8 @@ export async function loadCachedGolzarMartyrs(): Promise<LightweightGolzarMartyr
       const res = await fetch('./data/golzar_martyrs.xlsx');
       if (!res.ok) return [];
       const buf = await res.arrayBuffer();
+      // تنفس کوتاه نخ اصلی مرورگر پیش از پارس فایل اکسل ۲۸ هزار نفری
+      await new Promise((r) => setTimeout(r, 0));
       const wb = XLSX.read(buf, { type: 'array', cellDates: false });
 
       const golzarRows = wb.Sheets['golzar_martyrs']
@@ -268,6 +283,9 @@ export async function loadCachedGolzarMartyrs(): Promise<LightweightGolzarMartyr
       const outsideRows = wb.Sheets['outside_golzar_martyrs']
         ? XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets['outside_golzar_martyrs'], { defval: '' })
         : [];
+
+      // تنفس کوتاه نخ اصلی مرورگر پیش از ساخت جدول هش ۲۸٬۳۶۸ شهید
+      await new Promise((r) => setTimeout(r, 0));
 
       cachedTotalRecordsCount = golzarRows.length + outsideRows.length || 28368;
       const list: LightweightGolzarMartyr[] = [];
@@ -281,10 +299,13 @@ export async function loadCachedGolzarMartyrs(): Promise<LightweightGolzarMartyr
         if (!fullName || fullName.includes('گمنام')) return;
         const norm = normalizePersianText(fullName.replace(/^شهید\s+/, ''));
         if (!norm) return;
+        const strippedNorm = stripTitlesForTehranIndex(fullName);
+        const compact = compactNameForTehranIndex(fullName);
         const item: LightweightGolzarMartyr = {
           id: `G-${idx + 2}`,
           fullName,
           normalizedFullName: norm,
+          compactFullName: compact,
           firstName: fn,
           lastName: ln,
           fatherName: cleanCell(r['نام پدر']),
@@ -295,8 +316,6 @@ export async function loadCachedGolzarMartyrs(): Promise<LightweightGolzarMartyr
           source: 'golzar'
         };
         list.push(item);
-        const strippedNorm = stripTitlesForTehranIndex(fullName);
-        const compact = compactNameForTehranIndex(fullName);
         if (strippedNorm && !byNorm.has(strippedNorm)) byNorm.set(strippedNorm, item);
         if (norm && !byNorm.has(norm)) byNorm.set(norm, item);
         if (compact && !byCompact.has(compact)) byCompact.set(compact, item);
@@ -309,10 +328,13 @@ export async function loadCachedGolzarMartyrs(): Promise<LightweightGolzarMartyr
         if (!fullName || fullName.includes('گمنام')) return;
         const norm = normalizePersianText(fullName.replace(/^شهید\s+/, ''));
         if (!norm) return;
+        const strippedNorm = stripTitlesForTehranIndex(fullName);
+        const compact = compactNameForTehranIndex(fullName);
         const item: LightweightGolzarMartyr = {
           id: `O-${idx + 2}`,
           fullName,
           normalizedFullName: norm,
+          compactFullName: compact,
           firstName: fn,
           lastName: ln,
           fatherName: cleanCell(r['نام پدر']),
@@ -323,8 +345,6 @@ export async function loadCachedGolzarMartyrs(): Promise<LightweightGolzarMartyr
           source: 'outside'
         };
         list.push(item);
-        const strippedNorm = stripTitlesForTehranIndex(fullName);
-        const compact = compactNameForTehranIndex(fullName);
         if (strippedNorm && !byNorm.has(strippedNorm)) byNorm.set(strippedNorm, item);
         if (norm && !byNorm.has(norm)) byNorm.set(norm, item);
         if (compact && !byCompact.has(compact)) byCompact.set(compact, item);
@@ -333,6 +353,11 @@ export async function loadCachedGolzarMartyrs(): Promise<LightweightGolzarMartyr
       cachedGolzarMartyrs = list;
       cachedGolzarByNormName = byNorm;
       cachedGolzarByCompactName = byCompact;
+      golzarCacheEpoch += 1;
+      evaluationCache.clear();
+      bookExtractCache.clear();
+      lastEnrichedLinksCache = null;
+
       golzarLoadListeners.forEach((cb) => {
         try {
           cb();
@@ -365,8 +390,19 @@ export function findMartyrRecordIn28k(
 ): LightweightGolzarMartyr | null {
   if (!martyrName || martyrName === '*') return null;
   const stripped = stripTitlesForTehranIndex(martyrName);
-  const compact = compactNameForTehranIndex(martyrName);
   if (!stripped || stripped.length < 4) return null;
+  const compact = compactNameForTehranIndex(martyrName);
+
+  // جست‌وجوی O(1) در جدول هش ۲۸٬۳۶۸ شهید گلزار تهران (بدون پیمایش خطی آرایه در صورت عدم تطابق!)
+  if (cachedGolzarByNormName.size > 0 && (!golzarMartyrs || golzarMartyrs === cachedGolzarMartyrs)) {
+    const byN = cachedGolzarByNormName.get(stripped);
+    if (byN) return byN;
+    if (compact) {
+      const byC = cachedGolzarByCompactName.get(compact);
+      if (byC) return byC;
+    }
+    return null;
+  }
 
   if (cachedGolzarByNormName.size > 0) {
     const byN = cachedGolzarByNormName.get(stripped);
@@ -377,12 +413,10 @@ export function findMartyrRecordIn28k(
     }
   }
 
-  const list = golzarMartyrs || cachedGolzarMartyrs || [];
+  const list = golzarMartyrs || [];
   if (list.length === 0) return null;
   const exact = list.find(
-    (gm) =>
-      gm.normalizedFullName === stripped ||
-      compactNameForTehranIndex(gm.fullName) === compact
+    (gm) => gm.normalizedFullName === stripped || gm.compactFullName === compact
   );
   return exact || null;
 }
@@ -432,43 +466,61 @@ export function evaluateMartyrTehranStatus(
   golzarMartyrs?: LightweightGolzarMartyr[]
 ): MartyrTehranEvaluation {
   const nameRaw = (params.martyrName || '').trim();
+  const useCache = !golzarMartyrs || golzarMartyrs === cachedGolzarMartyrs;
+  const cacheKey = useCache
+    ? `${golzarCacheEpoch}|${nameRaw}|${params.gravePiece || ''}|${params.sourceDesc || ''}|${params.reviewerNote || ''}|${params.isGroupPhrase ? 1 : 0}`
+    : '';
+
+  if (useCache && cacheKey) {
+    const cached = evaluationCache.get(cacheKey);
+    if (cached) return cached;
+  }
+
   if (!nameRaw || nameRaw === '*' || params.isGroupPhrase) {
-    return {
+    const res: MartyrTehranEvaluation = {
       isTehran: false,
       isNonTehran: isExplicitlyNonTehranRecord(params),
       hasHomonymIn28kNeedsReview: false,
       matchedGolzarRecord: null
     };
+    if (useCache && cacheKey) evaluationCache.set(cacheKey, res);
+    return res;
   }
 
   const nonTehran = isExplicitlyNonTehranRecord(params);
   const matchedIn28k = findMartyrRecordIn28k(nameRaw, golzarMartyrs);
 
   if (nonTehran) {
-    return {
+    const res: MartyrTehranEvaluation = {
       isTehran: false,
       isNonTehran: true,
       hasHomonymIn28kNeedsReview: Boolean(matchedIn28k),
       matchedGolzarRecord: matchedIn28k
     };
+    if (useCache && cacheKey) evaluationCache.set(cacheKey, res);
+    return res;
   }
 
   const hasTehranPiece = isTehranGolzarPiece(params.gravePiece);
   if (hasTehranPiece || matchedIn28k) {
-    return {
+    const res: MartyrTehranEvaluation = {
       isTehran: true,
       isNonTehran: false,
       hasHomonymIn28kNeedsReview: false,
       matchedGolzarRecord: matchedIn28k
     };
+    if (useCache && cacheKey) evaluationCache.set(cacheKey, res);
+    return res;
   }
 
-  return {
+  const res: MartyrTehranEvaluation = {
     isTehran: false,
     isNonTehran: false,
     hasHomonymIn28kNeedsReview: false,
     matchedGolzarRecord: null
   };
+  if (useCache && cacheKey) evaluationCache.set(cacheKey, res);
+  return res;
 }
 
 
@@ -803,18 +855,32 @@ export function extractTehranMartyrsFromBookText(
   },
   golzarMartyrs?: LightweightGolzarMartyr[]
 ): LightweightGolzarMartyr[] {
+  const useCache = !golzarMartyrs || golzarMartyrs === cachedGolzarMartyrs;
+  const cacheKey = useCache
+    ? `${golzarCacheEpoch}|${book.tempBookId || ''}|${book.titleRaw || ''}|${book.descriptionRaw || ''}|${book.noteRaw || ''}`
+    : '';
+
+  if (useCache && cacheKey) {
+    const cached = bookExtractCache.get(cacheKey);
+    if (cached) return cached;
+  }
+
   const combinedRaw = `${book.titleRaw || ''} | ${book.descriptionRaw || ''} | ${book.noteRaw || ''}`;
   if (
     isExplicitlyNonTehranRecord({
       sourceDesc: combinedRaw
     })
   ) {
+    if (useCache && cacheKey) bookExtractCache.set(cacheKey, []);
     return [];
   }
 
   const foundMap = new Map<string, LightweightGolzarMartyr>();
   const normText = normalizePersianText(combinedRaw);
-  if (!normText) return [];
+  if (!normText) {
+    if (useCache && cacheKey) bookExtractCache.set(cacheKey, []);
+    return [];
+  }
 
   // ۱. بررسی کل عنوان کتاب (اگر عنوان کتاب مستقیماً نام یک شهید تهرانی باشد)
   const cleanTitle = stripTitlesForTehranIndex(
@@ -825,7 +891,7 @@ export function extractTehranMartyrsFromBookText(
   if (isDistinctMartyrFullName(cleanTitle)) {
     const titleMatch = findMartyrRecordIn28k(cleanTitle, golzarMartyrs);
     if (titleMatch) {
-      foundMap.set(compactNameForTehranIndex(titleMatch.fullName), titleMatch);
+      foundMap.set(titleMatch.compactFullName || compactNameForTehranIndex(titleMatch.fullName), titleMatch);
     }
   }
 
@@ -845,13 +911,17 @@ export function extractTehranMartyrsFromBookText(
       if (!isDistinctMartyrFullName(stripped)) continue;
       const gm = findMartyrRecordIn28k(stripped, golzarMartyrs);
       if (gm) {
-        foundMap.set(compactNameForTehranIndex(gm.fullName), gm);
+        foundMap.set(gm.compactFullName || compactNameForTehranIndex(gm.fullName), gm);
         break;
       }
     }
   }
 
-  return Array.from(foundMap.values());
+  const result = Array.from(foundMap.values());
+  if (useCache && cacheKey) {
+    bookExtractCache.set(cacheKey, result);
+  }
+  return result;
 }
 
 /**
@@ -868,6 +938,19 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
   golzarMartyrs?: LightweightGolzarMartyr[];
 }): BookMartyrLinkRecord[] {
   const { catalogRows, auditRecords, links, golzarMartyrs } = params;
+
+  // اگر ورودی از قبل همان خروجی کش‌شده است یا مراجع یکسان هستند، بلافاصله برگردان
+  if (!golzarMartyrs && lastEnrichedLinksCache) {
+    if (
+      lastEnrichedLinksCache.epoch === golzarCacheEpoch &&
+      lastEnrichedLinksCache.catalogRowsRef === catalogRows &&
+      lastEnrichedLinksCache.auditRecordsRef === auditRecords &&
+      (lastEnrichedLinksCache.linksRef === links || lastEnrichedLinksCache.result === links)
+    ) {
+      return lastEnrichedLinksCache.result;
+    }
+  }
+
   const seenBookMartyrPairs = new Set<string>();
 
   const catalogByCompactTitle = new Map<string, ReferenceCatalogRow>();
@@ -952,7 +1035,7 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
     for (const book of allUnifiedBooks) {
       const matchedTehranMartyrs = extractTehranMartyrsFromBookText(book, golzarMartyrs);
       for (const gm of matchedTehranMartyrs) {
-        const mCompact = compactNameForTehranIndex(gm.fullName);
+        const mCompact = gm.compactFullName || compactNameForTehranIndex(gm.fullName);
         const bKey1 = `${book.tempBookId}::${mCompact}`;
         const bKey2 = `${compactNameForTehranIndex(book.titleRaw)}::${mCompact}`;
         if (seenBookMartyrPairs.has(bKey1) || seenBookMartyrPairs.has(bKey2)) {
@@ -984,6 +1067,16 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
         });
       }
     }
+  }
+
+  if (!golzarMartyrs) {
+    lastEnrichedLinksCache = {
+      catalogRowsRef: catalogRows,
+      auditRecordsRef: auditRecords,
+      linksRef: links,
+      epoch: golzarCacheEpoch,
+      result: updatedLinks
+    };
   }
 
   return updatedLinks;

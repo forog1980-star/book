@@ -8,57 +8,50 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <script>
       (function () {
-        var BUILD_VER = '2026-11-11-v11';
-        var ACTIVE_CACHE = 'markaz-asnad-main-book-v11';
+        var BUILD_VER = '2026-11-11-v12';
+        var ACTIVE_CACHE = 'markaz-asnad-main-book-v12';
 
-        function purgeOldCachesAndSW() {
-          var tasks = [];
-          if ('caches' in window) {
-            tasks.push(
-              caches.keys().then(function (keys) {
-                return Promise.all(
-                  keys.map(function (k) {
-                    if (k !== ACTIVE_CACHE) {
-                      return caches.delete(k);
-                    }
-                    return Promise.resolve();
-                  })
-                );
+        function purgeOldCaches() {
+          if (!('caches' in window)) return Promise.resolve();
+          return caches.keys().then(function (keys) {
+            return Promise.all(
+              keys.map(function (k) {
+                if (k !== ACTIVE_CACHE) {
+                  return caches.delete(k);
+                }
+                return Promise.resolve();
               })
             );
-          }
-          if ('serviceWorker' in navigator) {
-            tasks.push(
-              navigator.serviceWorker.getRegistrations().then(function (regs) {
-                return Promise.all(
-                  regs.map(function (r) {
-                    return r.update().catch(function () {});
-                  })
-                );
-              })
-            );
-          }
-          return Promise.all(tasks);
+          });
         }
 
         try {
           var prevVer = localStorage.getItem('markaz_app_build_ver');
           if (prevVer !== BUILD_VER) {
             localStorage.setItem('markaz_app_build_ver', BUILD_VER);
-            purgeOldCachesAndSW().finally(function () {
-              if (prevVer && window.location.search.indexOf('_bv=' + BUILD_VER) === -1) {
-                var url = new URL(window.location.href);
-                url.searchParams.set('_bv', BUILD_VER);
-                window.location.replace(url.toString());
-              }
-            });
+            purgeOldCaches();
           }
         } catch (e) {}
 
-        // بررسی زنده نسخه اسکریپت سرور در موبایل و دسکتاپ تا حتی در صورت بازگشت صفحه از کش مرورگر گوشی، بلافاصله نسخه جدید جایگزین شود
+        // بررسی آرام نسخه اسکریپت سرور تا اگر مرورگر موبایل فایل قدیمی را از حافظه برگردانده بود، یک‌بار نسخه جدید بارگذاری شود
+        var isCheckingBundle = false;
         function verifyLatestServerBundle() {
+          if (isCheckingBundle) return;
           try {
             if (!navigator.onLine) return;
+            var loadedScripts = document.querySelectorAll('script[type="module"][src]');
+            var currentScript = '';
+            for (var i = 0; i < loadedScripts.length; i++) {
+              var s = loadedScripts[i].getAttribute('src') || '';
+              if (s.indexOf('/assets/index-') !== -1) {
+                currentScript = s.split('/').pop();
+                break;
+              }
+            }
+            // در محیط dev که فایل /src/main.tsx است، نیازی به رفرش خودکار نیست
+            if (!currentScript) return;
+
+            isCheckingBundle = true;
             var checkUrl = new URL('./index.html', window.location.href);
             checkUrl.searchParams.set('_check', String(Date.now()));
             fetch(checkUrl.toString(), { cache: 'no-store', credentials: 'same-origin' })
@@ -70,37 +63,26 @@
                 var match = html.match(/src=["']([^"']*\/assets\/index-[^"']+\.js)["']/);
                 if (!match || !match[1]) return;
                 var serverScript = match[1].split('/').pop();
-                var loadedScripts = document.querySelectorAll('script[type="module"][src]');
-                var currentScript = '';
-                for (var i = 0; i < loadedScripts.length; i++) {
-                  var s = loadedScripts[i].getAttribute('src') || '';
-                  if (s.indexOf('/assets/index-') !== -1) {
-                    currentScript = s.split('/').pop();
-                    break;
-                  }
-                }
                 if (currentScript && serverScript && currentScript !== serverScript) {
-                  purgeOldCachesAndSW().finally(function () {
-                    var reloadUrl = new URL(window.location.href);
-                    reloadUrl.searchParams.set('_bv', serverScript.replace(/[^a-zA-Z0-9_-]/g, ''));
-                    window.location.replace(reloadUrl.toString());
+                  var reloadKey = 'markaz_reloaded_for_' + serverScript;
+                  if (sessionStorage.getItem(reloadKey) === '1') return;
+                  sessionStorage.setItem(reloadKey, '1');
+                  purgeOldCaches().finally(function () {
+                    window.location.reload();
                   });
                 }
               })
-              .catch(function () {});
-          } catch (e) {}
+              .catch(function () {})
+              .finally(function () {
+                isCheckingBundle = false;
+              });
+          } catch (e) {
+            isCheckingBundle = false;
+          }
         }
 
-        window.addEventListener('load', function () {
-          setTimeout(verifyLatestServerBundle, 150);
-        });
         window.addEventListener('pageshow', function (ev) {
           if (ev && ev.persisted) {
-            verifyLatestServerBundle();
-          }
-        });
-        document.addEventListener('visibilitychange', function () {
-          if (document.visibilityState === 'visible') {
             verifyLatestServerBundle();
           }
         });
