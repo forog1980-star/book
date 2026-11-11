@@ -104,6 +104,7 @@ import {
   getCachedGolzarMartyrsSync,
   loadCachedGolzarMartyrs,
   matchSingleBookAgainstMartyrs,
+  stripPublisherAndAutoNotesForMartyrMatch,
   subscribeToGolzarMartyrsLoaded
 } from './utils/martyrsCrossMatchEngine';
 import {
@@ -388,46 +389,22 @@ export default function App() {
               });
             }
             const enrichedRows = enrichLinksWithSorehMehrResearch(lRows);
-            let finalLinks = enrichedRows;
-            const localLinksRaw = localStorage.getItem(LINKS_STORAGE_KEY);
-            if (localLinksRaw) {
-              try {
-                const parsedLocal = JSON.parse(localLinksRaw);
-                if (Array.isArray(parsedLocal) && parsedLocal.length > 0) {
-                  // اگر حافظه محلی فقط ۵ رکورد نمونه اولیه (LNK-001..LNK-005) یا کمتر از کل کارپوشه را داشت، کل ۸۳۶ رکورد غنی‌شده را با ویرایش‌های کارشناس ادغام کن
-                  const byId = new Map<string, BookMartyrLinkRecord>();
-                  for (const item of enrichedRows) {
-                    byId.set(item.id, item);
+            setLinks((prev) => {
+              let merged = mergeLinksPreservingApprovals(enrichedRows, prev);
+              const localLinksRaw = localStorage.getItem(LINKS_STORAGE_KEY);
+              if (localLinksRaw) {
+                try {
+                  const parsedLocal = JSON.parse(localLinksRaw);
+                  if (Array.isArray(parsedLocal) && parsedLocal.length > 0) {
+                    merged = mergeLinksPreservingApprovals(merged, parsedLocal);
                   }
-                  for (const localItem of parsedLocal as BookMartyrLinkRecord[]) {
-                    if (!localItem?.id) continue;
-                    // حذف رکوردهای نمونه تکراری LNK-001 تا LNK-005 که معادل واقعی RL دارند
-                    if (/^LNK-00[1-5]$/.test(localItem.id)) continue;
-                    const base = byId.get(localItem.id);
-                    if (base) {
-                      byId.set(localItem.id, {
-                        ...base,
-                        ...localItem,
-                        tempBookId: base.tempBookId || localItem.tempBookId,
-                        alternativeTitle: base.alternativeTitle || localItem.alternativeTitle,
-                        reviewStatus:
-                          localItem.reviewStatus && localItem.reviewStatus !== 'بررسی‌نشده'
-                            ? localItem.reviewStatus
-                            : base.reviewStatus,
-                        reviewerNote: localItem.reviewerNote || base.reviewerNote
-                      });
-                    } else {
-                      byId.set(localItem.id, localItem);
-                    }
-                  }
-                  finalLinks = Array.from(byId.values());
+                } catch {
+                  // ignore
                 }
-              } catch {
-                finalLinks = enrichedRows;
               }
-            }
-            setLinks(finalLinks);
-            setExtractedItems((prev) => buildSorehMehrExtractedItems(finalLinks, prev));
+              return merged;
+            });
+            setExtractedItems((prev) => buildSorehMehrExtractedItems(enrichedRows, prev));
           }
 
           // 3. Parse Sheet «موارد نیازمند بررسی» (567 rows)
@@ -453,21 +430,41 @@ export default function App() {
                 trackingStatus: r[8] || 'باز'
               });
             }
-            const localPvRaw = localStorage.getItem(PENDING_REVIEWS_STORAGE_KEY);
-            if (localPvRaw) {
-              try {
-                const parsedLocal = JSON.parse(localPvRaw);
-                if (Array.isArray(parsedLocal) && parsedLocal.length > 0) {
-                  setPendingReviews(parsedLocal);
-                } else {
-                  setPendingReviews(pRows);
+            setPendingReviews((prev) => {
+              const baseMap = new Map<string, PendingReviewItem>();
+              for (const item of pRows) baseMap.set(item.trackingId, item);
+              const applyLocal = (list: PendingReviewItem[]) => {
+                for (const loc of list) {
+                  if (!loc?.trackingId) continue;
+                  const existing = baseMap.get(loc.trackingId);
+                  if (existing) {
+                    baseMap.set(loc.trackingId, {
+                      ...existing,
+                      ...loc,
+                      trackingStatus:
+                        loc.trackingStatus && loc.trackingStatus !== 'باز'
+                          ? loc.trackingStatus
+                          : existing.trackingStatus
+                    });
+                  } else {
+                    baseMap.set(loc.trackingId, loc);
+                  }
                 }
-              } catch {
-                setPendingReviews(pRows);
+              };
+              if (Array.isArray(prev) && prev.length > 0) applyLocal(prev);
+              const localPvRaw = localStorage.getItem(PENDING_REVIEWS_STORAGE_KEY);
+              if (localPvRaw) {
+                try {
+                  const parsedLocal = JSON.parse(localPvRaw);
+                  if (Array.isArray(parsedLocal) && parsedLocal.length > 0) {
+                    applyLocal(parsedLocal);
+                  }
+                } catch {
+                  // ignore
+                }
               }
-            } else {
-              setPendingReviews(pRows);
-            }
+              return Array.from(baseMap.values());
+            });
           }
 
           // 4. Parse Sheet «شهدای گلزار» (196 rows)
@@ -505,11 +502,107 @@ export default function App() {
     loadFullWorkbookJson();
   }, []);
 
+  // توابع پاک‌سازی خودکار رکوردهای ذخیره‌شده از تداخل نام ناشر (مانند «انتشارات ابراهیم هادی») و حفظ قطعی تأیید کارشناس
+  const sanitizeAuditRecordsMap = (
+    rawMap: Record<string, FieldAuditRecord>
+  ): Record<string, FieldAuditRecord> => {
+    if (!rawMap || typeof rawMap !== 'object') return {};
+    const cleaned: Record<string, FieldAuditRecord> = {};
+    for (const [k, rec] of Object.entries(rawMap)) {
+      if (!rec) continue;
+      const cleanedNotes = (rec.notes || '')
+        .replace(/\s*\|\s*⚠️\s*نیازمند بررسی:?\s*تشابه نام با[^|]*/g, '')
+        .replace(/⚠️\s*نیازمند بررسی:?\s*تشابه نام با[^|]*/g, '')
+        .trim();
+      const hadAutoSimilarityNote = (rec.notes || '').includes('تشابه نام با');
+      const isExpertVerified = rec.physical === 'verified' && rec.copyStatus !== 'pending_review';
+      cleaned[k] = {
+        ...rec,
+        notes: cleanedNotes,
+        needsReview: isExpertVerified ? false : hadAutoSimilarityNote ? false : Boolean(rec.needsReview)
+      };
+    }
+    return cleaned;
+  };
+
+  const sanitizeSmartSuggestionsList = (
+    list: SmartSearchSuggestion[]
+  ): SmartSearchSuggestion[] => {
+    if (!Array.isArray(list)) return [];
+    return list.filter((s) => {
+      if (!s || ['SS-0001', 'SS-0002', 'SS-0003', 'SS-0004', 'SS-0005', 'SS-0006', 'SS-0007'].includes(s.id)) {
+        return false;
+      }
+      // اگر پیشنهاد در صف بررسی است اما نام شهید با نام ناشر یکی است (مثل ابراهیم هادی) و در عنوان یا توضیح واقعی کتاب نیامده، حذف شود
+      if (s.reviewStatus === 'در صف بررسی کارشناس') {
+        const mNorm = normalizePersianText((s.martyrName || '').replace(/^شهید\s+/, ''));
+        const pubNorm = normalizePersianText(s.publisher || '');
+        if (mNorm && pubNorm && pubNorm.includes(mNorm)) {
+          const cleanBookText = stripPublisherAndAutoNotesForMartyrMatch(
+            `${s.bookTitle || ''} ${s.publisherDescription || ''}`,
+            s.publisher
+          );
+          if (!` ${cleanBookText} `.includes(` ${mNorm} `)) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
+  };
+
+  const isApprovedLinkStatus = (st?: string): boolean => {
+    if (!st) return false;
+    return (
+      st === 'تأییدشده کارشناسی' ||
+      st === 'قطعی' ||
+      st === 'تأیید' ||
+      st === 'بررسی‌شده در پژوهش اصلی'
+    );
+  };
+
+  const mergeLinksPreservingApprovals = (
+    baseLinks: BookMartyrLinkRecord[],
+    incomingLinks: BookMartyrLinkRecord[]
+  ): BookMartyrLinkRecord[] => {
+    const byId = new Map<string, BookMartyrLinkRecord>();
+    for (const item of baseLinks) {
+      if (!item?.id || /^LNK-00[1-5]$/.test(item.id)) continue;
+      byId.set(item.id, item);
+    }
+    for (const localItem of incomingLinks) {
+      if (!localItem?.id || /^LNK-00[1-5]$/.test(localItem.id)) continue;
+      const base = byId.get(localItem.id);
+      if (base) {
+        const keepApprovedStatus = isApprovedLinkStatus(localItem.reviewStatus)
+          ? localItem.reviewStatus
+          : isApprovedLinkStatus(base.reviewStatus) &&
+            (localItem.reviewStatus === 'بررسی‌نشده' || localItem.reviewStatus?.includes('نیازمند'))
+          ? base.reviewStatus
+          : localItem.reviewStatus && localItem.reviewStatus !== 'بررسی‌نشده'
+          ? localItem.reviewStatus
+          : base.reviewStatus;
+
+        byId.set(localItem.id, {
+          ...base,
+          ...localItem,
+          tempBookId: base.tempBookId || localItem.tempBookId,
+          alternativeTitle: base.alternativeTitle || localItem.alternativeTitle,
+          reviewStatus: keepApprovedStatus,
+          reviewerNote: localItem.reviewerNote || base.reviewerNote
+        });
+      } else {
+        byId.set(localItem.id, localItem);
+      }
+    }
+    return Array.from(byId.values());
+  };
+
   // Persistent States (localStorage + IndexedDB Dual Persistence - پایگاه داده book)
   const [auditRecords, setAuditRecords] = useState<Record<string, FieldAuditRecord>>(() => {
     try {
       const raw = localStorage.getItem(AUDIT_STORAGE_KEY) || localStorage.getItem(LEGACY_AUDIT_KEY);
-      return raw ? JSON.parse(raw) || {} : {};
+      return raw ? sanitizeAuditRecordsMap(JSON.parse(raw) || {}) : {};
     } catch {
       return {};
     }
@@ -538,15 +631,7 @@ export default function App() {
       const raw = localStorage.getItem(SMART_SUGGESTIONS_STORAGE_KEY) || localStorage.getItem(LEGACY_SMART_KEY);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        // Filter out legacy mock suggestions SS-0001 through SS-0007
-        const clean = parsed.filter(
-          (s: SmartSearchSuggestion) =>
-            !['SS-0001', 'SS-0002', 'SS-0003', 'SS-0004', 'SS-0005', 'SS-0006', 'SS-0007'].includes(s.id)
-        );
-        return clean;
-      }
-      return [];
+      return sanitizeSmartSuggestionsList(parsed);
     } catch {
       return [];
     }
@@ -689,10 +774,14 @@ export default function App() {
 
         if (cancelled) return;
 
-        const resolvedAudit = hydAudit.source === 'indexedDB' ? hydAudit.value : auditRecords;
+        const resolvedAudit = sanitizeAuditRecordsMap(
+          hydAudit.source === 'indexedDB' ? hydAudit.value : auditRecords
+        );
         const resolvedCopies = hydCopies.source === 'indexedDB' ? hydCopies.value : bookCopies;
         const resolvedMartyrs = hydMartyrs.source === 'indexedDB' ? hydMartyrs.value : customMartyrs;
-        const resolvedSmart = hydSmart.source === 'indexedDB' ? hydSmart.value : smartSuggestions;
+        const resolvedSmart = sanitizeSmartSuggestionsList(
+          hydSmart.source === 'indexedDB' ? hydSmart.value : smartSuggestions
+        );
         const resolvedGroups = hydGroups.source === 'indexedDB' ? hydGroups.value : multiMartyrGroups;
         const resolvedLinks = enrichLinksWithSorehMehrResearch(
           hydLinks.source === 'indexedDB' ? hydLinks.value : links
@@ -712,8 +801,32 @@ export default function App() {
         if (hydSmart.source === 'indexedDB') setSmartSuggestions(resolvedSmart);
         if (hydGroups.source === 'indexedDB') setMultiMartyrGroups(resolvedGroups);
         if (hydExtracted.source === 'indexedDB') setExtractedItems(resolvedExtracted);
-        if (hydLinks.source === 'indexedDB') setLinks(resolvedLinks);
-        if (hydPending.source === 'indexedDB') setPendingReviews(resolvedPending);
+        if (hydLinks.source === 'indexedDB') {
+          setLinks((prev) => mergeLinksPreservingApprovals(prev, resolvedLinks));
+        }
+        if (hydPending.source === 'indexedDB') {
+          setPendingReviews((prev) => {
+            if (!Array.isArray(prev) || prev.length === 0) return resolvedPending;
+            const byId = new Map<string, PendingReviewItem>();
+            for (const p of prev) byId.set(p.trackingId, p);
+            for (const inc of resolvedPending) {
+              const ex = byId.get(inc.trackingId);
+              if (ex) {
+                byId.set(inc.trackingId, {
+                  ...ex,
+                  ...inc,
+                  trackingStatus:
+                    ex.trackingStatus && ex.trackingStatus !== 'باز'
+                      ? ex.trackingStatus
+                      : inc.trackingStatus
+                });
+              } else {
+                byId.set(inc.trackingId, inc);
+              }
+            }
+            return Array.from(byId.values());
+          });
+        }
         if (hydLog.source === 'indexedDB') setAuditLog(resolvedLog);
         if (hydRejected.source === 'indexedDB') setRejectedSuggestionsArchive(resolvedRejected);
       } finally {
@@ -1109,23 +1222,32 @@ export default function App() {
   };
 
   const handleSaveAuditRecord = (record: FieldAuditRecord) => {
-    // مقابله خودکار کتاب ثبت‌شده/ویرایش‌شده با بانک ۲۸٬۳۶۸ شهید گلزار، کارپوشه و پرونده‌های ثبتی
+    const cleanedRecordNotes = (record.notes || '')
+      .replace(/\s*\|\s*⚠️\s*نیازمند بررسی:?\s*تشابه نام با[^|]*/g, '')
+      .replace(/⚠️\s*نیازمند بررسی:?\s*تشابه نام با[^|]*/g, '')
+      .trim();
+
+    const isExpertApprovedSave =
+      record.physical === 'verified' && !record.needsReview && record.copyStatus !== 'pending_review';
+
+    // مقابله خودکار فقط برای کتاب‌های جدیدی که هنوز توسط کارشناس تأیید نشده‌اند (physical === 'review')
+    // و فقط بر اساس عنوان کتاب و توضیحات کتاب (بدون نام ناشر و بدون یادداشت‌های سیستمی)
     const golzarList = getCachedGolzarMartyrsSync();
-    const autoMatches = matchSingleBookAgainstMartyrs(
-      {
-        tempBookId: record.tempBookId || record.key,
-        title: record.title,
-        description: record.descriptionRaw,
-        notes: record.notes,
-        author: record.author,
-        publisher: record.publisher,
-        category: record.category,
-        location: record.location
-      },
-      golzarList,
-      customMartyrs,
-      workbookMartyrs
-    );
+    const autoMatches = isExpertApprovedSave
+      ? []
+      : matchSingleBookAgainstMartyrs(
+          {
+            tempBookId: record.tempBookId || record.key,
+            title: record.title,
+            description: record.descriptionRaw,
+            publisher: record.publisher,
+            category: record.category,
+            location: record.location
+          },
+          golzarList,
+          customMartyrs,
+          workbookMartyrs
+        );
 
     const unverifiedMatches = autoMatches.filter((m) => {
       const normM = normalizePersianText(m.martyrName.replace(/^شهید\s+/, ''));
@@ -1135,22 +1257,27 @@ export default function App() {
           normalizePersianText(l.martyrNameRaw.replace(/^شهید\s+/, '')).includes(normM) &&
           (l.tempBookId === record.tempBookId || normalizePersianText(l.bookTitleRaw).includes(normB))
       );
-      return !alreadyLinked;
+      if (alreadyLinked) return false;
+      const alreadyInSuggestions = smartSuggestions.some(
+        (s) =>
+          normalizePersianText(s.martyrName.replace(/^شهید\s+/, '')).includes(normM) &&
+          (s.matchedCatalogBookId === record.tempBookId || normalizePersianText(s.bookTitle).includes(normB))
+      );
+      if (alreadyInSuggestions) return false;
+      const alreadyRejected = rejectedSuggestionsArchive.some(
+        (r) =>
+          normalizePersianText(r.martyrName.replace(/^شهید\s+/, '')).includes(normM) &&
+          (r.bookId === record.tempBookId || normalizePersianText(r.bookTitle).includes(normB))
+      );
+      return !alreadyRejected;
     });
 
-    const hasNewSimilarity = unverifiedMatches.length > 0;
-    const autoReviewNote =
-      hasNewSimilarity && !record.notes.includes('تشابه نام شهید')
-        ? `${record.notes ? `${record.notes} | ` : ''}⚠️ نیازمند بررسی: تشابه نام با ${unverifiedMatches
-            .slice(0, 3)
-            .map((m) => m.martyrName)
-            .join('، ')}`
-        : record.notes;
+    const hasNewSimilarity = !isExpertApprovedSave && record.physical === 'review' && unverifiedMatches.length > 0;
 
     const withActor: FieldAuditRecord & { _updatedAt?: number } = {
       ...record,
-      needsReview: record.needsReview || hasNewSimilarity,
-      notes: autoReviewNote,
+      needsReview: isExpertApprovedSave ? false : Boolean(record.needsReview || hasNewSimilarity),
+      notes: cleanedRecordNotes,
       checkedBy: getRoleDisplayName(activeUserRole),
       _updatedAt: Date.now()
     };
@@ -1159,7 +1286,65 @@ export default function App() {
       [record.key]: withActor
     }));
 
-    if (hasNewSimilarity) {
+    // اگر کارشناس کتاب را تأیید نهایی کرده است، تمام موارد نیازمند بررسی مرتبط با این کتاب در صف جست‌وجو و پیوندها نیز تعیین‌تکلیف شوند
+    if (isExpertApprovedSave) {
+      const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
+      const normBookTitle = normalizePersianText(record.title);
+
+      setSmartSuggestions((prev) =>
+        prev.map((s) => {
+          if (
+            s.reviewStatus === 'در صف بررسی کارشناس' &&
+            (s.matchedCatalogBookId === record.tempBookId ||
+              (normBookTitle && normalizePersianText(s.bookTitle) === normBookTitle))
+          ) {
+            return {
+              ...s,
+              reviewStatus: 'تأییدشده و افزوده‌شده به پرونده',
+              reviewedBy: getRoleDisplayName(activeUserRole),
+              reviewedAt: nowFa,
+              reviewerNote: s.reviewerNote || 'تأیید نهایی کارشناس هنگام بازبینی کتاب'
+            };
+          }
+          return s;
+        })
+      );
+
+      setLinks((prev) =>
+        prev.map((l) => {
+          if (
+            (l.tempBookId === record.tempBookId ||
+              (normBookTitle && normalizePersianText(l.bookTitleRaw) === normBookTitle)) &&
+            (l.reviewStatus.includes('نیازمند') || l.reviewStatus === 'بررسی‌نشده')
+          ) {
+            return {
+              ...l,
+              reviewStatus: 'تأییدشده کارشناسی',
+              reviewerNote: l.reviewerNote
+                ? `${l.reviewerNote} | تأیید کارشناس (${nowFa})`
+                : `تأیید کارشناس (${nowFa})`
+            };
+          }
+          return l;
+        })
+      );
+
+      setPendingReviews((prev) =>
+        prev.map((pv) => {
+          if (
+            pv.trackingStatus === 'باز' &&
+            (pv.mainRecordId === record.tempBookId ||
+              (normBookTitle && normalizePersianText(pv.bookTitle) === normBookTitle))
+          ) {
+            return {
+              ...pv,
+              trackingStatus: 'بررسی‌شده'
+            };
+          }
+          return pv;
+        })
+      );
+    } else if (hasNewSimilarity) {
       const nowFa = new Intl.DateTimeFormat('fa-IR', {
         year: 'numeric',
         month: '2-digit',
@@ -1207,7 +1392,6 @@ export default function App() {
             subjectCategory: record.category || SUBJECT_CATEGORIES[0].label,
             publisherDescription:
               record.descriptionRaw ||
-              record.notes ||
               `کتاب ثبت‌شده در کتابخانه دارای تشابه با نام «${m.martyrName}»`,
             sourcePriority: 1,
             sourceName: 'مقابله خودکار دوطرفه کتابخانه و بانک ۲۸٬۳۶۸ شهید',
@@ -1220,7 +1404,7 @@ export default function App() {
                 : 'موجود در فهرست مرجع ۹۸۰ کتاب',
             matchedCatalogBookId: record.tempBookId,
             reviewStatus: 'در صف بررسی کارشناس',
-            reviewerNote: 'تشخیص خودکار هنگام ثبت/ویرایش کتاب — نیازمند بررسی کارشناس',
+            reviewerNote: 'تشخیص خودکار هنگام ثبت کتاب جدید — نیازمند بررسی کارشناس',
             reviewedBy: '',
             reviewedAt: ''
           });
@@ -2036,14 +2220,15 @@ export default function App() {
                 `ثبت پرونده شهید «${newMartyr.fullName}» در پایگاه book (قطعه: ${newMartyr.gravePiece || '—'}، ردیف: ${newMartyr.graveRow || '—'}، قبر: ${newMartyr.graveNumber || '—'})`
               );
 
-              // مقابله خودکار شهید جدید با تمام کتاب‌های موجود در کتابخانه (۹۸۰ کتاب مرجع + کتاب‌های خارج از فهرست)
+              // مقابله خودکار شهید جدید فقط با عنوان و توضیحات کتاب‌های موجود در کتابخانه (بدون نام ناشر مانند انتشارات ابراهیم هادی)
               const normMartyr = normalizePersianText(newMartyr.fullName.replace(/^شهید\s+/, ''));
               if (normMartyr.length >= 4) {
                 const allBooks = getAllUnifiedBooks(catalogRows, auditRecords);
                 const matchedBooks = allBooks.filter((b) =>
-                  normalizePersianText(`${b.titleRaw} ${b.descriptionRaw} ${b.authorRaw} ${b.noteRaw}`).includes(
-                    normMartyr
-                  )
+                  ` ${stripPublisherAndAutoNotesForMartyrMatch(
+                    `${b.titleRaw} ${b.descriptionRaw}`,
+                    b.publisherRaw
+                  )} `.includes(` ${normMartyr} `)
                 );
                 if (matchedBooks.length > 0) {
                   const nowFa = new Intl.DateTimeFormat('fa-IR', {
@@ -2298,15 +2483,137 @@ export default function App() {
               );
             }}
             onApproveSuggestionToLinks={(sug: SmartSearchSuggestion, newLink: BookMartyrLinkRecord) => {
+              const normM = normalizePersianText(sug.martyrName.replace(/^شهید\s+/, ''));
+              const normB = normalizePersianText(sug.bookTitle);
+              const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
+
+              // ۱. به‌روزرسانی پیشنهاد انتخابی و هر پیشنهاد هم‌نام دیگر برای همین کتاب و شهید در صف بررسی
               setSmartSuggestions((prev) =>
-                prev.map((s) => (s.id === sug.id ? sug : s))
+                prev.map((s) => {
+                  if (s.id === sug.id) return sug;
+                  const sNormM = normalizePersianText(s.martyrName.replace(/^شهید\s+/, ''));
+                  const sNormB = normalizePersianText(s.bookTitle);
+                  if (
+                    s.reviewStatus === 'در صف بررسی کارشناس' &&
+                    sNormM === normM &&
+                    (s.matchedCatalogBookId === sug.matchedCatalogBookId || sNormB === normB)
+                  ) {
+                    return {
+                      ...s,
+                      reviewStatus: 'تأییدشده و افزوده‌شده به پرونده',
+                      reviewedBy: sug.reviewedBy || getRoleDisplayName(activeUserRole),
+                      reviewedAt: sug.reviewedAt || nowFa
+                    };
+                  }
+                  return s;
+                })
               );
-              setLinks((prev) => [newLink, ...prev]);
+
+              // ۲. اگر رکورد پیوند مشابهی از قبل در links وضعیت نیازمند بررسی داشت، همان را به تأییدشده کارشناسی ارتقا بده وگرنه پیوند جدید را اضافه کن
+              setLinks((prev) => {
+                let matchedExisting = false;
+                const updatedPrev = prev.map((l) => {
+                  const lNormM = normalizePersianText(l.martyrNameRaw.replace(/^شهید\s+/, ''));
+                  const lNormB = normalizePersianText(l.bookTitleRaw);
+                  if (
+                    lNormM === normM &&
+                    ((sug.matchedCatalogBookId && l.tempBookId === sug.matchedCatalogBookId) ||
+                      lNormB === normB)
+                  ) {
+                    matchedExisting = true;
+                    return {
+                      ...l,
+                      gravePieceRaw: l.gravePieceRaw || newLink.gravePieceRaw,
+                      graveRowRaw: l.graveRowRaw || newLink.graveRowRaw,
+                      graveNumberRaw: l.graveNumberRaw || newLink.graveNumberRaw,
+                      reviewStatus: 'تأییدشده کارشناسی',
+                      reviewerNote: newLink.reviewerNote || l.reviewerNote
+                    };
+                  }
+                  return l;
+                });
+                return matchedExisting ? updatedPrev : [newLink, ...updatedPrev];
+              });
+
+              // ۳. بستن ردیف متناظر در شیت موارد نیازمند بررسی (pendingReviews)
+              setPendingReviews((prev) =>
+                prev.map((pv) => {
+                  if (
+                    pv.trackingStatus === 'باز' &&
+                    normalizePersianText(pv.nameOrPhrase.replace(/^شهید\s+/, '')) === normM &&
+                    normalizePersianText(pv.bookTitle) === normB
+                  ) {
+                    return { ...pv, trackingStatus: 'بررسی‌شده' };
+                  }
+                  return pv;
+                })
+              );
+
+              // ۴. خارج کردن کتاب مرتبط در auditRecords از وضعیت نیازمند بررسی
+              setAuditRecords((prev) => {
+                let changed = false;
+                const next = { ...prev };
+                for (const [k, rec] of Object.entries(next)) {
+                  if (
+                    rec.needsReview &&
+                    (rec.tempBookId === sug.matchedCatalogBookId ||
+                      normalizePersianText(rec.title) === normB)
+                  ) {
+                    changed = true;
+                    next[k] = {
+                      ...rec,
+                      needsReview: false,
+                      notes: (rec.notes || '')
+                        .replace(/\s*\|\s*⚠️\s*نیازمند بررسی:?\s*تشابه نام با[^|]*/g, '')
+                        .replace(/⚠️\s*نیازمند بررسی:?\s*تشابه نام با[^|]*/g, '')
+                        .trim()
+                    };
+                  }
+                }
+                return changed ? next : prev;
+              });
+
               markSessionModification();
               appendAuditLog(
                 'ثبت یا ویرایش ارتباط کتاب و شهید',
                 newLink.id,
                 `تأیید پیشنهاد هوشمند و ثبت ارتباط میان «${newLink.bookTitleRaw}» و «${newLink.martyrNameRaw}»`
+              );
+            }}
+            onUpdateLinkStatus={(linkId, status, note) => {
+              const targetLink =
+                links.find((l) => l.id === linkId) || indexedLinks.find((l) => l.id === linkId);
+              setLinks((prev) => {
+                const exists = prev.some((l) => l.id === linkId);
+                if (exists) {
+                  return prev.map((l) =>
+                    l.id === linkId ? { ...l, reviewStatus: status, reviewerNote: note } : l
+                  );
+                }
+                if (targetLink) {
+                  return [{ ...targetLink, reviewStatus: status, reviewerNote: note }, ...prev];
+                }
+                return prev;
+              });
+              if (targetLink && isApprovedLinkStatus(status)) {
+                const normM = normalizePersianText(targetLink.martyrNameRaw.replace(/^شهید\s+/, ''));
+                const normB = normalizePersianText(targetLink.bookTitleRaw);
+                setPendingReviews((prev) =>
+                  prev.map((pv) =>
+                    pv.trackingStatus === 'باز' &&
+                    (pv.mainRecordId === linkId ||
+                      (normalizePersianText(pv.nameOrPhrase.replace(/^شهید\s+/, '')) === normM &&
+                        normalizePersianText(pv.bookTitle) === normB))
+                      ? { ...pv, trackingStatus: 'بررسی‌شده' }
+                      : pv
+                  )
+                );
+              }
+              markSessionModification();
+              appendAuditLog(
+                'ثبت یا ویرایش ارتباط کتاب و شهید',
+                linkId,
+                `تغییر وضعیت بررسی ارتباط ${linkId} به «${status}»`
               );
             }}
             onNotify={showNotify}
@@ -2334,6 +2641,8 @@ export default function App() {
               );
             }}
             onUpdateLinkStatus={(linkId, status, note) => {
+              const targetLink =
+                links.find((l) => l.id === linkId) || indexedLinks.find((l) => l.id === linkId);
               setLinks((prev) => {
                 const exists = prev.some((l) => l.id === linkId);
                 if (exists) {
@@ -2341,12 +2650,25 @@ export default function App() {
                     l.id === linkId ? { ...l, reviewStatus: status, reviewerNote: note } : l
                   );
                 }
-                const fromIndexed = indexedLinks.find((l) => l.id === linkId);
-                if (fromIndexed) {
-                  return [{ ...fromIndexed, reviewStatus: status, reviewerNote: note }, ...prev];
+                if (targetLink) {
+                  return [{ ...targetLink, reviewStatus: status, reviewerNote: note }, ...prev];
                 }
                 return prev;
               });
+              if (targetLink && isApprovedLinkStatus(status)) {
+                const normM = normalizePersianText(targetLink.martyrNameRaw.replace(/^شهید\s+/, ''));
+                const normB = normalizePersianText(targetLink.bookTitleRaw);
+                setPendingReviews((prev) =>
+                  prev.map((pv) =>
+                    pv.trackingStatus === 'باز' &&
+                    (pv.mainRecordId === linkId ||
+                      (normalizePersianText(pv.nameOrPhrase.replace(/^شهید\s+/, '')) === normM &&
+                        normalizePersianText(pv.bookTitle) === normB))
+                      ? { ...pv, trackingStatus: 'بررسی‌شده' }
+                      : pv
+                  )
+                );
+              }
               markSessionModification();
               appendAuditLog(
                 'ثبت یا ویرایش ارتباط کتاب و شهید',

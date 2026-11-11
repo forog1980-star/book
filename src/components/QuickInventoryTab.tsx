@@ -679,7 +679,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
           : '';
 
       const haystack = normalizePersianText(
-        `${r.tempBookId} ${r.titleRaw} ${effectivePublisher} ${r.descriptionRaw} ${effectiveAuthor} ${linkedMartyrsText} ${
+        `${r.tempBookId} ${r.titleRaw} ${r.descriptionRaw} ${effectiveAuthor} ${linkedMartyrsText} ${
           hasTehranMartyr ? 'تهرانی شهدای تهرانی گلزار تهران' : ''
         }`
       );
@@ -746,17 +746,24 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       if (auditFilter === 'unaudited' && isAudited) return false;
       if (auditFilter === 'not_found_in_round' && savedRec?.physical !== 'not_found') return false;
       if (auditFilter === 'incomplete_or_review') {
+        const isExpertApproved =
+          savedRec &&
+          savedRec.physical === 'verified' &&
+          !savedRec.needsReview &&
+          savedRec.copyStatus !== 'pending_review';
+        if (isExpertApproved) return false;
+
         const isMissingFields =
-          !r.authorRaw?.trim() ||
-          !r.publisherRaw?.trim() ||
-          !r.categoryRaw?.trim() ||
-          r.categoryRaw === 'UNSET';
+          !meta.effectiveAuthor?.trim() ||
+          !meta.effectivePublisher?.trim() ||
+          !meta.effectiveCat?.trim() ||
+          meta.effectiveCat === 'UNSET';
         const isMarkedReview =
           savedRec?.physical === 'review' ||
           savedRec?.needsReview === true ||
           savedRec?.copyStatus === 'pending_review' ||
-          r.reviewStatusRaw?.includes('بررسی') ||
-          r.reviewStatusRaw?.includes('انتظار تأیید');
+          (!savedRec &&
+            (r.reviewStatusRaw?.includes('بررسی') || r.reviewStatusRaw?.includes('انتظار تأیید')));
         if (!isMissingFields && !isMarkedReview) return false;
       }
       if (auditFilter === 'outside_excel' && !isOutside) {
@@ -867,31 +874,65 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     }
   };
 
-  // تأیید کارشناسی کتاب خارج از فهرست اولیه (با پرسش دوم تأیید نهایی)
-  const handleApproveOutsideRecord = (recordKey: string) => {
+  // تأیید کارشناسی کتاب (خارج از فهرست یا نیازمند بررسی) و خروج قطعی از وضعیت نیازمند بررسی
+  const handleApproveOutsideRecord = (recordKey: string, fallbackRow?: ReferenceCatalogRow) => {
     const existing = auditRecords[recordKey];
-    if (!existing) return;
+    const targetTitle = existing?.title || fallbackRow?.titleRaw || 'کتاب انتخابی';
+    const targetBookId = existing?.tempBookId || fallbackRow?.tempBookId || recordKey;
+    const targetLoc = existing?.location || fallbackRow?.locationRaw || 'SH-01-T01';
+    const targetCat = existing?.category || fallbackRow?.categoryRaw || SUBJECT_CATEGORIES[0].label;
+
     requestActionConfirmation({
       variant: 'confirm',
-      title: 'پرسش دوم: تأیید نهایی کارشناسی کتاب جدید',
-      message: `آیا از تأیید نهایی کارشناسی کتاب «${existing.title}» (${existing.tempBookId}) اطمینان دارید؟`,
+      title: 'پرسش دوم: تأیید نهایی کارشناسی کتاب',
+      message: `آیا از تأیید نهایی کارشناسی کتاب «${targetTitle}» (${targetBookId}) و خروج آن از فهرست نیازمند بررسی اطمینان دارید؟`,
       details: [
-        `عنوان کتاب: ${existing.title}`,
-        `شناسه: ${existing.tempBookId} · نسخه: ${existing.copyId || '—'}`,
-        `محل نگهداری: ${existing.location || '—'} · دسته: ${existing.category || '—'}`
+        `عنوان کتاب: ${targetTitle}`,
+        `شناسه: ${targetBookId} · نسخه: ${existing?.copyId || '—'}`,
+        `محل نگهداری: ${targetLoc} · دسته: ${targetCat}`
       ],
       confirmLabel: 'بله، تأیید نهایی کارشناس ثبت شود',
       onConfirm: () => {
-        const updated: FieldAuditRecord = {
-          ...existing,
-          physical: 'verified',
-          needsReview: false,
-          copyStatus: 'verified_present',
-          notes: existing.notes.replace(/در انتظار تأیید کارشناس/g, 'تأییدشده توسط کارشناس'),
-          updatedAt: new Date().toISOString()
-        };
+        const cleanedNotes = (existing?.notes || '')
+          .replace(/در انتظار تأیید کارشناس/g, 'تأییدشده توسط کارشناس')
+          .replace(/\s*\|\s*⚠️\s*نیازمند بررسی:?\s*تشابه نام با[^|]*/g, '')
+          .replace(/⚠️\s*نیازمند بررسی:?\s*تشابه نام با[^|]*/g, '')
+          .trim();
+
+        const updated: FieldAuditRecord = existing
+          ? {
+              ...existing,
+              physical: 'verified',
+              needsReview: false,
+              copyStatus: 'verified_present',
+              notes: cleanedNotes || 'تأییدشده توسط کارشناس',
+              updatedAt: new Date().toISOString()
+            }
+          : {
+              key: recordKey,
+              source: 'catalog',
+              sheet: currentSheetName,
+              tempBookId: targetBookId,
+              copyId: fallbackRow?.registrationNoRaw || `CP-${targetBookId}`,
+              title: targetTitle,
+              author: fallbackRow?.authorRaw || 'ثبت‌شده',
+              publisher: fallbackRow?.publisherRaw || 'ثبت‌شده',
+              year: '',
+              descriptionRaw: fallbackRow?.descriptionRaw || '',
+              category: targetCat,
+              shelf: 'SH-01',
+              level: 'T01',
+              location: targetLoc,
+              physical: 'verified',
+              needsReview: false,
+              copyStatus: 'verified_present',
+              physicalCondition: 'healthy',
+              countedCopies: fallbackRow?.countedCopiesRaw || '1',
+              notes: 'تأییدشده توسط کارشناس',
+              updatedAt: new Date().toISOString()
+            };
         onSaveAuditRecord(updated);
-        onNotify(`✅ کتاب «${existing.title}» (${existing.tempBookId}) توسط کارشناس تأیید نهایی شد.`);
+        onNotify(`✅ کتاب «${targetTitle}» (${targetBookId}) توسط کارشناس تأیید نهایی شد و از نیازمند بررسی خارج گردید.`);
       }
     });
   };
@@ -1994,21 +2035,27 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                               </div>
                             </div>
 
-                            {isOutsideBook && (
+                            {(isOutsideBook ||
+                              savedRec?.physical === 'review' ||
+                              savedRec?.needsReview === true ||
+                              savedRec?.copyStatus === 'pending_review') && (
                               <div
                                 className="flex items-center gap-1.5"
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                {!isOutsideApproved && (
+                                {(!savedRec ||
+                                  savedRec.physical !== 'verified' ||
+                                  savedRec.needsReview ||
+                                  savedRec.copyStatus === 'pending_review') && (
                                   <button
                                     type="button"
-                                    onClick={() => handleApproveOutsideRecord(row.rowKey)}
+                                    onClick={() => handleApproveOutsideRecord(row.rowKey, row)}
                                     className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] cursor-pointer"
                                   >
                                     ✓ تأیید کارشناس
                                   </button>
                                 )}
-                                {onDeleteAuditRecord && (
+                                {isOutsideBook && onDeleteAuditRecord && (
                                   <button
                                     type="button"
                                     onClick={() => {

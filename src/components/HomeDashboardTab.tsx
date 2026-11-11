@@ -875,7 +875,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
     return baseList.filter((d) => {
       const martyrNames = d.martyrRelations.map((m) => m.martyrName).join(' ');
       const hay = normalizePersianText(
-        `${d.bookId} ${d.title} ${d.alternativeTitle} ${d.author} ${d.publisher} ${d.locationCode} ${d.sheetCategory} ${martyrNames}`
+        `${d.bookId} ${d.title} ${d.alternativeTitle} ${d.description || ''} ${d.locationCode} ${d.sheetCategory} ${martyrNames}`
       );
       return q.split(' ').every((w) => hay.includes(w));
     });
@@ -1126,7 +1126,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       .filter((d) => {
         const martyrNames = d.martyrRelations.map((m) => m.martyrName).join(' ');
         const hay = normalizePersianText(
-          `${d.bookId} ${d.title} ${d.alternativeTitle} ${d.author} ${d.publisher} ${d.locationCode} ${martyrNames}`
+          `${d.bookId} ${d.title} ${d.alternativeTitle} ${d.description || ''} ${d.locationCode} ${martyrNames}`
         );
         return q.split(' ').every((w) => hay.includes(w));
       })

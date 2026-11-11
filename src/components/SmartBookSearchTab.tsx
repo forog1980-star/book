@@ -60,7 +60,8 @@ import {
   getAllUnifiedBooks,
   getGolzarTotalRecordsCount,
   loadCachedGolzarMartyrs,
-  runFastCrossMatchBooksAnd28kMartyrs
+  runFastCrossMatchBooksAnd28kMartyrs,
+  stripPublisherAndAutoNotesForMartyrMatch
 } from '../utils/martyrsCrossMatchEngine';
 import { TehranMartyrBadge } from './TehranMartyrBadge';
 import type { MainMenuTab } from '../App';
@@ -318,6 +319,7 @@ interface SmartBookSearchTabProps {
   onDeleteSuggestion?: (sugId: string) => void;
   onClearAllSuggestions?: () => void;
   onApproveSuggestionToLinks: (sug: SmartSearchSuggestion, newLink: BookMartyrLinkRecord) => void;
+  onUpdateLinkStatus?: (linkId: string, status: string, note: string) => void;
   onNotify: (message: string, type?: 'success' | 'warning') => void;
 }
 
@@ -365,6 +367,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
   onDeleteSuggestion,
   onClearAllSuggestions,
   onApproveSuggestionToLinks,
+  onUpdateLinkStatus,
   onNotify
 }) => {
   const [twoWayQuery, setTwoWayQuery] = useState(initialMartyrQuery || '');
@@ -700,7 +703,11 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
       for (const b of allUnifiedBooks) {
         const bKey = b.tempBookId || b.rowKey;
         if (groupsMap.has(bKey)) continue;
-        const bHay = normalizePersianText(`${b.titleRaw} ${b.descriptionRaw} ${b.authorRaw} ${b.noteRaw}`);
+        // تطبیق فقط روی عنوان و توضیحات کتاب (بدون نام ناشر مانند انتشارات ابراهیم هادی و بدون یادداشت سیستمی)
+        const bHay = stripPublisherAndAutoNotesForMartyrMatch(
+          `${b.titleRaw} ${b.descriptionRaw}`,
+          b.publisherRaw
+        );
         if (words.every((w) => bHay.includes(w))) {
           const matchedMartyrIn28k =
             golzarMartyrs28k.find((gm) => words.every((w) => gm.normalizedFullName.includes(w))) ||
@@ -713,7 +720,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
             bookTitleRaw: b.titleRaw,
             alternativeTitle: '',
             publisherRaw: b.publisherRaw || '—',
-            sourceDescriptionRaw: b.descriptionRaw || b.noteRaw || '',
+            sourceDescriptionRaw: b.descriptionRaw || '',
             pageReferenceRaw: '—',
             gravePieceRaw: matchedMartyrIn28k?.gravePiece || '',
             graveRowRaw: matchedMartyrIn28k?.graveRow || '',
@@ -752,8 +759,10 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
 
     const matchedGroups: typeof allGroups = [];
     for (const grp of allGroups) {
-      const bookHeaderHay = normalizePersianText(
-        `${grp.tempBookId} ${grp.bookTitle} ${grp.alternativeTitle} ${grp.publisher} ${grp.description}`
+      // حذف نام ناشر از هدر جست‌وجوی کتاب تا نام انتشارات ابراهیم هادی با شهید ابراهیم هادی اشتباه گرفته نشود
+      const bookHeaderHay = stripPublisherAndAutoNotesForMartyrMatch(
+        `${grp.tempBookId} ${grp.bookTitle} ${grp.alternativeTitle} ${grp.description}`,
+        grp.publisher
       );
       const bookMatchesDirectly = words.every((w) => bookHeaderHay.includes(w));
 
@@ -1041,7 +1050,10 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
       }).format(new Date());
 
       const matchedCatalogList = allUnifiedBooks.filter((r) =>
-        normalizePersianText(`${r.titleRaw} ${r.descriptionRaw} ${r.authorRaw}`).includes(normTarget)
+        ` ${stripPublisherAndAutoNotesForMartyrMatch(
+          `${r.titleRaw} ${r.descriptionRaw}`,
+          r.publisherRaw
+        )} `.includes(` ${normTarget} `)
       );
 
       if (matchedCatalogList.length > 0) {
@@ -1288,7 +1300,10 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
     const graveInfo = findMartyrGraveIn28k(targetName, golzarMartyrs28k);
 
     const directCatalogMatches = allUnifiedBooks.filter((r) =>
-      normalizePersianText(`${r.titleRaw} ${r.descriptionRaw} ${r.authorRaw} ${r.noteRaw}`).includes(normTarget)
+      ` ${stripPublisherAndAutoNotesForMartyrMatch(
+        `${r.titleRaw} ${r.descriptionRaw}`,
+        r.publisherRaw
+      )} `.includes(` ${normTarget} `)
     );
 
     const linkMatches = validResearchLinks.filter((lnk) =>
@@ -1700,7 +1715,10 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
       const graveInfo = findMartyrGraveIn28k(cleanName, golzarMartyrs28k);
 
       const directMatches = allUnifiedBooks.filter((r) =>
-        normalizePersianText(`${r.titleRaw} ${r.descriptionRaw} ${r.authorRaw} ${r.noteRaw}`).includes(normName)
+        ` ${stripPublisherAndAutoNotesForMartyrMatch(
+          `${r.titleRaw} ${r.descriptionRaw}`,
+          r.publisherRaw
+        )} `.includes(` ${normName} `)
       );
       const linkMatchesForMartyr = validResearchLinks.filter((lnk) =>
         normalizePersianText(`${lnk.martyrNameRaw} ${lnk.sourceDescriptionRaw || ''}`).includes(normName)
@@ -1984,6 +2002,39 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
         setRejectedHistory(filteredHist);
         saveRejectedHistory(filteredHist);
         onNotify(`پیشنهاد «${sug.bookTitle}» برای «${sug.martyrName}» تأیید و به پرونده شهید منتقل گردید.`, 'success');
+      }
+    });
+  };
+
+  // تأیید کارشناسی مستقیم برای هر ردیف نیازمند بررسی (چه از صف بررسی کارشناس SUG-LINK و چه از شیت ارتباط کتاب و شهید RL)
+  const handleDirectApproveNeedsReviewLink = (lnk: BookMartyrLinkRecord) => {
+    if (lnk.id.startsWith('SUG-LINK-')) {
+      const sugId = lnk.id.replace('SUG-LINK-', '');
+      const sug = smartSuggestions.find((s) => s.id === sugId);
+      if (sug) {
+        handleApproveItem(sug);
+        return;
+      }
+    }
+    requestActionConfirmation({
+      title: 'تأیید نهایی کارشناسی ارتباط کتاب و شهید',
+      message: `آیا از تأیید کارشناسی ارتباط کتاب «${lnk.bookTitleRaw}» با شهید «${lnk.martyrNameRaw}» و خروج دائمی آن از فهرست نیازمند بررسی اطمینان دارید؟`,
+      details: `ناشر: ${lnk.publisherRaw || '—'} · قطعه مزار: ${lnk.gravePieceRaw || '—'}`,
+      confirmLabel: 'بله، تأیید نهایی کارشناس ثبت شود',
+      variant: 'approve',
+      onConfirm: () => {
+        const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
+        onUpdateLinkStatus?.(
+          lnk.id,
+          'تأییدشده کارشناسی',
+          lnk.reviewerNote
+            ? `${lnk.reviewerNote} | تأیید نهایی کارشناس (${nowFa})`
+            : `تأیید نهایی کارشناس (${nowFa})`
+        );
+        onNotify(
+          `✅ ارتباط کتاب «${lnk.bookTitleRaw}» و شهید «${lnk.martyrNameRaw}» تأیید نهایی شد و از نیازمند بررسی خارج گردید.`,
+          'success'
+        );
       }
     });
   };
@@ -2438,17 +2489,28 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                                       : 'مقابله توضیحات اکسل ۹۸۰ کتاب با بانک شهدا'}
                                   </td>
                                   <td className="py-2 px-2">
-                                    <span
-                                      className={`inline-block text-[10.5px] px-2 py-0.5 rounded-md border ${
-                                        isNeedsReview
-                                          ? 'bg-amber-100 text-amber-950 border-amber-300 font-bold'
-                                          : lnk.reviewStatus.includes('تأیید')
-                                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200 font-bold'
-                                          : 'bg-blue-50 text-[#1F4E79] border-blue-200 font-bold'
-                                      }`}
-                                    >
-                                      {isNeedsReview ? '⚠️ نیازمند بررسی' : lnk.reviewStatus}
-                                    </span>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span
+                                        className={`inline-block text-[10.5px] px-2 py-0.5 rounded-md border ${
+                                          isNeedsReview
+                                            ? 'bg-amber-100 text-amber-950 border-amber-300 font-bold'
+                                            : lnk.reviewStatus.includes('تأیید')
+                                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200 font-bold'
+                                            : 'bg-blue-50 text-[#1F4E79] border-blue-200 font-bold'
+                                        }`}
+                                      >
+                                        {isNeedsReview ? '⚠️ نیازمند بررسی' : lnk.reviewStatus}
+                                      </span>
+                                      {isNeedsReview && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDirectApproveNeedsReviewLink(lnk)}
+                                          className="px-2 py-0.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10.5px] cursor-pointer whitespace-nowrap"
+                                        >
+                                          ✓ تأیید کارشناس
+                                        </button>
+                                      )}
+                                    </div>
                                   </td>
                                 </tr>
                               );
@@ -3796,18 +3858,27 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                         {item.sourceDescriptionRaw || item.reviewerNote || '—'}
                       </td>
                       <td className="py-2 px-2.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTwoWayQuery(item.bookTitleRaw);
-                            setTwoWaySourceFilter('needs_review');
-                            setShowTwoWayListDrawer(true);
-                            setShowNeedsReviewModal(false);
-                          }}
-                          className="px-2.5 py-1 rounded-lg bg-[#1F4E79] hover:bg-[#163a5b] text-white font-bold text-[11px] cursor-pointer whitespace-nowrap"
-                        >
-                          مشاهده کتاب
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleDirectApproveNeedsReviewLink(item)}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] cursor-pointer whitespace-nowrap"
+                          >
+                            ✓ تأیید کارشناس
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTwoWayQuery(item.bookTitleRaw);
+                              setTwoWaySourceFilter('needs_review');
+                              setShowTwoWayListDrawer(true);
+                              setShowNeedsReviewModal(false);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-[#1F4E79] hover:bg-[#163a5b] text-white font-bold text-[11px] cursor-pointer whitespace-nowrap"
+                          >
+                            مشاهده کتاب
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

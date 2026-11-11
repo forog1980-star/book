@@ -1,6 +1,6 @@
 // Service Worker اختصاصی سامانه اصلی مرکز اسناد (مسیر /book/)
 // استراتژی Network-First برای کدها (HTML/JS/CSS) و Cache-First برای فایل‌های داده سنگین (/data/) جهت سرعت بالا و بدون قفل‌شدن
-const CACHE_NAME = 'markaz-asnad-main-book-v12';
+const CACHE_NAME = 'markaz-asnad-main-book-v13';
 
 const PRECACHE_ASSETS = [
   './manifest.webmanifest',

@@ -42,6 +42,70 @@ let lastEnrichedLinksCache: {
   result: BookMartyrLinkRecord[];
 } | null = null;
 
+// کش دائمی یک‌بار مصرف (One-Time Persistent Index) در حافظه مرورگر برای حذف کامل معطلی در بارگذاری‌های بعدی
+const TEHRAN_DETERMINED_INDEX_STORAGE_KEY = 'book_tehran_determined_index_v2';
+
+interface PersistedTehranDeterminedIndex {
+  version: 2;
+  catalogCount: number;
+  knownMartyrs: LightweightGolzarMartyr[];
+  autoBookLinks: BookMartyrLinkRecord[];
+}
+
+let persistedAutoBookLinks: BookMartyrLinkRecord[] | null = null;
+
+function loadPersistedTehranIndexSync(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = window.localStorage.getItem(TEHRAN_DETERMINED_INDEX_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as PersistedTehranDeterminedIndex;
+    if (parsed && parsed.version === 2 && Array.isArray(parsed.knownMartyrs)) {
+      for (const item of parsed.knownMartyrs) {
+        if (!item?.fullName) continue;
+        const strippedNorm = stripTitlesForTehranIndex(item.fullName);
+        const norm = item.normalizedFullName || normalizePersianText(item.fullName.replace(/^شهید\s+/, ''));
+        const compact = item.compactFullName || compactNameForTehranIndex(item.fullName);
+        if (strippedNorm && !cachedGolzarByNormName.has(strippedNorm)) {
+          cachedGolzarByNormName.set(strippedNorm, item);
+        }
+        if (norm && !cachedGolzarByNormName.has(norm)) {
+          cachedGolzarByNormName.set(norm, item);
+        }
+        if (compact && !cachedGolzarByCompactName.has(compact)) {
+          cachedGolzarByCompactName.set(compact, item);
+        }
+      }
+      if (Array.isArray(parsed.autoBookLinks) && parsed.autoBookLinks.length > 0) {
+        persistedAutoBookLinks = parsed.autoBookLinks;
+      }
+      golzarCacheEpoch += 1;
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function savePersistedTehranIndexSync(
+  catalogCount: number,
+  knownMartyrsMap: Map<string, LightweightGolzarMartyr>,
+  autoBookLinks: BookMartyrLinkRecord[]
+): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const payload: PersistedTehranDeterminedIndex = {
+      version: 2,
+      catalogCount,
+      knownMartyrs: Array.from(knownMartyrsMap.values()),
+      autoBookLinks
+    };
+    persistedAutoBookLinks = autoBookLinks;
+    window.localStorage.setItem(TEHRAN_DETERMINED_INDEX_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore quota errors
+  }
+}
+
 export function subscribeToGolzarMartyrsLoaded(listener: () => void): () => void {
   golzarLoadListeners.add(listener);
   if (cachedGolzarMartyrs && cachedGolzarMartyrs.length > 0) {
@@ -79,6 +143,50 @@ export function compactNameForTehranIndex(raw: unknown): string {
   if (!stripped) return '';
   return stripped.replace(/[^\p{L}\p{N}]/gu, '').trim();
 }
+
+/**
+ * حذف عبارت‌های مربوط به نام ناشر (به‌ویژه «انتشارات ابراهیم هادی» / «نشر ابراهیم هادی») و یادداشت‌های سیستمی خودکار
+ * از متن توضیحات کتاب تا هرگز نام انتشارات با نام شهید یا عنوان کتاب اشتباه گرفته نشود.
+ */
+export function stripPublisherAndAutoNotesForMartyrMatch(
+  rawText: unknown,
+  publisherRaw?: unknown
+): string {
+  if (!rawText) return '';
+  let text = String(rawText)
+    // حذف یادداشت‌های خودکار قبلی که باعث حلقه تکرار نیازمند بررسی می‌شدند
+    .replace(/\|?\s*⚠️\s*نیازمند بررسی:?\s*تشابه نام با[^|]*/g, ' ')
+    .replace(/⚠️\s*نیازمند بررسی[^|]*/g, ' ')
+    .replace(/تشابه نام با شهید[^|]*/g, ' ');
+
+  let norm = normalizePersianText(text);
+  if (!norm) return '';
+
+  // حذف صریح عبارات ناشر/انتشارات ابراهیم هادی که هم‌نام با شهید ابراهیم هادی است
+  norm = norm
+    .replace(
+      /(?:انتشارات|نشر|موسسه|مؤسسه|گروه فرهنگی|مرکز نشر|چاپ)\s+(?:شهید\s+)?ابراهیم\s+هادی/g,
+      ' '
+    )
+    .replace(/ناشر\s*:?\s*(?:انتشارات\s+|نشر\s+)?(?:شهید\s+)?ابراهیم\s+هادی/g, ' ');
+
+  // اگر نام ناشر کتاب صراحتاً مشخص است، عبارت «انتشارات <نام ناشر>» یا «نشر <نام ناشر>» را از متن توضیحات پاک کن
+  const pubClean = normalizePersianText(publisherRaw || '')
+    .replace(/^(?:انتشارات|نشر|موسسه|مؤسسه|گروه فرهنگی)\s+/g, '')
+    .trim();
+  if (pubClean && pubClean.length >= 3) {
+    const escapedPub = pubClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    norm = norm.replace(
+      new RegExp(`(?:انتشارات|نشر|ناشر|گروه فرهنگی|موسسه)\\s*:?\\s*(?:شهید\\s+)?${escapedPub}`, 'g'),
+      ' '
+    );
+  }
+
+  return norm.replace(/\s+/g, ' ').trim();
+}
+
+// بارگذاری هم‌زمان نمایه ذخیره‌شده در بدو اجرای ماژول (بدون هیچ معطلی)
+loadPersistedTehranIndexSync();
 
 /**
  * تشخیص صریح ثبت «غیر تهرانی» (غ تهرانی) در قطعه مزار، نام یا توضیحات
@@ -526,6 +634,7 @@ export function evaluateMartyrTehranStatus(
 
 /**
  * تجمیع تمام کتاب‌های موجود در سامانه (۹۸۰ کتاب مرجع + کتاب‌های جدید خارج از فهرست ثبت‌شده در کتابخانه)
+ * توجه: یادداشت‌های سیستمی (notes) یا نام ناشر هرگز وارد descriptionRaw نمی‌شوند تا با نام شهید اشتباه گرفته نشوند.
  */
 export function getAllUnifiedBooks(
   catalogRows: ReferenceCatalogRow[],
@@ -540,7 +649,7 @@ export function getAllUnifiedBooks(
         titleRaw: audit.title || row.titleRaw,
         publisherRaw: audit.publisher || row.publisherRaw,
         authorRaw: audit.author || row.authorRaw,
-        descriptionRaw: [row.descriptionRaw, audit.descriptionRaw, audit.notes]
+        descriptionRaw: [row.descriptionRaw, audit.descriptionRaw]
           .filter(Boolean)
           .join(' | '),
         locationRaw: audit.location || row.locationRaw
@@ -561,7 +670,7 @@ export function getAllUnifiedBooks(
           tempBookId: bookId,
           titleRaw: rec.title,
           publisherRaw: rec.publisher || '—',
-          descriptionRaw: [rec.descriptionRaw, rec.notes].filter(Boolean).join(' | '),
+          descriptionRaw: rec.descriptionRaw || '',
           categoryRaw: rec.category || 'R',
           authorRaw: rec.author || '',
           isbnRaw: '',
@@ -570,7 +679,7 @@ export function getAllUnifiedBooks(
           locationRaw: rec.location || '',
           countedCopiesRaw: rec.countedCopies || '1',
           reviewStatusRaw: rec.needsReview ? 'نیازمند بررسی' : 'ثبت خارج از فهرست',
-          noteRaw: rec.notes || '',
+          noteRaw: (rec.notes || '').replace(/\|?\s*⚠️\s*نیازمند بررسی:?\s*تشابه نام با[^|]*/g, '').trim(),
           backupSourceSheet: 'ثبت خارج از فهرست',
           backupSourceRow: bookId,
           allValues: []
@@ -594,7 +703,8 @@ export interface BookMartyrAutoMatch {
 }
 
 /**
- * هنگامی که یک کتاب جدید اضافه یا ویرایش می‌شود، با تمام اسامی شهدا (۲۸٬۳۶۸ شهید گلزار + پرونده‌های ثبتی + کارپوشه) مقابله می‌کند
+ * هنگامی که یک کتاب جدید اضافه یا ویرایش می‌شود، فقط عنوان کتاب و توضیحات کتاب (بدون نام ناشر و بدون یادداشت‌های سیستمی)
+ * با اسامی شهدا مقابله می‌شود تا نام ناشر (مانند «انتشارات ابراهیم هادی») هرگز با نام شهید اشتباه گرفته نشود.
  */
 export function matchSingleBookAgainstMartyrs(
   book: {
@@ -611,10 +721,9 @@ export function matchSingleBookAgainstMartyrs(
   customMartyrs: CustomMartyrRecord[] = [],
   workbookMartyrs: WorkbookGolzarMartyr[] = []
 ): BookMartyrAutoMatch[] {
-  const normTitle = normalizePersianText(book.title || '');
-  const normDesc = normalizePersianText(`${book.description || ''} ${book.notes || ''}`);
-  const normAuthor = normalizePersianText(book.author || '');
-  const fullBookHaystack = ` ${normTitle} ${normDesc} ${normAuthor} `;
+  const normTitle = stripPublisherAndAutoNotesForMartyrMatch(book.title || '', book.publisher);
+  const normDesc = stripPublisherAndAutoNotesForMartyrMatch(book.description || '', book.publisher);
+  const fullBookHaystack = ` ${normTitle} ${normDesc} `;
   if (!fullBookHaystack.trim()) return [];
 
   const bookRow: ReferenceCatalogRow = {
@@ -623,7 +732,7 @@ export function matchSingleBookAgainstMartyrs(
     tempBookId: book.tempBookId,
     titleRaw: book.title,
     publisherRaw: book.publisher || '—',
-    descriptionRaw: [book.description, book.notes].filter(Boolean).join(' | '),
+    descriptionRaw: book.description || '',
     categoryRaw: book.category || 'R',
     authorRaw: book.author || '',
     isbnRaw: '',
@@ -644,8 +753,8 @@ export function matchSingleBookAgainstMartyrs(
   for (const cm of customMartyrs) {
     const clean = normalizePersianText(cm.fullName.replace(/^شهید\s+/, ''));
     if (!clean || clean.length < 4) continue;
-    if (fullBookHaystack.includes(` ${clean} `) || normTitle.includes(clean)) {
-      const inTitle = normTitle.includes(clean);
+    if (fullBookHaystack.includes(` ${clean} `) || ` ${normTitle} `.includes(` ${clean} `)) {
+      const inTitle = ` ${normTitle} `.includes(` ${clean} `);
       resultsMap.set(clean, {
         martyrName: cm.fullName.startsWith('شهید') ? cm.fullName : `شهید ${cm.fullName}`,
         martyrId: cm.martyrId,
@@ -656,7 +765,7 @@ export function matchSingleBookAgainstMartyrs(
         matchType: inTitle ? 'تطبیق دقیق' : 'تطبیق احتمالی',
         evidenceText: inTitle
           ? `[نیازمند بررسی — مقابله خودکار] درج نام شهید «${cm.fullName}» در عنوان کتاب «${book.title}» (${book.tempBookId}).`
-          : `[نیازمند بررسی — مقابله خودکار] تشابه نام شهید «${cm.fullName}» در توضیحات/مشخصات کتاب «${book.title}» (${book.tempBookId}).`
+          : `[نیازمند بررسی — مقابله خودکار] تشابه نام شهید «${cm.fullName}» در توضیحات کتاب «${book.title}» (${book.tempBookId}).`
       });
     }
   }
@@ -665,8 +774,8 @@ export function matchSingleBookAgainstMartyrs(
   for (const wm of workbookMartyrs) {
     const clean = normalizePersianText(wm.fullNameSearch.replace(/^شهید\s+/, ''));
     if (!clean || clean.length < 5 || resultsMap.has(clean)) continue;
-    if (fullBookHaystack.includes(` ${clean} `) || normTitle.includes(clean)) {
-      const inTitle = normTitle.includes(clean);
+    if (fullBookHaystack.includes(` ${clean} `) || ` ${normTitle} `.includes(` ${clean} `)) {
+      const inTitle = ` ${normTitle} `.includes(` ${clean} `);
       resultsMap.set(clean, {
         martyrName: wm.fullNameSearch.startsWith('شهید') ? wm.fullNameSearch : `شهید ${wm.fullNameSearch}`,
         martyrId: wm.tempPersonId,
@@ -677,7 +786,7 @@ export function matchSingleBookAgainstMartyrs(
         matchType: inTitle ? 'تطبیق دقیق' : 'تطبیق احتمالی',
         evidenceText: inTitle
           ? `[نیازمند بررسی — مقابله خودکار] درج نام شهید «${wm.fullNameSearch}» در عنوان کتاب «${book.title}» (${book.tempBookId}).`
-          : `[نیازمند بررسی — مقابله خودکار] تشابه نام شهید «${wm.fullNameSearch}» در توضیحات/مشخصات کتاب «${book.title}» (${book.tempBookId}).`
+          : `[نیازمند بررسی — مقابله خودکار] تشابه نام شهید «${wm.fullNameSearch}» در توضیحات کتاب «${book.title}» (${book.tempBookId}).`
       });
     }
   }
@@ -714,6 +823,7 @@ export function matchSingleBookAgainstMartyrs(
 
 /**
  * مقابله دسته‌ای پرسرعت بین بانک ۲۸٬۳۶۸ شهید گلزار (یا قطعه انتخابی) و تمام کتاب‌های موجود در کتابخانه
+ * فقط بر اساس عنوان کتاب، توضیحات کتاب و نام شهید (بدون دخالت نام ناشر مانند انتشارات ابراهیم هادی)
  */
 export function runFastCrossMatchBooksAnd28kMartyrs(
   allBooks: ReferenceCatalogRow[],
@@ -725,12 +835,11 @@ export function runFastCrossMatchBooksAnd28kMartyrs(
   const results: BookMartyrAutoMatch[] = [];
   const seenPairs = new Set<string>();
 
-  // ساخت نمایه توکنی از کتاب‌ها برای جست‌وجوی آنی در چند میلی‌ثانیه
+  // ساخت نمایه توکنی از کتاب‌ها فقط بر اساس عنوان کتاب و توضیحات کتاب (بدون نام ناشر و بدون یادداشت سیستمی)
   const preparedBooks = allBooks.map((b) => {
-    const normTitle = normalizePersianText(b.titleRaw);
-    const normDesc = normalizePersianText(`${b.descriptionRaw} ${b.noteRaw}`);
-    const normAuthor = normalizePersianText(b.authorRaw);
-    const paddedHaystack = ` ${normTitle} ${normDesc} ${normAuthor} `;
+    const normTitle = stripPublisherAndAutoNotesForMartyrMatch(b.titleRaw, b.publisherRaw);
+    const normDesc = stripPublisherAndAutoNotesForMartyrMatch(b.descriptionRaw, b.publisherRaw);
+    const paddedHaystack = ` ${normTitle} ${normDesc} `;
     const tokens = new Set(paddedHaystack.split(/\s+/).filter((t) => t.length >= 2));
     return {
       book: b,
@@ -844,20 +953,22 @@ export function runFastCrossMatchBooksAnd28kMartyrs(
 }
 
 /**
- * استخراج سریع اسامی شهدای تهرانی (منطبق با بانک ۲۸٬۳۶۸ شهید گلزار تهران) از عنوان و توضیحات یک کتاب
+ * استخراج سریع اسامی شهدای تهرانی (منطبق با بانک ۲۸٬۳۶۸ شهید گلزار تهران) فقط از عنوان کتاب و توضیحات کتاب
+ * (بدون دخالت نام ناشر و بدون یادداشت‌های سیستمی)
  */
 export function extractTehranMartyrsFromBookText(
   book: {
     tempBookId?: string;
     titleRaw: string;
     descriptionRaw?: string;
+    publisherRaw?: string;
     noteRaw?: string;
   },
   golzarMartyrs?: LightweightGolzarMartyr[]
 ): LightweightGolzarMartyr[] {
   const useCache = !golzarMartyrs || golzarMartyrs === cachedGolzarMartyrs;
   const cacheKey = useCache
-    ? `${golzarCacheEpoch}|${book.tempBookId || ''}|${book.titleRaw || ''}|${book.descriptionRaw || ''}|${book.noteRaw || ''}`
+    ? `${golzarCacheEpoch}|${book.tempBookId || ''}|${book.titleRaw || ''}|${book.descriptionRaw || ''}`
     : '';
 
   if (useCache && cacheKey) {
@@ -865,7 +976,9 @@ export function extractTehranMartyrsFromBookText(
     if (cached) return cached;
   }
 
-  const combinedRaw = `${book.titleRaw || ''} | ${book.descriptionRaw || ''} | ${book.noteRaw || ''}`;
+  const cleanedTitle = stripPublisherAndAutoNotesForMartyrMatch(book.titleRaw || '', book.publisherRaw);
+  const cleanedDesc = stripPublisherAndAutoNotesForMartyrMatch(book.descriptionRaw || '', book.publisherRaw);
+  const combinedRaw = `${cleanedTitle} | ${cleanedDesc}`;
   if (
     isExplicitlyNonTehranRecord({
       sourceDesc: combinedRaw
@@ -884,7 +997,7 @@ export function extractTehranMartyrsFromBookText(
 
   // ۱. بررسی کل عنوان کتاب (اگر عنوان کتاب مستقیماً نام یک شهید تهرانی باشد)
   const cleanTitle = stripTitlesForTehranIndex(
-    (book.titleRaw || '')
+    cleanedTitle
       .replace(/^(زندگینامه|زندگی نامه|خاطرات|داستان زندگی|روایت زندگی|بر بال ملائک|نیمه پنهان ماه|یادگاران)\s+/g, '')
       .replace(/\s*\([^)]*\)\s*/g, ' ')
   );
@@ -925,11 +1038,11 @@ export function extractTehranMartyrsFromBookText(
 }
 
 /**
- * نمایه‌سازی سراسری و غنی‌سازی پیوندهای کتاب و شهید با بانک ۲۸٬۳۶۸ شهید گلزار شهدای تهران:
+ * نمایه‌سازی سراسری و غنی‌سازی پیوندهای کتاب و شهید با بانک ۲۸٬۳۶۸ شهید گلزار شهدای تهران (با کش دائمی یک‌بار مصرف):
  * ۱. اعمال قانون استثنای شهدای غیرتهرانی («غ تهرانی»): اگر رکوردی «غ تهرانی» باشد اما نامش در ۲۸٬۳۶۸ شهید تهران هم باشد،
  *    نشان تهرانی نمی‌گیرد و به وضعیت «نیازمند بررسی کارشناس» منتقل می‌شود.
  * ۲. تکمیل خودکار قطعه، ردیف و شماره مزار برای شهدای تهرانی که در شیت‌ها بدون قطعه ثبت شده‌اند اما در بانک ۲۸ هزار شهید هستند.
- * ۳. اسکن تمامی ۹۸۰ کتاب کاتالوگ و کتاب‌های ثبت جدید و ایجاد پیوند خودکار برای کتاب‌هایی که نام یکی از ۲۸٬۳۶۸ شهید تهران در عنوان یا توضیحاتشان قید شده است.
+ * ۳. اسکن ۹۸۰ کتاب کاتالوگ و ذخیره دائمی نتیجه در حافظه محلی تا فقط یک‌بار محاسبه شود و در دفعات بعد بدون هیچ مکثی آماده باشد.
  */
 export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
   catalogRows: ReferenceCatalogRow[];
@@ -952,6 +1065,7 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
   }
 
   const seenBookMartyrPairs = new Set<string>();
+  const matchedKnownMartyrsForPersist = new Map<string, LightweightGolzarMartyr>();
 
   const catalogByCompactTitle = new Map<string, ReferenceCatalogRow>();
   for (const row of catalogRows) {
@@ -977,6 +1091,10 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
       golzarMartyrs
     );
 
+    if (evalRes.matchedGolzarRecord) {
+      matchedKnownMartyrsForPersist.set(evalRes.matchedGolzarRecord.id, evalRes.matchedGolzarRecord);
+    }
+
     const resolvedBookId =
       lnk.tempBookId ||
       catalogByCompactTitle.get(compactNameForTehranIndex(lnk.bookTitleRaw))?.tempBookId ||
@@ -990,8 +1108,14 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
       seenBookMartyrPairs.add(`${titleCompact}::${mCompact}`);
     }
 
+    // اگر کارشناس قبلاً این پیوند را تأیید نهایی کرده است، هرگز دوباره به نیازمند بررسی برنگردد
+    const isAlreadyExpertApproved =
+      lnk.reviewStatus === 'تأییدشده کارشناسی' ||
+      lnk.reviewStatus === 'قطعی' ||
+      lnk.reviewStatus === 'تأیید';
+
     // قانون استثنای شهدای غیرتهرانی هم‌نام با شهدای تهران -> انتقال به نیازمند بررسی کارشناس
-    if (evalRes.hasHomonymIn28kNeedsReview && evalRes.matchedGolzarRecord) {
+    if (evalRes.hasHomonymIn28kNeedsReview && evalRes.matchedGolzarRecord && !isAlreadyExpertApproved) {
       const gm = evalRes.matchedGolzarRecord;
       const homonymNote = `در منبع به عنوان «${lnk.gravePieceRaw || 'غیر تهرانی'}» ثبت شده اما هم‌نام با شهید تهرانی «${gm.fullName}» (قطعه ${gm.gravePiece || '—'}، ردیف ${gm.graveRow || '—'}، شماره ${gm.graveNumber || '—'}) در بانک ۲۸٬۳۶۸ شهید گلزار تهران است؛ نیازمند بررسی کارشناس.`;
       const nextNote = lnk.reviewerNote?.includes('هم‌نام با شهید تهرانی')
@@ -1003,10 +1127,7 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
       return {
         ...lnk,
         tempBookId: resolvedBookId || lnk.tempBookId,
-        reviewStatus:
-          lnk.reviewStatus === 'تأییدشده کارشناسی'
-            ? lnk.reviewStatus
-            : 'نیازمند بررسی کارشناسی (تشابه اسمی با شهدای تهران — ثبت‌شده به عنوان غیرتهرانی)',
+        reviewStatus: 'نیازمند بررسی کارشناسی (تشابه اسمی با شهدای تهران — ثبت‌شده به عنوان غیرتهرانی)',
         reviewerNote: nextNote
       };
     }
@@ -1026,15 +1147,32 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
     return resolvedBookId && !lnk.tempBookId ? { ...lnk, tempBookId: resolvedBookId } : lnk;
   });
 
-  // گام ۲: اسکن تمامی ۹۸۰ کتاب کاتالوگ + کتاب‌های ثبت جدید در برابر بانک ۲۸٬۳۶۸ شهید گلزار تهران
-  const has28kLoaded =
-    cachedGolzarByNormName.size > 0 || (golzarMartyrs && golzarMartyrs.length > 0);
+  // گام ۲: افزودن پیوندهای شهدای تهرانی استخراج‌شده از کتاب‌ها (با اولویت کش یک‌بار مصرف برای حذف کامل معطلی)
+  const full28kReady =
+    (cachedGolzarMartyrs && cachedGolzarMartyrs.length > 0) ||
+    (golzarMartyrs && golzarMartyrs.length > 0);
 
-  if (has28kLoaded) {
+  if (!full28kReady && persistedAutoBookLinks && persistedAutoBookLinks.length > 0) {
+    // استفاده فوری از نمایه ذخیره‌شده بدون هیچ انتظار برای بارگذاری فایل اکسل ۲۸ هزار نفری
+    for (const autoLnk of persistedAutoBookLinks) {
+      const mCompact = compactNameForTehranIndex(autoLnk.martyrNameRaw);
+      const bKey1 = `${autoLnk.tempBookId}::${mCompact}`;
+      const bKey2 = `${compactNameForTehranIndex(autoLnk.bookTitleRaw)}::${mCompact}`;
+      if (seenBookMartyrPairs.has(bKey1) || seenBookMartyrPairs.has(bKey2)) {
+        continue;
+      }
+      seenBookMartyrPairs.add(bKey1);
+      seenBookMartyrPairs.add(bKey2);
+      updatedLinks.push(autoLnk);
+    }
+  } else if (full28kReady || cachedGolzarByNormName.size > 0) {
     const allUnifiedBooks = getAllUnifiedBooks(catalogRows, auditRecords);
+    const newlyGeneratedAutoLinks: BookMartyrLinkRecord[] = [];
+
     for (const book of allUnifiedBooks) {
       const matchedTehranMartyrs = extractTehranMartyrsFromBookText(book, golzarMartyrs);
       for (const gm of matchedTehranMartyrs) {
+        matchedKnownMartyrsForPersist.set(gm.id, gm);
         const mCompact = gm.compactFullName || compactNameForTehranIndex(gm.fullName);
         const bKey1 = `${book.tempBookId}::${mCompact}`;
         const bKey2 = `${compactNameForTehranIndex(book.titleRaw)}::${mCompact}`;
@@ -1044,7 +1182,7 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
         seenBookMartyrPairs.add(bKey1);
         seenBookMartyrPairs.add(bKey2);
 
-        updatedLinks.push({
+        const autoLnk: BookMartyrLinkRecord = {
           id: `RL-28K-${book.tempBookId}-${gm.id}`,
           groupStartRow: String(book.rowIndex || ''),
           publisherRaw: book.publisherRaw || '—',
@@ -1064,8 +1202,20 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
           tempBookId: book.tempBookId,
           reviewStatus: 'بررسی‌شده در پژوهش اصلی',
           reviewerNote: `تطبیق خودکار نام «شهید ${gm.fullName}» در مشخصات کتاب (${book.tempBookId}) با بانک ۲۸٬۳۶۸ شهید گلزار شهدای تهران (قطعه ${gm.gravePiece || 'خارج از قطعات'}، ردیف ${gm.graveRow || '—'}، شماره ${gm.graveNumber || '—'}).`
-        });
+        };
+
+        newlyGeneratedAutoLinks.push(autoLnk);
+        updatedLinks.push(autoLnk);
       }
+    }
+
+    // ذخیره دائمی نمایه یک‌بار مصرف به محض آماده شدن کاتالوگ کامل (۹۸۰ کتاب) و بانک ۲۸ هزار شهید
+    if (full28kReady && catalogRows.length >= 900 && !persistedAutoBookLinks) {
+      savePersistedTehranIndexSync(
+        catalogRows.length,
+        matchedKnownMartyrsForPersist,
+        newlyGeneratedAutoLinks
+      );
     }
   }
 
