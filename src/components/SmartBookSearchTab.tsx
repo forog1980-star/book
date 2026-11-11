@@ -364,22 +364,30 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
   >('all');
   const [showTwoWayListDrawer, setShowTwoWayListDrawer] = useState<boolean>(false);
 
-  // پنجره راهنمای وسط صفحه (سازگار با موبایل + بسته شدن خودکار پس از ۵ ثانیه)
+  // پنجره راهنمای توضیحی وسط صفحه (تازه و باز تا زمانی که خود کاربر آن را ببندد — بدون تایمر خودکار)
   const [centeredHelpPopup, setCenteredHelpPopup] = useState<{
     title: string;
     body: string;
   } | null>(null);
 
+  // پنجره سفید راهنمای فوری وسط صفحه هنگام قرار گرفتن نشانگر ماوس روی کادرها (مانند کل کتاب‌های منطبق)
+  const [hoverHintPopup, setHoverHintPopup] = useState<string | null>(null);
+
   useEffect(() => {
-    if (!centeredHelpPopup) return;
+    if (!hoverHintPopup) return;
     const timer = window.setTimeout(() => {
-      setCenteredHelpPopup(null);
+      setHoverHintPopup(null);
     }, 5000);
     return () => window.clearTimeout(timer);
-  }, [centeredHelpPopup]);
+  }, [hoverHintPopup]);
 
   const showHelpCentered = (title: string, body: string) => {
+    setHoverHintPopup(null);
     setCenteredHelpPopup((prev) => (prev && prev.title === title ? null : { title, body }));
+  };
+
+  const showHoverHint = (text: string) => {
+    setHoverHintPopup(text);
   };
 
   // پنجره مودال اختصاصی برای نمایش لیست موارد «نیازمند بررسی» (وقتی کاربر روی «X مورد نیازمند بررسی» کلیک می‌کند)
@@ -1982,7 +1990,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
 
   return (
     <div className="space-y-5 relative">
-      {/* کادر راهنمای وسط صفحه (برای خوانایی کامل در موبایل و دسکتاپ + بسته شدن خودکار پس از ۵ ثانیه) */}
+      {/* کادر راهنمای توضیحی وسط صفحه (تا زمانی که کاربر خودش ببندد باز می‌ماند) */}
       {centeredHelpPopup && (
         <div
           className="fixed inset-0 z-[110] bg-black/35 flex items-center justify-center p-4"
@@ -2006,9 +2014,30 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
               </button>
             </div>
             <p className="text-xs leading-relaxed text-slate-100">{centeredHelpPopup.body}</p>
-            <div className="text-[10px] text-slate-300 text-left">
-              (این پیام پس از ۵ ثانیه به صورت خودکار بسته می‌شود)
+          </div>
+        </div>
+      )}
+
+      {/* پنجره سفید وسط صفحه برای پیام‌های فوری هنگام ایستادن روی کادرها (مانند کل کتاب‌های منطبق) */}
+      {hoverHintPopup && !centeredHelpPopup && (
+        <div className="fixed inset-0 z-[105] pointer-events-none flex items-center justify-center p-4">
+          <div
+            className="pointer-events-auto w-full max-w-md bg-white text-[#253247] rounded-2xl p-4 shadow-2xl border-2 border-[#1F4E79]/30 flex items-start justify-between gap-3 animate-in fade-in zoom-in-95 duration-150"
+            onClick={() => setHoverHintPopup(null)}
+          >
+            <div className="flex items-start gap-2.5">
+              <Info className="w-4 h-4 text-[#1F4E79] shrink-0 mt-0.5" />
+              <p className="text-xs sm:text-sm font-bold leading-relaxed text-[#253247]">
+                {hoverHintPopup}
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={() => setHoverHintPopup(null)}
+              className="px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold shrink-0 cursor-pointer"
+            >
+              ✕
+            </button>
           </div>
         </div>
       )}
@@ -2022,7 +2051,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
               جست‌وجوی دوطرفه عنوان کتاب و نام شهید
             </h2>
 
-            {/* علامت تعجب (!) که راهنما را دقیقاً در وسط صفحه باز می‌کند و بعد از ۵ ثانیه خودکار می‌بندد */}
+            {/* علامت تعجب (!) که راهنمای توضیحی را در وسط صفحه باز می‌کند و تا بستن توسط کاربر باز می‌ماند */}
             <button
               type="button"
               onClick={() =>
@@ -2042,7 +2071,13 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
           {sourceStats.needsReviewBooksCount > 0 && (
             <button
               type="button"
-              onClick={() => setShowNeedsReviewModal(true)}
+              onMouseEnter={() =>
+                showHoverHint('کلیک کنید تا فهرست کامل موارد نیازمند بررسی را در یک پنجره ببینید')
+              }
+              onClick={() => {
+                setHoverHintPopup(null);
+                setShowNeedsReviewModal(true);
+              }}
               className="px-3 py-1 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-400 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs underline decoration-amber-700/60 underline-offset-4"
             >
               <AlertTriangle className="w-3.5 h-3.5 text-amber-800 shrink-0" />
@@ -2336,7 +2371,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
               <span>۱. جست‌وجوی تطبیقی در فهرست داخلی کتابخانه و پژوهش‌ها (تکی)</span>
             </h2>
 
-            {/* دکمه راهنمای وسط صفحه (با حذف خودکار پس از ۵ ثانیه) */}
+            {/* دکمه راهنمای توضیحی وسط صفحه (تا زمانی که کاربر ببندد باز می‌ماند) */}
             <button
               type="button"
               onClick={() =>
@@ -2799,17 +2834,36 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
 
               <button
                 type="button"
-                disabled={lastBulkMatchedList.length === 0}
-                onClick={() => setShowBulkMatchesModal(true)}
-                title="کلیک کنید تا فهرست کامل کتاب‌های منطبق در این محدوده را در یک پنجره ببینید"
-                className={`rounded-lg p-1 transition-colors ${
-                  lastBulkMatchedList.length > 0
-                    ? 'bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 cursor-pointer'
-                    : ''
-                }`}
+                onMouseEnter={() =>
+                  showHoverHint(
+                    'کلیک کنید تا فهرست کامل کتاب‌های منطبق در این محدوده را در یک پنجره ببینید'
+                  )
+                }
+                onClick={() => {
+                  setHoverHintPopup(null);
+                  if (lastBulkMatchedList.length === 0) {
+                    const pieceFilter = bulkSystemScope.startsWith('piece_')
+                      ? bulkSystemScope.replace('piece_', '')
+                      : '';
+                    const autoMatches =
+                      bulkSystemScope === 'custom_only'
+                        ? runFastCrossMatchBooksAnd28kMartyrs(allUnifiedBooks, [], customMartyrs, [])
+                        : runFastCrossMatchBooksAnd28kMartyrs(
+                            allUnifiedBooks,
+                            golzarMartyrs28k,
+                            customMartyrs,
+                            validResearchLinks,
+                            pieceFilter
+                          );
+                    setLastBulkMatchedList(autoMatches);
+                    setPilotTotalMatchesInScope(autoMatches.length);
+                  }
+                  setShowBulkMatchesModal(true);
+                }}
+                className="rounded-lg p-1 transition-colors bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 cursor-pointer"
               >
                 <div className="text-[#2E7D5B] text-[10.5px] font-bold">
-                  کل کتاب منطبق {lastBulkMatchedList.length > 0 ? '(مشاهده 👁️)' : ''}
+                  کل کتاب منطبق (مشاهده 👁️)
                 </div>
                 <div className="font-bold text-[#2E7D5B] tabular-nums mt-0.5 underline decoration-emerald-600/60">
                   {toPersianDigits(pilotTotalMatchesInScope)} مورد ({toPersianDigits(pilotFoundCount)} جدید)
@@ -2827,7 +2881,15 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
             {lastBulkMatchedList.length > 0 && (
               <button
                 type="button"
-                onClick={() => setShowBulkMatchesModal(true)}
+                onMouseEnter={() =>
+                  showHoverHint(
+                    'کلیک کنید تا فهرست کامل کتاب‌های منطبق در این محدوده را در یک پنجره ببینید'
+                  )
+                }
+                onClick={() => {
+                  setHoverHintPopup(null);
+                  setShowBulkMatchesModal(true);
+                }}
                 className="w-full py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
               >
                 <Eye className="w-4 h-4 text-emerald-700" />
@@ -2988,9 +3050,16 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <button
               type="button"
-              onClick={handleSyncAndPurgeOrphans}
+              onMouseEnter={() =>
+                showHoverHint(
+                  'همگام‌سازی صف بررسی با پرونده‌های موجود و حذف خودکار سوابق تستی یا نامعتبر'
+                )
+              }
+              onClick={() => {
+                setHoverHintPopup(null);
+                handleSyncAndPurgeOrphans();
+              }}
               className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-[#253247] border border-slate-300 rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
-              title="همگام‌سازی صف بررسی با پرونده‌های موجود و حذف خودکار سوابق تستی یا نامعتبر"
             >
               <RotateCcw className="w-3.5 h-3.5 text-[#8C3B2B]" />
               <span>همگام‌سازی و پاک‌سازی سوابق باطل</span>
@@ -2999,7 +3068,13 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
             {smartSuggestions.length > 0 && onClearAllSuggestions && (
               <button
                 type="button"
+                onMouseEnter={() =>
+                  showHoverHint(
+                    'پاک‌سازی کامل صف بررسی و صفر کردن همه پیشنهادهای موجود در صف'
+                  )
+                }
                 onClick={() => {
+                  setHoverHintPopup(null);
                   requestActionConfirmation({
                     title: 'تأیید نهایی پاک‌سازی کامل صف بررسی',
                     message: `آیا از حذف کامل تمام ${toPersianDigits(smartSuggestions.length)} پیشنهاد موجود در صف بررسی کارشناس اطمینان دارید؟`,
@@ -3015,7 +3090,6 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                   });
                 }}
                 className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
-                title="پاک‌سازی کامل صف بررسی و صفر کردن همه پیشنهادهای موجود در صف"
               >
                 <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                 <span>پاک‌سازی کامل صف ({toPersianDigits(smartSuggestions.length)})</span>
@@ -3024,7 +3098,13 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
 
             <button
               type="button"
+              onMouseEnter={() =>
+                showHoverHint(
+                  'ثبت دستی کتاب جدید در مورد شهید انتخاب‌شده یا نوشته‌شده و افزودن به صف بررسی کارشناس'
+                )
+              }
               onClick={() => {
+                setHoverHintPopup(null);
                 setManualMartyrName(selectedMartyrName.trim() || twoWayQuery.trim() || '');
                 setManualTitle('');
                 setManualPublisher('');
@@ -3034,7 +3114,6 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                 setManualNote('');
                 setShowManualAddModal(true);
               }}
-              title="ثبت دستی کتاب جدید در مورد شهید انتخاب‌شده یا نوشته‌شده و افزودن به صف بررسی کارشناس"
               className="px-3 py-2 bg-[#1F4E79] hover:bg-[#163a5b] text-white rounded-xl font-bold inline-flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
             >
               <Plus className="w-4 h-4" />
