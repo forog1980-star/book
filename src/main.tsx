@@ -2,9 +2,9 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
-const ACTIVE_SW_CACHE = 'markaz-asnad-main-book-v9';
+const ACTIVE_SW_CACHE = 'markaz-asnad-main-book-v10';
 
-// پاک‌سازی فوری کش‌های قدیمی سرویس‌ورکر (v7/v8) در همان لحظه بارگذاری اولیه
+// پاک‌سازی فوری کش‌های قدیمی سرویس‌ورکر (v7/v8/v9) در لحظه بارگذاری اولیه در گوشی و سیستم
 if (typeof window !== 'undefined' && 'caches' in window) {
   window.caches
     .keys()
@@ -24,7 +24,7 @@ if (typeof window !== 'undefined' && 'caches' in window) {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('./sw.js', { updateViaCache: 'none' })
+      .register('./sw.js?v=10', { updateViaCache: 'none' })
       .then((reg) => {
         reg.update().catch(() => {});
         if (reg.waiting) {

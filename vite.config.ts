@@ -10,37 +10,44 @@ function syncDocsBuildPlugin() {
     closeBundle() {
       try {
         const distDir = path.resolve(__dirname, 'dist');
-        const docsDir = path.resolve(__dirname, 'docs');
         const distAssetsDir = path.join(distDir, 'assets');
-        const docsAssetsDir = path.join(docsDir, 'assets');
+        if (!fs.existsSync(distDir)) return;
 
-        if (!fs.existsSync(distDir) || !fs.existsSync(docsDir)) return;
+        const targetDirs = [
+          path.resolve(__dirname, 'docs'),
+          path.resolve(__dirname, 'خروجی نرم\u200cافزار'),
+        ];
 
-        for (const file of ['index.html', 'sw.js', 'manifest.webmanifest']) {
-          const srcFile = path.join(distDir, file);
-          if (fs.existsSync(srcFile)) {
-            fs.copyFileSync(srcFile, path.join(docsDir, file));
-          }
-        }
+        for (const targetDir of targetDirs) {
+          if (!fs.existsSync(targetDir)) continue;
+          const targetAssetsDir = path.join(targetDir, 'assets');
 
-        if (fs.existsSync(distAssetsDir)) {
-          fs.mkdirSync(docsAssetsDir, { recursive: true });
-          for (const existing of fs.readdirSync(docsAssetsDir)) {
-            if (existing.startsWith('index-')) {
-              fs.rmSync(path.join(docsAssetsDir, existing), { force: true });
+          for (const file of ['index.html', 'sw.js', 'manifest.webmanifest']) {
+            const srcFile = path.join(distDir, file);
+            if (fs.existsSync(srcFile)) {
+              fs.copyFileSync(srcFile, path.join(targetDir, file));
             }
           }
-          for (const built of fs.readdirSync(distAssetsDir)) {
-            if (built.startsWith('index-')) {
-              fs.copyFileSync(
-                path.join(distAssetsDir, built),
-                path.join(docsAssetsDir, built)
-              );
+
+          if (fs.existsSync(distAssetsDir)) {
+            fs.mkdirSync(targetAssetsDir, { recursive: true });
+            for (const existing of fs.readdirSync(targetAssetsDir)) {
+              if (existing.startsWith('index-')) {
+                fs.rmSync(path.join(targetAssetsDir, existing), { force: true });
+              }
+            }
+            for (const built of fs.readdirSync(distAssetsDir)) {
+              if (built.startsWith('index-')) {
+                fs.copyFileSync(
+                  path.join(distAssetsDir, built),
+                  path.join(targetAssetsDir, built)
+                );
+              }
             }
           }
         }
       } catch {
-        // Non-fatal if docs directory is read-only
+        // Non-fatal if target directories are read-only
       }
     },
   };

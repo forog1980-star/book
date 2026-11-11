@@ -2,7 +2,7 @@
 // استراتژی Network-First برای دریافت فوری آخرین تغییرات با اولین رفرش (و استفاده از کش فقط در حالت آفلاین)
 const CACHE_PREFIX = 'markaz-asnad-main-book-';
 const LEGACY_PREFIX = 'markaz-asnad-pwa-';
-const CACHE_NAME = 'markaz-asnad-main-book-v9';
+const CACHE_NAME = 'markaz-asnad-main-book-v10';
 
 const PRECACHE_ASSETS = [
   './',
@@ -91,11 +91,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // استراتژی Network-First برای اسکریپت‌ها، استایل‌ها و داده‌ها:
-  // همیشه ابتدا آخرین نسخه از شبکه دریافت می‌شود تا با یک رفرش ساده جدیدترین کامیت نمایش داده شود؛
-  // و تنها در صورت قطع بودن اینترنت (آفلاین) از نسخه کش‌شده استفاده می‌گردد.
+  // استراتژی Network-First با no-store برای فایل‌های JS/CSS در موبایل و دسکتاپ
   event.respondWith(
-    fetch(event.request, { cache: 'no-cache' })
+    fetch(event.request, { cache: 'no-store' })
       .then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
           const responseClone = networkResponse.clone();

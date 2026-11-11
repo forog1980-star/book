@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Sparkles,
@@ -372,6 +372,10 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
 
   // پنجره سفید راهنمای فوری وسط صفحه هنگام قرار گرفتن نشانگر ماوس روی کادرها (مانند کل کتاب‌های منطبق)
   const [hoverHintPopup, setHoverHintPopup] = useState<string | null>(null);
+  const lastScrollAtRef = useRef<number>(0);
+  const dismissedUntilRef = useRef<number>(0);
+  const isPointerInsidePopupRef = useRef<boolean>(false);
+  const leaveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!hoverHintPopup) return;
@@ -381,13 +385,69 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
     return () => window.clearTimeout(timer);
   }, [hoverHintPopup]);
 
+  // بستن فوری پنجره راهنمای شناور به‌محض اسکرول کردن صفحه یا چرخاندن ماوس یا لمس صفحه
+  useEffect(() => {
+    const closeOnScrollOrWheel = () => {
+      lastScrollAtRef.current = Date.now();
+      isPointerInsidePopupRef.current = false;
+      if (leaveTimerRef.current) {
+        window.clearTimeout(leaveTimerRef.current);
+        leaveTimerRef.current = null;
+      }
+      setHoverHintPopup((prev) => (prev !== null ? null : prev));
+    };
+
+    window.addEventListener('scroll', closeOnScrollOrWheel, { capture: true, passive: true });
+    window.addEventListener('wheel', closeOnScrollOrWheel, { capture: true, passive: true });
+    window.addEventListener('touchmove', closeOnScrollOrWheel, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener('scroll', closeOnScrollOrWheel, true);
+      window.removeEventListener('wheel', closeOnScrollOrWheel, true);
+      window.removeEventListener('touchmove', closeOnScrollOrWheel, true);
+    };
+  }, []);
+
+  const dismissHoverHint = (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    dismissedUntilRef.current = Date.now() + 1500;
+    isPointerInsidePopupRef.current = false;
+    if (leaveTimerRef.current) {
+      window.clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
+    }
+    setHoverHintPopup(null);
+  };
+
   const showHelpCentered = (title: string, body: string) => {
     setHoverHintPopup(null);
     setCenteredHelpPopup((prev) => (prev && prev.title === title ? null : { title, body }));
   };
 
   const showHoverHint = (text: string) => {
+    const now = Date.now();
+    // اگر کاربر در حال اسکرول کردن است یا به‌تازگی ضربدر پنجره را زده، پنجره مزاحم باز نشود
+    if (now - lastScrollAtRef.current < 350 || now < dismissedUntilRef.current) {
+      return;
+    }
+    if (leaveTimerRef.current) {
+      window.clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
+    }
     setHoverHintPopup(text);
+  };
+
+  const handleTargetMouseLeave = () => {
+    if (leaveTimerRef.current) {
+      window.clearTimeout(leaveTimerRef.current);
+    }
+    leaveTimerRef.current = window.setTimeout(() => {
+      if (!isPointerInsidePopupRef.current) {
+        setHoverHintPopup(null);
+      }
+    }, 100);
   };
 
   // پنجره مودال اختصاصی برای نمایش لیست موارد «نیازمند بررسی» (وقتی کاربر روی «X مورد نیازمند بررسی» کلیک می‌کند)
@@ -2018,12 +2078,23 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
         </div>
       )}
 
-      {/* پنجره سفید وسط صفحه برای پیام‌های فوری هنگام ایستادن روی کادرها (مانند کل کتاب‌های منطبق) */}
+      {/* پنجره سفید وسط صفحه برای پیام‌های فوری هنگام ایستادن روی کادرها (با بسته شدن فوری هنگام اسکرول یا زدن ضربدر) */}
       {hoverHintPopup && !centeredHelpPopup && (
         <div className="fixed inset-0 z-[105] pointer-events-none flex items-center justify-center p-4">
           <div
+            onMouseEnter={() => {
+              isPointerInsidePopupRef.current = true;
+              if (leaveTimerRef.current) {
+                window.clearTimeout(leaveTimerRef.current);
+                leaveTimerRef.current = null;
+              }
+            }}
+            onMouseLeave={() => {
+              isPointerInsidePopupRef.current = false;
+              setHoverHintPopup(null);
+            }}
+            onClick={dismissHoverHint}
             className="pointer-events-auto w-full max-w-md bg-white text-[#253247] rounded-2xl p-4 shadow-2xl border-2 border-[#1F4E79]/30 flex items-start justify-between gap-3 animate-in fade-in zoom-in-95 duration-150"
-            onClick={() => setHoverHintPopup(null)}
           >
             <div className="flex items-start gap-2.5">
               <Info className="w-4 h-4 text-[#1F4E79] shrink-0 mt-0.5" />
@@ -2033,8 +2104,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
             </div>
             <button
               type="button"
-              onClick={() => setHoverHintPopup(null)}
-              className="px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold shrink-0 cursor-pointer"
+              onClick={dismissHoverHint}
+              className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-rose-100 hover:text-rose-700 text-slate-700 text-xs font-bold shrink-0 cursor-pointer transition-colors"
+              aria-label="بستن پیام راهنما"
             >
               ✕
             </button>
@@ -2074,8 +2146,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
               onMouseEnter={() =>
                 showHoverHint('کلیک کنید تا فهرست کامل موارد نیازمند بررسی را در یک پنجره ببینید')
               }
+              onMouseLeave={handleTargetMouseLeave}
               onClick={() => {
-                setHoverHintPopup(null);
+                dismissHoverHint();
                 setShowNeedsReviewModal(true);
               }}
               className="px-3 py-1 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-400 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs underline decoration-amber-700/60 underline-offset-4"
@@ -2839,8 +2912,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     'کلیک کنید تا فهرست کامل کتاب‌های منطبق در این محدوده را در یک پنجره ببینید'
                   )
                 }
+                onMouseLeave={handleTargetMouseLeave}
                 onClick={() => {
-                  setHoverHintPopup(null);
+                  dismissHoverHint();
                   if (lastBulkMatchedList.length === 0) {
                     const pieceFilter = bulkSystemScope.startsWith('piece_')
                       ? bulkSystemScope.replace('piece_', '')
@@ -2886,8 +2960,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     'کلیک کنید تا فهرست کامل کتاب‌های منطبق در این محدوده را در یک پنجره ببینید'
                   )
                 }
+                onMouseLeave={handleTargetMouseLeave}
                 onClick={() => {
-                  setHoverHintPopup(null);
+                  dismissHoverHint();
                   setShowBulkMatchesModal(true);
                 }}
                 className="w-full py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
@@ -3055,8 +3130,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                   'همگام‌سازی صف بررسی با پرونده‌های موجود و حذف خودکار سوابق تستی یا نامعتبر'
                 )
               }
+              onMouseLeave={handleTargetMouseLeave}
               onClick={() => {
-                setHoverHintPopup(null);
+                dismissHoverHint();
                 handleSyncAndPurgeOrphans();
               }}
               className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-[#253247] border border-slate-300 rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
@@ -3073,8 +3149,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     'پاک‌سازی کامل صف بررسی و صفر کردن همه پیشنهادهای موجود در صف'
                   )
                 }
+                onMouseLeave={handleTargetMouseLeave}
                 onClick={() => {
-                  setHoverHintPopup(null);
+                  dismissHoverHint();
                   requestActionConfirmation({
                     title: 'تأیید نهایی پاک‌سازی کامل صف بررسی',
                     message: `آیا از حذف کامل تمام ${toPersianDigits(smartSuggestions.length)} پیشنهاد موجود در صف بررسی کارشناس اطمینان دارید؟`,
@@ -3103,8 +3180,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                   'ثبت دستی کتاب جدید در مورد شهید انتخاب‌شده یا نوشته‌شده و افزودن به صف بررسی کارشناس'
                 )
               }
+              onMouseLeave={handleTargetMouseLeave}
               onClick={() => {
-                setHoverHintPopup(null);
+                dismissHoverHint();
                 setManualMartyrName(selectedMartyrName.trim() || twoWayQuery.trim() || '');
                 setManualTitle('');
                 setManualPublisher('');
