@@ -50,6 +50,7 @@ export const JsonSystemTransferSection: React.FC<JsonSystemTransferSectionProps>
   const [isExporting, setIsExporting] = useState(false);
   const [lastExportResult, setLastExportResult] = useState<ExportExecutionResult | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showMessengerSharePanel, setShowMessengerSharePanel] = useState(false);
 
   const [showImportModal, setShowImportModal] = useState(false);
   const [inspectionReport, setInspectionReport] = useState<SystemJsonInspectionReport | null>(null);
@@ -79,6 +80,7 @@ export const JsonSystemTransferSection: React.FC<JsonSystemTransferSectionProps>
       }
 
       setLastExportResult(res);
+      setShowMessengerSharePanel(false);
       const downloaded = triggerJsonFileDownload(res.jsonString, res.fileName);
       setShowExportModal(true);
 
@@ -229,7 +231,7 @@ export const JsonSystemTransferSection: React.FC<JsonSystemTransferSectionProps>
       <input
         ref={fileInputRef}
         type="file"
-        accept=".json,application/json"
+        accept=".json,.txt,application/json,text/plain"
         onChange={handleFileSelected}
         className="hidden"
         data-testid="json-system-import-file-input"
@@ -333,38 +335,56 @@ export const JsonSystemTransferSection: React.FC<JsonSystemTransferSectionProps>
               </p>
             </div>
 
-            {/* مشخصات فنی و کنترلی فایل */}
-            <div className="bg-[#FAF7F2] border border-[#DFD2BE] rounded-2xl p-3.5 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              <div>
-                <span className="text-[#627080]">نام فایل: </span>
-                <strong className="font-mono text-[#1E4B75] break-all" dir="ltr">
+            {/* مشخصات فنی و کنترلی فایل (با شکست کامل خطوط طولانی تا از کادر پنجره بیرون نزند) */}
+            <div className="bg-[#FAF7F2] border border-[#DFD2BE] rounded-2xl p-3.5 grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-0 overflow-hidden">
+              <div className="sm:col-span-2 min-w-0 space-y-1">
+                <div className="text-[#627080]">نام فایل:</div>
+                <div
+                  className="font-mono font-bold text-[#1E4B75] bg-white border border-[#E5DAC8] rounded-xl px-2.5 py-1.5 break-all text-left w-full"
+                  dir="ltr"
+                >
                   {lastExportResult.fileName}
+                </div>
+              </div>
+
+              <div className="min-w-0 bg-white/80 border border-[#E5DAC8] rounded-xl px-2.5 py-2 flex flex-wrap items-center justify-between gap-1">
+                <span className="text-[#627080]">زمان تهیه خروجی:</span>
+                <strong className="text-[#24303F]">
+                  {lastExportResult.envelope.exportedAtJalali}
                 </strong>
               </div>
-              <div>
-                <span className="text-[#627080]">زمان تهیه خروجی: </span>
-                <strong>{lastExportResult.envelope.exportedAtJalali}</strong>
-              </div>
-              <div>
-                <span className="text-[#627080]">شناسه خروجی (exportId): </span>
-                <strong className="font-mono">{lastExportResult.envelope.exportId}</strong>
-              </div>
-              <div>
-                <span className="text-[#627080]">حجم فایل: </span>
-                <strong className="font-mono tabular-nums">
+
+              <div className="min-w-0 bg-white/80 border border-[#E5DAC8] rounded-xl px-2.5 py-2 flex flex-wrap items-center justify-between gap-1">
+                <span className="text-[#627080]">حجم فایل:</span>
+                <strong className="font-mono tabular-nums text-[#24303F]">
                   {toPersianDigits(Math.max(1, Math.round(lastExportResult.byteSize / 1024)))} کیلوبایت
                 </strong>
               </div>
-              <div className="sm:col-span-2">
-                <span className="text-[#627080]">کد یکتای صحت داده (Integrity Hash): </span>
-                <strong className="font-mono text-[#1E5B45]">
+
+              <div className="sm:col-span-2 min-w-0 space-y-1">
+                <div className="text-[#627080]">شناسه خروجی (exportId):</div>
+                <div
+                  className="font-mono font-bold text-[#24303F] bg-white border border-[#E5DAC8] rounded-xl px-2.5 py-1.5 break-all text-left w-full"
+                  dir="ltr"
+                >
+                  {lastExportResult.envelope.exportId}
+                </div>
+              </div>
+
+              <div className="sm:col-span-2 min-w-0 space-y-1">
+                <div className="text-[#627080]">کد یکتای صحت داده (Integrity Hash):</div>
+                <div
+                  className="font-mono font-bold text-[11px] text-[#1E5B45] bg-white border border-[#E5DAC8] rounded-xl px-2.5 py-1.5 break-all text-left w-full leading-relaxed"
+                  dir="ltr"
+                >
                   {lastExportResult.envelope.integrity.payloadHash} /{' '}
                   {lastExportResult.envelope.integrity.fnv1aChecksum}
-                </strong>
+                </div>
               </div>
-              <div className="sm:col-span-2 flex items-center gap-1.5 text-[#154932] font-bold">
-                <FileCheck2 className="w-4 h-4 shrink-0" />
-                <span>
+
+              <div className="sm:col-span-2 min-w-0 flex items-start sm:items-center gap-1.5 text-[#154932] font-bold pt-0.5">
+                <FileCheck2 className="w-4 h-4 shrink-0 mt-0.5 sm:mt-0" />
+                <span className="break-words">
                   نتیجه تطبیق با Storage واقعی:{' '}
                   {lastExportResult.storageVerification.verified
                     ? 'تأیید کامل (۱۰۰٪ منطبق با IndexedDB و LocalStorage)'
@@ -435,17 +455,143 @@ export const JsonSystemTransferSection: React.FC<JsonSystemTransferSectionProps>
               </div>
             </div>
 
+            {/* پنل مستقیم اشتراک‌گذاری و ارسال به پیام‌رسان‌ها در گوشی و رایانه (در صورت مسدود بودن Web Share مرورگر) */}
+            {showMessengerSharePanel && (
+              <div
+                data-testid="json-messenger-share-panel"
+                className="bg-[#F0F6FB] border-2 border-[#7FA8CF] rounded-2xl p-3.5 space-y-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-bold text-[#132F4C] flex items-center gap-1.5">
+                    <Share2 className="w-4 h-4 text-[#1E4B75] shrink-0" />
+                    <span>ارسال فایل JSON در پیام‌رسان‌ها (گوشی و رایانه)</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowMessengerSharePanel(false)}
+                    className="text-[11px] font-bold text-[#627080] hover:text-[#24303F] cursor-pointer"
+                  >
+                    بستن پنل
+                  </button>
+                </div>
+
+                <p className="text-[11px] text-[#2C4A6B] leading-relaxed">
+                  فایل <strong>{lastExportResult.fileName}</strong> در پوشه <strong>دانلودها (Downloads)</strong> دستگاه شما ذخیره شده و مشخصات آن نیز کپی شد. روی هر پیام‌رسان کلیک کنید و فایل را از پوشه دانلودها در گفتگو ضمیمه (Attach) و ارسال نمایید:
+                </p>
+
+                {(() => {
+                  const shareCaption = [
+                    '📦 فایل خروجی کامل سیستم کتابخانه مرکز اسناد گلزار شهدای تهران',
+                    `📄 نام فایل: ${lastExportResult.fileName}`,
+                    `🕒 زمان تهیه: ${lastExportResult.envelope.exportedAtJalali}`,
+                    `🆔 شناسه خروجی: ${lastExportResult.envelope.exportId}`,
+                    `🔒 کد صحت: ${lastExportResult.envelope.integrity.fnv1aChecksum}`,
+                  ].join('\n');
+                  const encodedText = encodeURIComponent(shareCaption);
+                  const encodedUrl = encodeURIComponent(
+                    typeof window !== 'undefined' ? window.location.origin : 'https://eitaa.com'
+                  );
+
+                  const ensureDownloadedAndCopied = () => {
+                    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+                      void navigator.clipboard.writeText(shareCaption).catch(() => {});
+                    }
+                  };
+
+                  return (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      <a
+                        href={`https://eitaa.com/share/url?url=${encodedUrl}&text=${encodedText}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={ensureDownloadedAndCopied}
+                        className="px-3 py-2 rounded-xl bg-white hover:bg-[#EDF6F0] border border-[#7FA8CF] text-[#132F4C] font-bold text-center transition-colors"
+                      >
+                        ارسال در ایتا (Eitaa)
+                      </a>
+
+                      <a
+                        href="https://web.bale.ai"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={ensureDownloadedAndCopied}
+                        className="px-3 py-2 rounded-xl bg-white hover:bg-[#EDF6F0] border border-[#7FA8CF] text-[#132F4C] font-bold text-center transition-colors"
+                      >
+                        ارسال در بله (Bale)
+                      </a>
+
+                      <a
+                        href="https://web.rubika.ir"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={ensureDownloadedAndCopied}
+                        className="px-3 py-2 rounded-xl bg-white hover:bg-[#EDF6F0] border border-[#7FA8CF] text-[#132F4C] font-bold text-center transition-colors"
+                      >
+                        ارسال در روبیکا (Rubika)
+                      </a>
+
+                      <a
+                        href={`https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={ensureDownloadedAndCopied}
+                        className="px-3 py-2 rounded-xl bg-white hover:bg-[#EDF6F0] border border-[#7FA8CF] text-[#132F4C] font-bold text-center transition-colors"
+                      >
+                        ارسال در تلگرام (Telegram)
+                      </a>
+
+                      <a
+                        href={`https://api.whatsapp.com/send?text=${encodedText}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={ensureDownloadedAndCopied}
+                        className="px-3 py-2 rounded-xl bg-white hover:bg-[#EDF6F0] border border-[#7FA8CF] text-[#132F4C] font-bold text-center transition-colors"
+                      >
+                        ارسال در واتساپ (WhatsApp)
+                      </a>
+
+                      <a
+                        href={`mailto:?subject=${encodeURIComponent(
+                          `پشتیبان کامل کتابخانه (${lastExportResult.fileName})`
+                        )}&body=${encodedText}`}
+                        onClick={ensureDownloadedAndCopied}
+                        className="px-3 py-2 rounded-xl bg-white hover:bg-[#EDF6F0] border border-[#7FA8CF] text-[#132F4C] font-bold text-center transition-colors"
+                      >
+                        ارسال با ایمیل (Email)
+                      </a>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
             {/* دکمه‌های دانلود مجدد و اشتراک‌گذاری */}
             <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2 border-t border-[#E2D6C5]">
               <button
                 type="button"
+                data-testid="btn-share-exported-json"
                 onClick={async () => {
                   const res = await shareJsonFileIfSupported(
                     lastExportResult.jsonString,
                     lastExportResult.fileName
                   );
-                  if (!res.shared && res.reason) {
-                    onNotify(res.reason, 'warning');
+                  if (res.shared) {
+                    onNotify('فایل خروجی با موفقیت به پنجره اشتراک‌گذاری ارسال شد.');
+                  } else if (!res.canceledByUser) {
+                    const shareCaption = [
+                      '📦 فایل خروجی کامل سیستم کتابخانه مرکز اسناد گلزار شهدای تهران',
+                      `📄 نام فایل: ${lastExportResult.fileName}`,
+                      `🕒 زمان تهیه: ${lastExportResult.envelope.exportedAtJalali}`,
+                      `🆔 شناسه خروجی: ${lastExportResult.envelope.exportId}`,
+                      `🔒 کد صحت: ${lastExportResult.envelope.integrity.fnv1aChecksum}`,
+                    ].join('\n');
+                    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+                      void navigator.clipboard.writeText(shareCaption).catch(() => {});
+                    }
+                    setShowMessengerSharePanel(true);
+                    onNotify(
+                      'پنل ارسال به پیام‌رسان‌ها باز شد و مشخصات فایل در حافظه کپی گردید؛ فایل از پوشه دانلودها آماده ضمیمه کردن است.'
+                    );
                   }
                 }}
                 className="min-h-[42px] px-4 py-2 rounded-xl bg-[#F0F6FB] hover:bg-[#E2EEF8] border border-[#7FA8CF] text-[#1E4B75] font-bold inline-flex items-center gap-1.5 cursor-pointer"

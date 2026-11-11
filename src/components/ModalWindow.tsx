@@ -216,7 +216,7 @@ export const ModalWindow: React.FC<ModalWindowProps> = ({
         )}
 
         {/* محتوای درونی پنجره با اسکرول مستقل و فاصله امن از بالا و پایین گوشی */}
-        <div className={`flex-1 overflow-y-auto overscroll-contain ${contentClassName}`}>
+        <div className={`flex-1 overflow-y-auto overflow-x-hidden overscroll-contain ${contentClassName}`}>
           {children}
         </div>
       </div>

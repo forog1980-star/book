@@ -1221,31 +1221,63 @@ export function triggerJsonFileDownload(jsonString: string, fileName: string): b
 }
 
 /**
- * اشتراک‌گذاری مستقیم فایل JSON در اندروید / موبایل در صورت پشتیبانی مرورگر از Web Share API
+ * اشتراک‌گذاری مستقیم فایل JSON در اندروید / موبایل و رایانه
+ * با مدیریت محدودیت MIME در مرورگرهای Chromium (که application/json را با خطای Permission denied رد می‌کنند)
+ * و بازگشت امن به پنل پیام‌رسان‌ها در صورت مسدود بودن Web Share در آی‌فریم یا ویندوز
  */
 export async function shareJsonFileIfSupported(
   jsonString: string,
   fileName: string
-): Promise<{ shared: boolean; reason?: string }> {
+): Promise<{
+  shared: boolean;
+  canceledByUser?: boolean;
+  fallbackToMessengerPanel?: boolean;
+  reason?: string;
+}> {
   try {
     if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') {
-      return { shared: false, reason: 'مرورگر فعلی از قابلیت اشتراک‌گذاری مستقیم فایل پشتیبانی نمی‌کند.' };
+      return {
+        shared: false,
+        fallbackToMessengerPanel: true,
+      };
     }
-    const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
-    const file = new File([blob], fileName, { type: 'application/json' });
-    if (typeof navigator.canShare === 'function' && !navigator.canShare({ files: [file] })) {
-      return { shared: false, reason: 'اشتراک‌گذاری مستقیم فایل در این مرورگر فعال نیست؛ از دانلود مستقیم استفاده شد.' };
-    }
-    await navigator.share({
-      title: 'نسخه کامل اطلاعات کتابخانه (JSON)',
-      text: `فایل پشتیبان و انتقال کامل اطلاعات کتابخانه (${fileName})`,
-      files: [file],
+
+    // نکته مهم در مرورگرهای Chromium (اندروید و ویندوز):
+    // ۱. متد navigator.share در همان فراخوانی اول Transient User Activation را مصرف می‌کند؛
+    // ۲. سرویس ShareServiceImpl در Chromium پسوند .json و نوع application/json را با خطای Permission denied رد می‌کند،
+    //    اما پسوند .txt با نوع دقیق 'text/plain' در فهرست مجاز Web Share API قرار دارد.
+    const safeShareFileName = fileName.endsWith('.txt') ? fileName : `${fileName}.txt`;
+    const primaryShareFile = new File([jsonString], safeShareFileName, {
+      type: 'text/plain',
     });
-    return { shared: true };
-  } catch (err) {
+
+    if (
+      typeof navigator.canShare !== 'function' ||
+      navigator.canShare({ files: [primaryShareFile] })
+    ) {
+      try {
+        await navigator.share({
+          files: [primaryShareFile],
+          title: 'نسخه کامل اطلاعات کتابخانه',
+        });
+        return { shared: true };
+      } catch (err) {
+        const errName = err instanceof Error ? err.name : '';
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (errName === 'AbortError' || /abort|cancel/i.test(errMsg)) {
+          return { shared: false, canceledByUser: true };
+        }
+      }
+    }
+
     return {
       shared: false,
-      reason: err instanceof Error ? err.message : 'لغو یا عدم پشتیبانی اشتراک‌گذاری',
+      fallbackToMessengerPanel: true,
+    };
+  } catch {
+    return {
+      shared: false,
+      fallbackToMessengerPanel: true,
     };
   }
 }

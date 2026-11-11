@@ -1350,8 +1350,7 @@ export default function App() {
   > = {
     library: {
       title: 'کتابخانه و مدیریت نسخه‌های قفسه',
-      description:
-        'جست‌وجو و فیلتر پیشرفته کتاب‌ها، ثبت موجودی فیزیکی قفسه‌ها (SH-01 تا SH-04)، جانمایی طبقات و چاپ برچسب کتاب‌ها'
+      description: ''
     },
     martyrs: {
       title: 'پرونده شهدا و بانک جامع مزارات گلزار شهدای تهران',
@@ -1359,18 +1358,15 @@ export default function App() {
     },
     smart_search: {
       title: 'جست‌وجوی هوشمند کتاب‌ها و منابع مرتبط با شهدا',
-      description:
-        'کاوش خودکار در فهرست کتابخانه، منابع بیرونی و پایلوت شهدا جهت کشف و پیشنهاد ارتباط‌های جدید به کارشناس'
+      description: ''
     },
     research: {
       title: 'میز پژوهش، بررسی ارتباط کتاب و شهید و استخراج مطالب',
-      description:
-        'بازبینی ارتباط‌های ثبت‌شده، تعیین تکلیف موارد نیازمند بررسی، تفکیک گروه‌های چندشهیدی و ثبت مطالب مستخرج با شماره صفحه'
+      description: ''
     },
     management: {
       title: 'پشتیبانی و گزارش‌ها',
-      description:
-        'دریافت و بازیابی امن فایل پشتیبان JSON، خروجی Excel/CSV، نصب برنامه روی گوشی اندروید و مشاهده گزارش‌های مدیریتی'
+      description: ''
     }
   };
 
@@ -1613,43 +1609,38 @@ export default function App() {
           </div>
         </>
       ) : (
-        /* هدر تمیز و متناسب سایر برگ‌ها همراه با کلید بازگشت به مرحله قبل و کلید خروج */
-        <header className="sticky top-0 z-30 w-full max-w-full bg-[#8C3B2B] text-white px-3 sm:px-8 pt-[max(0.65rem,env(safe-area-inset-top,0px))] pb-2.5 sm:py-3.5 shadow-xs border-b border-[#702D20]">
-          <div className="max-w-6xl mx-auto flex items-center justify-between gap-2.5">
-            <div className="min-w-0 flex-1">
-              <h1 className="font-titr text-base sm:text-lg md:text-xl font-bold text-[#FDF8F2] leading-snug">
+        /* هدر تک‌خطی و خلوت سایر برگ‌ها: فقط عنوان صفحه در یک خط + دکمه‌های مرحله قبل و خروج زیر هم */
+        <header className="sticky top-0 z-30 w-full max-w-full bg-[#8C3B2B] text-white px-2.5 sm:px-8 pt-[max(0.5rem,env(safe-area-inset-top,0px))] pb-2 sm:py-3 shadow-xs border-b border-[#702D20]">
+          <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <h1 className="font-titr text-[12px] sm:text-base md:text-xl font-bold text-[#FDF8F2] leading-snug whitespace-nowrap truncate">
                 {TAB_HEADER_INFO[activeTab].title}
               </h1>
-              {TAB_HEADER_INFO[activeTab].description ? (
-                <p className="text-[11px] sm:text-xs text-amber-100/90 leading-relaxed mt-0.5">
-                  {TAB_HEADER_INFO[activeTab].description}
-                </p>
-              ) : null}
             </div>
 
-            {/* کلید بازگشت به مرحله قبل + کلید خروج با تأیید */}
-            <div className="flex items-center gap-1.5 shrink-0">
+            {/* کلید بازگشت به مرحله قبل + کلید خروج با تأیید (زیر هم برای اشغال کمترین عرض در گوشی) */}
+            <div className="flex flex-col items-stretch gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => handleStepBack()}
-                className="min-h-[32px] px-2.5 py-1 text-xs font-bold bg-white/15 hover:bg-white/25 text-white rounded-lg border border-white/25 shadow-xs inline-flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                className="min-h-[26px] px-2 py-0.5 text-[10px] sm:text-xs font-bold bg-white/15 hover:bg-white/25 text-white rounded-lg border border-white/25 shadow-xs inline-flex items-center justify-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
                 title="بازگشت به مرحله قبل"
               >
-                <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-                <span className="text-[10px] sm:text-xs">مرحله قبل</span>
+                <ArrowRight className="w-3 h-3 shrink-0" />
+                <span>مرحله قبل</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setShowExitConfirmModal(true)}
-                className="min-h-[32px] px-2.5 py-1 text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded-lg border border-white/20 shadow-xs inline-flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                className="min-h-[26px] px-2 py-0.5 text-[10px] sm:text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded-lg border border-white/20 shadow-xs inline-flex items-center justify-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
                 title="خروج با تأیید و ذخیره امن"
                 aria-label="خروج با تأیید"
               >
-                <LogOut className="w-3.5 h-3.5 shrink-0" />
-                <span className="text-[10px] sm:text-xs font-bold">خروج</span>
+                <LogOut className="w-3 h-3 shrink-0" />
+                <span className="font-bold">خروج</span>
                 {sessionEditsCount > 0 && (
-                  <span className="w-4 h-4 rounded-full bg-white text-[#8C3B2B] text-[9px] font-bold flex items-center justify-center shrink-0">
+                  <span className="w-3.5 h-3.5 rounded-full bg-white text-[#8C3B2B] text-[9px] font-bold flex items-center justify-center shrink-0">
                     {toPersianDigits(sessionEditsCount)}
                   </span>
                 )}

@@ -185,6 +185,7 @@ export interface FieldAuditRecord {
   level: LevelCode | '';
   location: string; // "SH-01-T01"
   physical: 'verified' | 'review' | 'not_found';
+  needsReview?: boolean; // امکان انتخاب هم‌زمان «نیازمند بررسی» با «موجود و تأییدشده»
   copyStatus?: CopyStatusCode;
   physicalCondition?: PhysicalConditionCode;
   countedCopies: string; // تعداد نسخه‌های مشاهده‌شده در قفسه
