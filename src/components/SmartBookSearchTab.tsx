@@ -270,8 +270,8 @@ function inferSuggestionOriginLabel(sug: SmartSearchSuggestion): {
   ) {
     return {
       code: 'manual',
-      label: '👤 ثبت دستی کارشناس / استعلام گوگل',
-      badgeClass: 'bg-purple-50 text-purple-900 border-purple-200'
+      label: 'ثبت دستی و استعلام گوگل',
+      badgeClass: 'bg-[#FAF5EE] text-[#5C4636] border-[#D8C7B2]'
     };
   }
   if (
@@ -282,15 +282,22 @@ function inferSuggestionOriginLabel(sug: SmartSearchSuggestion): {
   ) {
     return {
       code: 'bulk_match',
-      label: '⚡ تطبیق انبوه خودکار (توضیحات کتاب با بانک ۲۸٬۳۶۸ شهید)',
-      badgeClass: 'bg-sky-50 text-sky-900 border-sky-200'
+      label: 'تطبیق انبوه خودکار',
+      badgeClass: 'bg-[#FAF5EE] text-[#5C4636] border-[#D8C7B2]'
     };
   }
   return {
     code: 'single_search',
-    label: '🔍 جست‌وجوی تکی نام شهید در کتابخانه',
-    badgeClass: 'bg-blue-50 text-[#1F4E79] border-blue-200'
+    label: 'جست‌وجوی تکی شهید',
+    badgeClass: 'bg-[#FAF5EE] text-[#5C4636] border-[#D8C7B2]'
   };
+}
+
+function formatSingleShahidPrefix(rawName: string): string {
+  const cleaned = (rawName || '')
+    .replace(/^(?:شهید\s+)+/g, '')
+    .trim();
+  return cleaned ? `شهید ${cleaned}` : 'شهید';
 }
 
 interface SmartBookSearchTabProps {
@@ -2496,129 +2503,137 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
               </div>
             )}
 
-            {/* درگاه‌های استعلام بیرونی + کادر ثبت سریع همراه با فیلد URL */}
-            <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3 space-y-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs font-bold text-[#6B3E26] flex items-center gap-1.5">
-                  <Globe className="w-4 h-4 text-[#6B3E26] shrink-0" />
-                  <span>
-                    درگاه‌های استعلام بیرونی برای «{selectedMartyrName || twoWayQuery || 'شهید'}»:
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowPublishersModal(true)}
-                  className="px-2.5 py-1 bg-[#6B3E26] hover:bg-[#56311E] text-white text-[11px] font-bold rounded-lg inline-flex items-center gap-1 cursor-pointer transition-colors shadow-xs"
-                >
-                  <Building2 className="w-3.5 h-3.5" />
-                  <span>۱۸ انتشارات دفاع مقدس</span>
-                </button>
+            {/* درگاه‌های استعلام بیرونی (ترازبندی متناسب در ۳ ردیف هم‌اندازه با پالت یکدست کرم/قهوه‌ای) */}
+            <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3 space-y-2">
+              <div className="text-xs font-bold text-[#6B3E26] flex items-center gap-1.5">
+                <Globe className="w-4 h-4 text-[#6B3E26] shrink-0" />
+                <span>
+                  درگاه‌های استعلام بیرونی برای «{selectedMartyrName || twoWayQuery || 'شهید'}»:
+                </span>
               </div>
 
-              <div className="flex flex-wrap gap-1.5 text-[11px]">
-                <a
-                  href={`https://www.google.com/search?q=${encodeURIComponent(
-                    'کتاب "شهید ' + (selectedMartyrName || twoWayQuery) + '"'
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => handleExternalPortalClick('گوگل (جست‌وجوی کتاب شهید)')}
-                  className="px-2.5 py-1 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center gap-1 font-bold"
-                >
-                  <ExternalLink className="w-3 h-3 text-[#6B3E26]" />
-                  <span>گوگل</span>
-                </a>
+              <div className="space-y-1.5 text-[11px]">
+                {/* خط ۱: دو درگاه اصلی کتاب (خانه کتاب و سوره مهر) هم‌اندازه کنار هم */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <a
+                    href={`https://www.google.com/search?q=${encodeURIComponent(
+                      'site:ketab.ir "' + (selectedMartyrName || twoWayQuery) + '"'
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => handleExternalPortalClick('خانه کتاب (از طریق گوگل)')}
+                    className="w-full min-h-[34px] px-2 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-bold text-center transition-colors"
+                  >
+                    <ExternalLink className="w-3 h-3 text-[#6B3E26] shrink-0" />
+                    <span className="truncate">خانه کتاب (بدون فیلترشکن)</span>
+                  </a>
 
-                <a
-                  href={`https://www.google.com/search?q=${encodeURIComponent(
-                    'site:ketab.ir "' + (selectedMartyrName || twoWayQuery) + '"'
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => handleExternalPortalClick('خانه کتاب (از طریق گوگل)')}
-                  className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-lg inline-flex items-center gap-1 font-bold"
-                >
-                  <ExternalLink className="w-3 h-3 text-emerald-700" />
-                  <span>خانه کتاب (بدون مشکل فیلترشکن)</span>
-                </a>
+                  <a
+                    href={`https://www.google.com/search?q=${encodeURIComponent(
+                      'site:sooremehr.ir "' + (selectedMartyrName || twoWayQuery) + '"'
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => handleExternalPortalClick('سوره مهر (از طریق گوگل)')}
+                    className="w-full min-h-[34px] px-2 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-bold text-center transition-colors"
+                  >
+                    <ExternalLink className="w-3 h-3 text-[#6B3E26] shrink-0" />
+                    <span className="truncate">سوره مهر (بدون فیلترشکن)</span>
+                  </a>
+                </div>
 
-                <a
-                  href={`https://www.google.com/search?q=${encodeURIComponent(
-                    'site:sooremehr.ir "' + (selectedMartyrName || twoWayQuery) + '"'
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => handleExternalPortalClick('سوره مهر (از طریق گوگل)')}
-                  className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300 rounded-lg inline-flex items-center gap-1 font-bold"
-                >
-                  <ExternalLink className="w-3 h-3 text-amber-800" />
-                  <span>سوره مهر (بدون مشکل فیلترشکن)</span>
-                </a>
+                {/* خط ۲: گوگل، کتابخانه ملی و ۱۸ انتشارات دفاع مقدس در یک ردیف ۳ ستونه متناسب */}
+                <div className="grid grid-cols-3 gap-1.5">
+                  <a
+                    href={`https://www.google.com/search?q=${encodeURIComponent(
+                      'کتاب "شهید ' + (selectedMartyrName || twoWayQuery) + '"'
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => handleExternalPortalClick('گوگل (جست‌وجوی کتاب شهید)')}
+                    className="w-full min-h-[34px] px-2 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-bold text-center transition-colors"
+                  >
+                    <ExternalLink className="w-3 h-3 text-[#6B3E26] shrink-0" />
+                    <span className="truncate">گوگل</span>
+                  </a>
 
-                <a
-                  href={`https://www.google.com/search?q=${encodeURIComponent(
-                    'site:nlai.ir "' + (selectedMartyrName || twoWayQuery) + '"'
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => handleExternalPortalClick('کتابخانه ملی (از طریق گوگل)')}
-                  className="px-2.5 py-1 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center gap-1 font-semibold"
-                >
-                  <ExternalLink className="w-3 h-3 text-[#6B3E26]" />
-                  <span>کتابخانه ملی (NLAI)</span>
-                </a>
+                  <a
+                    href={`https://www.google.com/search?q=${encodeURIComponent(
+                      'site:nlai.ir "' + (selectedMartyrName || twoWayQuery) + '"'
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => handleExternalPortalClick('کتابخانه ملی (از طریق گوگل)')}
+                    className="w-full min-h-[34px] px-2 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-bold text-center transition-colors"
+                  >
+                    <ExternalLink className="w-3 h-3 text-[#6B3E26] shrink-0" />
+                    <span className="truncate">کتابخانه ملی</span>
+                  </a>
 
-                <a
-                  href={`https://www.noorlib.ir/fa/search?q=${encodeURIComponent(
-                    selectedMartyrName || twoWayQuery
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => handleExternalPortalClick('پایگاه نور (NoorLib)')}
-                  className="px-2.5 py-1 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center gap-1 font-semibold"
-                >
-                  <ExternalLink className="w-3 h-3 text-[#6B3E26]" />
-                  <span>پایگاه نور</span>
-                </a>
+                  <button
+                    type="button"
+                    onClick={() => setShowPublishersModal(true)}
+                    className="w-full min-h-[34px] px-2 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#6B3E26] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-bold text-center cursor-pointer transition-colors"
+                  >
+                    <Building2 className="w-3.5 h-3.5 text-[#6B3E26] shrink-0" />
+                    <span className="truncate">۱۸ انتشارات دفاع مقدس</span>
+                  </button>
+                </div>
 
-                <a
-                  href={`https://www.magiran.com/search?q=${encodeURIComponent(
-                    'شهید ' + (selectedMartyrName || twoWayQuery)
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => handleExternalPortalClick('مگیران (Magiran)')}
-                  className="px-2 py-1 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center gap-1 font-semibold"
-                >
-                  <Newspaper className="w-3 h-3 text-[#6B3E26]" />
-                  <span>مگیران</span>
-                </a>
+                {/* خط ۳: چهار پایگاه مقالات و مجلات (پایگاه نور، مگیران، نورمگز، سیویلیکا) کشیده و هم‌تراز در یک خط */}
+                <div className="grid grid-cols-4 gap-1.5">
+                  <a
+                    href={`https://www.noorlib.ir/fa/search?q=${encodeURIComponent(
+                      selectedMartyrName || twoWayQuery
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => handleExternalPortalClick('پایگاه نور (NoorLib)')}
+                    className="w-full min-h-[34px] px-1.5 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-semibold text-center transition-colors"
+                  >
+                    <ExternalLink className="w-3 h-3 text-[#6B3E26] shrink-0" />
+                    <span className="truncate">پایگاه نور</span>
+                  </a>
 
-                <a
-                  href={`https://www.noormags.ir/view/fa/search?q=${encodeURIComponent(
-                    'شهید ' + (selectedMartyrName || twoWayQuery)
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => handleExternalPortalClick('نورمگز (NoorMags)')}
-                  className="px-2 py-1 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center gap-1 font-semibold"
-                >
-                  <Newspaper className="w-3 h-3 text-[#6B3E26]" />
-                  <span>نورمگز</span>
-                </a>
+                  <a
+                    href={`https://www.magiran.com/search?q=${encodeURIComponent(
+                      'شهید ' + (selectedMartyrName || twoWayQuery)
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => handleExternalPortalClick('مگیران (Magiran)')}
+                    className="w-full min-h-[34px] px-1.5 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-semibold text-center transition-colors"
+                  >
+                    <Newspaper className="w-3 h-3 text-[#6B3E26] shrink-0" />
+                    <span className="truncate">مگیران</span>
+                  </a>
 
-                <a
-                  href={`https://civilica.com/search/paper/k-${encodeURIComponent(
-                    'شهید ' + (selectedMartyrName || twoWayQuery)
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => handleExternalPortalClick('سیویلیکا (Civilica)')}
-                  className="px-2 py-1 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center gap-1 font-semibold"
-                >
-                  <Newspaper className="w-3 h-3 text-[#6B3E26]" />
-                  <span>سیویلیکا</span>
-                </a>
+                  <a
+                    href={`https://www.noormags.ir/view/fa/search?q=${encodeURIComponent(
+                      'شهید ' + (selectedMartyrName || twoWayQuery)
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => handleExternalPortalClick('نورمگز (NoorMags)')}
+                    className="w-full min-h-[34px] px-1.5 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-semibold text-center transition-colors"
+                  >
+                    <Newspaper className="w-3 h-3 text-[#6B3E26] shrink-0" />
+                    <span className="truncate">نورمگز</span>
+                  </a>
+
+                  <a
+                    href={`https://civilica.com/search/paper/k-${encodeURIComponent(
+                      'شهید ' + (selectedMartyrName || twoWayQuery)
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => handleExternalPortalClick('سیویلیکا (Civilica)')}
+                    className="w-full min-h-[34px] px-1.5 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-semibold text-center transition-colors"
+                  >
+                    <Newspaper className="w-3 h-3 text-[#6B3E26] shrink-0" />
+                    <span className="truncate">سیویلیکا</span>
+                  </a>
+                </div>
               </div>
 
               {/* کادر هوشمند بازگشت از استعلام بیرونی: شامل عنوان کتاب، ناشر و آدرس اینترنتی (URL) */}
@@ -2722,7 +2737,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
               )}
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+            <div className="space-y-2 pt-1">
               <button
                 type="button"
                 onClick={() => {
@@ -2733,16 +2748,17 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     openedAt: ''
                   });
                 }}
-                className="text-[11px] font-bold text-[#1F4E79] hover:underline cursor-pointer"
+                className="w-full min-h-[38px] px-3 py-2 rounded-xl bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#6B3E26] border border-[#D8C7B2] text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
               >
-                + کتابی در گوگل پیدا کردید؟ باز کردن کادر ثبت سریع و لینک (URL)
+                <Plus className="w-3.5 h-3.5 shrink-0" />
+                <span>کتابی در گوگل پیدا کردید؟ باز کردن کادر ثبت سریع و لینک (URL)</span>
               </button>
 
               <button
                 type="submit"
-                className="w-full sm:w-auto min-h-[40px] px-4 py-2 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                className="w-full min-h-[40px] px-4 py-2 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors"
               >
-                <Sparkles className="w-4 h-4" />
+                <Sparkles className="w-4 h-4 shrink-0" />
                 <span>اجرای تطبیق هوشمند و افزودن به صف بررسی کارشناس</span>
               </button>
             </div>
@@ -2754,8 +2770,8 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5">
-                <FileSpreadsheet className="w-4 h-4 text-[#2E7D5B]" />
-                <h2 className="text-sm font-bold text-[#253247]">
+                <FileSpreadsheet className="w-4 h-4 text-[#6B3E26]" />
+                <h2 className="text-sm font-bold text-[#332218]">
                   ۲. جست‌وجوی انبوه و تطبیق دسته‌ای نام شهدا
                 </h2>
                 <button
@@ -2766,26 +2782,26 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                       `بانک جامع گلزار شهدا شامل ۲۸٬۳۶۸ رکورد است که از این میان ۲۴٬۸۵۹ رکورد دارای نام و نام خانوادگی کامل و مشخص هستند (و ۳٬۵۰۹ رکورد مربوط به مزار شهدای گمنام یا یادبود بدون نام خانوادگی است). با زدن دکمه «اجرای تطبیق انبوه»، نام این شهدا با عنوان و توضیحات تمام کتاب‌های کتابخانه مقایسه می‌شود و با کلیک روی عدد «کل کتاب‌های منطبق در این محدوده» می‌توانید فهرست کامل آن‌ها را در یک پنجره مستقل ببینید.`
                     )
                   }
-                  className="w-5 h-5 rounded-full bg-slate-100 hover:bg-slate-200 text-[#1F4E79] border border-slate-300 inline-flex items-center justify-center cursor-pointer"
+                  className="w-5 h-5 rounded-full bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#6B3E26] border border-[#D8C7B2] inline-flex items-center justify-center cursor-pointer"
                   aria-label="راهنمای تطبیق انبوه"
                 >
                   <HelpCircle className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <span className="text-[11px] font-bold text-[#1F4E79] tabular-nums">
+              <span className="text-[11px] font-bold text-[#6B3E26] tabular-nums">
                 کل بانک: {toPersianDigits(totalGolzarRecords)} شهید
               </span>
             </div>
 
             {/* انتخاب‌گر حالت ورودی */}
-            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl text-xs font-semibold">
+            <div className="grid grid-cols-3 gap-1 p-1 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => setBulkInputMode('system')}
                 className={`py-1.5 px-2 rounded-lg transition-colors cursor-pointer ${
                   bulkInputMode === 'system'
-                    ? 'bg-white text-[#1F4E79] shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-[#6B3E26] text-white shadow-xs font-bold'
+                    : 'text-[#5C4636] hover:text-[#332218]'
                 }`}
               >
                 بانک شهدا ({toPersianDigits(totalGolzarRecords)})
@@ -2795,8 +2811,8 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                 onClick={() => setBulkInputMode('text')}
                 className={`py-1.5 px-2 rounded-lg transition-colors cursor-pointer ${
                   bulkInputMode === 'text'
-                    ? 'bg-white text-[#1F4E79] shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-[#6B3E26] text-white shadow-xs font-bold'
+                    : 'text-[#5C4636] hover:text-[#332218]'
                 }`}
               >
                 ورود متنی اسامی
@@ -2806,8 +2822,8 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                 onClick={() => setBulkInputMode('excel')}
                 className={`py-1.5 px-2 rounded-lg transition-colors cursor-pointer ${
                   bulkInputMode === 'excel'
-                    ? 'bg-white text-[#1F4E79] shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-[#6B3E26] text-white shadow-xs font-bold'
+                    : 'text-[#5C4636] hover:text-[#332218]'
                 }`}
               >
                 بارگذاری اکسل
@@ -2815,16 +2831,16 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
             </div>
 
             {bulkInputMode === 'system' && (
-              <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl text-xs text-blue-950 space-y-2">
+              <div className="p-3 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs text-[#332218] space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <label className="font-bold text-xs text-[#1F4E79]">
+                  <label className="font-bold text-xs text-[#6B3E26]">
                     انتخاب محدوده شهدا برای تطبیق با کتاب‌ها:
                   </label>
                   {onNavigateTab && (
                     <button
                       type="button"
                       onClick={() => onNavigateTab('martyrs')}
-                      className="px-2 py-1 rounded-lg bg-white hover:bg-blue-100 text-[#1F4E79] border border-blue-200 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                      className="px-2 py-1 rounded-lg bg-white hover:bg-[#F3E9DC] text-[#6B3E26] border border-[#D8C7B2] text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
                     >
                       <Users className="w-3.5 h-3.5" />
                       <span>ورود به صفحه شهدا</span>
@@ -2835,7 +2851,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                 <select
                   value={bulkSystemScope}
                   onChange={(e) => setBulkSystemScope(e.target.value)}
-                  className="w-full px-2.5 py-2 bg-white border border-blue-300 rounded-xl text-xs font-bold text-[#253247]"
+                  className="w-full px-2.5 py-2 bg-white border border-[#D8C7B2] rounded-xl text-xs font-bold text-[#332218]"
                 >
                   <option value="all_28k">
                     کل بانک ۲۸٬۳۶۸ شهید گلزار ({toPersianDigits(golzarMartyrs28k.length || 24859)} شهید دارای نام کامل + ۳٬۵۰۹ گمنام)
@@ -2975,15 +2991,16 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
             )}
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-100">
+          {/* دکمه اجرای تطبیق انبوه و بازنشانی در یک خط کنار هم (هم در گوشی و هم در لپ‌تاپ) */}
+          <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
             <button
               type="button"
               onClick={handleRunBulkMartyrSearch}
               disabled={pilotStatus === 'running'}
-              className="min-h-[40px] px-4 py-2 rounded-xl bg-[#2E7D5B] hover:bg-[#246348] disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+              className="flex-1 min-h-[40px] px-3 py-2 rounded-xl bg-[#2E7D5B] hover:bg-[#246348] disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-xs cursor-pointer"
             >
-              <Play className="w-4 h-4" />
-              <span>
+              <Play className="w-4 h-4 shrink-0" />
+              <span className="truncate">
                 {pilotStatus === 'running'
                   ? 'در حال مقابله با کتاب‌ها...'
                   : `اجرای تطبیق انبوه با ${toPersianDigits(allUnifiedBooks.length)} کتاب مرجع`}
@@ -3004,9 +3021,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                 setBulkTextNames('');
                 onNotify('شمارنده‌ها و لیست جست‌وجوی انبوه بازنشانی شدند.');
               }}
-              className="min-h-[40px] px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-[#253247] text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
+              className="shrink-0 min-h-[40px] px-3 py-2 rounded-xl bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#5C4636] border border-[#D8C7B2] text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
+              <RotateCcw className="w-3.5 h-3.5 shrink-0" />
               <span>بازنشانی</span>
             </button>
           </div>
@@ -3093,130 +3110,136 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
         </div>
       )}
 
-      {/* صف بررسی کارشناس (با تفکیک شفاف منشأ پیشنهادها: ثبت دستی کارشناس / جست‌وجوی تکی / تطبیق انبوه) */}
-      <section className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm sm:text-base font-bold text-[#253247]">
-              صف بررسی کارشناس ({toPersianDigits(filteredSuggestions.length)} از {toPersianDigits(smartSuggestions.length)} پیشنهاد)
-            </h2>
+      {/* صف بررسی کارشناس (چیدمان متراز، یکسان‌سازی پالت رنگی کرم/قهوه‌ای و کارت‌های منظم) */}
+      <section className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3.5">
+        <div className="space-y-2.5 border-b border-slate-200 pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm sm:text-base font-bold text-[#332218]">
+                صف بررسی کارشناس ({toPersianDigits(filteredSuggestions.length)} از {toPersianDigits(smartSuggestions.length)} پیشنهاد)
+              </h2>
 
-            <button
-              type="button"
-              onClick={() =>
-                showHelpCentered(
-                  'منشأ پیشنهادهای موجود در صف بررسی کارشناس چیست؟',
-                  `پیشنهادهای این صف از ۳ مسیر وارد می‌شوند که روی هر کارت مشخص شده است: ۱) «ثبت دستی کارشناس / استعلام گوگل» (${toPersianDigits(
-                    queueOriginCounts.manual
-                  )} مورد)، ۲) «جست‌وجوی تکی نام شهید» (${toPersianDigits(
-                    queueOriginCounts.single
-                  )} مورد)، و ۳) «تطبیق انبوه خودکار توضیحات ۹۸۰ کتاب با بانک ۲۸٬۳۶۸ شهید» (${toPersianDigits(
-                    queueOriginCounts.bulk
-                  )} مورد، مانند کتاب‌های ماه در محاق، آفتاب کویر یا فرمانده دل که نام شهید در ستون توضیحات اکسل کتابخانه ذکر شده است).`
-                )
-              }
-              className="w-5 h-5 rounded-full bg-slate-100 hover:bg-slate-200 text-[#1F4E79] border border-slate-300 inline-flex items-center justify-center cursor-pointer"
-              aria-label="راهنمای صف بررسی کارشناس"
-            >
-              <HelpCircle className="w-3.5 h-3.5" />
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() =>
+                  showHelpCentered(
+                    'منشأ پیشنهادهای موجود در صف بررسی کارشناس چیست؟',
+                    `پیشنهادهای این صف از ۳ مسیر وارد می‌شوند که روی هر کارت مشخص شده است: ۱) «ثبت دستی کارشناس / استعلام گوگل» (${toPersianDigits(
+                      queueOriginCounts.manual
+                    )} مورد)، ۲) «جست‌وجوی تکی نام شهید» (${toPersianDigits(
+                      queueOriginCounts.single
+                    )} مورد)، و ۳) «تطبیق انبوه خودکار توضیحات ۹۸۰ کتاب با بانک ۲۸٬۳۶۸ شهید» (${toPersianDigits(
+                      queueOriginCounts.bulk
+                    )} مورد، مانند کتاب‌های ماه در محاق، آفتاب کویر یا فرمانده دل که نام شهید در ستون توضیحات اکسل کتابخانه ذکر شده است).`
+                  )
+                }
+                className="w-5 h-5 rounded-full bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#6B3E26] border border-[#D8C7B2] inline-flex items-center justify-center cursor-pointer"
+                aria-label="راهنمای صف بررسی کارشناس"
+              >
+                <HelpCircle className="w-3.5 h-3.5" />
+              </button>
+            </div>
 
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <button
-              type="button"
-              onMouseEnter={() =>
-                showHoverHint(
-                  'همگام‌سازی صف بررسی با پرونده‌های موجود و حذف خودکار سوابق تستی یا نامعتبر'
-                )
-              }
-              onMouseLeave={handleTargetMouseLeave}
-              onClick={() => {
-                dismissHoverHint();
-                handleSyncAndPurgeOrphans();
-              }}
-              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-[#253247] border border-slate-300 rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-[#8C3B2B]" />
-              <span>همگام‌سازی و پاک‌سازی سوابق باطل</span>
-            </button>
-
-            {smartSuggestions.length > 0 && onClearAllSuggestions && (
+            {/* دکمه‌های عملیاتی صف در یک ردیف متناسب و تراز */}
+            <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 w-full sm:w-auto text-xs">
               <button
                 type="button"
                 onMouseEnter={() =>
                   showHoverHint(
-                    'پاک‌سازی کامل صف بررسی و صفر کردن همه پیشنهادهای موجود در صف'
+                    'همگام‌سازی صف بررسی با پرونده‌های موجود و حذف خودکار سوابق تستی یا نامعتبر'
                   )
                 }
                 onMouseLeave={handleTargetMouseLeave}
                 onClick={() => {
                   dismissHoverHint();
-                  requestActionConfirmation({
-                    title: 'تأیید نهایی پاک‌سازی کامل صف بررسی',
-                    message: `آیا از حذف کامل تمام ${toPersianDigits(smartSuggestions.length)} پیشنهاد موجود در صف بررسی کارشناس اطمینان دارید؟`,
-                    details: 'هشدار: با این کار تمامی پیشنهادهای صف بررسی از لیست خارج می‌شوند (ارتباطات قبلاً تأییدشده در پرونده شهدا حفظ می‌گردند).',
-                    confirmLabel: 'بله، کل صف پاک‌سازی شود',
-                    variant: 'delete',
-                    onConfirm: () => {
-                      onClearAllSuggestions();
-                      setLastSearchFeedback(null);
-                      setHighlightedSuggestionId(null);
-                      onNotify('صف بررسی کارشناس کاملاً پاک‌سازی و صفر گردید.');
-                    }
-                  });
+                  handleSyncAndPurgeOrphans();
                 }}
-                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+                className="min-h-[36px] px-2.5 py-1.5 bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#5C4636] border border-[#D8C7B2] rounded-xl font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
               >
-                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                <span>پاک‌سازی کامل صف ({toPersianDigits(smartSuggestions.length)})</span>
+                <RotateCcw className="w-3.5 h-3.5 text-[#8C3B2B] shrink-0" />
+                <span className="truncate">همگام‌سازی سوابق</span>
               </button>
-            )}
 
-            <button
-              type="button"
-              onMouseEnter={() =>
-                showHoverHint(
-                  'ثبت دستی کتاب جدید در مورد شهید انتخاب‌شده یا نوشته‌شده و افزودن به صف بررسی کارشناس'
-                )
-              }
-              onMouseLeave={handleTargetMouseLeave}
-              onClick={() => {
-                dismissHoverHint();
-                setManualMartyrName(selectedMartyrName.trim() || twoWayQuery.trim() || '');
-                setManualTitle('');
-                setManualPublisher('');
-                setManualAuthor('');
-                setManualYear('');
-                setManualUrl('');
-                setManualNote('');
-                setShowManualAddModal(true);
-              }}
-              className="px-3 py-2 bg-[#1F4E79] hover:bg-[#163a5b] text-white rounded-xl font-bold inline-flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
-            >
-              <Plus className="w-4 h-4" />
-              <span>ثبت دستی کتاب جدید</span>
-            </button>
+              {smartSuggestions.length > 0 && onClearAllSuggestions && (
+                <button
+                  type="button"
+                  onMouseEnter={() =>
+                    showHoverHint(
+                      'پاک‌سازی کامل صف بررسی و صفر کردن همه پیشنهادهای موجود در صف'
+                    )
+                  }
+                  onMouseLeave={handleTargetMouseLeave}
+                  onClick={() => {
+                    dismissHoverHint();
+                    requestActionConfirmation({
+                      title: 'تأیید نهایی پاک‌سازی کامل صف بررسی',
+                      message: `آیا از حذف کامل تمام ${toPersianDigits(smartSuggestions.length)} پیشنهاد موجود در صف بررسی کارشناس اطمینان دارید؟`,
+                      details: 'هشدار: با این کار تمامی پیشنهادهای صف بررسی از لیست خارج می‌شوند (ارتباطات قبلاً تأییدشده در پرونده شهدا حفظ می‌گردند).',
+                      confirmLabel: 'بله، کل صف پاک‌سازی شود',
+                      variant: 'delete',
+                      onConfirm: () => {
+                        onClearAllSuggestions();
+                        setLastSearchFeedback(null);
+                        setHighlightedSuggestionId(null);
+                        onNotify('صف بررسی کارشناس کاملاً پاک‌سازی و صفر گردید.');
+                      }
+                    });
+                  }}
+                  className="min-h-[36px] px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                  <span className="truncate">پاک‌سازی صف ({toPersianDigits(smartSuggestions.length)})</span>
+                </button>
+              )}
 
+              <button
+                type="button"
+                onMouseEnter={() =>
+                  showHoverHint(
+                    'ثبت دستی کتاب جدید در مورد شهید انتخاب‌شده یا نوشته‌شده و افزودن به صف بررسی کارشناس'
+                  )
+                }
+                onMouseLeave={handleTargetMouseLeave}
+                onClick={() => {
+                  dismissHoverHint();
+                  setManualMartyrName(selectedMartyrName.trim() || twoWayQuery.trim() || '');
+                  setManualTitle('');
+                  setManualPublisher('');
+                  setManualAuthor('');
+                  setManualYear('');
+                  setManualUrl('');
+                  setManualNote('');
+                  setShowManualAddModal(true);
+                }}
+                className="col-span-2 sm:col-span-1 min-h-[36px] px-3 py-1.5 bg-[#6B3E26] hover:bg-[#56311E] text-white rounded-xl font-bold inline-flex items-center justify-center gap-1 cursor-pointer transition-colors"
+              >
+                <Plus className="w-4 h-4 shrink-0" />
+                <span className="truncate">ثبت دستی کتاب جدید</span>
+              </button>
+            </div>
+          </div>
+
+          {/* دو منوی کشویی فیلتر وضعیت و منبع در یک خط کنار هم (هم در موبایل و هم در سیستم) */}
+          <div className="grid grid-cols-2 gap-2 text-xs">
             <select
               value={queueFilter}
               onChange={(e) =>
                 setQueueFilter(e.target.value as 'ALL' | SmartSuggestionReviewStatus)
               }
-              title="فیلتر پیشنهادهای صف بر اساس وضعیت بررسی: نمایش همه وضعیت‌ها، فقط موارد نیازمند بررسی کارشناس، موارد تأییدشده، یا موارد ردشده"
-              className="px-3 py-2 rounded-xl border border-slate-300 bg-[#F5F7FA] text-[#253247] font-medium cursor-pointer"
+              title="فیلتر پیشنهادهای صف بر اساس وضعیت بررسی"
+              className="w-full min-h-[36px] px-2.5 py-1.5 rounded-xl border border-[#D8C7B2] bg-[#FAF5EE] text-[#332218] font-bold cursor-pointer truncate"
             >
               <option value="ALL">همه وضعیت‌های صف ({toPersianDigits(smartSuggestions.length)})</option>
-              <option value="در صف بررسی کارشناس">⚠️ در صف بررسی کارشناس (نیازمند بررسی)</option>
-              <option value="تأییدشده و افزوده‌شده به پرونده">✓ تأییدشده و افزوده‌شده به پرونده</option>
-              <option value="ردشده با ثبت دلیل">✕ ردشده با ثبت دلیل</option>
+              <option value="در صف بررسی کارشناس">در صف بررسی کارشناس (نیازمند بررسی)</option>
+              <option value="تأییدشده و افزوده‌شده به پرونده">تأییدشده و افزوده‌شده به پرونده</option>
+              <option value="ردشده با ثبت دلیل">ردشده با ثبت دلیل</option>
             </select>
 
             <select
               value={selectedSourceCode}
               onChange={(e) => setSelectedSourceCode(e.target.value)}
-              title="فیلتر بر اساس منبع و اولویت اعتبار: اولویت ۱ (فهرست کتابخانه و اسناد ملی)، اولویت ۲ (خانه کتاب)، اولویت ۳ (بنیاد شهید)، اولویت ۴ (ناشران تخصصی دفاع مقدس)، اولویت ۵ (ثبت دستی)"
-              className="px-3 py-2 rounded-xl border border-slate-300 bg-[#F5F7FA] text-[#253247] font-medium cursor-pointer"
+              title="فیلتر بر اساس منبع و اولویت اعتبار"
+              className="w-full min-h-[36px] px-2.5 py-1.5 rounded-xl border border-[#D8C7B2] bg-[#FAF5EE] text-[#332218] font-bold cursor-pointer truncate"
             >
               <option value="ALL">همه منابع (اولویت ۱ تا ۵)</option>
               {OFFICIAL_SEARCH_SOURCES.map((s) => (
@@ -3228,64 +3251,68 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
           </div>
         </div>
 
-        {/* نوار تفکیک منشأ پیشنهادها (تا کاربر دقیقاً بداند کدام پیشنهاد ثبت دستی خودش است و کدام از تطبیق انبوه آمده) */}
+        {/* نوار تفکیک منشأ پیشنهادها (تراز در ۲ ستون مساوی روی موبایل و ۴ ستون مساوی روی دسکتاپ با رنگ یکدست کرم/قهوه‌ای) */}
         {smartSuggestions.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 text-xs bg-slate-50 p-2 rounded-xl border border-slate-200">
-            <span className="font-bold text-slate-600 ml-1">فیلتر بر اساس منشأ ورود به صف:</span>
-            <button
-              type="button"
-              onClick={() => setQueueOriginFilter('ALL')}
-              className={`px-2.5 py-1 rounded-lg font-bold cursor-pointer transition-colors ${
-                queueOriginFilter === 'ALL'
-                  ? 'bg-[#253247] text-white'
-                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              همه ({toPersianDigits(smartSuggestions.length)})
-            </button>
-            <button
-              type="button"
-              onClick={() => setQueueOriginFilter('manual')}
-              className={`px-2.5 py-1 rounded-lg font-bold cursor-pointer transition-colors ${
-                queueOriginFilter === 'manual'
-                  ? 'bg-purple-800 text-white'
-                  : 'bg-white text-purple-900 border border-purple-200 hover:bg-purple-50'
-              }`}
-            >
-              👤 ثبت دستی و استعلام گوگل ({toPersianDigits(queueOriginCounts.manual)})
-            </button>
-            <button
-              type="button"
-              onClick={() => setQueueOriginFilter('single_search')}
-              className={`px-2.5 py-1 rounded-lg font-bold cursor-pointer transition-colors ${
-                queueOriginFilter === 'single_search'
-                  ? 'bg-[#1F4E79] text-white'
-                  : 'bg-white text-[#1F4E79] border border-blue-200 hover:bg-blue-50'
-              }`}
-            >
-              🔍 جست‌وجوی تکی شهید ({toPersianDigits(queueOriginCounts.single)})
-            </button>
-            <button
-              type="button"
-              onClick={() => setQueueOriginFilter('bulk_match')}
-              className={`px-2.5 py-1 rounded-lg font-bold cursor-pointer transition-colors ${
-                queueOriginFilter === 'bulk_match'
-                  ? 'bg-sky-800 text-white'
-                  : 'bg-white text-sky-900 border border-sky-200 hover:bg-sky-50'
-              }`}
-            >
-              ⚡ تطبیق انبوه خودکار ({toPersianDigits(queueOriginCounts.bulk)})
-            </button>
+          <div className="bg-[#FAF5EE] p-2.5 rounded-xl border border-[#E2D2BE] space-y-1.5 text-xs">
+            <div className="font-bold text-[#6B3E26] text-[11px]">
+              فیلتر بر اساس منشأ ورود به صف:
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              <button
+                type="button"
+                onClick={() => setQueueOriginFilter('ALL')}
+                className={`w-full min-h-[34px] px-2 py-1.5 rounded-lg font-bold cursor-pointer transition-colors text-center truncate ${
+                  queueOriginFilter === 'ALL'
+                    ? 'bg-[#6B3E26] text-white border border-[#6B3E26]'
+                    : 'bg-white text-[#332218] border border-[#D8C7B2] hover:bg-[#F3E9DC]'
+                }`}
+              >
+                همه ({toPersianDigits(smartSuggestions.length)})
+              </button>
+              <button
+                type="button"
+                onClick={() => setQueueOriginFilter('manual')}
+                className={`w-full min-h-[34px] px-2 py-1.5 rounded-lg font-bold cursor-pointer transition-colors text-center truncate ${
+                  queueOriginFilter === 'manual'
+                    ? 'bg-[#6B3E26] text-white border border-[#6B3E26]'
+                    : 'bg-white text-[#332218] border border-[#D8C7B2] hover:bg-[#F3E9DC]'
+                }`}
+              >
+                ثبت دستی و گوگل ({toPersianDigits(queueOriginCounts.manual)})
+              </button>
+              <button
+                type="button"
+                onClick={() => setQueueOriginFilter('single_search')}
+                className={`w-full min-h-[34px] px-2 py-1.5 rounded-lg font-bold cursor-pointer transition-colors text-center truncate ${
+                  queueOriginFilter === 'single_search'
+                    ? 'bg-[#6B3E26] text-white border border-[#6B3E26]'
+                    : 'bg-white text-[#332218] border border-[#D8C7B2] hover:bg-[#F3E9DC]'
+                }`}
+              >
+                جست‌وجوی تکی شهید ({toPersianDigits(queueOriginCounts.single)})
+              </button>
+              <button
+                type="button"
+                onClick={() => setQueueOriginFilter('bulk_match')}
+                className={`w-full min-h-[34px] px-2 py-1.5 rounded-lg font-bold cursor-pointer transition-colors text-center truncate ${
+                  queueOriginFilter === 'bulk_match'
+                    ? 'bg-[#6B3E26] text-white border border-[#6B3E26]'
+                    : 'bg-white text-[#332218] border border-[#D8C7B2] hover:bg-[#F3E9DC]'
+                }`}
+              >
+                تطبیق انبوه خودکار ({toPersianDigits(queueOriginCounts.bulk)})
+              </button>
+            </div>
           </div>
         )}
 
         {filteredSuggestions.length === 0 ? (
-          <div className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-6 sm:p-8 text-center text-slate-500 space-y-2">
-            <CheckCircle2 className="w-8 h-8 text-slate-400 mx-auto" />
-            <div className="font-bold text-sm text-slate-800">
+          <div className="bg-[#FAF5EE]/60 border border-dashed border-[#D8C7B2] rounded-2xl p-6 sm:p-8 text-center text-[#5C4636] space-y-2">
+            <CheckCircle2 className="w-8 h-8 text-[#8C3B2B]/60 mx-auto" />
+            <div className="font-bold text-sm text-[#332218]">
               پیشنهادی در این فیلتر وجود ندارد (۰ پیشنهاد)
             </div>
-            <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+            <p className="text-xs text-[#5C4636] max-w-md mx-auto leading-relaxed">
               با جست‌وجوی نام شهید، اجرای تطبیق انبوه، یا فشردن دکمه «ثبت دستی کتاب جدید»، موارد جهت بازبینی در این بخش فهرست می‌شوند.
             </p>
           </div>
@@ -3295,6 +3322,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
               const isHighlighted = highlightedSuggestionId === sug.id;
               const isExpanded = Boolean(expandedSuggestionDetails[sug.id]);
               const originMeta = inferSuggestionOriginLabel(sug);
+              const cleanMartyrTitle = formatSingleShahidPrefix(sug.martyrName);
               const graveInfo =
                 sug.gravePiece
                   ? {
@@ -3306,58 +3334,47 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                   ? findMartyrGraveIn28k(sug.martyrName, golzarMartyrs28k)
                   : null;
 
+              const hasGrave = Boolean(
+                graveInfo && (graveInfo.gravePiece || graveInfo.graveRow || graveInfo.graveNumber)
+              );
+
               return (
                 <div
                   id={`suggestion-${sug.id}`}
                   key={sug.id}
-                  className={`border rounded-2xl p-3.5 sm:p-4 space-y-2.5 transition-all duration-300 ${
+                  className={`border rounded-2xl p-3.5 sm:p-4 space-y-2.5 transition-all duration-200 ${
                     isHighlighted
-                      ? 'border-[#1F4E79] ring-4 ring-[#1F4E79]/20 bg-amber-50/50 shadow-md'
-                      : 'border-slate-200 bg-[#F5F7FA]/60'
+                      ? 'border-[#8C3B2B] ring-2 ring-[#8C3B2B]/20 bg-[#FAF5EE] shadow-sm'
+                      : 'border-[#E2D2BE] bg-[#FDFBF7]'
                   }`}
                 >
-                  {/* ردیف اول: اولویت اول نام شهید + مزار در گلزار + عنوان کتاب + منشأ پیشنهاد */}
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className="px-2.5 py-1 rounded-lg bg-[#8C3B2B] text-white font-bold">
-                        شهید: {sug.martyrName}
+                  {/* خط ۱ (ثابت و یکسان در همه کارت‌ها): ۱. نام شهید (بدون تکرار شهید شهید) | ۲. عنوان کتاب در روبه‌رو | ۳. وضعیت بررسی و جزئیات */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-[#E6D5C1]/70">
+                    <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+                      <span className="px-2.5 py-1 rounded-lg bg-[#6B3E26] text-white font-bold text-xs shrink-0">
+                        {cleanMartyrTitle}
                       </span>
-                      {graveInfo && (graveInfo.gravePiece || graveInfo.graveRow || graveInfo.graveNumber) && (
-                        <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-950 border border-amber-300 font-bold text-[11px]">
-                          مزار گلزار: قطعه {toPersianDigits(graveInfo.gravePiece || '—')} · ردیف{' '}
-                          {toPersianDigits(graveInfo.graveRow || '—')} · شماره{' '}
-                          {toPersianDigits(graveInfo.graveNumber || '—')}
-                        </span>
-                      )}
-                      <span className="font-bold text-sm text-[#253247] flex items-center gap-1.5">
-                        <BookOpen className="w-4 h-4 text-[#1F4E79] shrink-0" />
+                      <span className="font-bold text-[#332218] inline-flex items-center gap-1.5">
+                        <BookOpen className="w-4 h-4 text-[#8C3B2B] shrink-0" />
                         <span>کتاب «{sug.bookTitle}»</span>
-                      </span>
-                      {sug.publisher && sug.publisher !== '—' && (
-                        <span className="text-slate-600 bg-white px-2 py-0.5 rounded-md border border-slate-200">
-                          ناشر: {sug.publisher}
-                        </span>
-                      )}
-                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md border ${originMeta.badgeClass}`}>
-                        {originMeta.label}
                       </span>
                     </div>
 
-                    <div className="text-xs font-bold flex items-center gap-2">
+                    <div className="flex items-center justify-between sm:justify-end gap-1.5 text-xs shrink-0">
                       {sug.reviewStatus === 'تأییدشده و افزوده‌شده به پرونده' ? (
-                        <span className="text-[#2E7D5B] bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 inline-flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>تأییدشده در پرونده شهید</span>
+                        <span className="text-[#2E7D5B] bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 font-bold inline-flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>تأییدشده در پرونده</span>
                         </span>
                       ) : sug.reviewStatus === 'ردشده با ثبت دلیل' ? (
-                        <span className="text-[#B94A48] bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200 inline-flex items-center gap-1">
-                          <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                        <span className="text-[#B94A48] bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200 font-bold inline-flex items-center gap-1">
+                          <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
                           <span>ردشده ({sug.reviewerNote || 'ثبت در سوابق'})</span>
                         </span>
                       ) : (
-                        <span className="text-amber-950 bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-300 inline-flex items-center gap-1">
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
-                          <span>⚠️ نیازمند بررسی کارشناس</span>
+                        <span className="text-[#6B3E26] bg-[#FAF5EE] px-2.5 py-1 rounded-lg border border-[#D8C7B2] font-bold inline-flex items-center gap-1">
+                          <AlertTriangle className="w-3.5 h-3.5 text-[#8C3B2B] shrink-0" />
+                          <span>نیازمند بررسی کارشناس</span>
                         </span>
                       )}
 
@@ -3369,7 +3386,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                             [sug.id]: !prev[sug.id]
                           }))
                         }
-                        className="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-[#FAF5EE] text-[#5C4636] border border-[#D8C7B2] text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer transition-colors"
                       >
                         <span>جزئیات</span>
                         {isExpanded ? (
@@ -3381,48 +3398,73 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     </div>
                   </div>
 
-                  {/* خلاصه تک‌خطی شواهد تشخیص ارتباط */}
-                  <div className="bg-[#EAF1F7]/70 rounded-xl px-3 py-2 text-xs text-[#253247] flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <strong className="text-[#1F4E79]">شواهد ارتباط: </strong>
-                      {sug.matchEvidence}
+                  {/* خط ۲ (مشخصات یکدست با ترتیب ثابت در همه کارت‌ها: مزار گلزار · ناشر · منشأ · شواهد) */}
+                  <div className="bg-[#FAF5EE]/90 border border-[#E6D5C1] rounded-xl px-3 py-2 text-xs text-[#332218] space-y-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="font-bold text-[#6B3E26] tabular-nums">
+                        {hasGrave
+                          ? `مزار گلزار: قطعه ${toPersianDigits(graveInfo?.gravePiece || '—')} · ردیف ${toPersianDigits(
+                              graveInfo?.graveRow || '—'
+                            )} · شماره ${toPersianDigits(graveInfo?.graveNumber || '—')}`
+                          : 'مزار گلزار: ثبت‌نشده'}
+                      </span>
+                      <span className="text-[#C5B49E]" aria-hidden="true">
+                        |
+                      </span>
+                      <span>
+                        <strong className="text-[#5C4636]">ناشر:</strong>{' '}
+                        {sug.publisher && sug.publisher !== '—' ? sug.publisher : 'ثبت‌نشده'}
+                      </span>
+                      <span className="text-[#C5B49E]" aria-hidden="true">
+                        |
+                      </span>
+                      <span>
+                        <strong className="text-[#5C4636]">منشأ:</strong> {originMeta.label}
+                      </span>
                     </div>
-                    {sug.sourceUrl && sug.sourceUrl.trim() && (
-                      <a
-                        href={
-                          sug.sourceUrl.startsWith('http')
-                            ? sug.sourceUrl
-                            : `https://${sug.sourceUrl}`
-                        }
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-2.5 py-1 rounded-lg bg-[#1F4E79] hover:bg-[#163a5b] text-white font-bold text-[11px] inline-flex items-center gap-1 shrink-0"
-                      >
-                        <Link2 className="w-3 h-3" />
-                        <span>باز کردن لینک ذخیره‌شده کتاب</span>
-                      </a>
-                    )}
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11.5px] text-[#5C4636] pt-0.5">
+                      <div>
+                        <strong className="text-[#6B3E26]">شواهد ارتباط: </strong>
+                        {sug.matchEvidence}
+                      </div>
+                      {sug.sourceUrl && sug.sourceUrl.trim() && (
+                        <a
+                          href={
+                            sug.sourceUrl.startsWith('http')
+                              ? sug.sourceUrl
+                              : `https://${sug.sourceUrl}`
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2.5 py-1 rounded-lg bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-[11px] inline-flex items-center gap-1 shrink-0"
+                        >
+                          <Link2 className="w-3 h-3" />
+                          <span>باز کردن لینک کتاب</span>
+                        </a>
+                      )}
+                    </div>
                   </div>
 
                   {/* جزئیات تکمیلی کشویی */}
                   {isExpanded && (
-                    <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2 text-xs text-[#697586]">
+                    <div className="bg-white border border-[#E2D2BE] rounded-xl p-3 space-y-2 text-xs text-[#5C4636]">
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <div>
-                          <strong className="text-[#253247]">نویسنده/پدیدآور:</strong> {sug.authors}
+                          <strong className="text-[#332218]">نویسنده/پدیدآور:</strong> {sug.authors}
                         </div>
                         <div>
-                          <strong className="text-[#253247]">منبع پیشنهاد:</strong> {sug.sourceName}
+                          <strong className="text-[#332218]">منبع پیشنهاد:</strong> {sug.sourceName}
                         </div>
                         <div>
-                          <strong className="text-[#253247]">شابک / فیپا:</strong> {sug.isbn} · فیپا: {sug.fipa}
+                          <strong className="text-[#332218]">شابک / فیپا:</strong> {sug.isbn} · فیپا: {sug.fipa}
                         </div>
                       </div>
-                      <p className="text-[#253247] leading-relaxed">
+                      <p className="text-[#332218] leading-relaxed">
                         <strong>توضیحات ({sug.subjectCategory}):</strong> {sug.publisherDescription}
                       </p>
                       {sug.sourceUrl && (
-                        <div className="text-[11px] text-[#1F4E79] break-all" dir="ltr">
+                        <div className="text-[11px] text-[#6B3E26] break-all" dir="ltr">
                           URL: {sug.sourceUrl}
                         </div>
                       )}
@@ -3436,9 +3478,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                   {editingId === sug.id && editDraft && (
                     <form
                       onSubmit={handleSaveEditDraft}
-                      className="bg-white border border-[#1F4E79] rounded-xl p-3.5 space-y-3"
+                      className="bg-white border border-[#6B3E26] rounded-xl p-3.5 space-y-3"
                     >
-                      <div className="text-xs font-bold text-[#1F4E79]">
+                      <div className="text-xs font-bold text-[#6B3E26]">
                         اصلاح مشخصات کتاب پیشنهادی پیش از تأیید نهایی:
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
@@ -3450,7 +3492,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                             onChange={(e) =>
                               setEditDraft({ ...editDraft, bookTitle: e.target.value })
                             }
-                            className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
+                            className="w-full px-2.5 py-1.5 border border-[#D8C7B2] rounded-lg"
                           />
                         </div>
                         <div>
@@ -3461,7 +3503,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                             onChange={(e) =>
                               setEditDraft({ ...editDraft, publisher: e.target.value })
                             }
-                            className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
+                            className="w-full px-2.5 py-1.5 border border-[#D8C7B2] rounded-lg"
                           />
                         </div>
                         <div>
@@ -3472,7 +3514,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                             onChange={(e) =>
                               setEditDraft({ ...editDraft, authors: e.target.value })
                             }
-                            className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
+                            className="w-full px-2.5 py-1.5 border border-[#D8C7B2] rounded-lg"
                           />
                         </div>
                         <div>
@@ -3485,7 +3527,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                               setEditDraft({ ...editDraft, sourceUrl: e.target.value })
                             }
                             placeholder="https://..."
-                            className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg font-mono text-left"
+                            className="w-full px-2.5 py-1.5 border border-[#D8C7B2] rounded-lg font-mono text-left"
                           />
                         </div>
                       </div>
@@ -3496,13 +3538,13 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                             setEditingId(null);
                             setEditDraft(null);
                           }}
-                          className="px-3 py-1.5 rounded-lg bg-slate-100 text-xs cursor-pointer"
+                          className="px-3 py-1.5 rounded-lg bg-[#FAF5EE] border border-[#D8C7B2] text-xs cursor-pointer"
                         >
                           انصراف
                         </button>
                         <button
                           type="submit"
-                          className="px-4 py-1.5 rounded-lg bg-[#1F4E79] text-white text-xs font-bold cursor-pointer"
+                          className="px-4 py-1.5 rounded-lg bg-[#6B3E26] text-white text-xs font-bold cursor-pointer"
                         >
                           ذخیره اصلاحات
                         </button>
@@ -3511,7 +3553,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                   )}
 
                   {rejectingId === sug.id && (
-                    <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                       <input
                         type="text"
                         value={rejectReason}
@@ -3523,7 +3565,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                           }
                         }}
                         placeholder="علت رد پیشنهاد را بنویسید و Enter بزنید (مثلاً: تشابه اسمی با شهید دیگر)..."
-                        className="flex-1 px-3 py-2 text-xs bg-white border border-red-300 rounded-lg"
+                        className="flex-1 px-3 py-2 text-xs bg-white border border-rose-300 rounded-lg"
                       />
                       <div className="flex items-center gap-2">
                         <button
@@ -3539,7 +3581,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                             setRejectingId(null);
                             setRejectReason('');
                           }}
-                          className="px-3 py-2 rounded-lg bg-white text-xs cursor-pointer"
+                          className="px-3 py-2 rounded-lg bg-white border border-rose-200 text-xs cursor-pointer"
                         >
                           لغو
                         </button>
@@ -3547,9 +3589,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     </div>
                   )}
 
-                  {/* نوار دکمه‌های عملیاتی کارشناس */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-200/70">
-                    <div className="flex flex-wrap items-center gap-1.5">
+                  {/* خط ۳ (نوار دکمه‌های عملیاتی کارشناس — هم‌اندازه، متناسب و با پالت استاندارد: سبز=تأیید، قرمز=رد، قرمز ملایم=حذف، کرم/قهوه‌ای=سایر) */}
+                  <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center justify-between gap-1.5 pt-1">
+                    <div className="col-span-2 sm:col-span-1 grid grid-cols-2 sm:flex items-center gap-1.5">
                       {sug.matchedCatalogBookId && (
                         <button
                           type="button"
@@ -3563,33 +3605,35 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                               onNotify(`کتاب با شناسه ${sug.matchedCatalogBookId} در فهرست موجود است.`);
                             }
                           }}
-                          className="text-xs font-bold text-[#1F4E79] hover:bg-blue-100/80 bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-200 flex items-center gap-1.5 cursor-pointer transition-colors"
+                          className="min-h-[34px] px-2.5 py-1 rounded-xl bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#5C4636] border border-[#D8C7B2] text-xs font-bold inline-flex items-center justify-center gap-1 cursor-pointer transition-colors"
                         >
-                          <BookOpen className="w-3.5 h-3.5 text-[#1F4E79]" />
-                          <span>شناسنامه در مخزن ({sug.matchedCatalogBookId})</span>
+                          <BookOpen className="w-3.5 h-3.5 text-[#6B3E26] shrink-0" />
+                          <span className="truncate">شناسنامه ({sug.matchedCatalogBookId})</span>
                         </button>
                       )}
                       <a
                         href={`https://www.google.com/search?q=${encodeURIComponent(
-                          'کتاب "' + sug.bookTitle + '" "' + sug.martyrName + '"'
+                          'کتاب "' + sug.bookTitle + '" "' + cleanMartyrTitle + '"'
                         )}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs font-semibold text-emerald-800 hover:bg-emerald-100/80 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1 transition-colors"
+                        className={`min-h-[34px] px-2.5 py-1 rounded-xl bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#5C4636] border border-[#D8C7B2] text-xs font-bold inline-flex items-center justify-center gap-1 transition-colors ${
+                          !sug.matchedCatalogBookId ? 'col-span-2' : ''
+                        }`}
                       >
-                        <ExternalLink className="w-3 h-3 text-emerald-700" />
-                        <span>استعلام در گوگل</span>
+                        <ExternalLink className="w-3 h-3 text-[#6B3E26] shrink-0" />
+                        <span className="truncate">استعلام در گوگل</span>
                       </a>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-1.5">
+                    <div className="col-span-2 sm:col-span-1 grid grid-cols-2 sm:flex items-center gap-1.5">
                       {onDeleteSuggestion && (
                         <button
                           type="button"
                           onClick={() => {
                             requestActionConfirmation({
                               title: 'تأیید نهایی حذف پیشنهاد از صف بررسی',
-                              message: `آیا از حذف دائمی پیشنهاد کتاب «${sug.bookTitle}» مرتبط با «${sug.martyrName}» (${sug.id}) از صف بررسی اطمینان دارید؟`,
+                              message: `آیا از حذف دائمی پیشنهاد کتاب «${sug.bookTitle}» مرتبط با «${cleanMartyrTitle}» (${sug.id}) از صف بررسی اطمینان دارید؟`,
                               confirmLabel: 'بله، از صف حذف شود',
                               variant: 'delete',
                               onConfirm: () => {
@@ -3598,9 +3642,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                               }
                             });
                           }}
-                          className="min-h-[34px] px-2.5 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                          className="min-h-[34px] px-2.5 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold inline-flex items-center justify-center gap-1 cursor-pointer transition-colors"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3.5 h-3.5 shrink-0" />
                           <span>حذف</span>
                         </button>
                       )}
@@ -3611,14 +3655,14 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                           setEditingId(sug.id);
                           setEditDraft(sug);
                         }}
-                        className="min-h-[34px] px-2.5 py-1 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-[#253247] text-xs font-medium flex items-center gap-1 cursor-pointer transition-colors"
+                        className="min-h-[34px] px-2.5 py-1 rounded-xl bg-white hover:bg-[#FAF5EE] text-[#332218] border border-[#D8C7B2] text-xs font-bold inline-flex items-center justify-center gap-1 cursor-pointer transition-colors"
                       >
-                        <Edit3 className="w-3.5 h-3.5" />
+                        <Edit3 className="w-3.5 h-3.5 text-[#6B3E26] shrink-0" />
                         <span>ویرایش / لینک</span>
                       </button>
 
                       {sug.reviewStatus === 'تأییدشده و افزوده‌شده به پرونده' ? (
-                        <div className="min-h-[34px] px-3 py-1 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-bold flex items-center gap-1 border border-emerald-300">
+                        <div className="col-span-2 min-h-[34px] px-3 py-1 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-bold inline-flex items-center justify-center gap-1 border border-emerald-300">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
                           <span>تأییدشده در پرونده</span>
                         </div>
@@ -3633,9 +3677,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                             });
                             onNotify(`پیشنهاد ${sug.id} مجدداً جهت بررسی به صف بازگردانده شد.`);
                           }}
-                          className="min-h-[34px] px-2.5 py-1 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                          className="col-span-2 min-h-[34px] px-2.5 py-1 rounded-xl bg-[#FAF5EE] border border-[#D8C7B2] hover:bg-[#F3E9DC] text-[#332218] text-xs font-bold inline-flex items-center justify-center gap-1 cursor-pointer transition-colors"
                         >
-                          <RotateCcw className="w-3.5 h-3.5 text-[#1F4E79]" />
+                          <RotateCcw className="w-3.5 h-3.5 text-[#6B3E26] shrink-0" />
                           <span>بررسی مجدد</span>
                         </button>
                       ) : (
@@ -3643,19 +3687,19 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                           <button
                             type="button"
                             onClick={() => handleApproveItem(sug)}
-                            className="min-h-[34px] px-3 py-1 rounded-xl bg-[#2E7D5B] hover:bg-[#246348] text-white text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                            className="min-h-[34px] px-3 py-1 rounded-xl bg-[#2E7D5B] hover:bg-[#246348] text-white text-xs font-bold inline-flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
                           >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>تأیید و ثبت در پرونده شهید</span>
+                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">تأیید و ثبت</span>
                           </button>
 
                           <button
                             type="button"
                             onClick={() => setRejectingId(sug.id)}
-                            className="min-h-[34px] px-2.5 py-1 rounded-xl bg-[#B94A48] hover:bg-[#993b39] text-white text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                            className="min-h-[34px] px-2.5 py-1 rounded-xl bg-[#B94A48] hover:bg-[#993b39] text-white text-xs font-bold inline-flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
                           >
-                            <XCircle className="w-3.5 h-3.5" />
-                            <span>رد با دلیل</span>
+                            <XCircle className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">رد با دلیل</span>
                           </button>
                         </>
                       )}
