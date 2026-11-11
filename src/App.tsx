@@ -83,7 +83,12 @@ import {
   saveOperationalData,
   saveOperationalDataBatchAtomic
 } from './utils/indexedDbStorage';
-import { generateUniqueLogId } from './utils/idGenerator';
+import {
+   generateUniqueLinkId,
+  generateUniqueLogId,
+  generateUniqueMartyrId,
+  generateUniqueSuggestionId
+} from './utils/idGenerator';
 import {
   createFullSystemBackupEnvelope,
   FullOperationalState,
@@ -93,6 +98,12 @@ import {
   buildSorehMehrExtractedItems,
   enrichLinksWithSorehMehrResearch
 } from './data/soorehMehrResearch';
+import {
+  getAllUnifiedBooks,
+  getCachedGolzarMartyrsSync,
+  loadCachedGolzarMartyrs,
+  matchSingleBookAgainstMartyrs
+} from './utils/martyrsCrossMatchEngine';
 import {
   APPLIED_PACKAGES_KEY,
   applyCommittedSyncMetadataToCache,
@@ -223,6 +234,11 @@ export default function App() {
 
   const isOnline = useOnlineStatus();
   const { isInstallable, install: promptInstall } = usePWAInstall();
+
+  // بارگذاری پیش‌زمینه بانک ۲۸٬۳۶۸ شهید گلزار برای مقابله فوری و دوطرفه کتاب و شهید
+  useEffect(() => {
+    void loadCachedGolzarMartyrs();
+  }, []);
 
   // Reference Catalog State (All 5 Sheets from فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx)
   const [loadedFileName, setLoadedFileName] = useState<string>(
@@ -1074,8 +1090,48 @@ export default function App() {
   };
 
   const handleSaveAuditRecord = (record: FieldAuditRecord) => {
+    // مقابله خودکار کتاب ثبت‌شده/ویرایش‌شده با بانک ۲۸٬۳۶۸ شهید گلزار، کارپوشه و پرونده‌های ثبتی
+    const golzarList = getCachedGolzarMartyrsSync();
+    const autoMatches = matchSingleBookAgainstMartyrs(
+      {
+        tempBookId: record.tempBookId || record.key,
+        title: record.title,
+        description: record.descriptionRaw,
+        notes: record.notes,
+        author: record.author,
+        publisher: record.publisher,
+        category: record.category,
+        location: record.location
+      },
+      golzarList,
+      customMartyrs,
+      workbookMartyrs
+    );
+
+    const unverifiedMatches = autoMatches.filter((m) => {
+      const normM = normalizePersianText(m.martyrName.replace(/^شهید\s+/, ''));
+      const normB = normalizePersianText(record.title);
+      const alreadyLinked = links.some(
+        (l) =>
+          normalizePersianText(l.martyrNameRaw.replace(/^شهید\s+/, '')).includes(normM) &&
+          (l.tempBookId === record.tempBookId || normalizePersianText(l.bookTitleRaw).includes(normB))
+      );
+      return !alreadyLinked;
+    });
+
+    const hasNewSimilarity = unverifiedMatches.length > 0;
+    const autoReviewNote =
+      hasNewSimilarity && !record.notes.includes('تشابه نام شهید')
+        ? `${record.notes ? `${record.notes} | ` : ''}⚠️ نیازمند بررسی: تشابه نام با ${unverifiedMatches
+            .slice(0, 3)
+            .map((m) => m.martyrName)
+            .join('، ')}`
+        : record.notes;
+
     const withActor: FieldAuditRecord & { _updatedAt?: number } = {
       ...record,
+      needsReview: record.needsReview || hasNewSimilarity,
+      notes: autoReviewNote,
       checkedBy: getRoleDisplayName(activeUserRole),
       _updatedAt: Date.now()
     };
@@ -1083,6 +1139,77 @@ export default function App() {
       ...prev,
       [record.key]: withActor
     }));
+
+    if (hasNewSimilarity) {
+      const nowFa = new Intl.DateTimeFormat('fa-IR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(new Date());
+
+      setSmartSuggestions((prev) => {
+        const next = [...prev];
+        const localTracker: { id: string }[] = [...next];
+        const localMartyrTracker: { id: string }[] = [
+          ...customMartyrs.map((cm) => ({ id: cm.martyrId })),
+          ...next.map((s) => ({ id: s.martyrId }))
+        ];
+
+        for (const m of unverifiedMatches) {
+          const normM = normalizePersianText(m.martyrName.replace(/^شهید\s+/, ''));
+          const normB = normalizePersianText(record.title);
+          const existsInSug = next.some(
+            (s) =>
+              normalizePersianText(s.martyrName.replace(/^شهید\s+/, '')).includes(normM) &&
+              (s.matchedCatalogBookId === record.tempBookId ||
+                normalizePersianText(s.bookTitle).includes(normB))
+          );
+          if (existsInSug) continue;
+
+          const newId = generateUniqueSuggestionId(localTracker);
+          localTracker.push({ id: newId });
+          const mId = m.martyrId || generateUniqueMartyrId(localMartyrTracker);
+          localMartyrTracker.push({ id: mId });
+
+          next.unshift({
+            id: newId,
+            martyrId: mId,
+            martyrName: m.martyrName,
+            martyrAlternativeNames: [m.martyrName.replace(/^شهید\s+/, '')],
+            bookTitle: record.title,
+            authors: record.author || '—',
+            publisher: record.publisher || '—',
+            publishYear: record.year || '',
+            editionInfo: `قفسه ${record.location || 'کتابخانه'}`,
+            isbn: '—',
+            fipa: '—',
+            subjectCategory: record.category || SUBJECT_CATEGORIES[0].label,
+            publisherDescription:
+              record.descriptionRaw ||
+              record.notes ||
+              `کتاب ثبت‌شده در کتابخانه دارای تشابه با نام «${m.martyrName}»`,
+            sourcePriority: 1,
+            sourceName: 'مقابله خودکار دوطرفه کتابخانه و بانک ۲۸٬۳۶۸ شهید',
+            sourceUrl: '',
+            retrievedAt: nowFa,
+            matchEvidence: m.evidenceText,
+            catalogComparisonStatus:
+              record.source === 'outside-list'
+                ? 'کتاب جدید (خارج از فهرست فعلی کتابخانه)'
+                : 'موجود در فهرست مرجع ۹۸۰ کتاب',
+            matchedCatalogBookId: record.tempBookId,
+            reviewStatus: 'در صف بررسی کارشناس',
+            reviewerNote: 'تشخیص خودکار هنگام ثبت/ویرایش کتاب — نیازمند بررسی کارشناس',
+            reviewedBy: '',
+            reviewedAt: ''
+          });
+        }
+        return next;
+      });
+    }
+
     setSessionEditsCount((prev) => prev + 1);
     const nowFaTime = new Intl.DateTimeFormat('fa-IR', {
       hour: '2-digit',
@@ -1886,6 +2013,83 @@ export default function App() {
                 newMartyr.martyrId,
                 `ثبت پرونده شهید «${newMartyr.fullName}» در پایگاه book (قطعه: ${newMartyr.gravePiece || '—'}، ردیف: ${newMartyr.graveRow || '—'}، قبر: ${newMartyr.graveNumber || '—'})`
               );
+
+              // مقابله خودکار شهید جدید با تمام کتاب‌های موجود در کتابخانه (۹۸۰ کتاب مرجع + کتاب‌های خارج از فهرست)
+              const normMartyr = normalizePersianText(newMartyr.fullName.replace(/^شهید\s+/, ''));
+              if (normMartyr.length >= 4) {
+                const allBooks = getAllUnifiedBooks(catalogRows, auditRecords);
+                const matchedBooks = allBooks.filter((b) =>
+                  normalizePersianText(`${b.titleRaw} ${b.descriptionRaw} ${b.authorRaw} ${b.noteRaw}`).includes(
+                    normMartyr
+                  )
+                );
+                if (matchedBooks.length > 0) {
+                  const nowFa = new Intl.DateTimeFormat('fa-IR', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  }).format(new Date());
+
+                  setSmartSuggestions((prev) => {
+                    const next = [...prev];
+                    const localTracker: { id: string }[] = [...next];
+                    for (const mb of matchedBooks) {
+                      const alreadyInQueue = next.some(
+                        (s) =>
+                          normalizePersianText(s.martyrName.replace(/^شهید\s+/, '')).includes(normMartyr) &&
+                          (s.matchedCatalogBookId === mb.tempBookId ||
+                            normalizePersianText(s.bookTitle) === normalizePersianText(mb.titleRaw))
+                      );
+                      if (alreadyInQueue) continue;
+                      const sugId = generateUniqueSuggestionId(localTracker);
+                      localTracker.push({ id: sugId });
+                      const inTitle = normalizePersianText(mb.titleRaw).includes(normMartyr);
+                      next.unshift({
+                        id: sugId,
+                        martyrId: newMartyr.martyrId,
+                        martyrName: newMartyr.fullName.startsWith('شهید')
+                          ? newMartyr.fullName
+                          : `شهید ${newMartyr.fullName}`,
+                        martyrAlternativeNames: newMartyr.alternativeNames || [newMartyr.fullName],
+                        bookTitle: mb.titleRaw,
+                        authors: mb.authorRaw || '—',
+                        publisher: mb.publisherRaw || '—',
+                        publishYear: '',
+                        editionInfo: `قفسه ${mb.locationRaw || 'کتابخانه'}`,
+                        isbn: mb.isbnRaw || '—',
+                        fipa: mb.fipaRaw || '—',
+                        subjectCategory: mb.categoryRaw || SUBJECT_CATEGORIES[0].label,
+                        publisherDescription:
+                          mb.descriptionRaw || `کتاب موجود در کتابخانه دارای تشابه با نام شهید «${newMartyr.fullName}»`,
+                        sourcePriority: 1,
+                        sourceName: 'مقابله خودکار پرونده شهید جدید با مخزن کتابخانه',
+                        sourceUrl: '',
+                        retrievedAt: nowFa,
+                        matchEvidence: `${
+                          inTitle ? '[تطبیق دقیق — نیازمند بررسی]' : '[تطبیق احتمالی — نیازمند بررسی]'
+                        } شناسایی خودکار تشابه نام شهید «${newMartyr.fullName}» با کتاب «${mb.titleRaw}» (${
+                          mb.tempBookId
+                        }) بلافاصله پس از ثبت شهید.`,
+                        catalogComparisonStatus: 'موجود در فهرست مرجع ۹۸۰ کتاب',
+                        matchedCatalogBookId: mb.tempBookId,
+                        reviewStatus: 'در صف بررسی کارشناس',
+                        reviewerNote: 'نیازمند بررسی کارشناس (مقابله خودکار هنگام ثبت شهید)',
+                        reviewedBy: '',
+                        reviewedAt: ''
+                      });
+                    }
+                    return next;
+                  });
+
+                  showNotify(
+                    `⚠️ مقابله خودکار انجام شد: برای شهید «${newMartyr.fullName}» تعداد ${toPersianDigits(
+                      matchedBooks.length
+                    )} کتاب مرتبط در کتابخانه یافت شد و با علامت «نیازمند بررسی» به صف بررسی کارشناس اضافه گردید.`
+                  );
+                }
+              }
             }}
             onUpdateCustomMartyr={(updated) => {
               setCustomMartyrs((prev) =>
@@ -1994,6 +2198,7 @@ export default function App() {
         {activeTab === 'smart_search' && (
           <SmartBookSearchTab
             catalogRows={catalogRows}
+            auditRecords={auditRecords}
             workbookMartyrs={workbookMartyrs}
             customMartyrs={customMartyrs}
             smartSuggestions={smartSuggestions}
@@ -2001,6 +2206,7 @@ export default function App() {
             links={links}
             extractedItems={extractedItems}
             initialMartyrQuery={preselectedSmartMartyrName}
+            onNavigateTab={(tab) => setActiveTab(tab)}
             onAddSuggestion={(newSug: SmartSearchSuggestion) => {
               setSmartSuggestions((prev) => [newSug, ...prev]);
               markSessionModification();
