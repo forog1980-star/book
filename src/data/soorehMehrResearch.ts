@@ -711,9 +711,11 @@ export function buildUnifiedBookDossiers(params: {
   });
 
   const catalogById = new Map<string, ReferenceCatalogRow>();
+  const catalogByRowKey = new Map<string, ReferenceCatalogRow>();
   const catalogByCompactTitle = new Map<string, ReferenceCatalogRow>();
   for (const row of catalogRows) {
     if (row.tempBookId) catalogById.set(row.tempBookId, row);
+    if (row.rowKey) catalogByRowKey.set(row.rowKey, row);
     const ct = compactPersianForMatch(row.titleRaw);
     if (ct && !catalogByCompactTitle.has(ct)) {
       catalogByCompactTitle.set(ct, row);
@@ -734,6 +736,22 @@ export function buildUnifiedBookDossiers(params: {
     const arr = copiesByBookId.get(cp.bookId) || [];
     arr.push(cp);
     copiesByBookId.set(cp.bookId, arr);
+  }
+
+  const extractsByBookId = new Map<string, ExtractedContentItem[]>();
+  const extractsByCompactTitle = new Map<string, ExtractedContentItem[]>();
+  for (const ex of extractedItems) {
+    if (ex.tempBookId) {
+      const arr = extractsByBookId.get(ex.tempBookId) || [];
+      arr.push(ex);
+      extractsByBookId.set(ex.tempBookId, arr);
+    }
+    const ct = compactPersianForMatch(ex.bookTitleRaw);
+    if (ct) {
+      const arr = extractsByCompactTitle.get(ct) || [];
+      arr.push(ex);
+      extractsByCompactTitle.set(ct, arr);
+    }
   }
 
   // گام ۱: تجمیع پیوندهای معتبر بر اساس عنوان یکتای کتاب (بدون ساخت رکورد تکراری برای کتاب‌های چندشهیدی)
@@ -829,7 +847,7 @@ export function buildUnifiedBookDossiers(params: {
   for (const aud of Object.values(auditRecords)) {
     const catRow =
       (aud.tempBookId ? catalogById.get(aud.tempBookId) : undefined) ||
-      catalogRows.find((r) => r.rowKey === aud.key);
+      catalogByRowKey.get(aud.key);
     const standardKey = getBookGroupKey(
       aud.tempBookId || catRow?.tempBookId || aud.key,
       catRow?.titleRaw || aud.title || ''
@@ -976,11 +994,14 @@ export function buildUnifiedBookDossiers(params: {
     const tehranMartyrsCount = martyrRelations.filter((r) => r.isTehranMartyr).length;
     const hasTehranMartyr = tehranMartyrsCount > 0;
 
-    const relatedExtracts = extractedItems.filter(
-      (ex) =>
-        (ex.tempBookId && ex.tempBookId === grp.primaryBookId) ||
-        compactPersianForMatch(ex.bookTitleRaw) === compactPersianForMatch(grp.title)
-    );
+    const byIdExtracts = grp.primaryBookId ? extractsByBookId.get(grp.primaryBookId) || [] : [];
+    const byTitleExtracts = extractsByCompactTitle.get(compactPersianForMatch(grp.title)) || [];
+    const relatedExtracts =
+      byIdExtracts.length === 0
+        ? byTitleExtracts
+        : byTitleExtracts.length === 0
+        ? byIdExtracts
+        : Array.from(new Set([...byIdExtracts, ...byTitleExtracts]));
 
     const rawCells: Array<{ label: string; value: string }> = [];
     if (catRow) {

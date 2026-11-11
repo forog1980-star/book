@@ -313,6 +313,14 @@ interface AllMartyrsDatabaseTabProps {
   onNotify: (msg: string, type?: 'success' | 'warning') => void;
 }
 
+interface CachedAllMartyrsPayload {
+  records: AllMartyrRecord[];
+  counts: { golzar: number; outside: number; total: number; pureMartyrs: number };
+}
+
+let cachedAllMartyrsDatabasePayload: CachedAllMartyrsPayload | null = null;
+let allMartyrsDatabasePromise: Promise<CachedAllMartyrsPayload> | null = null;
+
 export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
   catalogRows,
   links = [],
@@ -326,10 +334,20 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
   onLinkMartyrToBook,
   onNotify
 }) => {
-  const [records, setRecords] = useState<AllMartyrRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [records, setRecords] = useState<AllMartyrRecord[]>(
+    () => cachedAllMartyrsDatabasePayload?.records || []
+  );
+  const [loading, setLoading] = useState(() => !cachedAllMartyrsDatabasePayload);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [counts, setCounts] = useState({ golzar: 0, outside: 0, total: 0, pureMartyrs: 0 });
+  const [counts, setCounts] = useState(
+    () =>
+      cachedAllMartyrsDatabasePayload?.counts || {
+        golzar: 0,
+        outside: 0,
+        total: 0,
+        pureMartyrs: 0
+      }
+  );
 
   // زمینه انتقال مستقیم از پرونده اختصاصی شهید (برای جست‌وجوی خودکار و بازگشت مرحله‌به‌مرحله)
   const [activeCrossTabTarget, setActiveCrossTabTarget] = useState<MartyrsCrossTabTarget | null>(
@@ -376,98 +394,131 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
   const [linkPageRef, setLinkPageRef] = useState('');
   const [linkNote, setLinkNote] = useState('');
 
-  // Load 28,368 records from /data/golzar_martyrs.xlsx on mount
+  // Load 28,368 records from /data/golzar_martyrs.xlsx on mount (with module-level cache & chunked non-blocking parsing)
   useEffect(() => {
+    if (cachedAllMartyrsDatabasePayload) {
+      setRecords(cachedAllMartyrsDatabasePayload.records);
+      setCounts(cachedAllMartyrsDatabasePayload.counts);
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
     async function loadAllMartyrs() {
       try {
         setLoading(true);
-        const res = await fetch('./data/golzar_martyrs.xlsx');
-        if (!res.ok) throw new Error(`خطا در دریافت بانک شهدا (${res.status})`);
-        const buf = await res.arrayBuffer();
-        const wb = XLSX.read(buf, { type: 'array', cellDates: false });
+        if (!allMartyrsDatabasePromise) {
+          allMartyrsDatabasePromise = (async () => {
+            const res = await fetch('./data/golzar_martyrs.xlsx');
+            if (!res.ok) throw new Error(`خطا در دریافت بانک شهدا (${res.status})`);
+            const buf = await res.arrayBuffer();
+            await new Promise((r) => setTimeout(r, 0));
+            const wb = XLSX.read(buf, { type: 'array', cellDates: false });
 
-        const golzarRows = wb.Sheets['golzar_martyrs']
-          ? XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets['golzar_martyrs'], {
-              defval: ''
-            })
-          : [];
-        const outsideRows = wb.Sheets['outside_golzar_martyrs']
-          ? XLSX.utils.sheet_to_json<Record<string, unknown>>(
-              wb.Sheets['outside_golzar_martyrs'],
-              { defval: '' }
-            )
-          : [];
+            await new Promise((r) => setTimeout(r, 0));
+            const golzarRows = wb.Sheets['golzar_martyrs']
+              ? XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets['golzar_martyrs'], {
+                  defval: ''
+                })
+              : [];
+            await new Promise((r) => setTimeout(r, 0));
+            const outsideRows = wb.Sheets['outside_golzar_martyrs']
+              ? XLSX.utils.sheet_to_json<Record<string, unknown>>(
+                  wb.Sheets['outside_golzar_martyrs'],
+                  { defval: '' }
+                )
+              : [];
 
-        const all: AllMartyrRecord[] = [];
-        let pureMartyrs = 0;
+            const all: AllMartyrRecord[] = [];
+            let pureMartyrs = 0;
+            const CHUNK_SIZE = 3500;
 
-        golzarRows.forEach((r, i) => {
-          const rec = buildRecord(
-            {
-              first_name: r['نام'],
-              last_name: r['نام خانوادگی'],
-              father_name: r['نام پدر'],
-              gender: r['جنسیت'],
-              birth_day: r['روز ولادت'],
-              birth_month: r['ماه ولادت'],
-              birth_year: r['سال ولادت'],
-              death_day: r['روز شهادت'],
-              death_month: r['ماه شهادت'],
-              death_year: r['سال شهادت'],
-              age: r['سن'],
-              martyrdom_operation: r['عملیات'],
-              martyrdom_category: r['دسته بندی شهادت'],
-              martyrdom_location: r['منطقه شهادت'],
-              grave_piece: r['قطعه مزار'],
-              grave_row: r['ردیف مزار'],
-              grave_number: r['شماره مزار'],
-              description: ''
-            },
-            'golzar',
-            i + 2
-          );
-          if (rec.record_type !== 'non_martyr') pureMartyrs++;
-          all.push(rec);
-        });
+            for (let i = 0; i < golzarRows.length; i++) {
+              if (i > 0 && i % CHUNK_SIZE === 0) {
+                await new Promise((r) => setTimeout(r, 0));
+              }
+              const r = golzarRows[i];
+              const rec = buildRecord(
+                {
+                  first_name: r['نام'],
+                  last_name: r['نام خانوادگی'],
+                  father_name: r['نام پدر'],
+                  gender: r['جنسیت'],
+                  birth_day: r['روز ولادت'],
+                  birth_month: r['ماه ولادت'],
+                  birth_year: r['سال ولادت'],
+                  death_day: r['روز شهادت'],
+                  death_month: r['ماه شهادت'],
+                  death_year: r['سال شهادت'],
+                  age: r['سن'],
+                  martyrdom_operation: r['عملیات'],
+                  martyrdom_category: r['دسته بندی شهادت'],
+                  martyrdom_location: r['منطقه شهادت'],
+                  grave_piece: r['قطعه مزار'],
+                  grave_row: r['ردیف مزار'],
+                  grave_number: r['شماره مزار'],
+                  description: ''
+                },
+                'golzar',
+                i + 2
+              );
+              if (rec.record_type !== 'non_martyr') pureMartyrs++;
+              all.push(rec);
+            }
 
-        outsideRows.forEach((r, i) => {
-          const rec = buildRecord(
-            {
-              first_name: r['نام'],
-              last_name: r['نام خانوادگی'],
-              father_name: r['نام پدر'],
-              gender: '',
-              birth_day: r['روز تولد'],
-              birth_month: r['ماه تولد'],
-              birth_year: r['سال تولد'],
-              death_day: r['روز شهادت'],
-              death_month: r['ماه شهادت'],
-              death_year: r['سال شهادت'],
-              age: '',
-              martyrdom_operation: '',
-              martyrdom_category: r['دسته بندی شهادت'],
-              martyrdom_location: r['محل شهادت'],
-              grave_piece: r['قطعه مزار'],
-              grave_row: r['ردیف مزار'],
-              grave_number: r['شماره مزار'],
-              description: r['توضیحات']
-            },
-            'outside',
-            i + 2
-          );
-          if (rec.record_type !== 'non_martyr') pureMartyrs++;
-          all.push(rec);
-        });
+            for (let i = 0; i < outsideRows.length; i++) {
+              if (i > 0 && i % CHUNK_SIZE === 0) {
+                await new Promise((r) => setTimeout(r, 0));
+              }
+              const r = outsideRows[i];
+              const rec = buildRecord(
+                {
+                  first_name: r['نام'],
+                  last_name: r['نام خانوادگی'],
+                  father_name: r['نام پدر'],
+                  gender: '',
+                  birth_day: r['روز تولد'],
+                  birth_month: r['ماه تولد'],
+                  birth_year: r['سال تولد'],
+                  death_day: r['روز شهادت'],
+                  death_month: r['ماه شهادت'],
+                  death_year: r['سال شهادت'],
+                  age: '',
+                  martyrdom_operation: '',
+                  martyrdom_category: r['دسته بندی شهادت'],
+                  martyrdom_location: r['محل شهادت'],
+                  grave_piece: r['قطعه مزار'],
+                  grave_row: r['ردیف مزار'],
+                  grave_number: r['شماره مزار'],
+                  description: r['توضیحات']
+                },
+                'outside',
+                i + 2
+              );
+              if (rec.record_type !== 'non_martyr') pureMartyrs++;
+              all.push(rec);
+            }
 
-        if (!cancelled) {
-          setRecords(all);
-          setCounts({
-            golzar: golzarRows.length,
-            outside: outsideRows.length,
-            total: all.length,
-            pureMartyrs
+            const payload: CachedAllMartyrsPayload = {
+              records: all,
+              counts: {
+                golzar: golzarRows.length,
+                outside: outsideRows.length,
+                total: all.length,
+                pureMartyrs
+              }
+            };
+            cachedAllMartyrsDatabasePayload = payload;
+            return payload;
+          })().finally(() => {
+            allMartyrsDatabasePromise = null;
           });
+        }
+
+        const payload = await allMartyrsDatabasePromise;
+        if (!cancelled) {
+          setRecords(payload.records);
+          setCounts(payload.counts);
           setActiveResults([]);
           setHasSearched(false);
           setLoading(false);
@@ -479,7 +530,7 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
         }
       }
     }
-    loadAllMartyrs();
+    void loadAllMartyrs();
     return () => {
       cancelled = true;
     };

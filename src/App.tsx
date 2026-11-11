@@ -240,13 +240,18 @@ export default function App() {
 
   const [golzarIndexVersion, setGolzarIndexVersion] = useState<number>(0);
 
-  // بارگذاری پیش‌زمینه بانک ۲۸٬۳۶۸ شهید گلزار برای مقابله فوری و دوطرفه کتاب و شهید و نمایه‌سازی شهدای تهرانی
+  // بارگذاری پس‌زمینه بانک ۲۸٬۳۶۸ شهید گلزار با تأخیر هوشمند پس از رندر اولیه تا شروع برنامه بدون کوچک‌ترین مکث انجام شود
   useEffect(() => {
-    void loadCachedGolzarMartyrs();
+    const timer = window.setTimeout(() => {
+      void loadCachedGolzarMartyrs();
+    }, 1200);
     const unsub = subscribeToGolzarMartyrsLoaded(() => {
       setGolzarIndexVersion((v) => v + 1);
     });
-    return unsub;
+    return () => {
+      window.clearTimeout(timer);
+      unsub();
+    };
   }, []);
 
   // Reference Catalog State (All 5 Sheets from فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx)
@@ -885,8 +890,23 @@ export default function App() {
     ]);
   };
 
+  const hydratedBaselineRefs = React.useRef<Record<string, unknown>>({});
+
   const persistWithStatus = async <T,>(key: string, value: T) => {
     if (!isStorageHydrated) return;
+    if (!(key in hydratedBaselineRefs.current)) {
+      hydratedBaselineRefs.current[key] = value;
+      try {
+        if (localStorage.getItem(key) !== null) {
+          return;
+        }
+      } catch {
+        return;
+      }
+    } else if (hydratedBaselineRefs.current[key] === value) {
+      return;
+    }
+    hydratedBaselineRefs.current[key] = value;
     setStorageStatus('saving');
     const res = await saveOperationalData(key, value);
     if (!res.ok) {
@@ -1159,21 +1179,56 @@ export default function App() {
     return true;
   };
 
-  const getFullOperationalState = (): FullOperationalState => ({
-    auditRecords,
-    bookCopies,
-    customMartyrs,
-    smartSuggestions,
-    links,
-    pendingReviews,
-    multiMartyrGroups,
-    extractedItems,
-    auditLog,
-    userSettings: {
-      activeRole: activeUserRole
-    },
-    rejectedSuggestionsArchive
-  });
+  const fullOperationalState = React.useMemo<FullOperationalState>(
+    () => ({
+      auditRecords,
+      bookCopies,
+      customMartyrs,
+      smartSuggestions,
+      links,
+      pendingReviews,
+      multiMartyrGroups,
+      extractedItems,
+      auditLog,
+      userSettings: {
+        activeRole: activeUserRole
+      },
+      rejectedSuggestionsArchive
+    }),
+    [
+      auditRecords,
+      bookCopies,
+      customMartyrs,
+      smartSuggestions,
+      links,
+      pendingReviews,
+      multiMartyrGroups,
+      extractedItems,
+      auditLog,
+      activeUserRole,
+      rejectedSuggestionsArchive
+    ]
+  );
+
+  const deviceSyncDataset = React.useMemo<OperationalSyncDataset>(
+    () => ({
+      auditRecords,
+      bookCopies,
+      customMartyrs,
+      links,
+      pendingReviews
+    }),
+    [auditRecords, bookCopies, customMartyrs, links, pendingReviews]
+  );
+
+  const [hasOpenedDeviceSync, setHasOpenedDeviceSync] = useState(false);
+  useEffect(() => {
+    if (showDeviceSyncDrawer) {
+      setHasOpenedDeviceSync(true);
+    }
+  }, [showDeviceSyncDrawer]);
+
+  const getFullOperationalState = (): FullOperationalState => fullOperationalState;
 
   const handleFullJsonBackupDownload = () => {
     try {
@@ -2026,19 +2081,15 @@ export default function App() {
               <span>بازگشت به کتابخانه</span>
             </button>
           </div>
-          <DeviceSyncPanel
-            dataset={{
-              auditRecords,
-              bookCopies,
-              customMartyrs,
-              links,
-              pendingReviews
-            }}
-            onApplySyncedDataset={handleApplyP2PSyncedDataset}
-            onTriggerLocalBackup={() => {
-              void handleFullJsonBackupDownload();
-            }}
-          />
+          {(showDeviceSyncDrawer || hasOpenedDeviceSync) && (
+            <DeviceSyncPanel
+              dataset={deviceSyncDataset}
+              onApplySyncedDataset={handleApplyP2PSyncedDataset}
+              onTriggerLocalBackup={() => {
+                void handleFullJsonBackupDownload();
+              }}
+            />
+          )}
         </div>
 
         <div className={showDeviceSyncDrawer ? 'hidden' : 'space-y-5'}>

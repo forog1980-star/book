@@ -157,10 +157,16 @@ export function isIndexedDbAvailable(): boolean {
   return getIndexedDbFactory() !== null;
 }
 
+let cachedDbPromise: Promise<IDBDatabase> | null = null;
+
 function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (cachedDbPromise) {
+    return cachedDbPromise;
+  }
+  cachedDbPromise = new Promise((resolve, reject) => {
     const idbFactory = getIndexedDbFactory();
     if (!idbFactory) {
+      cachedDbPromise = null;
       reject(new Error('IndexedDB is not supported in this browser environment'));
       return;
     }
@@ -171,9 +177,26 @@ function openDB(): Promise<IDBDatabase> {
         db.createObjectStore(STORE_NAME);
       }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error('IndexedDB open error'));
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => {
+        db.close();
+        cachedDbPromise = null;
+      };
+      db.onclose = () => {
+        cachedDbPromise = null;
+      };
+      resolve(db);
+    };
+    request.onerror = () => {
+      cachedDbPromise = null;
+      reject(request.error || new Error('IndexedDB open error'));
+    };
+    request.onblocked = () => {
+      cachedDbPromise = null;
+    };
   });
+  return cachedDbPromise;
 }
 
 function isEnvelope<T>(raw: unknown): raw is StorageEnvelope<T> {
@@ -227,20 +250,18 @@ export function idbSetItemWithStatus<T>(
             }
           };
           tx.oncomplete = () => {
-            db.close();
             resolve();
           };
           tx.onerror = () => {
-            db.close();
             reject(tx.error || new Error(`IndexedDB write transaction failed for ${key}`));
           };
           tx.onabort = () => {
-            db.close();
             reject(tx.error || new Error(`IndexedDB write transaction aborted for ${key}`));
           };
         });
         return { ok: true, updatedAt };
       } catch (err) {
+        cachedDbPromise = null;
         const msg = err instanceof Error ? err.message : String(err);
         return { ok: false, updatedAt, error: msg };
       }
@@ -304,7 +325,6 @@ export async function idbSetBatchWithStatus(
       tx.oncomplete = () => {
         if (settled) return;
         settled = true;
-        db.close();
         resolve();
       };
 
@@ -315,7 +335,6 @@ export async function idbSetBatchWithStatus(
           requestErrorMsg ||
           tx.error?.message ||
           `خطا در تراکنش چندکلیدی IndexedDB${failedKey ? ` (کلید: ${failedKey})` : ''}`;
-        db.close();
         reject(new Error(errText));
       };
 
@@ -326,7 +345,6 @@ export async function idbSetBatchWithStatus(
           requestErrorMsg ||
           tx.error?.message ||
           `لغو و بازگردانی (Abort) تراکنش چندکلیدی IndexedDB${failedKey ? ` (کلید: ${failedKey})` : ''}`;
-        db.close();
         reject(new Error(errText));
       };
 
@@ -365,6 +383,7 @@ export async function idbSetBatchWithStatus(
 
     return { ok: true, updatedAt };
   } catch (err) {
+    cachedDbPromise = null;
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, updatedAt, failedKey, error: msg };
   }
@@ -388,7 +407,6 @@ export async function idbGetEnvelope<T>(key: string): Promise<{ data: T | null; 
       const store = tx.objectStore(STORE_NAME);
       const req = store.get(key);
       req.onsuccess = () => {
-        db.close();
         const raw = req.result;
         if (raw === undefined || raw === null) {
           resolve({ data: null, updatedAt: 0 });
@@ -402,11 +420,11 @@ export async function idbGetEnvelope<T>(key: string): Promise<{ data: T | null; 
         }
       };
       req.onerror = () => {
-        db.close();
         reject(req.error);
       };
     });
   } catch {
+    cachedDbPromise = null;
     return { data: null, updatedAt: 0 };
   }
 }
@@ -448,7 +466,6 @@ export async function idbGetEnvelopeStrict<T = unknown>(
       const store = tx.objectStore(STORE_NAME);
       const req = store.get(key);
       req.onsuccess = () => {
-        db.close();
         const raw = req.result;
         if (raw === undefined || raw === null) {
           resolve({ ok: true, exists: false, data: null, updatedAt: 0, rawRecord: null });
@@ -475,7 +492,6 @@ export async function idbGetEnvelopeStrict<T = unknown>(
       };
       req.onerror = () => {
         const errMsg = req.error?.message || `خطا در خواندن کلید ${key} از IndexedDB`;
-        db.close();
         resolve({
           ok: false,
           exists: false,
@@ -487,7 +503,6 @@ export async function idbGetEnvelopeStrict<T = unknown>(
       };
       tx.onerror = () => {
         const errMsg = tx.error?.message || `خطای تراکنش خواندن کلید ${key} از IndexedDB`;
-        db.close();
         resolve({
           ok: false,
           exists: false,
@@ -499,6 +514,7 @@ export async function idbGetEnvelopeStrict<T = unknown>(
       };
     });
   } catch (err) {
+    cachedDbPromise = null;
     return {
       ok: false,
       exists: false,
@@ -541,21 +557,18 @@ export async function idbRestoreKeySnapshotAtomic(
       tx.oncomplete = () => {
         if (settled) return;
         settled = true;
-        db.close();
         resolve();
       };
 
       tx.onerror = () => {
         if (settled) return;
         settled = true;
-        db.close();
         reject(new Error(opErrorMsg || tx.error?.message || 'خطا در تراکنش Rollback در IndexedDB'));
       };
 
       tx.onabort = () => {
         if (settled) return;
         settled = true;
-        db.close();
         reject(new Error(opErrorMsg || tx.error?.message || 'لغو تراکنش Rollback در IndexedDB'));
       };
 
@@ -616,6 +629,7 @@ export async function idbRestoreKeySnapshotAtomic(
     });
     return { ok: true };
   } catch (err) {
+    cachedDbPromise = null;
     return {
       ok: false,
       error: err instanceof Error ? err.message : String(err),

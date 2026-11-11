@@ -263,6 +263,23 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
     });
   }, [catalogRows, auditRecords, bookCopies, links, extractedItems]);
 
+  // پیش‌محاسبه متن نرمال‌شده جست‌وجو برای هر پرونده کتاب (جلوگیری از اجرای مجدد Regex در هر کلید تایپ‌شده)
+  const dossierSearchHaystackMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const d of allDossiers) {
+      const martyrNames = d.martyrRelations.map((m) => m.martyrName).join(' ');
+      map.set(
+        d.dossierId,
+        normalizePersianText(
+          `${d.bookId} ${d.title} ${d.alternativeTitle} ${d.description || ''} ${d.locationCode} ${d.sheetCategory} ${martyrNames}`
+        )
+      );
+    }
+    return map;
+  }, [allDossiers]);
+
+  const [statModalVisibleLimit, setStatModalVisibleLimit] = useState<number>(65);
+
   const newRegisteredDossiers = useMemo(
     () => allDossiers.filter((d) => d.isNewRegistration),
     [allDossiers]
@@ -872,12 +889,10 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
     const q = normalizePersianText(statModalSearchQuery);
     if (!q) return baseList;
 
+    const words = q.split(' ').filter(Boolean);
     return baseList.filter((d) => {
-      const martyrNames = d.martyrRelations.map((m) => m.martyrName).join(' ');
-      const hay = normalizePersianText(
-        `${d.bookId} ${d.title} ${d.alternativeTitle} ${d.description || ''} ${d.locationCode} ${d.sheetCategory} ${martyrNames}`
-      );
-      return q.split(' ').every((w) => hay.includes(w));
+      const hay = dossierSearchHaystackMap.get(d.dossierId) || '';
+      return words.every((w) => hay.includes(w));
     });
   }, [
     activeStatGroupModal,
@@ -886,8 +901,24 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
     determinedDossiers,
     martyrLinkedDossiers,
     statModalSubFilter,
-    statModalSearchQuery
+    statModalSearchQuery,
+    dossierSearchHaystackMap
   ]);
+
+  const displayedStatModalDossiers = useMemo(() => {
+    if (filteredStatModalDossiers.length <= statModalVisibleLimit) {
+      return filteredStatModalDossiers;
+    }
+    if (lastInteractedDossierId) {
+      const targetIdx = filteredStatModalDossiers.findIndex(
+        (d) => d.dossierId === lastInteractedDossierId
+      );
+      if (targetIdx >= statModalVisibleLimit) {
+        return filteredStatModalDossiers.slice(0, targetIdx + 25);
+      }
+    }
+    return filteredStatModalDossiers.slice(0, statModalVisibleLimit);
+  }, [filteredStatModalDossiers, statModalVisibleLimit, lastInteractedDossierId]);
 
   const syncVoiceToPreview = (text: string) => {
     setVoiceTranscript(text);
@@ -1122,15 +1153,15 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
     const q = normalizePersianText(globalQuery);
     if (!q || q.length < 2) return null;
 
-    const matchedDossiers = allDossiers
-      .filter((d) => {
-        const martyrNames = d.martyrRelations.map((m) => m.martyrName).join(' ');
-        const hay = normalizePersianText(
-          `${d.bookId} ${d.title} ${d.alternativeTitle} ${d.description || ''} ${d.locationCode} ${martyrNames}`
-        );
-        return q.split(' ').every((w) => hay.includes(w));
-      })
-      .slice(0, 12);
+    const words = q.split(' ').filter(Boolean);
+    const matchedDossiers: UnifiedBookDossier[] = [];
+    for (const d of allDossiers) {
+      const hay = dossierSearchHaystackMap.get(d.dossierId) || '';
+      if (words.every((w) => hay.includes(w))) {
+        matchedDossiers.push(d);
+        if (matchedDossiers.length >= 12) break;
+      }
+    }
 
     const customMartyrMatches: WorkbookGolzarMartyr[] = customMartyrs
       .filter((cm) =>
@@ -1172,7 +1203,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       .slice(0, 8);
 
     return { matchedDossiers, matchedMartyrs, matchedLinks };
-  }, [globalQuery, allDossiers, customMartyrs, workbookMartyrs, links]);
+  }, [globalQuery, allDossiers, dossierSearchHaystackMap, customMartyrs, workbookMartyrs, links]);
 
   const renderCertaintyBadge = (certainty: MartyrRelationCertainty) => {
     if (certainty === 'قطعی') {
@@ -1913,11 +1944,20 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
               <div
                 ref={statListScrollRef}
                 onScroll={(e) => {
-                  saveHomeDossierNavSnapshot({ statModalScrollTop: e.currentTarget.scrollTop });
+                  const target = e.currentTarget;
+                  saveHomeDossierNavSnapshot({ statModalScrollTop: target.scrollTop });
+                  if (
+                    displayedStatModalDossiers.length < filteredStatModalDossiers.length &&
+                    target.scrollTop + target.clientHeight >= target.scrollHeight - 240
+                  ) {
+                    setStatModalVisibleLimit((prev) =>
+                      Math.min(filteredStatModalDossiers.length, prev + 80)
+                    );
+                  }
                 }}
                 className="max-h-[58vh] overflow-y-auto border border-[#E2D2BE] rounded-xl divide-y divide-[#EFE5D8] bg-white"
               >
-                {filteredStatModalDossiers.map((dossier, idx) => {
+                {displayedStatModalDossiers.map((dossier, idx) => {
                   const isHighlighted =
                     lastInteractedDossierId === dossier.dossierId ||
                     selectedBookDossierId === dossier.dossierId;
@@ -2013,6 +2053,22 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                     </div>
                   );
                 })}
+                {displayedStatModalDossiers.length < filteredStatModalDossiers.length && (
+                  <div className="p-3 bg-[#FAF5EE] text-center">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setStatModalVisibleLimit(filteredStatModalDossiers.length)
+                      }
+                      className="px-4 py-2 rounded-xl bg-white border border-[#D8C7B2] hover:bg-[#F3E9DC] text-xs font-bold text-[#6B3E26] cursor-pointer shadow-2xs"
+                    >
+                      نمایش ادامه فهرست ({toPersianDigits(
+                        filteredStatModalDossiers.length - displayedStatModalDossiers.length
+                      )}{' '}
+                      عنوان باقی‌مانده)
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

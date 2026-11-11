@@ -385,9 +385,11 @@ export async function loadCachedGolzarMartyrs(): Promise<LightweightGolzarMartyr
       await new Promise((r) => setTimeout(r, 0));
       const wb = XLSX.read(buf, { type: 'array', cellDates: false });
 
+      await new Promise((r) => setTimeout(r, 0));
       const golzarRows = wb.Sheets['golzar_martyrs']
         ? XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets['golzar_martyrs'], { defval: '' })
         : [];
+      await new Promise((r) => setTimeout(r, 0));
       const outsideRows = wb.Sheets['outside_golzar_martyrs']
         ? XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets['outside_golzar_martyrs'], { defval: '' })
         : [];
@@ -399,16 +401,21 @@ export async function loadCachedGolzarMartyrs(): Promise<LightweightGolzarMartyr
       const list: LightweightGolzarMartyr[] = [];
       const byNorm = new Map<string, LightweightGolzarMartyr>();
       const byCompact = new Map<string, LightweightGolzarMartyr>();
+      const CHUNK_SIZE = 3500;
 
-      golzarRows.forEach((r, idx) => {
+      for (let idx = 0; idx < golzarRows.length; idx++) {
+        if (idx > 0 && idx % CHUNK_SIZE === 0) {
+          await new Promise((r) => setTimeout(r, 0));
+        }
+        const r = golzarRows[idx];
         const fn = cleanCell(r['نام']);
         const ln = cleanCell(r['نام خانوادگی']);
         const fullName = `${fn} ${ln}`.trim();
-        if (!fullName || fullName.includes('گمنام')) return;
+        if (!fullName || fullName.includes('گمنام')) continue;
         const norm = normalizePersianText(fullName.replace(/^شهید\s+/, ''));
-        if (!norm) return;
+        if (!norm) continue;
         const strippedNorm = stripTitlesForTehranIndex(fullName);
-        const compact = compactNameForTehranIndex(fullName);
+        const compact = strippedNorm ? strippedNorm.replace(/[^\p{L}\p{N}]/gu, '').trim() : '';
         const item: LightweightGolzarMartyr = {
           id: `G-${idx + 2}`,
           fullName,
@@ -427,17 +434,21 @@ export async function loadCachedGolzarMartyrs(): Promise<LightweightGolzarMartyr
         if (strippedNorm && !byNorm.has(strippedNorm)) byNorm.set(strippedNorm, item);
         if (norm && !byNorm.has(norm)) byNorm.set(norm, item);
         if (compact && !byCompact.has(compact)) byCompact.set(compact, item);
-      });
+      }
 
-      outsideRows.forEach((r, idx) => {
+      for (let idx = 0; idx < outsideRows.length; idx++) {
+        if (idx > 0 && idx % CHUNK_SIZE === 0) {
+          await new Promise((r) => setTimeout(r, 0));
+        }
+        const r = outsideRows[idx];
         const fn = cleanCell(r['نام']);
         const ln = cleanCell(r['نام خانوادگی']);
         const fullName = `${fn} ${ln}`.trim();
-        if (!fullName || fullName.includes('گمنام')) return;
+        if (!fullName || fullName.includes('گمنام')) continue;
         const norm = normalizePersianText(fullName.replace(/^شهید\s+/, ''));
-        if (!norm) return;
+        if (!norm) continue;
         const strippedNorm = stripTitlesForTehranIndex(fullName);
-        const compact = compactNameForTehranIndex(fullName);
+        const compact = strippedNorm ? strippedNorm.replace(/[^\p{L}\p{N}]/gu, '').trim() : '';
         const item: LightweightGolzarMartyr = {
           id: `O-${idx + 2}`,
           fullName,
@@ -456,7 +467,7 @@ export async function loadCachedGolzarMartyrs(): Promise<LightweightGolzarMartyr
         if (strippedNorm && !byNorm.has(strippedNorm)) byNorm.set(strippedNorm, item);
         if (norm && !byNorm.has(norm)) byNorm.set(norm, item);
         if (compact && !byCompact.has(compact)) byCompact.set(compact, item);
-      });
+      }
 
       cachedGolzarMartyrs = list;
       cachedGolzarByNormName = byNorm;
@@ -1152,9 +1163,17 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
     (cachedGolzarMartyrs && cachedGolzarMartyrs.length > 0) ||
     (golzarMartyrs && golzarMartyrs.length > 0);
 
-  if (!full28kReady && persistedAutoBookLinks && persistedAutoBookLinks.length > 0) {
-    // استفاده فوری از نمایه ذخیره‌شده بدون هیچ انتظار برای بارگذاری فایل اکسل ۲۸ هزار نفری
+  if (persistedAutoBookLinks && persistedAutoBookLinks.length > 0) {
+    // استفاده فوری از نمایه ذخیره‌شده برای ۹۸۰ کتاب پایه کاتالوگ (بدون اسکن مجدد کل ۹۸۰ کتاب در هر تغییر)
+    const modifiedBookIds = new Set<string>();
+    for (const rec of Object.values(auditRecords)) {
+      if (rec.tempBookId) modifiedBookIds.add(rec.tempBookId);
+    }
+
     for (const autoLnk of persistedAutoBookLinks) {
+      if (autoLnk.tempBookId && modifiedBookIds.has(autoLnk.tempBookId)) {
+        continue;
+      }
       const mCompact = compactNameForTehranIndex(autoLnk.martyrNameRaw);
       const bKey1 = `${autoLnk.tempBookId}::${mCompact}`;
       const bKey2 = `${compactNameForTehranIndex(autoLnk.bookTitleRaw)}::${mCompact}`;
@@ -1164,6 +1183,61 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
       seenBookMartyrPairs.add(bKey1);
       seenBookMartyrPairs.add(bKey2);
       updatedLinks.push(autoLnk);
+    }
+
+    // فقط کتاب‌های ویرایش‌شده یا ثبت جدید در auditRecords را به صورت تفاضلی اسکن کن
+    if ((full28kReady || cachedGolzarByNormName.size > 0) && Object.keys(auditRecords).length > 0) {
+      const catalogByRowKey = new Map<string, ReferenceCatalogRow>();
+      for (const r of catalogRows) {
+        catalogByRowKey.set(r.rowKey, r);
+      }
+      for (const rec of Object.values(auditRecords)) {
+        const baseRow = catalogByRowKey.get(rec.key);
+        const bookId = rec.tempBookId || baseRow?.tempBookId || rec.key;
+        const bookTitle = rec.title || baseRow?.titleRaw || '';
+        const bookDesc = [baseRow?.descriptionRaw, rec.descriptionRaw].filter(Boolean).join(' | ');
+        const bookPub = rec.publisher || baseRow?.publisherRaw || '—';
+        const matchedTehranMartyrs = extractTehranMartyrsFromBookText(
+          {
+            tempBookId: bookId,
+            titleRaw: bookTitle,
+            descriptionRaw: bookDesc,
+            publisherRaw: bookPub
+          },
+          golzarMartyrs
+        );
+        for (const gm of matchedTehranMartyrs) {
+          const mCompact = gm.compactFullName || compactNameForTehranIndex(gm.fullName);
+          const bKey1 = `${bookId}::${mCompact}`;
+          const bKey2 = `${compactNameForTehranIndex(bookTitle)}::${mCompact}`;
+          if (seenBookMartyrPairs.has(bKey1) || seenBookMartyrPairs.has(bKey2)) {
+            continue;
+          }
+          seenBookMartyrPairs.add(bKey1);
+          seenBookMartyrPairs.add(bKey2);
+          updatedLinks.push({
+            id: `RL-28K-${bookId}-${gm.id}`,
+            groupStartRow: String(baseRow?.rowIndex || ''),
+            publisherRaw: bookPub,
+            bookTitleRaw: bookTitle,
+            alternativeTitle: '',
+            sourceDescriptionRaw: bookDesc,
+            martyrNameRaw: gm.fullName,
+            rawNameInSource: `شهید ${gm.fullName}`,
+            isGroupPhrase: false,
+            gravePieceRaw: gm.gravePiece || (gm.source === 'outside' ? 'خارج از قطعات' : ''),
+            graveRowRaw: gm.graveRow || '',
+            graveNumberRaw: gm.graveNumber || '',
+            pageReferenceRaw: 'کل کتاب / معرفی در شناسنامه کتاب',
+            sourceFile: 'نمایه خودکار ۲۸٬۳۶۸ شهید گلزار تهران',
+            sourceSheet: 'تطبیق با گلزار شهدای تهران',
+            sourceExcelRow: String(baseRow?.backupSourceRow || baseRow?.rowIndex || bookId),
+            tempBookId: bookId,
+            reviewStatus: 'بررسی‌شده در پژوهش اصلی',
+            reviewerNote: `تطبیق خودکار نام «شهید ${gm.fullName}» در مشخصات کتاب (${bookId}) با بانک ۲۸٬۳۶۸ شهید گلزار شهدای تهران (قطعه ${gm.gravePiece || 'خارج از قطعات'}، ردیف ${gm.graveRow || '—'}، شماره ${gm.graveNumber || '—'}).`
+          });
+        }
+      }
     }
   } else if (full28kReady || cachedGolzarByNormName.size > 0) {
     const allUnifiedBooks = getAllUnifiedBooks(catalogRows, auditRecords);
