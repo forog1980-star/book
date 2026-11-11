@@ -23,6 +23,7 @@ export interface LightweightGolzarMartyr {
 }
 
 let cachedGolzarMartyrs: LightweightGolzarMartyr[] | null = null;
+let cachedTotalRecordsCount = 28368;
 let loadingPromise: Promise<LightweightGolzarMartyr[]> | null = null;
 
 function cleanCell(val: unknown): string {
@@ -113,6 +114,7 @@ export async function loadCachedGolzarMartyrs(): Promise<LightweightGolzarMartyr
         ? XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets['outside_golzar_martyrs'], { defval: '' })
         : [];
 
+      cachedTotalRecordsCount = golzarRows.length + outsideRows.length || 28368;
       const list: LightweightGolzarMartyr[] = [];
 
       golzarRows.forEach((r, idx) => {
@@ -173,6 +175,27 @@ export async function loadCachedGolzarMartyrs(): Promise<LightweightGolzarMartyr
 
 export function getCachedGolzarMartyrsSync(): LightweightGolzarMartyr[] {
   return cachedGolzarMartyrs || [];
+}
+
+export function getGolzarTotalRecordsCount(): number {
+  return cachedTotalRecordsCount;
+}
+
+export function findMartyrGraveIn28k(
+  martyrName: string,
+  golzarMartyrs: LightweightGolzarMartyr[]
+): { gravePiece: string; graveRow: string; graveNumber: string } | null {
+  const norm = normalizePersianText((martyrName || '').replace(/^شهید\s+/, ''));
+  if (!norm) return null;
+  const exact = golzarMartyrs.find((gm) => gm.normalizedFullName === norm);
+  if (exact) {
+    return {
+      gravePiece: exact.gravePiece,
+      graveRow: exact.graveRow,
+      graveNumber: exact.graveNumber
+    };
+  }
+  return null;
 }
 
 /**

@@ -332,6 +332,10 @@ export interface SmartSearchSuggestion {
     | 'کتاب جدید (ثبت دستی کارشناس از منابع بیرونی)'
     | 'دارای تعارض در مشخصات ناشر/نویسنده';
   matchedCatalogBookId?: string;
+  gravePiece?: string;
+  graveRow?: string;
+  graveNumber?: string;
+  originType?: 'manual' | 'single_search' | 'bulk_match' | 'auto_watch';
   reviewStatus: SmartSuggestionReviewStatus;
   reviewerNote: string;
   reviewedBy: string;
