@@ -18,6 +18,7 @@ import {
   classifyMartyrLinkCertainty,
   compactPersianForMatch,
 } from '../../data/soorehMehrResearch';
+import { evaluateMartyrTehranStatus } from '../../utils/martyrsCrossMatchEngine';
 import {
   EXCEL_FIELDS_CATALOG,
   EXCEL_MAIN_SUBJECT_CATEGORIES,
@@ -291,6 +292,14 @@ export function resolveDossiersAndMartyrIndex(ctx: ExcelExportDatasetContext): {
           graveAddressDisplay: formatGraveAddress(rel.gravePiece, rel.graveRow, rel.graveNumber),
           graveStatus: formatCertaintyLabel(rel.certainty),
           sourceLabel: `${rel.sourceFile || 'پژوهش'} / ${rel.sourceSheet || 'ارتباط کتاب و شهید'}`,
+          isTehranMartyr: rel.isTehranMartyr,
+          tehranStatusLabel: rel.isTehranMartyr
+            ? 'تهرانی (گلزار شهدای تهران)'
+            : rel.hasHomonymIn28kNeedsReview
+            ? 'غیرتهرانی — نیازمند بررسی کارشناس (تشابه اسمی با شهدای تهران)'
+            : rel.isNonTehranMartyr
+            ? 'غیرتهرانی'
+            : 'بررسی‌نشده',
         });
       } else {
         const existing = martyrMap.get(key)!;
@@ -624,20 +633,25 @@ export function generateStandardizedMartyrCentricExcel(
       ? selection.selectedSubjectCategories
       : null;
 
-  const dossiers = activeSubjectFilter
+  const subjectFilteredDossiers = activeSubjectFilter
     ? allResolvedDossiers.filter((b) => {
         const code = resolveBookMainSubjectCode(b);
         return code !== 'UNSET' && activeSubjectFilter.has(code);
       })
     : allResolvedDossiers;
 
+  const dossiers = selection.onlyTehranMartyrs
+    ? subjectFilteredDossiers.filter((b) => b.hasTehranMartyr)
+    : subjectFilteredDossiers;
+
   const subjectCodesSuffix = activeSubjectFilter
     ? Array.from(activeSubjectFilter).join('، ')
     : '';
+  const tehranSuffix = selection.onlyTehranMartyrs ? ' — فقط شهدای تهرانی' : '';
   const effectiveReportTitle =
-    activeSubjectFilter && !selection.reportTitle.includes('موضوع:')
+    (activeSubjectFilter && !selection.reportTitle.includes('موضوع:')
       ? `${selection.reportTitle} (موضوع: ${subjectCodesSuffix})`
-      : selection.reportTitle;
+      : selection.reportTitle) + tehranSuffix;
 
   const hasField = (id: string) => selection.selectedFields.has(id);
   const wb = XLSXStyle.utils.book_new();
@@ -676,6 +690,31 @@ export function generateStandardizedMartyrCentricExcel(
         found?.graveStatus ||
         (fallbackCertainty ? formatCertaintyLabel(fallbackCertainty) : '—'),
       sourceLabel: found?.sourceLabel || 'پژوهش مرکز اسناد',
+      isTehranMartyr:
+        found?.isTehranMartyr ??
+        evaluateMartyrTehranStatus({
+          martyrName,
+          gravePiece: piece,
+          graveRow: row,
+          graveNumber: num,
+        }).isTehran,
+      tehranStatusLabel:
+        found?.tehranStatusLabel ||
+        (evaluateMartyrTehranStatus({
+          martyrName,
+          gravePiece: piece,
+          graveRow: row,
+          graveNumber: num,
+        }).isTehran
+          ? 'تهرانی (گلزار شهدای تهران)'
+          : evaluateMartyrTehranStatus({
+              martyrName,
+              gravePiece: piece,
+              graveRow: row,
+              graveNumber: num,
+            }).isNonTehran
+          ? 'غیرتهرانی'
+          : 'بررسی‌نشده'),
     };
   };
 
@@ -715,6 +754,7 @@ export function generateStandardizedMartyrCentricExcel(
     pushIf('relation_category');
     pushIf('related_martyrs_count');
     pushIf('martyr_name', 'اسامی شهدای مرتبط با کتاب', 36, true);
+    pushIf('tehran_martyr_status', 'وضعیت شهید تهرانی (گلزار شهدای تهران)', 24);
     pushIf('martyr_id', 'شناسه‌های شهدای مرتبط', 22);
     pushIf('grave_full_address', 'آدرس و محل مزار شهدای مرتبط', 38, true);
     pushIf('grave_piece', 'قطعه مزار شهدا', 16);
@@ -830,6 +870,13 @@ export function generateStandardizedMartyrCentricExcel(
         relation_category: book.sheetCategory,
         related_martyrs_count: book.martyrRelations.length,
         martyr_name: martyrNamesSummary,
+        tehran_martyr_status: book.hasTehranMartyr
+          ? `تهرانی (${toPersianDigits(book.tehranMartyrsCount)} شهید در گلزار شهدای تهران)`
+          : book.martyrRelations.some((m) => m.hasHomonymIn28kNeedsReview)
+          ? 'غیرتهرانی — نیازمند بررسی کارشناس (تشابه اسمی با شهدای تهران)'
+          : book.martyrRelations.some((m) => m.isNonTehranMartyr)
+          ? 'غیرتهرانی'
+          : 'فاقد شهید تهرانی',
         martyr_id: martyrIdsSummary,
         grave_full_address: graveAddressesSummary,
         grave_piece: gravePiecesSummary,
@@ -879,6 +926,7 @@ export function generateStandardizedMartyrCentricExcel(
     pushIf('book_publisher');
     pushIf('martyr_id');
     pushIf('martyr_name');
+    pushIf('tehran_martyr_status');
     pushIf('grave_full_address');
     pushIf('grave_piece');
     pushIf('grave_row');
@@ -913,6 +961,7 @@ export function generateStandardizedMartyrCentricExcel(
             book_publisher: book.publisher || '—',
             martyr_id: '—',
             martyr_name: 'بدون ارتباط ثبت‌شده با شهید',
+            tehran_martyr_status: 'فاقد شهید تهرانی',
             grave_full_address: '—',
             grave_piece: '—',
             grave_row: '—',
@@ -960,6 +1009,13 @@ export function generateStandardizedMartyrCentricExcel(
             book_publisher: book.publisher || '—',
             martyr_id: mMeta.martyrId,
             martyr_name: rel.martyrName,
+            tehran_martyr_status: rel.isTehranMartyr
+              ? 'تهرانی (گلزار شهدای تهران)'
+              : rel.hasHomonymIn28kNeedsReview
+              ? 'غیرتهرانی — نیازمند بررسی کارشناس (تشابه اسمی با شهدای تهران)'
+              : rel.isNonTehranMartyr
+              ? 'غیرتهرانی'
+              : mMeta.tehranStatusLabel || 'بررسی‌نشده',
             grave_full_address: mMeta.graveAddressDisplay,
             grave_piece: mMeta.gravePiece,
             grave_row: mMeta.graveRow,
@@ -1011,6 +1067,7 @@ export function generateStandardizedMartyrCentricExcel(
     pushIf('book_subject_category');
     pushIf('martyr_id');
     pushIf('martyr_name');
+    pushIf('tehran_martyr_status');
     pushIf('grave_full_address');
     pushIf('martyr_relation_subject');
     pushIf('extracted_content_type');
@@ -1052,6 +1109,13 @@ export function generateStandardizedMartyrCentricExcel(
           book_subject_category: formatBookSubjectCategoryDisplay(book),
           martyr_id: mMeta.martyrId,
           martyr_name: rel.martyrName,
+          tehran_martyr_status: rel.isTehranMartyr
+            ? 'تهرانی (گلزار شهدای تهران)'
+            : rel.hasHomonymIn28kNeedsReview
+            ? 'غیرتهرانی — نیازمند بررسی کارشناس (تشابه اسمی با شهدای تهران)'
+            : rel.isNonTehranMartyr
+            ? 'غیرتهرانی'
+            : mMeta.tehranStatusLabel || 'بررسی‌نشده',
           grave_full_address: mMeta.graveAddressDisplay,
           martyr_relation_subject: rel.sourceDescriptionRaw || book.description || '—',
           extracted_content_type: matchingEx?.contentType || 'معرفی و ارتباط پژوهشی',
@@ -1096,6 +1160,7 @@ export function generateStandardizedMartyrCentricExcel(
     pushIf('book_publisher');
     pushIf('martyr_id');
     pushIf('martyr_name');
+    pushIf('tehran_martyr_status');
     pushIf('grave_full_address');
     pushIf('grave_piece');
     pushIf('grave_row');
@@ -1148,6 +1213,7 @@ export function generateStandardizedMartyrCentricExcel(
         book_publisher: ex.publisherRaw || matchedBook?.publisher || '—',
         martyr_id: mMeta.martyrId,
         martyr_name: ex.martyrNameRaw || '—',
+        tehran_martyr_status: mMeta.tehranStatusLabel || 'بررسی‌نشده',
         grave_full_address: mMeta.graveAddressDisplay,
         grave_piece: mMeta.gravePiece,
         grave_row: mMeta.graveRow,
@@ -1190,6 +1256,7 @@ export function generateStandardizedMartyrCentricExcel(
 
     pushIf('martyr_id');
     pushIf('martyr_name');
+    pushIf('tehran_martyr_status');
     pushIf('martyr_father_name');
     pushIf('martyr_dates');
     pushIf('martyr_operation');
@@ -1318,6 +1385,7 @@ export function generateStandardizedMartyrCentricExcel(
         row_num: idx + 1,
         martyr_id: m.martyrId || '—',
         martyr_name: m.fullName,
+        tehran_martyr_status: m.tehranStatusLabel || 'تهرانی (گلزار شهدای تهران)',
         martyr_father_name: m.fatherName || '—',
         martyr_dates: datesStr,
         martyr_operation: m.operationOrLocation || '—',

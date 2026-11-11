@@ -97,6 +97,8 @@ export interface StandardizedMartyrEntry {
   graveAddressDisplay: string;
   graveStatus: string;
   sourceLabel: string;
+  isTehranMartyr?: boolean;
+  tehranStatusLabel?: string;
 }
 
 export type ExcelExportMode =
@@ -158,6 +160,8 @@ export interface ExcelExportUserSelection {
   selectedFields: Set<string>;
   selectedSheets: Set<ExcelSheetKey>;
   selectedSubjectCategories?: Set<BookMainSubjectCode>;
+  onlyTehranMartyrs?: boolean;
 }
+
 
 

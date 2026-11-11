@@ -94,6 +94,7 @@ export const GlobalExcelExportConfigModal: React.FC<GlobalExcelExportConfigModal
   const [selectedSheets, setSelectedSheets] = useState<Set<ExcelSheetKey>>(
     () => new Set(EXCEL_SHEETS_CATALOG.map((s) => s.key))
   );
+  const [onlyTehranMartyrs, setOnlyTehranMartyrs] = useState<boolean>(false);
 
   useEffect(() => {
     const handler: ConfigRequestListener = (incomingCtx) => {
@@ -110,6 +111,7 @@ export const GlobalExcelExportConfigModal: React.FC<GlobalExcelExportConfigModal
       setContext(incomingCtx);
       setDirection(initialDir);
       setActivePreset(presetObj.id);
+      setOnlyTehranMartyrs(false);
       setSelectedSubjectCategories(
         presetObj.id === 'books_by_subject_category'
           ? new Set(EXCEL_MAIN_SUBJECT_CATEGORIES.map((c) => c.code))
@@ -294,6 +296,7 @@ export const GlobalExcelExportConfigModal: React.FC<GlobalExcelExportConfigModal
     setActivePreset(null);
     setSelectedSubjectCategories(new Set());
     setDirection(null);
+    setOnlyTehranMartyrs(false);
     setSelectedSheets(new Set());
     setSelectedFields(new Set());
   };
@@ -392,6 +395,7 @@ export const GlobalExcelExportConfigModal: React.FC<GlobalExcelExportConfigModal
       selectedFields: effectiveFields,
       selectedSheets: effectiveSheets,
       selectedSubjectCategories,
+      onlyTehranMartyrs,
     });
     setContext(null);
     if (res.ok && onNotify) {
@@ -446,6 +450,29 @@ export const GlobalExcelExportConfigModal: React.FC<GlobalExcelExportConfigModal
               <span>از شهید به کتاب</span>
             </button>
           </div>
+        </div>
+
+        {/* فیلتر اختصاصی شهدای تهرانی (گلزار شهدای تهران) در خروجی Excel */}
+        <div className="bg-red-50/70 border border-red-200 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2.5">
+          <button
+            type="button"
+            data-testid="excel-only-tehran-martyrs-toggle"
+            onClick={() => setOnlyTehranMartyrs((prev) => !prev)}
+            className="flex items-center gap-2 text-right cursor-pointer font-bold text-xs text-[#7F1D1D]"
+          >
+            {onlyTehranMartyrs ? (
+              <CheckSquare className="w-4 h-4 text-[#B91C1C] shrink-0" />
+            ) : (
+              <Square className="w-4 h-4 text-[#B91C1C] shrink-0" />
+            )}
+            <span>فقط کتاب‌ها و شهدای تهرانی (منطبق با ۲۸٬۳۶۸ شهید گلزار شهدای تهران)</span>
+            <span className="inline-flex items-center justify-center rounded-full bg-[#B91C1C] text-white font-bold text-[10px] px-2 py-0.5">
+              تهرانی
+            </span>
+          </button>
+          <span className="text-[11px] text-[#7F1D1D]/80">
+            ستون «وضعیت شهید تهرانی (گلزار شهدای تهران)» نیز در جدول خروجی درج می‌شود.
+          </span>
         </div>
 
         {/* بخش ۱: الگوهای آماده گزارش‌گیری سریع (الگوی شماره ۱: ۶ عنوان موضوعی کتاب‌ها R, P, H, A, K, M) */}

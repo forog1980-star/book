@@ -99,10 +99,12 @@ import {
   enrichLinksWithSorehMehrResearch
 } from './data/soorehMehrResearch';
 import {
+  enrichLinksAndCatalogBooksWith28kTehranIndex,
   getAllUnifiedBooks,
   getCachedGolzarMartyrsSync,
   loadCachedGolzarMartyrs,
-  matchSingleBookAgainstMartyrs
+  matchSingleBookAgainstMartyrs,
+  subscribeToGolzarMartyrsLoaded
 } from './utils/martyrsCrossMatchEngine';
 import {
   APPLIED_PACKAGES_KEY,
@@ -235,9 +237,15 @@ export default function App() {
   const isOnline = useOnlineStatus();
   const { isInstallable, install: promptInstall } = usePWAInstall();
 
-  // بارگذاری پیش‌زمینه بانک ۲۸٬۳۶۸ شهید گلزار برای مقابله فوری و دوطرفه کتاب و شهید
+  const [golzarIndexVersion, setGolzarIndexVersion] = useState<number>(0);
+
+  // بارگذاری پیش‌زمینه بانک ۲۸٬۳۶۸ شهید گلزار برای مقابله فوری و دوطرفه کتاب و شهید و نمایه‌سازی شهدای تهرانی
   useEffect(() => {
     void loadCachedGolzarMartyrs();
+    const unsub = subscribeToGolzarMartyrsLoaded(() => {
+      setGolzarIndexVersion((v) => v + 1);
+    });
+    return unsub;
   }, []);
 
   // Reference Catalog State (All 5 Sheets from فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx)
@@ -1010,6 +1018,17 @@ export default function App() {
     showNotify('نگاشت ستون‌ها به‌روزرسانی شد.');
   };
 
+  // نمایه یکپارچه ارتباط کتاب و شهید شامل ۸۳۶ پیوند پایه + نمایه‌سازی خودکار ۹۸۰ کتاب کاتالوگ و ثبت‌های جدید در برابر ۲۸٬۳۶۸ شهید گلزار تهران
+  const indexedLinks = React.useMemo(
+    () =>
+      enrichLinksAndCatalogBooksWith28kTehranIndex({
+        catalogRows,
+        auditRecords,
+        links
+      }),
+    [catalogRows, auditRecords, links, golzarIndexVersion]
+  );
+
   const handleQuickExcelExport = () => {
     openStandardExcelExportModal({
       mode: 'books_list',
@@ -1018,7 +1037,7 @@ export default function App() {
       catalogRows,
       auditRecords,
       bookCopies,
-      links,
+      links: indexedLinks,
       extractedItems,
       customMartyrs,
       workbookMartyrs,
@@ -1845,7 +1864,7 @@ export default function App() {
               catalogRows={catalogRows}
               auditRecords={auditRecords}
               bookCopies={bookCopies}
-              links={links}
+              links={indexedLinks}
               pendingReviews={pendingReviews}
               workbookMartyrs={workbookMartyrs}
               customMartyrs={customMartyrs}
@@ -1883,9 +1902,12 @@ export default function App() {
                 );
               }}
               onUpdateLink={(updatedLnk) => {
-                setLinks((prev) =>
-                  prev.map((l) => (l.id === updatedLnk.id ? updatedLnk : l))
-                );
+                setLinks((prev) => {
+                  const exists = prev.some((l) => l.id === updatedLnk.id);
+                  return exists
+                    ? prev.map((l) => (l.id === updatedLnk.id ? updatedLnk : l))
+                    : [updatedLnk, ...prev];
+                });
                 markSessionModification();
                 appendAuditLog(
                   'ثبت یا ویرایش ارتباط کتاب و شهید',
@@ -1966,7 +1988,7 @@ export default function App() {
             {librarySubView === 'catalog' ? (
               <QuickInventoryTab
                 catalogRows={catalogRows}
-                bookMartyrLinks={links}
+                bookMartyrLinks={indexedLinks}
                 bookCopies={bookCopies}
                 sheetNames={sheetNames}
                 currentSheetName={currentSheetName}
@@ -1995,7 +2017,7 @@ export default function App() {
         {activeTab === 'martyrs' && (
           <AllMartyrsDatabaseTab
             catalogRows={catalogRows}
-            links={links}
+            links={indexedLinks}
             extractedItems={extractedItems}
             customMartyrs={customMartyrs}
             onAddCustomMartyr={(newMartyr) => {
@@ -2203,7 +2225,7 @@ export default function App() {
             customMartyrs={customMartyrs}
             smartSuggestions={smartSuggestions}
             rejectedSuggestionsArchive={rejectedSuggestionsArchive}
-            links={links}
+            links={indexedLinks}
             extractedItems={extractedItems}
             initialMartyrQuery={preselectedSmartMartyrName}
             onNavigateTab={(tab) => setActiveTab(tab)}
@@ -2297,7 +2319,7 @@ export default function App() {
             catalogRows={catalogRows}
             auditRecords={auditRecords}
             bookCopies={bookCopies}
-            links={links}
+            links={indexedLinks}
             pendingReviews={pendingReviews}
             workbookMartyrs={workbookMartyrs}
             multiMartyrGroups={multiMartyrGroups}
@@ -2312,11 +2334,19 @@ export default function App() {
               );
             }}
             onUpdateLinkStatus={(linkId, status, note) => {
-              setLinks((prev) =>
-                prev.map((l) =>
-                  l.id === linkId ? { ...l, reviewStatus: status, reviewerNote: note } : l
-                )
-              );
+              setLinks((prev) => {
+                const exists = prev.some((l) => l.id === linkId);
+                if (exists) {
+                  return prev.map((l) =>
+                    l.id === linkId ? { ...l, reviewStatus: status, reviewerNote: note } : l
+                  );
+                }
+                const fromIndexed = indexedLinks.find((l) => l.id === linkId);
+                if (fromIndexed) {
+                  return [{ ...fromIndexed, reviewStatus: status, reviewerNote: note }, ...prev];
+                }
+                return prev;
+              });
               markSessionModification();
               appendAuditLog(
                 'ثبت یا ویرایش ارتباط کتاب و شهید',

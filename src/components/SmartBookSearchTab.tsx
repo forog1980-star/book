@@ -55,12 +55,14 @@ import { requestActionConfirmation } from '../utils/confirmDialogService';
 import {
   BookMartyrAutoMatch,
   LightweightGolzarMartyr,
+  evaluateMartyrTehranStatus,
   findMartyrGraveIn28k,
   getAllUnifiedBooks,
   getGolzarTotalRecordsCount,
   loadCachedGolzarMartyrs,
   runFastCrossMatchBooksAnd28kMartyrs
 } from '../utils/martyrsCrossMatchEngine';
+import { TehranMartyrBadge } from './TehranMartyrBadge';
 import type { MainMenuTab } from '../App';
 
 export interface SpecializedPublisher {
@@ -2333,8 +2335,19 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                                 {grp.tempBookId}
                               </span>
                             )}
-                            <h3 className="font-bold text-sm sm:text-base text-slate-900">
-                              کتاب «{grp.bookTitle}»
+                            <h3 className="font-bold text-sm sm:text-base text-slate-900 inline-flex items-center gap-1.5 flex-wrap">
+                              <span>کتاب «{grp.bookTitle}»</span>
+                              {grp.allBookLinks.some(
+                                (lnk) =>
+                                  evaluateMartyrTehranStatus({
+                                    martyrName: lnk.martyrNameRaw,
+                                    gravePiece: lnk.gravePieceRaw,
+                                    graveRow: lnk.graveRowRaw,
+                                    graveNumber: lnk.graveNumberRaw,
+                                    sourceDesc: lnk.sourceDescriptionRaw,
+                                    reviewerNote: lnk.reviewerNote
+                                  }).isTehran
+                              ) && <TehranMartyrBadge size="xs" />}
                             </h3>
                             {grp.needsReviewFlag && (
                               <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 inline-flex items-center gap-1">
@@ -2387,12 +2400,23 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                                   }
                                 >
                                   <td className="py-2 px-2 font-bold text-slate-900">
-                                    {lnk.martyrNameRaw}
-                                    {lnk.isGroupPhrase && (
-                                      <span className="mr-1.5 text-[10px] font-normal px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">
-                                        عبارت گروهی
-                                      </span>
-                                    )}
+                                    <span className="inline-flex items-center gap-1.5 flex-wrap">
+                                      <span>{lnk.martyrNameRaw}</span>
+                                      {!lnk.isGroupPhrase &&
+                                        evaluateMartyrTehranStatus({
+                                          martyrName: lnk.martyrNameRaw,
+                                          gravePiece: lnk.gravePieceRaw,
+                                          graveRow: lnk.graveRowRaw,
+                                          graveNumber: lnk.graveNumberRaw,
+                                          sourceDesc: lnk.sourceDescriptionRaw,
+                                          reviewerNote: lnk.reviewerNote
+                                        }).isTehran && <TehranMartyrBadge size="xs" />}
+                                      {lnk.isGroupPhrase && (
+                                        <span className="mr-1.5 text-[10px] font-normal px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">
+                                          عبارت گروهی
+                                        </span>
+                                      )}
+                                    </span>
                                   </td>
                                   <td className="py-2 px-2 tabular-nums font-semibold">
                                     {toPersianDigits(lnk.gravePieceRaw || '—')}
@@ -3351,13 +3375,29 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                   {/* خط ۱ (ثابت و یکسان در همه کارت‌ها): ۱. نام شهید (بدون تکرار شهید شهید) | ۲. عنوان کتاب در روبه‌رو | ۳. وضعیت بررسی و جزئیات */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-[#E6D5C1]/70">
                     <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
-                      <span className="px-2.5 py-1 rounded-lg bg-[#6B3E26] text-white font-bold text-xs shrink-0">
-                        {cleanMartyrTitle}
-                      </span>
-                      <span className="font-bold text-[#332218] inline-flex items-center gap-1.5">
-                        <BookOpen className="w-4 h-4 text-[#8C3B2B] shrink-0" />
-                        <span>کتاب «{sug.bookTitle}»</span>
-                      </span>
+                      {(() => {
+                        const tehranEval = evaluateMartyrTehranStatus({
+                          martyrName: sug.martyrName,
+                          gravePiece: graveInfo?.gravePiece,
+                          graveRow: graveInfo?.graveRow,
+                          graveNumber: graveInfo?.graveNumber,
+                          sourceDesc: sug.publisherDescription,
+                          reviewerNote: sug.reviewerNote
+                        });
+                        return (
+                          <>
+                            <span className="px-2.5 py-1 rounded-lg bg-[#6B3E26] text-white font-bold text-xs shrink-0 inline-flex items-center gap-1.5">
+                              <span>{cleanMartyrTitle}</span>
+                              {tehranEval.isTehran && <TehranMartyrBadge size="xs" />}
+                            </span>
+                            <span className="font-bold text-[#332218] inline-flex items-center gap-1.5 flex-wrap">
+                              <BookOpen className="w-4 h-4 text-[#8C3B2B] shrink-0" />
+                              <span>کتاب «{sug.bookTitle}»</span>
+                              {tehranEval.isTehran && <TehranMartyrBadge size="xs" />}
+                            </span>
+                          </>
+                        );
+                      })()}
                     </div>
 
                     <div className="flex items-center justify-between sm:justify-end gap-1.5 text-xs shrink-0">
@@ -3826,14 +3866,20 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                   {lastBulkMatchedList.map((m, idx) => (
                     <tr key={`${m.martyrName}-${m.book.tempBookId}-${idx}`} className="hover:bg-slate-50">
                       <td className="py-2 px-2.5 font-mono">{toPersianDigits(idx + 1)}</td>
-                      <td className="py-2 px-2.5 font-bold text-[#8C3B2B]">{m.martyrName}</td>
+                      <td className="py-2 px-2.5 font-bold text-[#8C3B2B]">
+                        <span className="inline-flex items-center gap-1.5 flex-wrap">
+                          <span>{m.martyrName}</span>
+                          <TehranMartyrBadge size="xs" />
+                        </span>
+                      </td>
                       <td className="py-2 px-2.5 tabular-nums font-semibold">
                         قطعه {toPersianDigits(m.gravePiece || '—')} · ردیف {toPersianDigits(m.graveRow || '—')} · ش{' '}
                         {toPersianDigits(m.graveNumber || '—')}
                       </td>
                       <td className="py-2 px-2.5">
-                        <div className="font-bold text-slate-900">
-                          {m.book.titleRaw}{' '}
+                        <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                          <span>{m.book.titleRaw}</span>
+                          <TehranMartyrBadge size="xs" />
                           <span className="font-mono text-[10.5px] text-[#1F4E79]">({m.book.tempBookId})</span>
                         </div>
                         <div className="text-[11px] text-slate-500">ناشر: {m.book.publisherRaw || '—'}</div>

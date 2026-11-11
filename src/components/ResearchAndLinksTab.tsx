@@ -45,6 +45,8 @@ import {
 import { SOOREH_MEHR_RESEARCH_STATS } from '../data/soorehMehrResearch';
 import { generateUniqueExtractedId, generateUniqueLinkId } from '../utils/idGenerator';
 import { requestActionConfirmation } from '../utils/confirmDialogService';
+import { TehranMartyrBadge } from './TehranMartyrBadge';
+import { evaluateMartyrTehranStatus } from '../utils/martyrsCrossMatchEngine';
 
 interface ResearchAndLinksTabProps {
   catalogRows: ReferenceCatalogRow[];
@@ -273,6 +275,17 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     return links.filter((lnk) => {
       if (statusFilter === 'named_only') {
         if (!lnk.martyrNameRaw || lnk.martyrNameRaw === '*') return false;
+      } else if (statusFilter === 'tehran_martyrs_only') {
+        if (!lnk.martyrNameRaw || lnk.martyrNameRaw === '*' || lnk.isGroupPhrase) return false;
+        const tEval = evaluateMartyrTehranStatus({
+          martyrName: lnk.martyrNameRaw,
+          gravePiece: lnk.gravePieceRaw,
+          graveRow: lnk.graveRowRaw,
+          graveNumber: lnk.graveNumberRaw,
+          sourceDesc: lnk.sourceDescriptionRaw,
+          reviewerNote: lnk.reviewerNote
+        });
+        if (!tEval.isTehran) return false;
       } else if (statusFilter !== 'all' && lnk.reviewStatus !== statusFilter) {
         return false;
       }
@@ -1001,6 +1014,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                   className="min-h-[44px] px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl text-slate-800 font-medium"
                 >
                   <option value="named_only">رکوردهای دارای نام/عبارت ثبت‌شده (حذف خالی و *)</option>
+                  <option value="tehran_martyrs_only">شهدای تهرانی (منطبق با گلزار شهدای تهران)</option>
                   <option value="all">همه رکوردهای شیت ({toPersianDigits(links.length)} مورد)</option>
                   <option value="بررسی‌شده در پژوهش اصلی">بررسی‌شده در پژوهش اصلی (پژوهش سوره مهر)</option>
                   <option value="بررسی‌نشده">بررسی‌نشده</option>
@@ -1302,41 +1316,62 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
-                  <div className="md:col-span-5">
-                    <div className="text-xs text-slate-500">عنوان کتاب در منبع:</div>
-                    <div className="text-base font-bold text-slate-900 mt-0.5">
-                      {lnk.bookTitleRaw}
-                      {lnk.alternativeTitle && (
-                        <span className="text-xs font-normal text-[#1f4e79] mr-2">
-                          (عنوان دیگر ثبت‌شده: «{lnk.alternativeTitle}»)
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-slate-600 mt-0.5">ناشر: {lnk.publisherRaw || '—'}</div>
-                  </div>
+                {(() => {
+                  const tEval =
+                    !lnk.isGroupPhrase && lnk.martyrNameRaw && lnk.martyrNameRaw !== '*'
+                      ? evaluateMartyrTehranStatus({
+                          martyrName: lnk.martyrNameRaw,
+                          gravePiece: lnk.gravePieceRaw,
+                          graveRow: lnk.graveRowRaw,
+                          graveNumber: lnk.graveNumberRaw,
+                          sourceDesc: lnk.sourceDescriptionRaw,
+                          reviewerNote: lnk.reviewerNote
+                        })
+                      : null;
+                  const isTehran = Boolean(tEval?.isTehran);
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                      <div className="md:col-span-5">
+                        <div className="text-xs text-slate-500">عنوان کتاب در منبع:</div>
+                        <div className="text-base font-bold text-slate-900 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                          <span>{lnk.bookTitleRaw}</span>
+                          {isTehran && <TehranMartyrBadge size="xs" />}
+                          {lnk.alternativeTitle && (
+                            <span className="text-xs font-normal text-[#1f4e79] mr-2">
+                              (عنوان دیگر ثبت‌شده: «{lnk.alternativeTitle}»)
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-600 mt-0.5">ناشر: {lnk.publisherRaw || '—'}</div>
+                      </div>
 
-                  <div className="md:col-span-4">
-                    <div className="text-xs text-slate-500">
-                      {lnk.isGroupPhrase ? 'عبارت گروهی ثبت‌شده:' : 'نام شهید یا عبارت ثبت‌شده:'}
-                    </div>
-                    <div className="text-base font-bold text-[#1f4e79] mt-0.5">
-                      {lnk.martyrNameRaw || (lnk.rawNameInSource === '*' ? '* (علامت منبع)' : '(خالی در منبع)')}
-                    </div>
-                    <div className="text-xs text-slate-600 mt-0.5 tabular-nums">
-                      مزار: قطعه {toPersianDigits(lnk.gravePieceRaw || 'خالی')} · ردیف{' '}
-                      {toPersianDigits(lnk.graveRowRaw || 'خالی')} · شماره{' '}
-                      {toPersianDigits(lnk.graveNumberRaw || 'خالی')}
-                    </div>
-                  </div>
+                      <div className="md:col-span-4">
+                        <div className="text-xs text-slate-500">
+                          {lnk.isGroupPhrase ? 'عبارت گروهی ثبت‌شده:' : 'نام شهید یا عبارت ثبت‌شده:'}
+                        </div>
+                        <div className="text-base font-bold text-[#1f4e79] mt-0.5 flex items-center gap-1.5 flex-wrap">
+                          <span>
+                            {lnk.martyrNameRaw ||
+                              (lnk.rawNameInSource === '*' ? '* (علامت منبع)' : '(خالی در منبع)')}
+                          </span>
+                          {isTehran && <TehranMartyrBadge size="xs" />}
+                        </div>
+                        <div className="text-xs text-slate-600 mt-0.5 tabular-nums">
+                          مزار: قطعه {toPersianDigits(lnk.gravePieceRaw || 'خالی')} · ردیف{' '}
+                          {toPersianDigits(lnk.graveRowRaw || 'خالی')} · شماره{' '}
+                          {toPersianDigits(lnk.graveNumberRaw || 'خالی')}
+                        </div>
+                      </div>
 
-                  <div className="md:col-span-3 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs">
-                    <span className="text-slate-500 block">صفحه یا ارجاع خام:</span>
-                    <strong className="text-slate-900 font-bold mt-0.5 block">
-                      {toPersianDigits(lnk.pageReferenceRaw || '—')}
-                    </strong>
-                  </div>
-                </div>
+                      <div className="md:col-span-3 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs">
+                        <span className="text-slate-500 block">صفحه یا ارجاع خام:</span>
+                        <strong className="text-slate-900 font-bold mt-0.5 block">
+                          {toPersianDigits(lnk.pageReferenceRaw || '—')}
+                        </strong>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {(lnk.sourceDescriptionRaw || lnk.reviewerNote) && (
                   <div className="text-xs text-slate-600 bg-slate-50/70 rounded-xl p-3 space-y-1">
@@ -1793,14 +1828,30 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                           <td className="py-2.5 px-3 text-center font-mono text-[#78604E]">
                             {toPersianDigits(exStartIdx + idx + 1)}
                           </td>
-                          <td className="py-2.5 px-3 font-bold text-[#332218]">{item.martyrNameRaw}</td>
+                          <td className="py-2.5 px-3 font-bold text-[#332218]">
+                            <span className="inline-flex items-center gap-1.5 flex-wrap">
+                              <span>{item.martyrNameRaw}</span>
+                              {evaluateMartyrTehranStatus({
+                                martyrName: item.martyrNameRaw,
+                                gravePiece: item.gravePieceRaw,
+                                sourceDesc: item.researcherNote
+                              }).isTehran && <TehranMartyrBadge size="xs" />}
+                            </span>
+                          </td>
                           <td className="py-2.5 px-3 tabular-nums text-[#5C4033]">
                             {toPersianDigits(item.gravePieceRaw || '—')}
                           </td>
                           <td className="py-2.5 px-3 font-bold text-[#6B3E26]">
-                            {item.bookTitleRaw}{' '}
-                            <span className="font-mono text-[10.5px] text-[#78604E] font-normal" dir="ltr">
-                              ({item.tempBookId})
+                            <span className="inline-flex items-center gap-1.5 flex-wrap">
+                              <span>{item.bookTitleRaw}</span>
+                              {evaluateMartyrTehranStatus({
+                                martyrName: item.martyrNameRaw,
+                                gravePiece: item.gravePieceRaw,
+                                sourceDesc: item.researcherNote
+                              }).isTehran && <TehranMartyrBadge size="xs" />}
+                              <span className="font-mono text-[10.5px] text-[#78604E] font-normal" dir="ltr">
+                                ({item.tempBookId})
+                              </span>
                             </span>
                           </td>
                           <td className="py-2.5 px-3 font-bold text-[#332218] tabular-nums max-w-[140px] break-words [overflow-wrap:anywhere]">
@@ -2012,12 +2063,26 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start min-w-0 max-w-full">
                       <div className="md:col-span-9 space-y-1.5 min-w-0 max-w-full overflow-hidden">
-                        <div className="text-xs text-[#5C4033] break-words [overflow-wrap:anywhere]">
-                          کتاب: <strong className="text-[#332218]">{item.bookTitleRaw}</strong>
-                          {item.publisherRaw && ` · ناشر: ${item.publisherRaw}`}
-                          {' · '}
-                          شهید: <strong className="text-[#6B3E26]">{item.martyrNameRaw}</strong>
-                          {item.gravePieceRaw && ` (قطعه ${toPersianDigits(item.gravePieceRaw)})`}
+                        <div className="text-xs text-[#5C4033] break-words [overflow-wrap:anywhere] flex items-center gap-1.5 flex-wrap">
+                          <span>
+                            کتاب: <strong className="text-[#332218]">{item.bookTitleRaw}</strong>
+                          </span>
+                          {evaluateMartyrTehranStatus({
+                            martyrName: item.martyrNameRaw,
+                            gravePiece: item.gravePieceRaw,
+                            sourceDesc: item.researcherNote
+                          }).isTehran && <TehranMartyrBadge size="xs" />}
+                          {item.publisherRaw && <span>· ناشر: {item.publisherRaw}</span>}
+                          <span>· شهید:</span>
+                          <strong className="text-[#6B3E26]">{item.martyrNameRaw}</strong>
+                          {evaluateMartyrTehranStatus({
+                            martyrName: item.martyrNameRaw,
+                            gravePiece: item.gravePieceRaw,
+                            sourceDesc: item.researcherNote
+                          }).isTehran && <TehranMartyrBadge size="xs" />}
+                          {item.gravePieceRaw && (
+                            <span>(قطعه {toPersianDigits(item.gravePieceRaw)})</span>
+                          )}
                         </div>
 
                         <h4 className="text-sm sm:text-base font-bold text-[#332218] break-words [overflow-wrap:anywhere]">

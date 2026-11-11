@@ -8,6 +8,10 @@ import {
   ReferenceCatalogRow,
   normalizePersianText
 } from './markazAsnadData';
+import {
+  enrichLinksAndCatalogBooksWith28kTehranIndex,
+  evaluateMartyrTehranStatus
+} from '../utils/martyrsCrossMatchEngine';
 
 /**
  * آمار مستند و قطعی استخراج‌شده از فایل واقعی «لیست کتابهای و شهدای مرتبط.xlsx» (منبع سوره مهر - شیت Sheet2)
@@ -556,6 +560,12 @@ export interface BookDossierMartyrRelation {
   sourceSheetCategory: 'کتاب‌های مرتبط با یک شهید' | 'کتاب‌های مرتبط با چند شهید';
   sourceExcelRow: string;
   rawNameInSource: string;
+  /** آیا این شهید قطعی/منطبق با شهدای تهرانی (گلزار شهدای تهران — ۲۸٬۳۶۸ شهید) است؟ */
+  isTehranMartyr: boolean;
+  /** آیا این ردیف صراحتاً به عنوان «غ تهرانی» (غیرتهرانی) ثبت شده است؟ */
+  isNonTehranMartyr: boolean;
+  /** آیا با وجود ثبت به عنوان غیرتهرانی، هم‌نام با یکی از ۲۸٬۳۶۸ شهید تهران است و نیازمند بررسی کارشناس است؟ */
+  hasHomonymIn28kNeedsReview: boolean;
 }
 
 export interface UnifiedBookDossier {
@@ -591,6 +601,10 @@ export interface UnifiedBookDossier {
     | 'ثبت جدید'
     | 'فهرست کتابخانه';
   martyrRelations: BookDossierMartyrRelation[];
+  /** آیا این کتاب به حداقل یک شهید تهرانی (گلزار شهدای تهران) اشاره دارد و باید نشان قرمزرنگ «تهرانی» بگیرد؟ */
+  hasTehranMartyr: boolean;
+  /** تعداد شهدای تهرانی مرتبط با این کتاب */
+  tehranMartyrsCount: number;
   extractedPassages: ExtractedContentItem[];
   originalExcelData: {
     hasExcelRecord: boolean;
@@ -630,6 +644,23 @@ const INCLUDED_GROUP_PHRASE_LINK_IDS = new Set([
 
 export function classifyMartyrLinkCertainty(link: BookMartyrLinkRecord): MartyrRelationCertainty {
   const st = (link.reviewStatus || '').trim();
+  const tehranEval = evaluateMartyrTehranStatus({
+    martyrName: link.martyrNameRaw,
+    gravePiece: link.gravePieceRaw,
+    graveRow: link.graveRowRaw,
+    graveNumber: link.graveNumberRaw,
+    sourceDesc: link.sourceDescriptionRaw,
+    reviewerNote: link.reviewerNote,
+    reviewStatus: link.reviewStatus,
+    isGroupPhrase: link.isGroupPhrase
+  });
+
+  // قانون اکید کاربر: اگر شهید در شیت «غ تهرانی» (غیرتهرانی) ثبت شده اما هم‌نام با یکی از ۲۸٬۳۶۸ شهید تهران است،
+  // باید به «نیازمند بررسی» برود تا کارشناس بررسی کند.
+  if (tehranEval.hasHomonymIn28kNeedsReview && st !== 'تأییدشده کارشناسی') {
+    return 'نیازمند بررسی';
+  }
+
   if (st === 'قطعی') return 'قطعی';
   if (st === 'احتمالی') return 'احتمالی';
   if (st === 'نیازمند بررسی') return 'نیازمند بررسی';
@@ -640,16 +671,19 @@ export function classifyMartyrLinkCertainty(link: BookMartyrLinkRecord): MartyrR
     return 'احتمالی';
   }
   if (st.includes('تکمیل مزار') || st.includes('بررسی مزار')) {
-    // اگر قطعه مشخص است اما ردیف یا شماره مزار ناقص است، ارتباط احتمالی یا نیازمند بررسی مزار است
-    if (link.gravePieceRaw && link.gravePieceRaw !== 'غ تهرانی') {
+    if (link.gravePieceRaw && !tehranEval.isNonTehran) {
       return 'احتمالی';
     }
     return 'نیازمند بررسی';
+  }
+  if (tehranEval.isNonTehran) {
+    return 'احتمالی';
   }
   if (
     st === 'تأییدشده کارشناسی' ||
     st === 'تأیید' ||
     st === 'بررسی‌شده در پژوهش اصلی' ||
+    tehranEval.isTehran ||
     (link.gravePieceRaw && link.graveRowRaw && link.graveNumberRaw)
   ) {
     return 'قطعی';
@@ -658,8 +692,8 @@ export function classifyMartyrLinkCertainty(link: BookMartyrLinkRecord): MartyrR
 }
 
 /**
- * ساخت فهرست یکتا و بدون تکرار پرونده کتاب‌ها (۱۹۸ عنوان پایه از شیت‌های «کتاب‌های مرتبط با یک شهید» و «کتاب‌های مرتبط با چند شهید»
- * + به‌روزرسانی خودکار با اضافه‌شدن کتاب‌های ثبت جدید یا تعیین‌تکلیف‌شده).
+ * ساخت فهرست یکتا و بدون تکرار پرونده کتاب‌ها (۱۹۸ عنوان پایه + تمامی کتاب‌های منطبق با ۲۸٬۳۶۸ شهید گلزار شهدای تهران
+ * + کتاب‌های ثبت جدید یا تعیین‌تکلیف‌شده).
  * هر عنوان کتاب فقط یک رکورد دارد و تمامی شهدای مرتبط با آن در همان پرونده کتاب تجمیع می‌شوند.
  */
 export function buildUnifiedBookDossiers(params: {
@@ -669,7 +703,12 @@ export function buildUnifiedBookDossiers(params: {
   links: BookMartyrLinkRecord[];
   extractedItems: ExtractedContentItem[];
 }): UnifiedBookDossier[] {
-  const { catalogRows, auditRecords, bookCopies, links, extractedItems } = params;
+  const { catalogRows, auditRecords, bookCopies, links: rawInputLinks, extractedItems } = params;
+  const links = enrichLinksAndCatalogBooksWith28kTehranIndex({
+    catalogRows,
+    auditRecords,
+    links: rawInputLinks
+  });
 
   const catalogById = new Map<string, ReferenceCatalogRow>();
   const catalogByCompactTitle = new Map<string, ReferenceCatalogRow>();
@@ -881,6 +920,16 @@ export function buildUnifiedBookDossiers(params: {
       : 'کتاب‌های مرتبط با یک شهید';
 
     const martyrRelations: BookDossierMartyrRelation[] = grp.links.map((lnk) => {
+      const tehranEval = evaluateMartyrTehranStatus({
+        martyrName: lnk.martyrNameRaw,
+        gravePiece: lnk.gravePieceRaw,
+        graveRow: lnk.graveRowRaw,
+        graveNumber: lnk.graveNumberRaw,
+        sourceDesc: lnk.sourceDescriptionRaw,
+        reviewerNote: lnk.reviewerNote,
+        reviewStatus: lnk.reviewStatus,
+        isGroupPhrase: lnk.isGroupPhrase
+      });
       const certainty = classifyMartyrLinkCertainty(lnk);
       const relSheetCat: 'کتاب‌های مرتبط با یک شهید' | 'کتاب‌های مرتبط با چند شهید' =
         lnk.sourceSheet === 'چند شهید' || grp.links.length > 1 || lnk.isGroupPhrase
@@ -917,9 +966,15 @@ export function buildUnifiedBookDossiers(params: {
         sourceSheet: lnk.sourceSheet || relSheetCat,
         sourceSheetCategory: relSheetCat,
         sourceExcelRow: lnk.sourceExcelRow || '—',
-        rawNameInSource: lnk.rawNameInSource || lnk.martyrNameRaw
+        rawNameInSource: lnk.rawNameInSource || lnk.martyrNameRaw,
+        isTehranMartyr: tehranEval.isTehran,
+        isNonTehranMartyr: tehranEval.isNonTehran,
+        hasHomonymIn28kNeedsReview: tehranEval.hasHomonymIn28kNeedsReview
       };
     });
+
+    const tehranMartyrsCount = martyrRelations.filter((r) => r.isTehranMartyr).length;
+    const hasTehranMartyr = tehranMartyrsCount > 0;
 
     const relatedExtracts = extractedItems.filter(
       (ex) =>
@@ -997,6 +1052,8 @@ export function buildUnifiedBookDossiers(params: {
       notes: aud?.notes || catRow?.noteRaw || '',
       sheetCategory,
       martyrRelations,
+      hasTehranMartyr,
+      tehranMartyrsCount,
       extractedPassages: relatedExtracts,
       originalExcelData: {
         hasExcelRecord: Boolean(catRow || grp.links.length > 0),

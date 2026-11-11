@@ -72,7 +72,7 @@ export function popInnerBackStepIfAny(): boolean {
 export interface HomeDossierNavSnapshot {
   activeStatGroupModal: 'all_books' | 'new_books' | 'determined_books' | 'martyr_books' | null;
   statModalSearchQuery: string;
-  statModalSubFilter: 'all' | 'single_martyr' | 'multi_martyr' | 'definite' | 'probable' | 'needs_review';
+  statModalSubFilter: 'all' | 'tehran_martyrs' | 'single_martyr' | 'multi_martyr' | 'definite' | 'probable' | 'needs_review';
   statModalScrollTop: number;
   selectedBookDossierId: string | null;
   lastInteractedDossierId: string | null;

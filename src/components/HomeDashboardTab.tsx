@@ -64,6 +64,8 @@ import {
 } from '../utils/excelExportService';
 import { FullOperationalState } from '../utils/backupService';
 import { JsonSystemTransferSection } from '../modules/json-system-transfer';
+import { TehranMartyrBadge } from './TehranMartyrBadge';
+import { evaluateMartyrTehranStatus } from '../utils/martyrsCrossMatchEngine';
 
 interface HomeDashboardTabProps {
   catalogRows: ReferenceCatalogRow[];
@@ -98,6 +100,7 @@ type StatGroupModalType = 'all_books' | 'new_books' | 'determined_books' | 'mart
 
 type GroupSubFilter =
   | 'all'
+  | 'tehran_martyrs'
   | 'single_martyr'
   | 'multi_martyr'
   | 'definite'
@@ -643,12 +646,30 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       (ex) => compactPersianForMatch(ex.martyrNameRaw) === targetCompact
     );
 
+    const pieceVal = customMatch?.gravePiece || wbMatch?.piece || firstRel?.gravePiece || '—';
+    const rowVal = customMatch?.graveRow || wbMatch?.graveRow || firstRel?.graveRow || '—';
+    const numVal = customMatch?.graveNumber || wbMatch?.graveNumber || firstRel?.graveNumber || '—';
+    const fullNameVal =
+      customMatch?.fullName || wbMatch?.fullNameSearch || selectedMartyrDossierName;
+
+    const tehranEval = evaluateMartyrTehranStatus({
+      martyrName: fullNameVal,
+      gravePiece: pieceVal === '—' ? '' : pieceVal,
+      graveRow: rowVal === '—' ? '' : rowVal,
+      graveNumber: numVal === '—' ? '' : numVal,
+      sourceDesc: firstRel?.sourceDescriptionRaw,
+      reviewerNote: firstRel?.reviewerNote
+    });
+
     return {
-      fullName: customMatch?.fullName || wbMatch?.fullNameSearch || selectedMartyrDossierName,
+      fullName: fullNameVal,
       personId: customMatch?.martyrId || wbMatch?.tempPersonId || 'پرونده پژوهشی شهید',
-      piece: customMatch?.gravePiece || wbMatch?.piece || firstRel?.gravePiece || '—',
-      row: customMatch?.graveRow || wbMatch?.graveRow || firstRel?.graveRow || '—',
-      number: customMatch?.graveNumber || wbMatch?.graveNumber || firstRel?.graveNumber || '—',
+      piece: pieceVal,
+      row: rowVal,
+      number: numVal,
+      isTehranMartyr:
+        !tehranEval.isNonTehran &&
+        (tehranEval.isTehran || relatedRelations.some((r) => r.rel.isTehranMartyr)),
       graveStatus:
         customMatch?.graveVerificationStatus ||
         wbMatch?.graveStatus ||
@@ -832,7 +853,9 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       baseList = martyrLinkedDossiers;
     }
 
-    if (statModalSubFilter === 'single_martyr') {
+    if (statModalSubFilter === 'tehran_martyrs') {
+      baseList = baseList.filter((d) => d.hasTehranMartyr);
+    } else if (statModalSubFilter === 'single_martyr') {
       baseList = baseList.filter((d) => d.sheetCategory === 'کتاب‌های مرتبط با یک شهید');
     } else if (statModalSubFilter === 'multi_martyr') {
       baseList = baseList.filter((d) => d.sheetCategory === 'کتاب‌های مرتبط با چند شهید');
@@ -1315,7 +1338,10 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                         className="py-2 flex items-center justify-between gap-2 text-xs"
                       >
                         <div className="min-w-0">
-                          <div className="font-bold text-[#332218] truncate">{d.title}</div>
+                          <div className="font-bold text-[#332218] flex items-center gap-1.5 flex-wrap">
+                            <span className="truncate">{d.title}</span>
+                            {d.hasTehranMartyr && <TehranMartyrBadge size="xs" />}
+                          </div>
                           <div className="text-[11px] text-[#6E5846] truncate">
                             {d.publisher} · {toPersianDigits(d.martyrRelations.length)} شهید مرتبط
                             {d.locationCode ? ` · ${d.locationCode}` : ''}
@@ -1350,68 +1376,95 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                   <p className="text-xs text-[#6E5846] py-1">شهیدی با این نام یافت نشد.</p>
                 ) : (
                   <div className="divide-y divide-[#EFE5D8]">
-                    {searchResults.matchedLinks.map((l) => (
-                      <div
-                        key={l.id}
-                        className="py-2 flex items-center justify-between gap-2 text-xs"
-                      >
-                        <div className="min-w-0">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedMartyrDossierName(l.martyrNameRaw)}
-                            className="font-bold text-[#6B3E26] hover:underline truncate block text-right cursor-pointer"
-                          >
-                            {l.martyrNameRaw}
-                          </button>
-                          <div className="text-[11px] text-[#6E5846] truncate">
-                            کتاب «{l.bookTitleRaw}»{' '}
-                            {l.pageReferenceRaw ? `(ص ${l.pageReferenceRaw})` : ''}
+                    {searchResults.matchedLinks.map((l) => {
+                      const isTehranLink = evaluateMartyrTehranStatus({
+                        martyrName: l.martyrNameRaw,
+                        gravePiece: l.gravePieceRaw,
+                        graveRow: l.graveRowRaw,
+                        graveNumber: l.graveNumberRaw,
+                        sourceDesc: l.sourceDescriptionRaw,
+                        reviewerNote: l.reviewerNote,
+                        reviewStatus: l.reviewStatus,
+                        isGroupPhrase: l.isGroupPhrase
+                      }).isTehran;
+                      return (
+                        <div
+                          key={l.id}
+                          className="py-2 flex items-center justify-between gap-2 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedMartyrDossierName(l.martyrNameRaw)}
+                                className="font-bold text-[#6B3E26] hover:underline truncate text-right cursor-pointer"
+                              >
+                                {l.martyrNameRaw}
+                              </button>
+                              {isTehranLink && <TehranMartyrBadge size="xs" />}
+                            </div>
+                            <div className="text-[11px] text-[#6E5846] flex items-center gap-1 flex-wrap">
+                              <span className="truncate">
+                                کتاب «{l.bookTitleRaw}»{' '}
+                                {l.pageReferenceRaw ? `(ص ${l.pageReferenceRaw})` : ''}
+                              </span>
+                              {isTehranLink && <TehranMartyrBadge size="xs" />}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedMartyrDossierName(l.martyrNameRaw)}
+                              className="px-2 py-1 text-[11px] bg-white hover:bg-[#FAF5EE] text-[#332218] border border-[#D8C7B2] font-bold rounded-lg cursor-pointer"
+                            >
+                              پرونده شهید
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openBookDossierByTitleOrId(l.tempBookId || l.bookTitleRaw)}
+                              className="px-2.5 py-1 text-[11px] bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#6B3E26] border border-[#D8C7B2] font-bold rounded-lg cursor-pointer"
+                            >
+                              پرونده کتاب
+                            </button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedMartyrDossierName(l.martyrNameRaw)}
-                            className="px-2 py-1 text-[11px] bg-white hover:bg-[#FAF5EE] text-[#332218] border border-[#D8C7B2] font-bold rounded-lg cursor-pointer"
-                          >
-                            پرونده شهید
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openBookDossierByTitleOrId(l.tempBookId || l.bookTitleRaw)}
-                            className="px-2.5 py-1 text-[11px] bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#6B3E26] border border-[#D8C7B2] font-bold rounded-lg cursor-pointer"
-                          >
-                            پرونده کتاب
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    {searchResults.matchedMartyrs.slice(0, 3).map((m) => (
-                      <div
-                        key={m.tempPersonId}
-                        className="py-2 flex items-center justify-between gap-2 text-xs"
-                      >
-                        <div className="min-w-0">
+                      );
+                    })}
+                    {searchResults.matchedMartyrs.slice(0, 3).map((m) => {
+                      const isTehranM = evaluateMartyrTehranStatus({
+                        martyrName: m.fullNameSearch,
+                        gravePiece: m.piece,
+                        graveRow: m.graveRow,
+                        graveNumber: m.graveNumber
+                      }).isTehran;
+                      return (
+                        <div
+                          key={m.tempPersonId}
+                          className="py-2 flex items-center justify-between gap-2 text-xs"
+                        >
+                          <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedMartyrDossierName(m.fullNameSearch)}
+                              className="font-bold text-[#332218] hover:underline cursor-pointer"
+                            >
+                              {m.fullNameSearch}
+                            </button>
+                            {isTehranM && <TehranMartyrBadge size="xs" />}
+                            <span className="text-[#6E5846] text-[11px]">
+                              (قطعه {m.piece || '—'})
+                            </span>
+                          </div>
                           <button
                             type="button"
                             onClick={() => setSelectedMartyrDossierName(m.fullNameSearch)}
-                            className="font-bold text-[#332218] hover:underline cursor-pointer"
+                            className="px-2 py-1 text-[11px] bg-[#FAF5EE] text-[#6B3E26] border border-[#D8C7B2] font-bold rounded-lg shrink-0 cursor-pointer"
                           >
-                            {m.fullNameSearch}
+                            پرونده شهید
                           </button>
-                          <span className="text-[#6E5846] mr-1.5 text-[11px]">
-                            (قطعه {m.piece || '—'})
-                          </span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedMartyrDossierName(m.fullNameSearch)}
-                          className="px-2 py-1 text-[11px] bg-[#FAF5EE] text-[#6B3E26] border border-[#D8C7B2] font-bold rounded-lg shrink-0 cursor-pointer"
-                        >
-                          پرونده شهید
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1808,11 +1861,12 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
               )}
             </div>
 
-            {/* فیلتر شیت پژوهشی و وضعیت ارتباط */}
+            {/* فیلتر شیت پژوهشی و وضعیت ارتباط (شامل فیلتر اختصاصی شهدای تهرانی گلزار تهران) */}
             <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
               {(
                 [
                   { id: 'all', label: 'همه موارد' },
+                  { id: 'tehran_martyrs', label: 'شهدای تهرانی (گلزار تهران)' },
                   { id: 'single_martyr', label: 'کتاب‌های مرتبط با یک شهید' },
                   { id: 'multi_martyr', label: 'کتاب‌های مرتبط با چند شهید' },
                   { id: 'definite', label: 'ارتباط قطعی' },
@@ -1898,6 +1952,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                           <span className="font-bold text-sm text-[#332218] break-words">
                             {dossier.title}
                           </span>
+                          {dossier.hasTehranMartyr && <TehranMartyrBadge size="sm" />}
                           {dossier.alternativeTitle && (
                             <span className="text-[11px] text-[#6E5846]">
                               ({dossier.alternativeTitle})
@@ -2249,9 +2304,12 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                 <div className="bg-[#FAF5EE] border border-[#D8C7B2] rounded-xl p-3.5 space-y-3">
                   <div className="flex flex-wrap items-start justify-between gap-2 border-b border-[#E2D2BE] pb-2.5">
                     <div>
-                      <h3 className="text-base sm:text-lg font-bold text-[#332218] break-words">
-                        {selectedBookDossier.title}
-                      </h3>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-base sm:text-lg font-bold text-[#332218] break-words">
+                          {selectedBookDossier.title}
+                        </h3>
+                        {selectedBookDossier.hasTehranMartyr && <TehranMartyrBadge size="md" />}
+                      </div>
                       {selectedBookDossier.alternativeTitle && (
                         <div className="text-xs text-[#6B3E26] mt-0.5">
                           عنوان دیگر ثبت‌شده در منبع: «{selectedBookDossier.alternativeTitle}»
@@ -2690,7 +2748,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                       className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3 space-y-2 min-w-0 max-w-full overflow-hidden"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
                           <span className="w-6 h-6 rounded-lg bg-white border border-[#D8C7B2] font-mono text-[11px] font-bold text-[#6B3E26] flex items-center justify-center shrink-0">
                             {toPersianDigits(idx + 1)}
                           </span>
@@ -2704,6 +2762,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                           >
                             {rel.martyrName}
                           </button>
+                          {rel.isTehranMartyr && <TehranMartyrBadge size="sm" />}
                           <button
                             type="button"
                             onClick={() => setSelectedMartyrDossierName(rel.martyrName)}
@@ -2860,9 +2919,12 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             <div className="bg-[#FAF5EE] border border-[#D8C7B2] rounded-xl p-3.5 space-y-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E2D2BE] pb-2">
                 <div>
-                  <h3 className="text-base font-bold text-[#332218]">
-                    {selectedMartyrDossierData.fullName}
-                  </h3>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-bold text-[#332218]">
+                      {selectedMartyrDossierData.fullName}
+                    </h3>
+                    {selectedMartyrDossierData.isTehranMartyr && <TehranMartyrBadge size="md" />}
+                  </div>
                   <div className="text-[11px] text-[#6E5846] mt-0.5">
                     شناسه پرونده: {selectedMartyrDossierData.personId}
                   </div>
@@ -2917,6 +2979,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                       <div className="space-y-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="font-bold text-[#332218]">{book.title}</span>
+                          {book.hasTehranMartyr && <TehranMartyrBadge size="xs" />}
                           {renderCertaintyBadge(rel.certainty)}
                         </div>
                         <div className="text-[11px] text-[#5C4636] break-words [overflow-wrap:anywhere]">

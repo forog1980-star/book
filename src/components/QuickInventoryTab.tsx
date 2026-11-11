@@ -42,6 +42,8 @@ import {
   saveLibraryTabNavSnapshot
 } from '../utils/navigationHistory';
 import { requestActionConfirmation } from '../utils/confirmDialogService';
+import { TehranMartyrBadge } from './TehranMartyrBadge';
+import { evaluateMartyrTehranStatus } from '../utils/martyrsCrossMatchEngine';
 
 interface QuickInventoryTabProps {
   catalogRows: ReferenceCatalogRow[];
@@ -145,6 +147,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
   const [showAdvancedColumnFilters, setShowAdvancedColumnFilters] = useState<boolean>(false);
   const [auditFilter, setAuditFilter] = useState<
     | 'all'
+    | 'tehran_martyrs'
     | 'unaudited'
     | 'audited'
     | 'not_found_in_round'
@@ -155,6 +158,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     initialLibSnap.auditFilter && initialLibSnap.auditFilter !== 'همه وضعیت‌ها'
       ? (initialLibSnap.auditFilter as
           | 'all'
+          | 'tehran_martyrs'
           | 'unaudited'
           | 'audited'
           | 'not_found_in_round'
@@ -623,7 +627,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     return [...outsideCatalogRows, ...catalogRows];
   }, [catalogRows, outsideCatalogRows, auditFilter]);
 
-  // پیش‌محاسبه متن جست‌وجوی نرمال‌شده برای هر ردیف تا تایپ در کادر جست‌وجو ۱۰۰٪ آنی و بدون لگ باشد
+  // پیش‌محاسبه متن جست‌وجوی نرمال‌شده و وضعیت «شهدای تهرانی» برای هر ردیف تا تایپ در کادر جست‌وجو ۱۰۰٪ آنی و بدون لگ باشد
   const precomputedSearchMap = useMemo(() => {
     const map = new Map<
       string,
@@ -635,6 +639,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
         effectiveAuthor: string;
         effectiveCat: string;
         effectiveLoc: string;
+        hasTehranMartyr: boolean;
       }
     >();
 
@@ -649,6 +654,20 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       const effectiveLoc = savedRec?.location || r.locationRaw || '';
 
       const rowLinks = getLinksForBookRow(r);
+      const hasTehranMartyr = rowLinks.some(
+        (l) =>
+          evaluateMartyrTehranStatus({
+            martyrName: l.martyrNameRaw,
+            gravePiece: l.gravePieceRaw,
+            graveRow: l.graveRowRaw,
+            graveNumber: l.graveNumberRaw,
+            sourceDesc: l.sourceDescriptionRaw,
+            reviewerNote: l.reviewerNote,
+            reviewStatus: l.reviewStatus,
+            isGroupPhrase: l.isGroupPhrase
+          }).isTehran
+      );
+
       const linkedMartyrsText =
         rowLinks.length > 0
           ? rowLinks
@@ -660,7 +679,9 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
           : '';
 
       const haystack = normalizePersianText(
-        `${r.tempBookId} ${r.titleRaw} ${effectivePublisher} ${r.descriptionRaw} ${effectiveAuthor} ${linkedMartyrsText}`
+        `${r.tempBookId} ${r.titleRaw} ${effectivePublisher} ${r.descriptionRaw} ${effectiveAuthor} ${linkedMartyrsText} ${
+          hasTehranMartyr ? 'تهرانی شهدای تهرانی گلزار تهران' : ''
+        }`
       );
 
       map.set(r.rowKey, {
@@ -670,11 +691,38 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
         effectivePublisher,
         effectiveAuthor,
         effectiveCat,
-        effectiveLoc
+        effectiveLoc,
+        hasTehranMartyr
       });
     }
     return map;
   }, [sourceRowsPool, auditRecords, getLinksForBookRow]);
+
+  // تعداد کل کتاب‌های دارای شهید تهرانی (گلزار شهدای تهران)
+  const tehranMartyrBooksCount = useMemo(() => {
+    let count = 0;
+    for (const r of [...outsideCatalogRows, ...catalogRows]) {
+      const linksForRow = getLinksForBookRow(r);
+      if (
+        linksForRow.some(
+          (l) =>
+            evaluateMartyrTehranStatus({
+              martyrName: l.martyrNameRaw,
+              gravePiece: l.gravePieceRaw,
+              graveRow: l.graveRowRaw,
+              graveNumber: l.graveNumberRaw,
+              sourceDesc: l.sourceDescriptionRaw,
+              reviewerNote: l.reviewerNote,
+              reviewStatus: l.reviewStatus,
+              isGroupPhrase: l.isGroupPhrase
+            }).isTehran
+        )
+      ) {
+        count++;
+      }
+    }
+    return count;
+  }, [catalogRows, outsideCatalogRows, getLinksForBookRow]);
 
   // Filtered Catalog Rows (فوق‌سریع و بدون هیچ مکثی هنگام تایپ)
   const allMatchingRows = useMemo(() => {
@@ -690,6 +738,10 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       const isOutside = r.backupSourceSheet === 'کتاب‌های خارج از فهرست' || savedRec?.source === 'outside-list';
       const isAudited = Boolean(savedRec);
 
+      const meta = precomputedSearchMap.get(r.rowKey);
+      if (!meta) return false;
+
+      if (auditFilter === 'tehran_martyrs' && !meta.hasTehranMartyr) return false;
       if (auditFilter === 'audited' && (!isAudited || savedRec?.physical !== 'verified')) return false;
       if (auditFilter === 'unaudited' && isAudited) return false;
       if (auditFilter === 'not_found_in_round' && savedRec?.physical !== 'not_found') return false;
@@ -711,9 +763,6 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
         return false;
       }
       if (auditFilter === 'expected_acquisition') return false;
-
-      const meta = precomputedSearchMap.get(r.rowKey);
-      if (!meta) return false;
 
       // 1. Publisher Filter
       if (publisherFilter !== 'all' && meta.effectivePublisher !== publisherFilter) {
@@ -1702,20 +1751,23 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
             <option value="all">
               ۱. همه کتاب‌ها ({toPersianDigits(totalCatalogCount + outsideCount)} مورد)
             </option>
+            <option value="tehran_martyrs">
+              ۲. کتاب‌های شهدای تهرانی (منطبق با گلزار شهدای تهران — {toPersianDigits(tehranMartyrBooksCount)} مورد)
+            </option>
             <option value="outside_excel">
-              ۲. فقط کتاب‌های ثبت‌شده جدید / خارج از فهرست اولیه ({toPersianDigits(outsideCount)} مورد)
+              ۳. فقط کتاب‌های ثبت‌شده جدید / خارج از فهرست اولیه ({toPersianDigits(outsideCount)} مورد)
             </option>
             <option value="audited">
-              ۳. مشاهده و تأییدشده در قفسه ({toPersianDigits(verifiedCount)} مورد)
+              ۴. مشاهده و تأییدشده در قفسه ({toPersianDigits(verifiedCount)} مورد)
             </option>
             <option value="unaudited">
-              ۴. موجود در فهرست اما هنوز بررسی‌نشده در قفسه
+              ۵. موجود در فهرست اما هنوز بررسی‌نشده در قفسه
             </option>
             <option value="not_found_in_round">
-              ۵. موجود در فهرست اما پیدا نشده در نوبت بررسی فعلی
+              ۶. موجود در فهرست اما پیدا نشده در نوبت بررسی فعلی
             </option>
             <option value="incomplete_or_review">
-              ۶. نیازمند بررسی یا تأیید کارشناس / دارای اطلاعات ناقص
+              ۷. نیازمند بررسی یا تأیید کارشناس / دارای اطلاعات ناقص
             </option>
           </select>
 
@@ -1912,8 +1964,11 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
 
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
-                              <div className="font-bold text-sm sm:text-base text-slate-900 leading-snug">
-                                {row.titleRaw || '(بدون عنوان)'}
+                              <div className="font-bold text-sm sm:text-base text-slate-900 leading-snug flex flex-wrap items-center gap-2">
+                                <span>{row.titleRaw || '(بدون عنوان)'}</span>
+                                {precomputedSearchMap.get(row.rowKey)?.hasTehranMartyr && (
+                                  <TehranMartyrBadge size="sm" />
+                                )}
                               </div>
                               <div className="text-xs text-slate-600 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
                                 {(savedRec?.author || row.authorRaw) && (
@@ -1980,16 +2035,31 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                     شهدای مرتبط ثبت‌شده در پژوهش ({toPersianDigits(rowLinks.length)} مورد):
                                   </span>
                                 </div>
-                                <div className="flex flex-wrap gap-1">
-                                  {rowLinks.slice(0, 6).map((lnk) => (
-                                    <span
-                                      key={lnk.id}
-                                      className="text-[11px] text-slate-800 bg-white px-2 py-0.5 rounded-md border border-amber-200/80"
-                                    >
-                                      <strong>{lnk.martyrNameRaw}</strong>
-                                      {lnk.pageReferenceRaw ? ` (ص ${toPersianDigits(lnk.pageReferenceRaw)})` : ''}
-                                    </span>
-                                  ))}
+                                <div className="flex flex-wrap gap-1.5">
+                                  {rowLinks.slice(0, 6).map((lnk) => {
+                                    const isTehranLnk = evaluateMartyrTehranStatus({
+                                      martyrName: lnk.martyrNameRaw,
+                                      gravePiece: lnk.gravePieceRaw,
+                                      graveRow: lnk.graveRowRaw,
+                                      graveNumber: lnk.graveNumberRaw,
+                                      sourceDesc: lnk.sourceDescriptionRaw,
+                                      reviewerNote: lnk.reviewerNote,
+                                      reviewStatus: lnk.reviewStatus,
+                                      isGroupPhrase: lnk.isGroupPhrase
+                                    }).isTehran;
+                                    return (
+                                      <span
+                                        key={lnk.id}
+                                        className="inline-flex items-center gap-1.5 text-[11px] text-slate-800 bg-white px-2 py-0.5 rounded-md border border-amber-200/80"
+                                      >
+                                        <strong>{lnk.martyrNameRaw}</strong>
+                                        {isTehranLnk && <TehranMartyrBadge size="xs" />}
+                                        {lnk.pageReferenceRaw ? (
+                                          <span>(ص {toPersianDigits(lnk.pageReferenceRaw)})</span>
+                                        ) : null}
+                                      </span>
+                                    );
+                                  })}
                                   {rowLinks.length > 6 && (
                                     <span className="text-[11px] text-slate-500 px-1">
                                       + {toPersianDigits(rowLinks.length - 6)} مورد دیگر
@@ -2547,7 +2617,12 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                           </button>
                         </div>
                       </div>
-                      <div className="text-base font-bold text-slate-900">{selectedRow.titleRaw}</div>
+                      <div className="text-base font-bold text-slate-900 flex flex-wrap items-center gap-2">
+                        <span>{selectedRow.titleRaw}</span>
+                        {precomputedSearchMap.get(selectedRow.rowKey)?.hasTehranMartyr && (
+                          <TehranMartyrBadge size="sm" />
+                        )}
+                      </div>
                       <div className="text-xs text-slate-700">
                         {[
                           selectedRow.publisherRaw && `ناشر: ${selectedRow.publisherRaw}`,

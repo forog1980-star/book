@@ -32,6 +32,8 @@ import {
   toPersianDigits
 } from '../data/markazAsnadData';
 import { openStandardExcelExportModal } from '../modules/excel-export';
+import { TehranMartyrBadge } from './TehranMartyrBadge';
+import { evaluateMartyrTehranStatus } from '../utils/martyrsCrossMatchEngine';
 
 export type DepositoryStatusFilter =
   | 'verified_only'
@@ -39,6 +41,7 @@ export type DepositoryStatusFilter =
   | 'pending_review'
   | 'rejected'
   | 'with_pages_only'
+  | 'tehran_only'
   | 'all';
 
 interface DepositoryAndExportHubProps {
@@ -70,6 +73,7 @@ export interface ResolvedMartyrExportItem {
   sourceSheet: string;
   hasExtractedPassage: boolean;
   extractedPassageCount: number;
+  isTehranMartyr: boolean;
 }
 
 export interface ResolvedBookExportItem {
@@ -87,6 +91,7 @@ export interface ResolvedBookExportItem {
   pageReferencesSummary: string;
   reviewStatus: string;
   extractedPassagesCount: number;
+  hasTehranMartyr: boolean;
 }
 
 export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
@@ -167,6 +172,14 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
       const bObj = catalogMap.get(l.tempBookId);
       const exKey = `${normalizePersianText(l.martyrNameRaw)}::${l.tempBookId}`;
       const matchedExtracts = extractedMap.get(exKey) || [];
+      const tEval = evaluateMartyrTehranStatus({
+        martyrName: l.martyrNameRaw,
+        gravePiece: l.gravePieceRaw,
+        graveRow: l.graveRowRaw,
+        graveNumber: l.graveNumberRaw,
+        sourceDesc: l.sourceDescriptionRaw,
+        reviewerNote: l.reviewerNote
+      });
 
       rows.push({
         id: l.id,
@@ -187,7 +200,8 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
         sourceFile: l.sourceFile || 'مرکز اسناد',
         sourceSheet: l.sourceSheet || 'ارتباط کتاب و شهید',
         hasExtractedPassage: matchedExtracts.length > 0,
-        extractedPassageCount: matchedExtracts.length
+        extractedPassageCount: matchedExtracts.length,
+        isTehranMartyr: tEval.isTehran
       });
     });
 
@@ -199,7 +213,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
     const bookToMartyrs = new Map<
       string,
       {
-        martyrs: { name: string; piece: string; page: string; sourceSheet: string }[];
+        martyrs: { name: string; piece: string; page: string; sourceSheet: string; isTehran: boolean }[];
         verifiedCount: number;
       }
     >();
@@ -214,7 +228,8 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
         name: m.martyrName,
         piece: m.gravePiece,
         page: m.pageReference,
-        sourceSheet: m.sourceSheet
+        sourceSheet: m.sourceSheet,
+        isTehran: m.isTehranMartyr
       });
       if (m.reviewStatus.includes('تأیید') || m.reviewStatus.includes('پژوهش اصلی')) {
         entry.verifiedCount += 1;
@@ -279,7 +294,8 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                 data.martyrs.length
               )}`
             : 'ثبت‌شده در منبع اکسل',
-        extractedPassagesCount: relatedPassages.length
+        extractedPassagesCount: relatedPassages.length,
+        hasTehranMartyr: data.martyrs.some((m) => m.isTehran)
       });
     });
 
@@ -320,6 +336,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
       if (statusFilter === 'researched_main' && cat !== 'researched_main') return false;
       if (statusFilter === 'pending_review' && cat !== 'pending') return false;
       if (statusFilter === 'rejected' && cat !== 'rejected') return false;
+      if (statusFilter === 'tehran_only' && !r.isTehranMartyr) return false;
       if (
         statusFilter === 'with_pages_only' &&
         (r.pageReference === 'ثبت در منبع' || r.pageReference === 'ثبت‌نشده' || !r.pageReference)
@@ -338,6 +355,9 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
   const filteredBookRows = useMemo(() => {
     const q = normalizePersianText(searchQuery);
     return allBookRows.filter((b) => {
+      if (statusFilter === 'tehran_only' && !b.hasTehranMartyr) {
+        return false;
+      }
       if (
         statusFilter === 'verified_only' &&
         !b.reviewStatus.includes('تأییدشده')
@@ -785,6 +805,9 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
               <option value="all">
                 همه پیوندهای دارای نام شهید ({toPersianDigits(stats.totalLinks)})
               </option>
+              <option value="tehran_only">
+                فقط شهدای تهرانی — گلزار شهدای تهران
+              </option>
               <option value="verified_only">
                 تأییدشده و بررسی‌شده ({toPersianDigits(stats.verifiedLinks)})
               </option>
@@ -877,7 +900,10 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                       {toPersianDigits(startRowNumber + idx)}
                     </td>
                     <td className="py-2.5 px-3 font-bold text-[#332218]">
-                      {row.martyrName}
+                      <span className="inline-flex items-center gap-1.5 flex-wrap">
+                        <span>{row.martyrName}</span>
+                        {row.isTehranMartyr && <TehranMartyrBadge size="xs" />}
+                      </span>
                     </td>
                     <td className="py-2.5 px-3 text-[#5C4033] tabular-nums">
                       قطعه {toPersianDigits(row.gravePiece)}
@@ -885,9 +911,12 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                       {row.graveNumber !== '—' && ` · ش.${toPersianDigits(row.graveNumber)}`}
                     </td>
                     <td className="py-2.5 px-3 font-bold text-[#6B3E26]">
-                      {row.bookTitle}{' '}
-                      <span className="font-mono text-[10.5px] text-[#78604E] font-normal" dir="ltr">
-                        ({row.bookId})
+                      <span className="inline-flex items-center gap-1.5 flex-wrap">
+                        <span>{row.bookTitle}</span>
+                        {row.isTehranMartyr && <TehranMartyrBadge size="xs" />}
+                        <span className="font-mono text-[10.5px] text-[#78604E] font-normal" dir="ltr">
+                          ({row.bookId})
+                        </span>
                       </span>
                     </td>
                     <td className="py-2.5 px-3 text-[#5C4033]">{row.publisher}</td>
@@ -937,7 +966,12 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                     <td className="py-2.5 px-3 font-mono font-bold text-[#6B3E26]" dir="ltr">
                       {row.bookId}
                     </td>
-                    <td className="py-2.5 px-3 font-bold text-[#332218]">{row.bookTitle}</td>
+                    <td className="py-2.5 px-3 font-bold text-[#332218]">
+                      <span className="inline-flex items-center gap-1.5 flex-wrap">
+                        <span>{row.bookTitle}</span>
+                        {row.hasTehranMartyr && <TehranMartyrBadge size="xs" />}
+                      </span>
+                    </td>
                     <td className="py-2.5 px-3 text-[#5C4033]">
                       <div>{row.author}</div>
                       <div className="text-[10.5px] text-[#78604E]">{row.publisher}</div>

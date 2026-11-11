@@ -35,6 +35,8 @@ import {
 } from '../utils/navigationHistory';
 import { requestActionConfirmation } from '../utils/confirmDialogService';
 import { openStandardExcelExportModal } from '../modules/excel-export';
+import { TehranMartyrBadge } from './TehranMartyrBadge';
+import { evaluateMartyrTehranStatus } from '../utils/martyrsCrossMatchEngine';
 
 export interface NormalizedDate {
   day: string;
@@ -877,8 +879,15 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                           >
                             {cm.martyrId}
                           </span>
-                          <strong className="text-sm font-bold text-[#253247] truncate">
-                            {cm.fullName}
+                          <strong className="text-sm font-bold text-[#253247] truncate inline-flex items-center gap-1.5">
+                            <span>{cm.fullName}</span>
+                            {evaluateMartyrTehranStatus({
+                              martyrName: cm.fullName,
+                              gravePiece: cm.gravePiece,
+                              graveRow: cm.graveRow,
+                              graveNumber: cm.graveNumber,
+                              sourceDesc: cm.description
+                            }).isTehran && <TehranMartyrBadge size="xs" />}
                           </strong>
                         </div>
                         {cm.alternativeNames && cm.alternativeNames.length > 0 && (
@@ -1226,9 +1235,12 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
           initialDesktopOffset={inspectedRecord ? { x: -36, y: 28 } : undefined}
         >
           <div className="bg-[#edf4fa] rounded-xl p-3 text-xs space-y-1">
-            <div className="font-bold text-sm text-[#1f4e79]">
-              {[linkingRecord.first_name, linkingRecord.last_name].filter(Boolean).join(' ') ||
-                'شهید گمنام'}
+            <div className="font-bold text-sm text-[#1f4e79] flex items-center gap-1.5 flex-wrap">
+              <span>
+                {[linkingRecord.first_name, linkingRecord.last_name].filter(Boolean).join(' ') ||
+                  'شهید گمنام'}
+              </span>
+              {linkingRecord.record_type !== 'non_martyr' && <TehranMartyrBadge size="xs" />}
             </div>
             <div>
               نام پدر: {linkingRecord.father_name || '—'} · قطعه{' '}
@@ -1401,7 +1413,10 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                       </span>
                     </div>
 
-                    <h3 className="font-bold text-base text-slate-900">{fullName}</h3>
+                    <h3 className="font-bold text-base text-slate-900 flex items-center gap-1.5 flex-wrap">
+                      <span>{fullName}</span>
+                      {rec.record_type !== 'non_martyr' && <TehranMartyrBadge size="xs" />}
+                    </h3>
 
                     <div className="text-xs text-slate-600 space-y-1">
                       <div>
@@ -1440,8 +1455,9 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                                   key={lnk.id}
                                   className="text-[11px] bg-white border border-amber-200/80 rounded-lg px-2 py-1 space-y-0.5"
                                 >
-                                  <div className="font-bold text-slate-900">
-                                    کتاب «{lnk.bookTitleRaw}»{' '}
+                                  <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                                    <span>کتاب «{lnk.bookTitleRaw}»</span>
+                                    <TehranMartyrBadge size="xs" />
                                     <span className="font-normal text-slate-600">
                                       ({lnk.publisherRaw || 'سوره مهر'})
                                     </span>
@@ -1510,10 +1526,13 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
           <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
             <div>
               <span className="text-slate-500 block text-[11px]">پرونده بانک جامع شهدا</span>
-              <h3 className="text-base font-bold text-slate-900 mt-0.5">
-                {[inspectedRecord.first_name, inspectedRecord.last_name]
-                  .filter(Boolean)
-                  .join(' ') || 'شهید گمنام'}
+              <h3 className="text-base font-bold text-slate-900 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                <span>
+                  {[inspectedRecord.first_name, inspectedRecord.last_name]
+                    .filter(Boolean)
+                    .join(' ') || 'شهید گمنام'}
+                </span>
+                {inspectedRecord.record_type !== 'non_martyr' && <TehranMartyrBadge size="sm" />}
               </h3>
             </div>
           </div>
@@ -1613,10 +1632,13 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                         className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1"
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <div>
-                            <strong className="text-slate-900">
-                              کتاب «{lnk.bookTitleRaw}»{' '}
-                              {lnk.tempBookId ? `(${lnk.tempBookId})` : ''}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <strong className="text-slate-900 inline-flex items-center gap-1.5 flex-wrap">
+                              <span>
+                                کتاب «{lnk.bookTitleRaw}»{' '}
+                                {lnk.tempBookId ? `(${lnk.tempBookId})` : ''}
+                              </span>
+                              <TehranMartyrBadge size="xs" />
                             </strong>
                             <span className="text-slate-600 mr-1.5">
                               ({lnk.publisherRaw || 'سوره مهر'} · صفحه:{' '}

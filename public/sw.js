@@ -1,12 +1,11 @@
 // Service Worker اختصاصی سامانه اصلی مرکز اسناد (مسیر /book/)
-// استراتژی Network-First برای دریافت فوری آخرین تغییرات با اولین رفرش (و استفاده از کش فقط در حالت آفلاین)
+// استراتژی Network-First واقعی برای موبایل و دسکتاپ جهت دریافت فوری آخرین تغییرات با اولین رفرش
 const CACHE_PREFIX = 'markaz-asnad-main-book-';
 const LEGACY_PREFIX = 'markaz-asnad-pwa-';
-const CACHE_NAME = 'markaz-asnad-main-book-v10';
+const CACHE_NAME = 'markaz-asnad-main-book-v11';
 
+// عدم پیش‌کش کردن index.html در زمان نصب تا هرگز فایل HTML قدیمی در کش ذخیره نشود
 const PRECACHE_ASSETS = [
-  './',
-  './index.html',
   './manifest.webmanifest',
   './data/library_books.json',
   './data/golzar_martyrs.xlsx',
@@ -37,9 +36,7 @@ self.addEventListener('activate', (event) => {
       .then((keys) =>
         Promise.all(
           keys.map((key) => {
-            // پاک‌سازی کامل تمام کش‌های نسخه‌های قبلی برنامه اصلی
-            const isOwnCache = key.startsWith(CACHE_PREFIX) || key.startsWith(LEGACY_PREFIX);
-            if (isOwnCache && key !== CACHE_NAME) {
+            if (key !== CACHE_NAME) {
               return caches.delete(key);
             }
             return Promise.resolve(false);
@@ -60,12 +57,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // عدم کش کردن فایل‌های محیط توسعه (Vite Dev / HMR) تا تغییرات بلافاصله دیده شوند
+  // عدم مداخله در درخواست‌های بررسی نسخه زنده یا محیط توسعه Vite
   if (
     reqUrl.pathname.startsWith('/src/') ||
     reqUrl.pathname.startsWith('/node_modules/') ||
     reqUrl.pathname.startsWith('/@') ||
-    reqUrl.search.includes('t=')
+    reqUrl.search.includes('t=') ||
+    reqUrl.search.includes('_check=') ||
+    reqUrl.search.includes('_sw_t=')
   ) {
     return;
   }
@@ -75,30 +74,38 @@ self.addEventListener('fetch', (event) => {
     (event.request.headers.get('accept') || '').includes('text/html');
 
   if (isHtmlNavigation) {
+    // در مرورگرهای موبایل (iOS Safari / Chrome Android)، پاس دادن شیء Request با mode='navigate'
+    // همراه با { cache: 'no-store' } خطای TypeError ایجاد می‌کرد و باعث بازگشت به کش قدیمی می‌شد!
+    // بنابراین همیشه با رشته URL مستقل و پارامتر زمان روز، مستقیم از شبکه دریافت می‌کنیم.
+    const freshHtmlUrl = new URL('./index.html', self.location.href);
+    freshHtmlUrl.searchParams.set('_sw_t', String(Date.now()));
+
     event.respondWith(
-      fetch(event.request, { cache: 'no-store' })
+      fetch(freshHtmlUrl.toString(), { cache: 'no-store', credentials: 'same-origin' })
         .then((networkResp) => {
           if (networkResp && networkResp.status === 200) {
             const copy = networkResp.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put('./index.html', copy).catch(() => {});
+            });
           }
           return networkResp;
         })
         .catch(() =>
-          caches.match(event.request).then((res) => res || caches.match('./index.html'))
+          caches.match('./index.html').then((res) => res || caches.match(event.request))
         )
     );
     return;
   }
 
-  // استراتژی Network-First با no-store برای فایل‌های JS/CSS در موبایل و دسکتاپ
+  // برای فایل‌های JS و CSS و استاتیک، استفاده از رشته reqUrl.toString() برای جلوگیری از خطای RequestInit در موبایل
   event.respondWith(
-    fetch(event.request, { cache: 'no-store' })
+    fetch(reqUrl.toString(), { cache: 'no-store', credentials: 'same-origin' })
       .then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
           const responseClone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
+            cache.put(event.request, responseClone).catch(() => {});
           });
         }
         return networkResponse;
@@ -106,3 +113,4 @@ self.addEventListener('fetch', (event) => {
       .catch(() => caches.match(event.request))
   );
 });
+
