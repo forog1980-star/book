@@ -27,10 +27,14 @@
 
 ---
 
-## 📂 مشخصات مخزن در گیت‌هاب (GitHub Repository)
+## 📂 مشخصات مخزن و گزارش‌های فنی در گیت‌هاب (GitHub Repository)
 - **آدرس مخزن رسمی:** [https://github.com/forog1980-star/book](https://github.com/forog1980-star/book)
 - **شاخه اصلی (Branch):** `main`
 - **پوشه انتشار GitHub Pages:** `/docs` (یا ریشه پروژه)
+- **گزارش‌های فنی رسمی ثبت‌شده در مخزن:**
+  - 📄 [گزارش فنی جامع عملکرد روزانه (۲۰ آبان ۱۴۰۵ / ۱۱ نوامبر ۲۰۲۶)](./TECHNICAL_REPORT_2026_11_11_DAILY.md)
+  - 📄 [گزارش فنی روزانه (۱۹ آبان ۱۴۰۵ / ۱۰ نوامبر ۲۰۲۶)](./TECHNICAL_REPORT_2026_11_10_DAILY.md)
+  - 📄 [گزارش فنی جامع ۴ روزه و تاریخچه کامیت‌ها](./TECHNICAL_REPORT_4_DAYS_COMPLETE.md)
 
 ---
 
@@ -42,3 +46,4 @@
    - زیر آن در منوی کشویی شاخه `main` و پوشه `/docs` (یا `/root`) را انتخاب کرده و دکمه **Save** را بزنید.
 4. ظرف ۱ الی ۲ دقیقه، پایگاه روی آدرس زیر منتشر و آماده استفاده همگان خواهد بود:  
    👉 [https://forog1980-star.github.io/book/](https://forog1980-star.github.io/book/)
+

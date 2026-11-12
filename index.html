@@ -2,61 +2,7 @@
 <html lang="fa" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <meta http-equiv="Pragma" content="no-cache" />
-    <meta http-equiv="Expires" content="0" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <script>
-      (function () {
-        // Best-effort online update hint only. Cache lifecycle belongs to the scoped Service Worker.
-        var isCheckingBundle = false;
-        function verifyLatestServerBundle() {
-          if (isCheckingBundle || !navigator.onLine) return;
-          try {
-            var loadedScripts = document.querySelectorAll('script[type="module"][src]');
-            var currentScript = '';
-            for (var i = 0; i < loadedScripts.length; i++) {
-              var src = loadedScripts[i].getAttribute('src') || '';
-              if (src.indexOf('/assets/index-') !== -1) {
-                currentScript = src.split('/').pop();
-                break;
-              }
-            }
-            if (!currentScript) return;
-
-            isCheckingBundle = true;
-            var checkUrl = new URL('./index.html', window.location.href);
-            checkUrl.searchParams.set('_check', String(Date.now()));
-            fetch(checkUrl.toString(), { cache: 'no-store', credentials: 'same-origin' })
-              .then(function (response) {
-                return response.ok ? response.text() : '';
-              })
-              .then(function (html) {
-                if (!html) return;
-                var match = html.match(/src=["']([^"']*\/assets\/index-[^"']+\.js)["']/);
-                if (!match || !match[1]) return;
-                var serverScript = match[1].split('/').pop();
-                if (currentScript && serverScript && currentScript !== serverScript) {
-                  var reloadKey = 'markaz_reloaded_for_' + serverScript;
-                  if (sessionStorage.getItem(reloadKey) === '1') return;
-                  sessionStorage.setItem(reloadKey, '1');
-                  window.location.reload();
-                }
-              })
-              .catch(function () {})
-              .finally(function () {
-                isCheckingBundle = false;
-              });
-          } catch (error) {
-            isCheckingBundle = false;
-          }
-        }
-
-        window.addEventListener('pageshow', function (event) {
-          if (event && event.persisted) verifyLatestServerBundle();
-        });
-      })();
-    </script>
     <meta name="theme-color" content="#8C3B2B" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -65,15 +11,12 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <title>نرم‌افزار کتابخانه و مرکز اسناد گلزار شهدای تهران</title>
+    <title>Remix نرم‌افزار کتابخانه و مرکز اسناد گلزار شهدای تهران</title>
     <meta name="description" content="سامانه جامع مدیریت مخزن کتب، میز امانت، آرشیو دست‌نوشته‌ها و کتاب‌شناسی قطعات گلزار شهدای بهشت زهرا (س) تهران" />
-    <meta property="og:title" content="نرم‌افزار کتابخانه و مرکز اسناد گلزار شهدای تهران" />
+    <meta property="og:title" content="Remix نرم‌افزار کتابخانه و مرکز اسناد گلزار شهدای تهران" />
     <meta property="og:description" content="سامانه جامع مدیریت مخزن کتب، میز امانت، آرشیو دست‌نوشته‌ها و کتاب‌شناسی قطعات گلزار شهدای بهشت زهرا (س) تهران" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=Lalezar&family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
   </head>
   <body class="bg-[#FDF8F2] text-[#332218] antialiased selection:bg-[#8C3B2B]/15 selection:text-[#8C3B2B]">
     <div id="root"></div>

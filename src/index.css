@@ -1,6 +1,14 @@
 @import "tailwindcss";
 
 @font-face {
+  font-family: 'Vazirmatn';
+  src: local('Vazirmatn'), url('./fonts/Vazirmatn-variable.woff2') format('woff2'), url('/fonts/Vazirmatn-variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
   font-family: 'B Titr';
   src: local('B Titr'), local('BTitrBold'), local('Titr');
   font-weight: bold;

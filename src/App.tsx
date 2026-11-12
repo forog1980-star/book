@@ -118,6 +118,7 @@ import {
   RECORD_META_MAP_KEY,
   SyncMetadataSnapshot
 } from './modules/device-sync';
+import { performManualGitHubSync } from './utils/githubSyncService';
 
 // عنوان و شناسه اختصاصی پایگاه داده در حافظه گوشی و مرورگر: book
 export const BOOK_STORAGE_NAMESPACE = 'book';
@@ -169,6 +170,7 @@ export default function App() {
   const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
   const [showHeaderInstallModal, setShowHeaderInstallModal] = useState<boolean>(false);
   const [showComprehensiveDocModal, setShowComprehensiveDocModal] = useState<boolean>(false);
+  const [isSyncingGitHub, setIsSyncingGitHub] = useState<boolean>(false);
 
   // پشته تاریخچه مراحل برای بازگشت دو مرحله‌ای (اول بازگشت به مرحله قبل، سپس با دو بار کلیک خروج از برنامه)
   const navHistoryRef = React.useRef<
@@ -1954,7 +1956,36 @@ export default function App() {
                 <span className="truncate">ارتباط گوشی</span>
               </button>
 
-              {/* ۴. آیکون کوچک نصب روی گوشی */}
+              {/* ۴. کلید همگام‌سازی و بروزرسانی دستی از گیت‌هاب (فقط با دستور مستقیم کاربر) */}
+              <button
+                type="button"
+                disabled={isSyncingGitHub}
+                onClick={async () => {
+                  if (isSyncingGitHub) return;
+                  setIsSyncingGitHub(true);
+                  const res = await performManualGitHubSync((msg) => {
+                    showNotify(msg, 'warning');
+                  });
+                  setIsSyncingGitHub(false);
+                  if (res.ok) {
+                    showNotify(res.message, 'success');
+                    window.setTimeout(() => {
+                      window.location.reload();
+                    }, 1200);
+                  } else {
+                    showNotify(res.message, 'warning');
+                  }
+                }}
+                title="اتصال موقت به گیت‌هاب فقط برای دریافت آخرین تغییرات و سپس قطع مجدد ارتباط"
+                className="flex-1 min-h-[34px] px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-bold rounded-lg bg-[#EDF4FB] text-[#1E3A5F] hover:bg-[#D8E8F8] border border-[#C5D9ED] transition-colors inline-flex items-center justify-center gap-1 min-w-0 whitespace-nowrap truncate cursor-pointer disabled:opacity-60"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isSyncingGitHub ? 'animate-spin' : ''}`} />
+                <span className="truncate">
+                  {isSyncingGitHub ? 'در حال دریافت...' : 'بروزرسانی گیت‌هاب'}
+                </span>
+              </button>
+
+              {/* ۵. آیکون کوچک نصب روی گوشی */}
               <button
                 type="button"
                 onClick={async () => {
@@ -1972,7 +2003,7 @@ export default function App() {
                 <span className="hidden sm:inline">نصب</span>
               </button>
 
-              {/* ۵. کلید خروج کامل از برنامه */}
+              {/* ۶. کلید خروج کامل از برنامه */}
               <button
                 type="button"
                 onClick={() => setShowExitConfirmModal(true)}
@@ -1983,14 +2014,18 @@ export default function App() {
                 <span className="truncate">خروج</span>
               </button>
             </div>
-            {!isOnline && (
-              <div className="max-w-6xl mx-auto pt-1.5 flex justify-end">
+            <div className="max-w-6xl mx-auto pt-1.5 flex flex-wrap items-center justify-between gap-1.5">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#EDF6F0] text-[#1E4D2B] font-bold text-[10px] border border-[#A8D5B5]">
+                <ShieldCheck className="w-3 h-3 shrink-0" />
+                <span>عملکرد ۱۰۰٪ آفلاین و محلی فعال است (ارتباط خودکار با گیت‌هاب قطع است)</span>
+              </span>
+              {!isOnline && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-100 text-amber-950 font-bold text-[10px] border border-amber-300">
                   <WifiOff className="w-3 h-3 shrink-0" />
-                  <span>حالت آفلاین فعال است</span>
+                  <span>اینترنت دستگاه قطع است (فقط جست‌وجوی اینترنتی غیرفعال است)</span>
                 </span>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </>
       ) : (

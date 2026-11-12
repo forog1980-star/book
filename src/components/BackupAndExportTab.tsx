@@ -33,6 +33,11 @@ import {
 } from '../utils/backupService';
 import { requestActionConfirmation } from '../utils/confirmDialogService';
 import { openStandardExcelExportModal } from '../modules/excel-export';
+import {
+  getLastGitHubSyncTimeFa,
+  guardExternalInternetSearch,
+  performManualGitHubSync
+} from '../utils/githubSyncService';
 
 interface BackupAndExportTabProps {
   auditRecords: Record<string, FieldAuditRecord>;
@@ -69,6 +74,8 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
   const [isRestoring, setIsRestoring] = useState(false);
   const [showInstallGuideModal, setShowInstallGuideModal] = useState(false);
   const [showComprehensiveDocModal, setShowComprehensiveDocModal] = useState(false);
+  const [isSyncingGitHub, setIsSyncingGitHub] = useState(false);
+  const [lastGitHubSyncFa, setLastGitHubSyncFa] = useState<string>(() => getLastGitHubSyncTimeFa());
   const { isInstallable, isInstalled, install } = usePWAInstall();
 
   const handleOpenDoc = () => {
@@ -780,6 +787,59 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
         )}
       </div>
 
+      {/* Section: Manual On-Demand GitHub Sync & Offline Isolation Control */}
+      <div className="bg-[#EDF4FB] border-2 border-[#C5D9ED] rounded-2xl p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-[#2E6F40] shrink-0" />
+            <h3 className="text-sm sm:text-base font-bold text-[#1E3A5F]">
+              مدیریت حالت ۱۰۰٪ آفلاین و کلید همگام‌سازی دستی با گیت‌هاب
+            </h3>
+          </div>
+          <span className="px-2.5 py-1 rounded-lg bg-[#EDF6F0] border border-[#A8D5B5] text-[#1E4D2B] text-[11px] font-bold">
+            وضعیت پیش‌فرض: قطع کامل ارتباط با گیت‌هاب و اینترنت (ایزوله)
+          </span>
+        </div>
+
+        <p className="text-xs text-[#253247] leading-relaxed">
+          این نرم‌افزار (چه روی گوشی و چه روی سیستم) در حالت عادی <strong>هیچ درخواستی به اینترنت یا گیت‌هاب نمی‌فرستد</strong> و حتی در حالت پرواز یا بدون فیلترشکن با تمام جزئیات از حافظه داخلی دستگاه کار می‌کند. تنها زمانی که تغییراتی در کدهای گیت‌هاب ثبت شد، اینترنت را وصل کرده و دکمه زیر را بزنید تا در یک لحظه بروزرسانی انجام شده و ارتباط مجدداً قطع شود.
+        </p>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+          <button
+            type="button"
+            disabled={isSyncingGitHub}
+            onClick={async () => {
+              if (isSyncingGitHub) return;
+              setIsSyncingGitHub(true);
+              const res = await performManualGitHubSync((msg) => onNotify(msg, 'warning'));
+              setIsSyncingGitHub(false);
+              if (res.ok) {
+                if (res.syncedAtFa) setLastGitHubSyncFa(res.syncedAtFa);
+                onNotify(res.message, 'success');
+                window.setTimeout(() => {
+                  window.location.reload();
+                }, 1200);
+              } else {
+                onNotify(res.message, 'warning');
+              }
+            }}
+            className="min-h-[42px] px-4 py-2 text-xs font-bold bg-[#2E6F40] text-white hover:bg-[#235632] rounded-xl transition-colors inline-flex items-center gap-2 cursor-pointer disabled:opacity-60 shadow-xs"
+          >
+            <RefreshCw className={`w-4 h-4 shrink-0 ${isSyncingGitHub ? 'animate-spin' : ''}`} />
+            <span>
+              {isSyncingGitHub
+                ? 'در حال دریافت بروزرسانی از گیت‌هاب...'
+                : 'همگام‌سازی و دریافت آخرین بروزرسانی از گیت‌هاب'}
+            </span>
+          </button>
+
+          <div className="text-[11px] text-[#5C4033] font-semibold">
+            آخرین بروزرسانی دستی از گیت‌هاب: <span className="font-bold">{lastGitHubSyncFa}</span>
+          </div>
+        </div>
+      </div>
+
       {/* Section: Android PWA Installation, Offline Single-File HTML & Mobile Direct Access Links */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
         <h3 className="text-sm sm:text-base font-bold text-slate-900">
@@ -819,6 +879,9 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
             href="https://raw.githack.com/forog1980-star/book/main/%D8%AE%D8%B1%D9%88%D8%AC%DB%8C%20%D9%86%D8%B1%D9%85%E2%80%8C%D8%A7%D9%81%D8%B2%D8%A7%D8%B1/index.html"
             target="_blank"
             rel="noopener noreferrer"
+            onClick={(e) => {
+              guardExternalInternetSearch(e, 'لینک مستقیم گیت‌هاب', onNotify);
+            }}
             className="min-h-[42px] px-4 py-2 text-xs font-bold bg-[#1f4e79] text-white hover:bg-[#163a5b] rounded-xl transition-colors inline-flex items-center gap-2"
           >
             <Download className="w-4 h-4 shrink-0" />

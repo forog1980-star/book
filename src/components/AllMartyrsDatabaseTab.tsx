@@ -37,6 +37,7 @@ import { requestActionConfirmation } from '../utils/confirmDialogService';
 import { openStandardExcelExportModal } from '../modules/excel-export';
 import { TehranMartyrBadge } from './TehranMartyrBadge';
 import { evaluateMartyrTehranStatus } from '../utils/martyrsCrossMatchEngine';
+import { guardExternalInternetSearch } from '../utils/githubSyncService';
 
 export interface NormalizedDate {
   day: string;
@@ -1743,6 +1744,9 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                 href={`https://www.google.com/search?q=${encodeURIComponent('کتاب "شهید ' + ([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' ') || '') + '"')}`}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={(e) => {
+                  guardExternalInternetSearch(e, 'گوگل (کتاب و زندگینامه شهید)', onNotify);
+                }}
                 className="min-h-[34px] px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center justify-center gap-1.5 font-semibold transition-colors"
               >
                 <ExternalLink className="w-3 h-3 text-blue-600 shrink-0" />
@@ -1752,6 +1756,9 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                 href={`https://ketab.ir/search?query=${encodeURIComponent([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' '))}`}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={(e) => {
+                  guardExternalInternetSearch(e, 'خانه کتاب و ادبیات (Ketab.ir)', onNotify);
+                }}
                 className="min-h-[34px] px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center justify-center gap-1.5 font-semibold transition-colors"
               >
                 <ExternalLink className="w-3 h-3 text-emerald-600 shrink-0" />
@@ -1761,6 +1768,9 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                 href={`http://opac.nlai.ir/opac-prod/bibliographic/searchCalc.do?action=search&bibData.title=&bibData.author=${encodeURIComponent([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' '))}`}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={(e) => {
+                  guardExternalInternetSearch(e, 'کتابخانه ملی (OPAC NLAI)', onNotify);
+                }}
                 className="min-h-[34px] px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center justify-center gap-1.5 font-semibold transition-colors"
               >
                 <ExternalLink className="w-3 h-3 text-amber-700 shrink-0" />
@@ -1770,6 +1780,9 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                 href={`https://www.noorlib.ir/fa/search?q=${encodeURIComponent([inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' '))}`}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={(e) => {
+                  guardExternalInternetSearch(e, 'پایگاه تخصصی نور (NoorLib)', onNotify);
+                }}
                 className="min-h-[34px] px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-lg inline-flex items-center justify-center gap-1.5 font-semibold transition-colors"
               >
                 <ExternalLink className="w-3 h-3 text-indigo-600 shrink-0" />

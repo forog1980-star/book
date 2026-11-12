@@ -20,6 +20,7 @@ import comprehensiveMainDocRaw from '../../public/assets/aistudio/Paste_November
 import technicalDocV02Raw from '../../public/assets/aistudio/_________-_________________________-20261015_bd46add9.md?raw';
 import executiveAndCodingDocRaw from '../../public/assets/aistudio/Paste_November_01__2026_-_9_21AM_6393e765?raw';
 import comprehensiveTechAndSoftwareReportRaw from '../../docs/گزارش-جامع-فنی-و-معرفی-کامل-نرم-افزار.md?raw';
+import dailyTechReport20261111Raw from '../../TECHNICAL_REPORT_2026_11_11_DAILY.md?raw';
 import { toPersianDigits } from '../data/markazAsnadData';
 import { ModalWindow } from './ModalWindow';
 
@@ -31,6 +32,7 @@ interface ComprehensiveDocViewerProps {
 
 interface DocTabItem {
   id:
+    | 'daily-tech-report-2026-11-11'
     | 'comprehensive-tech-and-software-report'
     | 'main-23-chapters'
     | 'tech-v02'
@@ -120,6 +122,14 @@ const SOOREH_MEHR_RECOVERY_REPORT_MD = `# گزارش بازیابی و ورود 
 `;
 
 const DOC_TABS: DocTabItem[] = [
+  {
+    id: 'daily-tech-report-2026-11-11',
+    title: 'گزارش فنی جامع عملکرد روزانه (۲۰ آبان ۱۴۰۵ / ۱۱ نوامبر ۲۰۲۶)',
+    subtitle: 'موتور نمایه‌سازی ۲۸٬۳۶۸ شهید گلزار تهران، نشان تهرانی، استثنای غیرتهرانی، رفع تداخل نام ناشر، خروجی Excel فونت Vazirmatn و انتقال امن JSON',
+    badge: 'گزارش فنی امروز (جدید)',
+    content: dailyTechReport20261111Raw,
+    fileName: 'TECHNICAL_REPORT_2026_11_11_DAILY.md'
+  },
   {
     id: 'comprehensive-tech-and-software-report',
     title: 'گزارش جامع فنی همگام‌سازی و معرفی کامل سامانه کتابخانه و پژوهش مرکز اسناد',

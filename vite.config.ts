@@ -29,6 +29,15 @@ function syncDocsBuildPlugin() {
             }
           }
 
+          const distFontsDir = path.join(distDir, 'fonts');
+          const targetFontsDir = path.join(targetDir, 'fonts');
+          if (fs.existsSync(distFontsDir)) {
+            fs.mkdirSync(targetFontsDir, { recursive: true });
+            for (const f of fs.readdirSync(distFontsDir)) {
+              fs.copyFileSync(path.join(distFontsDir, f), path.join(targetFontsDir, f));
+            }
+          }
+
           if (fs.existsSync(distAssetsDir)) {
             fs.mkdirSync(targetAssetsDir, { recursive: true });
             for (const existing of fs.readdirSync(targetAssetsDir)) {

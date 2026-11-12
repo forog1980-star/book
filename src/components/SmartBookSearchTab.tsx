@@ -30,6 +30,7 @@ import {
   Eye
 } from 'lucide-react';
 import { ModalWindow } from './ModalWindow';
+import { guardExternalInternetSearch } from '../utils/githubSyncService';
 import {
   BookMartyrLinkRecord,
   CustomMartyrRecord,
@@ -1178,8 +1179,15 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
     }
   }, [initialMartyrQuery]);
 
-  // ثبت باز شدن درگاه بیرونی و فعال‌سازی کادر بازگشت سریع
-  const handleExternalPortalClick = (portalName: string) => {
+  // ثبت باز شدن درگاه بیرونی و فعال‌سازی کادر بازگشت سریع (با بررسی اتصال اینترنت)
+  const handleExternalPortalClick = (
+    portalName: string,
+    e?: React.MouseEvent<HTMLAnchorElement>
+  ): boolean => {
+    if (e) {
+      const allowed = guardExternalInternetSearch(e, portalName, onNotify);
+      if (!allowed) return false;
+    }
     const targetMartyr = selectedMartyrName.trim() || twoWayQuery.trim() || 'شهید';
     const nowTime = new Intl.DateTimeFormat('fa-IR', {
       hour: '2-digit',
@@ -1190,6 +1198,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
       portalName,
       openedAt: nowTime
     });
+    return true;
   };
 
   // ثبت فوری نتیجه استعلام بیرونی (به همراه آدرس اینترنتی URL)
@@ -2607,7 +2616,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => handleExternalPortalClick('خانه کتاب (از طریق گوگل)')}
+                    onClick={(e) => handleExternalPortalClick('خانه کتاب (از طریق گوگل)', e)}
                     className="w-full min-h-[34px] px-2 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-bold text-center transition-colors"
                   >
                     <ExternalLink className="w-3 h-3 text-[#6B3E26] shrink-0" />
@@ -2620,7 +2629,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => handleExternalPortalClick('سوره مهر (از طریق گوگل)')}
+                    onClick={(e) => handleExternalPortalClick('سوره مهر (از طریق گوگل)', e)}
                     className="w-full min-h-[34px] px-2 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-bold text-center transition-colors"
                   >
                     <ExternalLink className="w-3 h-3 text-[#6B3E26] shrink-0" />
@@ -2636,7 +2645,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => handleExternalPortalClick('گوگل (جست‌وجوی کتاب شهید)')}
+                    onClick={(e) => handleExternalPortalClick('گوگل (جست‌وجوی کتاب شهید)', e)}
                     className="w-full min-h-[34px] px-2 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-bold text-center transition-colors"
                   >
                     <ExternalLink className="w-3 h-3 text-[#6B3E26] shrink-0" />
@@ -2649,7 +2658,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => handleExternalPortalClick('کتابخانه ملی (از طریق گوگل)')}
+                    onClick={(e) => handleExternalPortalClick('کتابخانه ملی (از طریق گوگل)', e)}
                     className="w-full min-h-[34px] px-2 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-bold text-center transition-colors"
                   >
                     <ExternalLink className="w-3 h-3 text-[#6B3E26] shrink-0" />
@@ -2674,7 +2683,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => handleExternalPortalClick('پایگاه نور (NoorLib)')}
+                    onClick={(e) => handleExternalPortalClick('پایگاه نور (NoorLib)', e)}
                     className="w-full min-h-[34px] px-1.5 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-semibold text-center transition-colors"
                   >
                     <ExternalLink className="w-3 h-3 text-[#6B3E26] shrink-0" />
@@ -2687,7 +2696,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => handleExternalPortalClick('مگیران (Magiran)')}
+                    onClick={(e) => handleExternalPortalClick('مگیران (Magiran)', e)}
                     className="w-full min-h-[34px] px-1.5 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-semibold text-center transition-colors"
                   >
                     <Newspaper className="w-3 h-3 text-[#6B3E26] shrink-0" />
@@ -2700,7 +2709,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => handleExternalPortalClick('نورمگز (NoorMags)')}
+                    onClick={(e) => handleExternalPortalClick('نورمگز (NoorMags)', e)}
                     className="w-full min-h-[34px] px-1.5 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-semibold text-center transition-colors"
                   >
                     <Newspaper className="w-3 h-3 text-[#6B3E26] shrink-0" />
@@ -2713,7 +2722,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => handleExternalPortalClick('سیویلیکا (Civilica)')}
+                    onClick={(e) => handleExternalPortalClick('سیویلیکا (Civilica)', e)}
                     className="w-full min-h-[34px] px-1.5 py-1.5 bg-white hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-lg inline-flex items-center justify-center gap-1 font-semibold text-center transition-colors"
                   >
                     <Newspaper className="w-3 h-3 text-[#6B3E26] shrink-0" />
@@ -3539,6 +3548,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                           }
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={(e) => {
+                            guardExternalInternetSearch(e, `لینک صفحه کتاب (${sug.bookTitle})`, onNotify);
+                          }}
                           className="px-2.5 py-1 rounded-lg bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-[11px] inline-flex items-center gap-1 shrink-0"
                         >
                           <Link2 className="w-3 h-3" />
@@ -3719,6 +3731,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                         )}`}
                         target="_blank"
                         rel="noopener noreferrer"
+                        onClick={(e) => {
+                          guardExternalInternetSearch(e, 'گوگل (استعلام کتاب)', onNotify);
+                        }}
                         className={`min-h-[34px] px-2.5 py-1 rounded-xl bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#5C4636] border border-[#D8C7B2] text-xs font-bold inline-flex items-center justify-center gap-1 transition-colors ${
                           !sug.matchedCatalogBookId ? 'col-span-2' : ''
                         }`}
@@ -4028,9 +4043,11 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                       href={searchLink}
                       target="_blank"
                       rel="noopener noreferrer"
-                      onClick={() => {
-                        handleExternalPortalClick(pub.name);
-                        setShowPublishersModal(false);
+                      onClick={(e) => {
+                        const ok = handleExternalPortalClick(pub.name, e);
+                        if (ok) {
+                          setShowPublishersModal(false);
+                        }
                       }}
                       className="px-2.5 py-1 bg-[#1F4E79] hover:bg-[#163a5b] text-white rounded-lg font-bold text-[11px] inline-flex items-center gap-1 shrink-0 shadow-2xs transition-colors"
                     >
@@ -4293,6 +4310,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                 )}`}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={(e) => {
+                  guardExternalInternetSearch(e, 'خانه کتاب (استعلام کتاب)', onNotify);
+                }}
                 className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg font-semibold inline-flex items-center gap-1 transition-colors"
               >
                 <ExternalLink className="w-3.5 h-3.5 text-emerald-700" />
