@@ -25,7 +25,11 @@ import {
   toPersianDigits
 } from '../data/markazAsnadData';
 import { generateUniqueLinkId, generateUniqueMartyrId } from '../utils/idGenerator';
-import { doesLinkMatchMartyrRecord } from '../data/soorehMehrResearch';
+import {
+  doesLinkMatchMartyrRecord,
+  stripMartyrTitles,
+  compactPersianForMatch
+} from '../data/soorehMehrResearch';
 import { ModalWindow } from './ModalWindow';
 import {
   registerInnerBackStep,
@@ -364,6 +368,7 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
   const [extraFilters, setExtraFilters] = useState<{ id: string; key: string; val: string }[]>([]);
   const [activeResults, setActiveResults] = useState<AllMartyrRecord[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
+  const [isFilteringLinks, setIsFilteringLinks] = useState(false);
 
   // Custom Martyr Verification & Deletion State
   const [editingCustomMartyr, setEditingCustomMartyr] = useState<CustomMartyrRecord | null>(null);
@@ -578,11 +583,105 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
     );
   }, [links]);
 
+  // ساخت نمایه سریع و چندکلیدی از ۷۱۳ پیوند جهت تطابق لحظه‌ای بدون فریز کردن پردازنده گوشی
+  const indexedLinksMap = useMemo(() => {
+    const byExactPiece = new Map<string, BookMartyrLinkRecord[]>();
+    const byCompactName = new Map<string, BookMartyrLinkRecord[]>();
+    const withoutNumericPiece: BookMartyrLinkRecord[] = [];
+
+    for (const lnk of validNamedLinks) {
+      const cleanName = stripMartyrTitles(lnk.martyrNameRaw);
+      const compactName = compactPersianForMatch(cleanName);
+
+      if (compactName) {
+        let nameList = byCompactName.get(compactName);
+        if (!nameList) {
+          nameList = [];
+          byCompactName.set(compactName, nameList);
+        }
+        nameList.push(lnk);
+      }
+
+      const lp = normalizePersianText(lnk.gravePieceRaw);
+      const isNumPiece = /^\d+$/.test(lp);
+
+      if (isNumPiece && lp) {
+        let pieceList = byExactPiece.get(lp);
+        if (!pieceList) {
+          pieceList = [];
+          byExactPiece.set(lp, pieceList);
+        }
+        pieceList.push(lnk);
+      } else {
+        withoutNumericPiece.push(lnk);
+      }
+    }
+
+    return { byExactPiece, byCompactName, withoutNumericPiece };
+  }, [validNamedLinks]);
+
   const getMartyrLinkedBooks = React.useCallback(
-    (rec: AllMartyrRecord): BookMartyrLinkRecord[] => {
-      return validNamedLinks.filter((lnk) => doesLinkMatchMartyrRecord(lnk, rec));
+    (rec: {
+      first_name?: string;
+      last_name?: string;
+      fullName?: string;
+      grave_piece?: string;
+      grave_row?: string;
+      grave_number?: string;
+    }): BookMartyrLinkRecord[] => {
+      const { byExactPiece, byCompactName, withoutNumericPiece } = indexedLinksMap;
+      const mFull = rec.fullName || `${rec.first_name || ''} ${rec.last_name || ''}`.trim();
+      const martyrClean = stripMartyrTitles(mFull);
+      const martyrCompact = compactPersianForMatch(martyrClean);
+      if (!martyrCompact) return [];
+
+      const mp = normalizePersianText(rec.grave_piece);
+      const isNumPiece = /^\d+$/.test(mp);
+
+      // استخراج کاندیداهای بالقوه محدود به جای بررسی کل ۷۱۳ پیوند
+      const candidates: BookMartyrLinkRecord[] = [];
+      const seenIds = new Set<string>();
+
+      const nameCandidates = byCompactName.get(martyrCompact);
+      if (nameCandidates) {
+        for (const lnk of nameCandidates) {
+          if (!seenIds.has(lnk.id)) {
+            seenIds.add(lnk.id);
+            candidates.push(lnk);
+          }
+        }
+      }
+
+      if (isNumPiece && mp) {
+        const pieceCandidates = byExactPiece.get(mp);
+        if (pieceCandidates) {
+          for (const lnk of pieceCandidates) {
+            if (!seenIds.has(lnk.id)) {
+              seenIds.add(lnk.id);
+              candidates.push(lnk);
+            }
+          }
+        }
+      }
+
+      for (const lnk of withoutNumericPiece) {
+        if (!seenIds.has(lnk.id)) {
+          seenIds.add(lnk.id);
+          candidates.push(lnk);
+        }
+      }
+
+      if (candidates.length === 0) return [];
+
+      const matched: BookMartyrLinkRecord[] = [];
+      for (const lnk of candidates) {
+        if (doesLinkMatchMartyrRecord(lnk, rec)) {
+          matched.push(lnk);
+        }
+      }
+      return matched;
     },
-    [validNamedLinks]
+    [indexedLinksMap]
   );
 
   const executeSearch = (e?: React.FormEvent) => {
@@ -744,15 +843,20 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
   }, [activeCrossTabTarget, onReturnToMartyrDossier, handleBackToSourceMartyrDossier, hasSearched]);
 
   const handleFilterMartyrsWithLinkedBooks = () => {
-    if (!records.length) return;
-    const matched = records.filter((r) =>
-      validNamedLinks.some((lnk) => doesLinkMatchMartyrRecord(lnk, r))
-    );
-    setHasSearched(true);
-    setActiveResults(matched);
-    onNotify(
-      `${toPersianDigits(matched.length)} شهید در بانک ۲۸٬۳۶۸ شهید گلزار با کتاب‌های پژوهشی سوره مهر و کارپوشه تطبیق یافتند.`
-    );
+    if (!records.length || isFilteringLinks) return;
+    setIsFilteringLinks(true);
+    window.setTimeout(() => {
+      try {
+        const matched = records.filter((r) => getMartyrLinkedBooks(r).length > 0);
+        setHasSearched(true);
+        setActiveResults(matched);
+        onNotify(
+          `${toPersianDigits(matched.length)} شهید در بانک ۲۸٬۳۶۸ شهید گلزار با کتاب‌های پژوهشی سوره مهر و کارپوشه تطبیق یافتند.`
+        );
+      } finally {
+        setIsFilteringLinks(false);
+      }
+    }, 20);
   };
 
   const handleResetSearch = () => {
@@ -1134,11 +1238,15 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
             <button
               type="button"
               onClick={handleFilterMartyrsWithLinkedBooks}
-              disabled={loading}
-              className="px-3 py-1.5 rounded-lg bg-[#8C3B2B] hover:bg-[#702D20] text-white font-bold text-[11px] inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
+              disabled={loading || isFilteringLinks}
+              className="px-3 py-1.5 rounded-lg bg-[#8C3B2B] hover:bg-[#702D20] text-white font-bold text-[11px] inline-flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-70 transition-opacity"
             >
-              <BookOpen className="w-3.5 h-3.5" />
-              <span>نمایش شهدای دارای کتاب مرتبط ({toPersianDigits(validNamedLinks.length)} ارتباط)</span>
+              <BookOpen className={`w-3.5 h-3.5 ${isFilteringLinks ? 'animate-spin' : ''}`} />
+              <span>
+                {isFilteringLinks
+                  ? 'در حال استخراج شهدای دارای کتاب...'
+                  : `نمایش شهدای دارای کتاب مرتبط (${toPersianDigits(validNamedLinks.length)} ارتباط)`}
+              </span>
             </button>
           </div>
 
