@@ -1,8 +1,11 @@
-export const OFFLINE_SW_CACHE_NAME = 'markaz-asnad-main-book-v14';
+export const OFFLINE_SW_CACHE_NAME = 'markaz-asnad-main-book-v15';
+export const OFFLINE_SW_SCRIPT_URL = './sw.js?v=15';
 export const LAST_GITHUB_SYNC_STORAGE_KEY = 'markaz_last_github_sync_fa';
 
 export interface GitHubSyncResult {
   ok: boolean;
+  status: 'updated' | 'up_to_date' | 'offline' | 'failed';
+  shouldReload: boolean;
   message: string;
   updatedBundle?: string;
   syncedAtFa?: string;
@@ -23,7 +26,7 @@ export function guardExternalInternetSearch(
     e.preventDefault();
     if (onNotify) {
       onNotify(
-        `⚠️ اتصال اینترنت برقرار نیست! برای جست‌وجوی آنلاین در «${portalName}» لطفاً ابتدا اینترنت دستگاه را روشن کنید. (جست‌وجوهای داخلی نرم‌افزار کاملاً آفلاین فعال هستند)`,
+        `⚠️ اتصال اینترنت برقرار نیست! برای جست‌وجوی آنلاین در «${portalName}» لطفاً ابتدا اینترنت دستگاه را روشن کنید. (جست‌وجوهای داخلی نرم‌افزار بدون اینترنت فعال هستند)`,
         'warning'
       );
     }
@@ -38,15 +41,82 @@ export function guardExternalInternetSearch(
 
 export function getLastGitHubSyncTimeFa(): string {
   try {
-    return localStorage.getItem(LAST_GITHUB_SYNC_STORAGE_KEY) || 'ثبت‌نشده (اجرای آفلاین اولیه)';
+    return localStorage.getItem(LAST_GITHUB_SYNC_STORAGE_KEY) || 'ثبت‌نشده';
   } catch {
     return 'ثبت‌نشده';
   }
 }
 
+function normalizeRelativeUrl(rawUrl: string): string | null {
+  const trimmed = String(rawUrl || '').trim();
+  if (!trimmed || /^https?:|^data:|^blob:/i.test(trimmed)) return null;
+  const clean = trimmed.split('?')[0].split('#')[0];
+  if (clean.startsWith('./')) return clean;
+  if (clean.startsWith('/')) return `.${clean}`;
+  return `./${clean}`;
+}
+
+function getCurrentlyLoadedBundles(): { jsBundle: string; cssBundle: string } {
+  let jsBundle = '';
+  let cssBundle = '';
+  if (typeof document === 'undefined') return { jsBundle, cssBundle };
+
+  const scripts = Array.from(document.querySelectorAll('script[type="module"][src]'));
+  for (const s of scripts) {
+    const src = s.getAttribute('src') || '';
+    if (src.includes('/assets/')) {
+      jsBundle = src.split('?')[0].split('/').pop() || '';
+      break;
+    }
+  }
+
+  const links = Array.from(document.querySelectorAll('link[rel="stylesheet"][href]'));
+  for (const l of links) {
+    const href = l.getAttribute('href') || '';
+    if (href.includes('/assets/')) {
+      cssBundle = href.split('?')[0].split('/').pop() || '';
+      break;
+    }
+  }
+
+  return { jsBundle, cssBundle };
+}
+
+async function waitForInstallingWorker(worker: ServiceWorker, timeoutMs = 15000): Promise<boolean> {
+  if (worker.state === 'installed' || worker.state === 'activated') {
+    return true;
+  }
+  if (worker.state === 'redundant') {
+    return false;
+  }
+
+  return new Promise<boolean>((resolve) => {
+    const timer = window.setTimeout(() => {
+      resolve(false);
+    }, timeoutMs);
+
+    const onStateChange = () => {
+      if (worker.state === 'installed' || worker.state === 'activated') {
+        window.clearTimeout(timer);
+        worker.removeEventListener('statechange', onStateChange);
+        resolve(true);
+      } else if (worker.state === 'redundant') {
+        window.clearTimeout(timer);
+        worker.removeEventListener('statechange', onStateChange);
+        resolve(false);
+      }
+    };
+
+    worker.addEventListener('statechange', onStateChange);
+  });
+}
+
 /**
- * اتصال دستی، موقت و تک‌لحظه‌ای به گیت‌هاب فقط با کلیک مستقیم کاربر جهت دریافت آخرین تغییرات کد و داده‌های پایه
- * بلافاصله پس از دریافت فایل‌ها و بروزرسانی کش آفلاین، ارتباط بسته شده و برنامه در حالت ۱۰۰٪ آفلاین قرار می‌گیرد.
+ * به‌روزرسانی دستی، اتمیک و ایمن از گیت‌هاب فقط با کلیک مستقیم کاربر:
+ * ۱. هیچ فایل جدیدی را روی کش نسخه فعال قبلی بازنویسی نمی‌کند.
+ * ۲. ابتدا تمام فایل‌های ضروری نسخه جدید را در حافظه دریافت و اعتبارسنجی (HTTP 200 + غیرخالی بودن) می‌کند.
+ * ۳. اگر حتی یک فایل ضروری دریافت نشود، عملیات متوقف شده، کش ناقص پاک می‌شود و نسخه فعال قبلی دست‌نخورده باقی می‌ماند.
+ * ۴. فعال‌سازی به چرخه واقعی نصب Service Worker (وضعیت installed و رویداد controllerchange) متصل است.
  */
 export async function performManualGitHubSync(
   onProgress?: (stepMessage: string) => void
@@ -54,16 +124,19 @@ export async function performManualGitHubSync(
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return {
       ok: false,
+      status: 'offline',
+      shouldReload: false,
       message:
-        '⚠️ اینترنت دستگاه وصل نیست! برای همگام‌سازی و دریافت آخرین بروزرسانی از گیت‌هاب، لطفاً ابتدا اینترنت (و در صورت نیاز فیلترشکن) را روشن کرده و دوباره دکمه همگام‌سازی را بزنید.'
+        '⚠️ اینترنت دستگاه قطع است. برای بررسی و دریافت نسخه جدید از گیت‌هاب، ابتدا اینترنت را وصل کنید.'
     };
   }
 
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 14000);
+  const timeoutId = window.setTimeout(() => controller.abort(), 18000);
+  const stagingCacheName = `${OFFLINE_SW_CACHE_NAME}-staging-${Date.now()}`;
 
   try {
-    onProgress?.('در حال برقراری ارتباط موقت با مخزن گیت‌هاب...');
+    onProgress?.('در حال بررسی نسخه جدید در گیت‌هاب...');
 
     const checkUrl = new URL('./index.html', window.location.href);
     checkUrl.searchParams.set('_manual_github_sync', '1');
@@ -79,97 +152,227 @@ export async function performManualGitHubSync(
       window.clearTimeout(timeoutId);
       return {
         ok: false,
-        message: `⚠️ سرور گیت‌هاب پاسخ نداد (کد وضعیت: ${htmlResponse.status}). برنامه همچنان در حالت آفلاین کامل به کار خود ادامه می‌دهد.`
+        status: 'failed',
+        shouldReload: false,
+        message: `⚠️ دریافت اطلاعات از گیت‌هاب ناموفق بود (کد وضعیت: ${htmlResponse.status}). نسخه فعلی برنامه بدون تغییر حفظ شد.`
       };
     }
 
     const htmlText = await htmlResponse.text();
+    if (!htmlText || !htmlText.includes('id="root"')) {
+      window.clearTimeout(timeoutId);
+      return {
+        ok: false,
+        status: 'failed',
+        shouldReload: false,
+        message: '⚠️ پاسخ دریافتی از سرور معتبر نیست. نسخه فعلی برنامه بدون تغییر حفظ شد.'
+      };
+    }
 
-    // استخراج مسیر فایل‌های JS و CSS نسخه جدید از داخل index.html دریافتی
-    const assetUrls: string[] = [
+    const scriptMatches = Array.from(
+      htmlText.matchAll(/src=["']([^"']*\/assets\/[^"']+\.m?js)["']/gi)
+    );
+    const styleMatches = Array.from(
+      htmlText.matchAll(/href=["']([^"']*\/assets\/[^"']+\.css)["']/gi)
+    );
+
+    const requiredShellUrls = new Set<string>([
       './manifest.webmanifest',
       './golzar-logo.png',
       './icon.svg',
       './apple-touch-icon.png',
-      './fonts/Vazirmatn-variable.woff2',
-      './data/library_books.json'
-    ];
+      './fonts/Vazirmatn-variable.woff2'
+    ]);
 
-    const scriptMatches = Array.from(
-      htmlText.matchAll(/src=["']([^"']*\/assets\/[^"']+\.js)["']/g)
-    );
-    const styleMatches = Array.from(
-      htmlText.matchAll(/href=["']([^"']*\/assets\/[^"']+\.css)["']/g)
-    );
+    let serverJsBundle = '';
+    let serverCssBundle = '';
 
-    let detectedBundleName = '';
     for (const m of scriptMatches) {
-      if (m[1]) {
-        assetUrls.push(m[1]);
-        detectedBundleName = m[1].split('/').pop() || '';
+      const norm = normalizeRelativeUrl(m[1]);
+      if (norm) {
+        requiredShellUrls.add(norm);
+        serverJsBundle = norm.split('/').pop() || '';
       }
     }
+
     for (const m of styleMatches) {
-      if (m[1]) {
-        assetUrls.push(m[1]);
+      const norm = normalizeRelativeUrl(m[1]);
+      if (norm) {
+        requiredShellUrls.add(norm);
+        serverCssBundle = norm.split('/').pop() || '';
       }
     }
 
-    onProgress?.('در حال دریافت فایل‌های بروزرسانی و ذخیره در حافظه آفلاین دستگاه...');
+    // در محیط ساخت نهایی (Production)، وجود باندل JS و CSS در index.html الزامی است
+    const { jsBundle: currentJsBundle, cssBundle: currentCssBundle } = getCurrentlyLoadedBundles();
+    if (currentJsBundle && (!serverJsBundle || !serverCssBundle)) {
+      window.clearTimeout(timeoutId);
+      return {
+        ok: false,
+        status: 'failed',
+        shouldReload: false,
+        message: '⚠️ فایل‌های اجرایی نسخه جدید در پاسخ سرور یافت نشد. نسخه فعلی دست‌نخورده باقی ماند.'
+      };
+    }
 
+    onProgress?.('در حال دریافت و اعتبارسنجی کامل فایل‌های نسخه جدید...');
+
+    // مرحله ۱: دریافت و راستی‌آزمایی تمام فایل‌های ضروری در یک کش موقت مستقل (Staging)
+    // اگر حتی یک فایل ضروری دریافت نشود یا خالی باشد، کل فرآیند لغو شده و کش فعال قبلی دست‌نخورده می‌ماند
+    const verifiedResponses = new Map<string, { bytes: ArrayBuffer; contentType: string }>();
+
+    for (const relUrl of Array.from(requiredShellUrls)) {
+      const fetchUrl = new URL(relUrl, window.location.href);
+      fetchUrl.searchParams.set('_manual_github_sync', '1');
+      fetchUrl.searchParams.set('_t', String(Date.now()));
+
+      const resp = await fetch(fetchUrl.toString(), {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        signal: controller.signal
+      });
+
+      if (!resp.ok) {
+        throw new Error(`خطا در دریافت فایل ضروری ${relUrl} (وضعیت ${resp.status})`);
+      }
+
+      const bytes = await resp.arrayBuffer();
+      if (!bytes || bytes.byteLength === 0) {
+        throw new Error(`فایل ضروری ${relUrl} خالی است`);
+      }
+
+      const contentType = resp.headers.get('Content-Type') || '';
+      verifiedResponses.set(relUrl, { bytes, contentType });
+
+      // اگر فایل CSS است، مسیر فونت هش‌دار داخل آن را نیز استخراج و راستی‌آزمایی کن
+      if (relUrl.endsWith('.css')) {
+        const cssText = new TextDecoder('utf-8').decode(bytes);
+        const fontMatches = Array.from(
+          cssText.matchAll(/url\(\s*["']?([^"')]+Vazirmatn[^"')]+\.woff2)["']?\s*\)/gi)
+        );
+        for (const fm of fontMatches) {
+          const rawFont = fm[1] || '';
+          const fontRelUrl =
+            rawFont.startsWith('./') && !rawFont.startsWith('./assets/') && !rawFont.startsWith('./fonts/')
+              ? `./assets/${rawFont.slice(2)}`
+              : normalizeRelativeUrl(rawFont);
+
+          if (fontRelUrl && !verifiedResponses.has(fontRelUrl)) {
+            const fUrl = new URL(fontRelUrl, window.location.href);
+            fUrl.searchParams.set('_manual_github_sync', '1');
+            fUrl.searchParams.set('_t', String(Date.now()));
+            const fResp = await fetch(fUrl.toString(), {
+              cache: 'no-store',
+              credentials: 'same-origin',
+              signal: controller.signal
+            });
+            if (!fResp.ok) {
+              throw new Error(`خطا در دریافت فونت نسخه جدید (${fontRelUrl})`);
+            }
+            const fBytes = await fResp.arrayBuffer();
+            if (!fBytes || fBytes.byteLength === 0) {
+              throw new Error(`فایل فونت ${fontRelUrl} خالی است`);
+            }
+            verifiedResponses.set(fontRelUrl, {
+              bytes: fBytes,
+              contentType: fResp.headers.get('Content-Type') || 'font/woff2'
+            });
+          }
+        }
+      }
+    }
+
+    // مرحله ۲: بررسی و به‌روزرسانی چرخه واقعی Service Worker
+    let swUpdatedAndActivated = false;
+    if ('serviceWorker' in navigator) {
+      const reg =
+        (await navigator.serviceWorker.getRegistration()) ||
+        (await navigator.serviceWorker.register(OFFLINE_SW_SCRIPT_URL, { updateViaCache: 'none' }));
+
+      await reg.update();
+
+      if (reg.installing) {
+        onProgress?.('در حال نصب و اعتبارسنجی Service Worker نسخه جدید...');
+        const installedOk = await waitForInstallingWorker(reg.installing);
+        if (!installedOk) {
+          throw new Error('نصب Service Worker نسخه جدید کامل نشد؛ نسخه قبلی حفظ گردید.');
+        }
+      }
+
+      if (reg.waiting) {
+        const controllerChangedPromise = new Promise<boolean>((resolve) => {
+          let resolved = false;
+          const onControllerChange = () => {
+            if (resolved) return;
+            resolved = true;
+            navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+            resolve(true);
+          };
+          navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+          window.setTimeout(() => {
+            if (!resolved) {
+              resolved = true;
+              navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+              resolve(true);
+            }
+          }, 4000);
+        });
+
+        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        swUpdatedAndActivated = await controllerChangedPromise;
+      }
+    }
+
+    // مرحله ۳: ذخیره اتمیک تمام فایل‌های تاییدشده در کش نسخه v15 پس از اطمینان از صحت ۱۰۰٪ همه فایل‌ها
     if ('caches' in window) {
-      const cache = await window.caches.open(OFFLINE_SW_CACHE_NAME);
-
-      // ذخیره نسخه جدید index.html در کش آفلاین
-      await cache.put(
+      const stagingCache = await window.caches.open(stagingCacheName);
+      await stagingCache.put(
         new Request('./index.html'),
         new Response(htmlText, {
           status: 200,
           headers: { 'Content-Type': 'text/html; charset=utf-8' }
         })
       );
-      await cache.put(
+      for (const [relUrl, item] of verifiedResponses.entries()) {
+        const cleanUrl = new URL(relUrl, window.location.href);
+        cleanUrl.search = '';
+        await stagingCache.put(
+          new Request(cleanUrl.toString()),
+          new Response(item.bytes.slice(0), {
+            status: 200,
+            headers: item.contentType ? { 'Content-Type': item.contentType } : undefined
+          })
+        );
+      }
+
+      const targetCache = await window.caches.open(OFFLINE_SW_CACHE_NAME);
+      await targetCache.put(
+        new Request('./index.html'),
+        new Response(htmlText, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        })
+      );
+      await targetCache.put(
         new Request('./'),
         new Response(htmlText, {
           status: 200,
           headers: { 'Content-Type': 'text/html; charset=utf-8' }
         })
       );
-
-      for (const rawUrl of assetUrls) {
-        try {
-          const assetFetchUrl = new URL(rawUrl, window.location.href);
-          assetFetchUrl.searchParams.set('_manual_github_sync', '1');
-          assetFetchUrl.searchParams.set('_t', String(Date.now()));
-          const resp = await fetch(assetFetchUrl.toString(), {
-            cache: 'no-store',
-            credentials: 'same-origin',
-            signal: controller.signal
-          });
-          if (resp.ok) {
-            const cleanUrl = new URL(rawUrl, window.location.href);
-            cleanUrl.search = '';
-            await cache.put(new Request(cleanUrl.toString()), resp.clone());
-          }
-        } catch {
-          // ادامه برای سایر فایل‌ها
-        }
+      for (const [relUrl, item] of verifiedResponses.entries()) {
+        const cleanUrl = new URL(relUrl, window.location.href);
+        cleanUrl.search = '';
+        await targetCache.put(
+          new Request(cleanUrl.toString()),
+          new Response(item.bytes.slice(0), {
+            status: 200,
+            headers: item.contentType ? { 'Content-Type': item.contentType } : undefined
+          })
+        );
       }
-    }
 
-    // بروزرسانی دستی سرویس‌ورکر فقط در همین لحظه
-    if ('serviceWorker' in navigator) {
-      try {
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg) {
-          await reg.update();
-          if (reg.waiting) {
-            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-          }
-        }
-      } catch {
-        // ignore
-      }
+      await window.caches.delete(stagingCacheName).catch(() => {});
     }
 
     window.clearTimeout(timeoutId);
@@ -189,19 +392,41 @@ export async function performManualGitHubSync(
       // ignore
     }
 
+    const bundleChanged =
+      Boolean(currentJsBundle && serverJsBundle && currentJsBundle !== serverJsBundle) ||
+      Boolean(currentCssBundle && serverCssBundle && currentCssBundle !== serverCssBundle);
+
+    if (!bundleChanged && !swUpdatedAndActivated) {
+      return {
+        ok: true,
+        status: 'up_to_date',
+        shouldReload: false,
+        updatedBundle: serverJsBundle || currentJsBundle,
+        syncedAtFa: nowFa,
+        message: '✅ نسخه فعلی نرم‌افزار به‌روز است و نیازی به بارگذاری مجدد نیست.'
+      };
+    }
+
     return {
       ok: true,
-      updatedBundle: detectedBundleName,
+      status: 'updated',
+      shouldReload: true,
+      updatedBundle: serverJsBundle,
       syncedAtFa: nowFa,
       message:
-        '✅ همگام‌سازی و دریافت آخرین تغییرات از گیت‌هاب با موفقیت انجام شد و در حافظه دائمی دستگاه ذخیره گردید. ارتباط با گیت‌هاب مجدداً قطع شد.'
+        '✅ نسخه جدید با موفقیت دریافت، راستی‌آزمایی و فعال شد. در حال بارگذاری نسخه جدید...'
     };
   } catch {
     window.clearTimeout(timeoutId);
+    if (typeof window !== 'undefined' && 'caches' in window) {
+      await window.caches.delete(stagingCacheName).catch(() => {});
+    }
     return {
       ok: false,
+      status: 'failed',
+      shouldReload: false,
       message:
-        '⚠️ امکان اتصال به گیت‌هاب وجود ندارد (اینترنت قطع است یا دسترسی به گیت‌هاب نیازمند روشن کردن فیلترشکن است). نرم‌افزار بدون هیچ مشکلی در حالت آفلاین کامل به کار خود ادامه می‌دهد.'
+        '⚠️ دریافت کامل نسخه جدید انجام نشد (اینترنت قطع شد یا گیت‌هاب در دسترس نیست). نسخه قبلی شما بدون هیچ تغییری حفظ شد و فعال است.'
     };
   }
 }

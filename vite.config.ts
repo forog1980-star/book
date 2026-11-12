@@ -41,12 +41,12 @@ function syncDocsBuildPlugin() {
           if (fs.existsSync(distAssetsDir)) {
             fs.mkdirSync(targetAssetsDir, { recursive: true });
             for (const existing of fs.readdirSync(targetAssetsDir)) {
-              if (existing.startsWith('index-')) {
+              if (existing.startsWith('index-') || existing.startsWith('Vazirmatn-')) {
                 fs.rmSync(path.join(targetAssetsDir, existing), { force: true });
               }
             }
             for (const built of fs.readdirSync(distAssetsDir)) {
-              if (built.startsWith('index-')) {
+              if (built.startsWith('index-') || built.startsWith('Vazirmatn-')) {
                 fs.copyFileSync(
                   path.join(distAssetsDir, built),
                   path.join(targetAssetsDir, built)

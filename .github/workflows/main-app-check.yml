@@ -37,3 +37,4 @@ jobs:
           test -s dist/manifest.webmanifest
           grep -R -q "Vazirmatn" dist/assets/*.css
           grep -R -q "پشتیبان و گزارش‌ها" dist/assets/*.js
+          npm run test:offline-pwa

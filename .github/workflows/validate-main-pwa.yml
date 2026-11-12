@@ -3,17 +3,11 @@ name: Validate main PWA offline shell
 on:
   push:
     branches:
-      - fix/offline-pwa-shell-cache-20261112
+      - main
+      - 'fix/**'
   pull_request:
     branches:
       - main
-    paths:
-      - 'src/main.tsx'
-      - 'index.html'
-      - 'public/sw.js'
-      - 'scripts/test-offline-pwa.mjs'
-      - 'package.json'
-      - '.github/workflows/validate-main-pwa.yml'
   workflow_dispatch:
 
 permissions:

@@ -1,34 +1,18 @@
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
-import { OFFLINE_SW_CACHE_NAME } from './utils/githubSyncService';
 
-// پاک‌سازی فقط کش‌های نسخه‌های قدیمی‌تر (با حفظ کامل کش فعال v14 برای کارکرد ۱۰۰٪ آفلاین)
-if (typeof window !== 'undefined' && 'caches' in window) {
-  window.caches
-    .keys()
-    .then((keys) => {
-      keys.forEach((key) => {
-        if (
-          (key.startsWith('markaz-asnad-main-book-') || key.startsWith('markaz-asnad-pwa-')) &&
-          key !== OFFLINE_SW_CACHE_NAME
-        ) {
-          window.caches.delete(key).catch(() => {});
-        }
-      });
-    })
-    .catch(() => {});
-}
-
-// ثبت سرویس‌ورکر در حالت کاملاً آفلاین بدون ارسال درخواست خودکار بروزرسانی به گیت‌هاب در بدو ورود
+// در اجرای عادی برنامه، هیچ پاک‌سازی کش یا درخواست خودکار بروزرسانی اجرا نمی‌شود.
+// تنها در اولین اجرا که هنوز Service Worker فعالی ثبت نشده است، ثبت اولیه (?v=15) انجام می‌گیرد.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('./sw.js?v=14')
-      .then((reg) => {
-        if (reg.waiting) {
-          reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      .getRegistration()
+      .then((existingReg) => {
+        if (existingReg && existingReg.active) {
+          return existingReg;
         }
+        return navigator.serviceWorker.register('./sw.js?v=15');
       })
       .catch(() => {
         // Service worker registration optional in dev iframe
@@ -37,4 +21,3 @@ if ('serviceWorker' in navigator) {
 }
 
 createRoot(document.getElementById('root')!).render(<App />);
-

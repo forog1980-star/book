@@ -585,7 +585,15 @@ async function start(): Promise<void> {
   await refreshData();
   render();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('./sw.js').catch(() => undefined);
+    navigator.serviceWorker
+      .getRegistration()
+      .then((existingReg) => {
+        if (existingReg && existingReg.active) {
+          return existingReg;
+        }
+        return navigator.serviceWorker.register('./sw.js?v=9');
+      })
+      .catch(() => undefined);
   }
 }
 void start().catch((error) => notify(error instanceof Error ? error.message : 'آغاز برنامه ناموفق بود.', true));

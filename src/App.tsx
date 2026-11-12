@@ -76,7 +76,7 @@ import {
   popInnerBackStepIfAny,
   clearMartyrsCrossTabTarget
 } from './utils/navigationHistory';
-import { useOnlineStatus, usePWAInstall } from './utils/usePWAInstall';
+import { useOnlineStatus } from './utils/usePWAInstall';
 import {
   hydrateOperationalKey,
   OPERATIONAL_STORAGE_KEYS,
@@ -168,7 +168,6 @@ export default function App() {
   const [homeGlobalQuery, setHomeGlobalQuery] = useState<string>('');
   const [libraryInitialSearchQuery, setLibraryInitialSearchQuery] = useState<string>('');
   const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
-  const [showHeaderInstallModal, setShowHeaderInstallModal] = useState<boolean>(false);
   const [showComprehensiveDocModal, setShowComprehensiveDocModal] = useState<boolean>(false);
   const [isSyncingGitHub, setIsSyncingGitHub] = useState<boolean>(false);
 
@@ -238,7 +237,6 @@ export default function App() {
   }, []);
 
   const isOnline = useOnlineStatus();
-  const { isInstallable, install: promptInstall } = usePWAInstall();
 
   const [golzarIndexVersion, setGolzarIndexVersion] = useState<number>(0);
 
@@ -1899,10 +1897,10 @@ export default function App() {
             </div>
           </header>
 
-          {/* نوار ابزار در یک Flex Container تک‌خطی زیر هدر: پشتیبان | نقش کاربر | ارتباط گوشی | نصب | خروج */}
-          <div className="w-full max-w-full bg-white border-b border-[#E6D5C1] px-2 sm:px-6 py-2">
-            <div className="max-w-6xl w-full mx-auto flex flex-nowrap items-center justify-between gap-1.5 sm:gap-2.5 text-xs overflow-x-auto no-scrollbar">
-              {/* ۱. کلید پشتیبان */}
+          {/* نوار ابزار واکنش‌گرا زیر هدر صفحه اصلی: چیدمان Grid دو ردیفه در موبایل و ۵ ستونه در دسکتاپ بدون بریدگی متن */}
+          <div className="w-full max-w-full bg-white border-b border-[#E6D5C1] px-2.5 sm:px-6 py-2.5">
+            <div className="max-w-6xl w-full mx-auto grid grid-cols-2 min-[380px]:grid-cols-6 lg:grid-cols-5 gap-2 text-xs">
+              {/* ۱. کلید پشتیبان و گزارش‌ها */}
               <button
                 type="button"
                 onClick={() => {
@@ -1911,24 +1909,21 @@ export default function App() {
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
                 title="پشتیبان و گزارش‌ها"
-                className="flex-1 min-h-[34px] px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-bold rounded-lg bg-[#FDF8F2] text-[#8C3B2B] hover:bg-amber-100 border border-[#E6D5C1] transition-colors inline-flex items-center justify-center gap-1 min-w-0 whitespace-nowrap truncate cursor-pointer"
+                className="col-span-2 min-[380px]:col-span-2 lg:col-span-1 min-h-[44px] px-2.5 py-1.5 text-[11px] sm:text-xs font-bold rounded-xl bg-[#FDF8F2] text-[#8C3B2B] hover:bg-amber-100 border border-[#E6D5C1] transition-colors flex items-center justify-center gap-1.5 text-center leading-snug cursor-pointer"
               >
-                <DatabaseBackup className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate sm:hidden">پشتیبان ({toPersianDigits(totalSavedCount)})</span>
-                <span className="truncate hidden sm:inline">
-                  پشتیبان و گزارش‌ها ({toPersianDigits(totalSavedCount)})
-                </span>
+                <DatabaseBackup className="w-4 h-4 shrink-0" />
+                <span>پشتیبان و گزارش‌ها ({toPersianDigits(totalSavedCount)})</span>
               </button>
 
-              {/* ۲. کلید نقش کاربر (مدیر سامانه) */}
-              <div className="flex-1 min-h-[34px] px-2 sm:px-3 py-1 bg-[#EAF1F7] border border-slate-200 rounded-lg inline-flex items-center justify-center gap-1 min-w-0 whitespace-nowrap">
-                <UserCog className="w-3.5 h-3.5 text-[#1F4E79] shrink-0" />
-                <span className="hidden md:inline text-[11px] text-[#697586] shrink-0">نقش کاربر:</span>
+              {/* ۲. کلید نقش کاربر */}
+              <div className="col-span-2 min-[380px]:col-span-2 lg:col-span-1 min-h-[44px] px-2.5 py-1.5 bg-[#EAF1F7] border border-slate-200 rounded-xl flex items-center justify-center gap-1.5 text-center leading-snug">
+                <UserCog className="w-4 h-4 text-[#1F4E79] shrink-0" />
+                <span className="text-[11px] sm:text-xs text-[#475467] font-semibold shrink-0">نقش کاربر:</span>
                 <select
                   value={activeUserRole}
                   onChange={(e) => setActiveUserRole(e.target.value as UserRoleCode)}
                   aria-label="نقش کاربر"
-                  className="bg-transparent font-bold text-[#253247] text-[10px] sm:text-xs focus:outline-none truncate max-w-full cursor-pointer"
+                  className="bg-transparent font-bold text-[#253247] text-[11px] sm:text-xs focus:outline-none cursor-pointer"
                 >
                   {USER_ROLES.map((r) => (
                     <option key={r.code} value={r.code}>
@@ -1946,17 +1941,17 @@ export default function App() {
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
                 title="ورود به صفحه اختصاصی ارتباط گوشی و انتقال اطلاعات"
-                className={`flex-1 min-h-[34px] px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-bold rounded-lg transition-colors inline-flex items-center justify-center gap-1 min-w-0 whitespace-nowrap truncate cursor-pointer border ${
+                className={`col-span-1 min-[380px]:col-span-2 lg:col-span-1 min-h-[44px] px-2.5 py-1.5 text-[11px] sm:text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 text-center leading-snug cursor-pointer border ${
                   showDeviceSyncDrawer
                     ? 'bg-[#8C3B2B] text-white border-[#702D20]'
                     : 'bg-[#F5E6D3] text-[#8C3B2B] hover:bg-amber-200/70 border-[#E6D5C1]'
                 }`}
               >
-                <RefreshCw className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">ارتباط گوشی</span>
+                <Smartphone className="w-4 h-4 shrink-0" />
+                <span>ارتباط گوشی</span>
               </button>
 
-              {/* ۴. کلید همگام‌سازی و بروزرسانی دستی از گیت‌هاب (فقط با دستور مستقیم کاربر) */}
+              {/* ۴. کلید بروزرسانی از گیت‌هاب (اتمیک و فقط با درخواست مستقیم کاربر) */}
               <button
                 type="button"
                 disabled={isSyncingGitHub}
@@ -1969,61 +1964,47 @@ export default function App() {
                   setIsSyncingGitHub(false);
                   if (res.ok) {
                     showNotify(res.message, 'success');
-                    window.setTimeout(() => {
-                      window.location.reload();
-                    }, 1200);
+                    if (res.shouldReload) {
+                      window.setTimeout(() => {
+                        window.location.reload();
+                      }, 600);
+                    }
                   } else {
                     showNotify(res.message, 'warning');
                   }
                 }}
-                title="اتصال موقت به گیت‌هاب فقط برای دریافت آخرین تغییرات و سپس قطع مجدد ارتباط"
-                className="flex-1 min-h-[34px] px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-bold rounded-lg bg-[#EDF4FB] text-[#1E3A5F] hover:bg-[#D8E8F8] border border-[#C5D9ED] transition-colors inline-flex items-center justify-center gap-1 min-w-0 whitespace-nowrap truncate cursor-pointer disabled:opacity-60"
+                title="بررسی و دریافت اتمیک آخرین نسخه از گیت‌هاب فقط با درخواست شما"
+                className="col-span-1 min-[380px]:col-span-3 lg:col-span-1 min-h-[44px] px-2.5 py-1.5 text-[11px] sm:text-xs font-bold rounded-xl bg-[#EDF4FB] text-[#1E3A5F] hover:bg-[#D8E8F8] border border-[#C5D9ED] transition-colors flex items-center justify-center gap-1.5 text-center leading-snug cursor-pointer disabled:opacity-60"
               >
-                <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isSyncingGitHub ? 'animate-spin' : ''}`} />
-                <span className="truncate">
-                  {isSyncingGitHub ? 'در حال دریافت...' : 'بروزرسانی گیت‌هاب'}
+                <RefreshCw className={`w-4 h-4 shrink-0 ${isSyncingGitHub ? 'animate-spin' : ''}`} />
+                <span>
+                  {isSyncingGitHub ? 'در حال بررسی و دریافت...' : 'بروزرسانی از گیت‌هاب'}
                 </span>
               </button>
 
-              {/* ۵. آیکون کوچک نصب روی گوشی */}
-              <button
-                type="button"
-                onClick={async () => {
-                  if (isInstallable) {
-                    await promptInstall();
-                  } else {
-                    setShowHeaderInstallModal(true);
-                  }
-                }}
-                title="نصب برنامه روی گوشی اندروید"
-                aria-label="نصب برنامه روی گوشی اندروید"
-                className="min-h-[34px] w-9 sm:w-auto sm:px-2.5 py-1 text-[10px] sm:text-xs font-bold bg-[#2E7D5B] text-white hover:bg-[#236347] rounded-lg transition-colors inline-flex items-center justify-center gap-1 shrink-0 cursor-pointer"
-              >
-                <Smartphone className="w-4 h-4 shrink-0" />
-                <span className="hidden sm:inline">نصب</span>
-              </button>
-
-              {/* ۶. کلید خروج کامل از برنامه */}
+              {/* ۵. کلید خروج از برنامه */}
               <button
                 type="button"
                 onClick={() => setShowExitConfirmModal(true)}
                 title="خروج کامل از نرم‌افزار"
-                className="flex-1 min-h-[34px] px-2 sm:px-3 py-1 text-[10px] sm:text-xs font-bold bg-[#8C3B2B] text-white hover:bg-[#702D20] rounded-lg transition-colors inline-flex items-center justify-center gap-1 min-w-0 whitespace-nowrap truncate cursor-pointer shadow-xs"
+                className="col-span-2 min-[380px]:col-span-3 lg:col-span-1 min-h-[44px] px-2.5 py-1.5 text-[11px] sm:text-xs font-bold bg-[#8C3B2B] text-white hover:bg-[#702D20] rounded-xl transition-colors flex items-center justify-center gap-1.5 text-center leading-snug cursor-pointer shadow-xs"
               >
-                <LogOut className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">خروج</span>
+                <LogOut className="w-4 h-4 shrink-0" />
+                <span>خروج از برنامه</span>
               </button>
             </div>
-            <div className="max-w-6xl mx-auto pt-1.5 flex flex-wrap items-center justify-between gap-1.5">
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#EDF6F0] text-[#1E4D2B] font-bold text-[10px] border border-[#A8D5B5]">
-                <ShieldCheck className="w-3 h-3 shrink-0" />
-                <span>عملکرد ۱۰۰٪ آفلاین و محلی فعال است (ارتباط خودکار با گیت‌هاب قطع است)</span>
-              </span>
+
+            {/* نوار وضعیت آرام، کم‌ارتفاع و خوانا در پایین نوار ابزار */}
+            <div className="max-w-6xl mx-auto mt-2 pt-2 border-t border-[#F0E4D4] flex flex-col gap-1 text-[11px]">
+              <div className="flex items-center gap-1.5 text-[#1E4D2B] font-semibold leading-relaxed">
+                <ShieldCheck className="w-3.5 h-3.5 text-[#2E7D5B] shrink-0" />
+                <span>ذخیره‌سازی محلی فعال است • دریافت نسخه جدید از گیت‌هاب فقط با درخواست شما</span>
+              </div>
               {!isOnline && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-100 text-amber-950 font-bold text-[10px] border border-amber-300">
-                  <WifiOff className="w-3 h-3 shrink-0" />
-                  <span>اینترنت دستگاه قطع است (فقط جست‌وجوی اینترنتی غیرفعال است)</span>
-                </span>
+                <div className="flex items-center gap-1.5 text-amber-900 font-semibold leading-relaxed">
+                  <WifiOff className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                  <span>اینترنت دستگاه قطع است؛ جست‌وجوی بیرونی در دسترس نیست.</span>
+                </div>
               )}
             </div>
           </div>
@@ -3013,29 +2994,6 @@ export default function App() {
           </button>
         </div>
       </nav>
-
-      {/* راهنمای نصب برنامه روی گوشی از طریق آیکون کوچک بالای صفحه خانه */}
-      {showHeaderInstallModal && (
-        <ModalWindow
-          onClose={() => setShowHeaderInstallModal(false)}
-          title="راهنمای نصب برنامه روی صفحه اصلی گوشی اندروید (PWA)"
-          maxWidthClass="max-w-md"
-        >
-          <div className="space-y-2.5 text-xs text-[#253247] leading-relaxed">
-            <p className="font-bold text-[#1F4E79]">در گوشی‌های اندروید (مرورگر Chrome):</p>
-            <ol className="list-decimal pr-5 space-y-1">
-              <li>روی دکمه منوی سه نقطه (⋮) در بالای مرورگر کروم بزنید.</li>
-              <li>گزینه <strong>«Install app»</strong> یا <strong>«افزودن به صفحه اصلی (Add to Home screen)»</strong> را انتخاب کنید.</li>
-              <li>آیکون «مرکز اسناد» به صفحه اصلی گوشی اضافه می‌شود و به صورت تمام‌صفحه و آفلاین کار می‌کند.</li>
-            </ol>
-            <p className="font-bold text-[#1F4E79] pt-2">در آیفون و آیپد (مرورگر Safari):</p>
-            <ol className="list-decimal pr-5 space-y-1">
-              <li>دکمه <strong>Share</strong> در نوار پایین سافاری را بزنید.</li>
-              <li>گزینه <strong>Add to Home Screen</strong> را انتخاب نمایید.</li>
-            </ol>
-          </div>
-        </ModalWindow>
-      )}
 
       {/* پنجره تأیید خروج کامل از نرم‌افزار (بدون توقف در صفحه میانی و بدون الزام دانلود روزانه) */}
       {showExitConfirmModal && (

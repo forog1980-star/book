@@ -38,6 +38,9 @@ jobs:
       - name: Build the existing main application
         run: npm run build
 
+      - name: Validate main PWA offline shell and atomic cache invariants
+        run: npm run test:offline-pwa
+
       - name: Setup Node.js for the independent library PWA
         uses: actions/setup-node@v4
         with:

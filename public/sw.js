@@ -1,9 +1,9 @@
 // Service Worker اختصاصی سامانه اصلی مرکز اسناد (مسیر /book/)
-// معماری ۱۰۰٪ آفلاین‌پایه (Strictly Cache-First):
-// در حالت عادی هیچ ارتباطی با گیت‌هاب و اینترنت برقرار نمی‌شود و تمام فایل‌های برنامه، فونت‌ها و بانک‌های اطلاعاتی مستقیماً از حافظه داخلی دستگاه اجرا می‌شوند.
-// تنها در زمان فشردن کلید «همگام‌سازی دستی با گیت‌هاب» (_manual_github_sync=1) فایل‌های جدید از گیت‌هاب دریافت و جایگزین کش می‌شوند.
+// نسخه کش ایزوله و اتمیک: markaz-asnad-main-book-v15
 
-const CACHE_NAME = 'markaz-asnad-main-book-v14';
+const CACHE_PREFIX = 'markaz-asnad-main-book-';
+const LEGACY_CACHE_PREFIX = 'markaz-asnad-pwa-';
+const CACHE_NAME = `${CACHE_PREFIX}v15`;
 
 const PRECACHE_ASSETS = [
   './',
@@ -20,43 +20,102 @@ const PRECACHE_ASSETS = [
   './data/sooreh_mehr_book_martyr_research.json'
 ];
 
-self.addEventListener('install', (event) => {
-  self.skipWaiting();
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(async (cache) => {
-      // ۱. ذخیره فایل‌های پایه و بانک‌های اطلاعاتی
-      for (const asset of PRECACHE_ASSETS) {
-        try {
-          await cache.add(asset);
-        } catch (err) {
-          console.warn('SW Precache item warning:', asset, err);
-        }
-      }
+function normalizeRelativeAssetUrl(rawUrl) {
+  if (!rawUrl) return null;
+  const trimmed = String(rawUrl).trim();
+  if (!trimmed || /^https?:|^data:|^blob:/i.test(trimmed)) return null;
+  const withoutQuery = trimmed.split('?')[0].split('#')[0];
+  if (withoutQuery.startsWith('./')) return withoutQuery;
+  if (withoutQuery.startsWith('/')) return `.${withoutQuery}`;
+  return `./${withoutQuery}`;
+}
 
-      // ۲. شناسایی و پیش‌ذخیره خودکار باندل‌های JS و CSS از روی index.html
-      try {
-        const indexResp = await cache.match('./index.html') || await fetch('./index.html');
-        if (indexResp && indexResp.ok) {
-          const htmlText = await indexResp.clone().text();
-          const bundleMatches = [
-            ...Array.from(htmlText.matchAll(/src=["']([^"']*\/assets\/[^"']+\.js)["']/g)),
-            ...Array.from(htmlText.matchAll(/href=["']([^"']*\/assets\/[^"']+\.css)["']/g))
-          ];
-          for (const match of bundleMatches) {
-            if (match[1]) {
-              try {
-                await cache.add(match[1]);
-              } catch {
-                // ignore individual bundle error
-              }
-            }
-          }
-        }
-      } catch {
-        // ignore if offline during install
+function collectAppShellAssets(htmlText, cssTexts = []) {
+  const discovered = new Set(PRECACHE_ASSETS);
+
+  const htmlMatches = [
+    ...Array.from(htmlText.matchAll(/(?:src|href)=["']([^"']*\/assets\/[^"']+\.(?:m?js|css|woff2))["']/gi))
+  ];
+
+  for (const match of htmlMatches) {
+    const normalized = normalizeRelativeAssetUrl(match[1]);
+    if (normalized) {
+      discovered.add(normalized);
+    }
+  }
+
+  for (const cssText of cssTexts) {
+    const cssFontMatches = Array.from(
+      cssText.matchAll(/url\(\s*["']?([^"')]+Vazirmatn[^"')]+\.woff2)["']?\s*\)/gi)
+    );
+    for (const fm of cssFontMatches) {
+      const rawFontPath = fm[1] || '';
+      if (rawFontPath.startsWith('./') && !rawFontPath.startsWith('./assets/') && !rawFontPath.startsWith('./fonts/')) {
+        discovered.add(`./assets/${rawFontPath.slice(2)}`);
+      } else {
+        const normalized = normalizeRelativeAssetUrl(rawFontPath);
+        if (normalized) discovered.add(normalized);
       }
-    })
-  );
+    }
+  }
+
+  return Array.from(discovered);
+}
+
+async function installAppShellAtomically() {
+  const cache = await caches.open(CACHE_NAME);
+  try {
+    const htmlResp = await fetch('./index.html', {
+      cache: 'no-cache',
+      credentials: 'same-origin'
+    });
+    if (!htmlResp || !htmlResp.ok) {
+      throw new Error(`Failed to fetch index.html (${htmlResp ? htmlResp.status : 'network error'})`);
+    }
+    const htmlText = await htmlResp.clone().text();
+    if (!htmlText || !htmlText.includes('id="root"')) {
+      throw new Error('Fetched index.html is empty or invalid');
+    }
+
+    const initialAssets = collectAppShellAssets(htmlText, []);
+    const cssUrls = initialAssets.filter((item) => item.endsWith('.css'));
+    const cssTexts = [];
+
+    for (const cssUrl of cssUrls) {
+      const cssResp = await fetch(cssUrl, {
+        cache: 'no-cache',
+        credentials: 'same-origin'
+      });
+      if (!cssResp || !cssResp.ok) {
+        throw new Error(`Failed to fetch required CSS bundle: ${cssUrl}`);
+      }
+      cssTexts.push(await cssResp.text());
+    }
+
+    const appShellAssets = collectAppShellAssets(htmlText, cssTexts);
+    await cache.addAll(appShellAssets);
+
+    // راستی‌آزمایی وجود تمام منابع ضروری در کش نسخه جدید پیش از اجازه تکمیل نصب
+    for (const asset of appShellAssets) {
+      const verifyMatch = await cache.match(asset, { ignoreSearch: true });
+      if (!verifyMatch || !verifyMatch.ok) {
+        throw new Error(`Verification failed for precached asset: ${asset}`);
+      }
+    }
+
+    // فقط در اولین نصب که هیچ کنترل‌کننده فعالی وجود ندارد، بلافاصله آماده فعال‌سازی شود
+    if (!self.registration.active) {
+      await self.skipWaiting();
+    }
+  } catch (error) {
+    // در صورت شکست دریافت حتی یک فایل ضروری، فقط کش ناقص همین نسخه جدید حذف می‌شود و کش نسخه قبلی دست‌نخورده می‌ماند
+    await caches.delete(CACHE_NAME).catch(() => {});
+    throw error;
+  }
+}
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(installAppShellAtomically());
 });
 
 self.addEventListener('message', (event) => {
@@ -73,7 +132,7 @@ self.addEventListener('activate', (event) => {
         Promise.all(
           keys.map((key) => {
             if (
-              (key.startsWith('markaz-asnad-main-book-') || key.startsWith('markaz-asnad-pwa-')) &&
+              (key.startsWith(CACHE_PREFIX) || key.startsWith(LEGACY_CACHE_PREFIX)) &&
               key !== CACHE_NAME
             ) {
               return caches.delete(key);
@@ -96,7 +155,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // عدم مداخله در زیربرنامه مستقل /library-research/
+  // حفظ استقلال کامل زیربرنامه پژوهش (/library-research/)
   if (reqUrl.pathname.includes('/library-research/')) {
     return;
   }
@@ -110,7 +169,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // اگر کاربر صراحتاً دکمه «همگام‌سازی و بروزرسانی از گیت‌هاب» را زده است، مستقیم از شبکه دریافت شود
+  // درخواست‌های بررسی و دریافت نسخه جدید که توسط کلید بروزرسانی دستی ارسال می‌شوند مستقیم از شبکه عبور کنند
   if (reqUrl.searchParams.get('_manual_github_sync') === '1') {
     return;
   }
@@ -119,53 +178,41 @@ self.addEventListener('fetch', (event) => {
     event.request.mode === 'navigate' ||
     (event.request.headers.get('accept') || '').includes('text/html');
 
-  // ۱. برای باز شدن صفحه اصلی (HTML): اولویت ۱۰۰٪ با حافظه آفلاین (بدون منتظر ماندن برای گیت‌هاب)
+  // ۱. پاسخ‌دهی به درخواست صفحه اصلی (HTML) منحصراً از کش اختصاصی نسخه فعال (CACHE_NAME)
   if (isHtmlNavigation) {
     event.respondWith(
-      caches
-        .match('./index.html')
-        .then((cachedHtml) => {
-          if (cachedHtml) {
-            return cachedHtml;
-          }
-          return caches.match(event.request);
-        })
-        .then((matched) => {
-          if (matched) {
-            return matched;
-          }
-          // فقط در اولین بار نصب که هنوز کش خالی است از شبکه می‌گیرد و در کش قفل می‌کند
-          return fetch(event.request).then((networkResp) => {
-            if (networkResp && networkResp.status === 200) {
-              const copy = networkResp.clone();
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put('./index.html', copy).catch(() => {});
-              });
-            }
-            return networkResp;
-          });
-        })
-        .catch(() => caches.match('./index.html'))
+      caches.open(CACHE_NAME).then(async (activeCache) => {
+        const cachedHtml =
+          (await activeCache.match('./index.html', { ignoreSearch: true })) ||
+          (await activeCache.match(event.request, { ignoreSearch: true }));
+        if (cachedHtml) {
+          return cachedHtml;
+        }
+
+        const networkResp = await fetch(event.request);
+        if (networkResp && networkResp.status === 200) {
+          await activeCache.put('./index.html', networkResp.clone()).catch(() => {});
+        }
+        return networkResp;
+      })
     );
     return;
   }
 
-  // ۲. برای تمام فایل‌های برنامه (JS، CSS، فونت‌ها، تصاویر و فایل‌های داده /data/):
-  // اولویت ۱۰۰٪ با حافظه داخلی دستگاه (Strictly Cache-First) بدون ارسال درخواست به اینترنت و گیت‌هاب
+  // ۲. پاسخ‌دهی به فایل‌های برنامه (JS، CSS، فونت، تصاویر و داده‌های مرجع /data/)
+  // منحصراً از کش اختصاصی نسخه فعال (CACHE_NAME) بدون جست‌وجوی سراسری در کش‌های قدیمی
   event.respondWith(
-    caches.match(event.request, { ignoreSearch: true }).then((cachedResp) => {
+    caches.open(CACHE_NAME).then(async (activeCache) => {
+      const cachedResp = await activeCache.match(event.request, { ignoreSearch: true });
       if (cachedResp) {
         return cachedResp;
       }
-      return fetch(event.request).then((netResp) => {
-        if (netResp && netResp.status === 200) {
-          const copy = netResp.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, copy).catch(() => {});
-          });
-        }
-        return netResp;
-      });
+
+      const netResp = await fetch(event.request);
+      if (netResp && netResp.status === 200) {
+        await activeCache.put(event.request, netResp.clone()).catch(() => {});
+      }
+      return netResp;
     })
   );
 });
