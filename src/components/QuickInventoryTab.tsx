@@ -18,7 +18,9 @@ import {
   ArrowDown,
   Trash2,
   ShieldCheck,
-  AlertTriangle
+  AlertTriangle,
+  Plus,
+  Users
 } from 'lucide-react';
 import {
   BookCopyRecord,
@@ -43,7 +45,11 @@ import {
 } from '../utils/navigationHistory';
 import { requestActionConfirmation } from '../utils/confirmDialogService';
 import { TehranMartyrBadge } from './TehranMartyrBadge';
-import { evaluateMartyrTehranStatus } from '../utils/martyrsCrossMatchEngine';
+import {
+  evaluateMartyrTehranStatus,
+  findMartyrRecordIn28k,
+  splitMartyrNamesInput
+} from '../utils/martyrsCrossMatchEngine';
 
 interface QuickInventoryTabProps {
   catalogRows: ReferenceCatalogRow[];
@@ -143,6 +149,11 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       ? initialLibSnap.shelfFilter
       : 'all'
   );
+  // فیلتر اختصاصی «شهید مرتبط» در بخش ۲
+  const [relatedMartyrQuery, setRelatedMartyrQuery] = useState<string>('');
+  const [martyrStatusFilter, setMartyrStatusFilter] = useState<
+    'all' | 'has_martyr' | 'tehran_martyr' | 'multi_martyr' | 'no_martyr'
+  >('all');
   // به صورت پیش‌فرض فیلتر ستونی بسته باشد تا صفحه در بدو ورود خلوت باشد
   const [showAdvancedColumnFilters, setShowAdvancedColumnFilters] = useState<boolean>(false);
   const [auditFilter, setAuditFilter] = useState<
@@ -204,6 +215,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
   const [fipaOverride, setFipaOverride] = useState<string>('');
   const [regNoOverride, setRegNoOverride] = useState<string>('');
   const [notesValue, setNotesValue] = useState<string>('');
+  const [relatedMartyrsInputs, setRelatedMartyrsInputs] = useState<string[]>(['']);
 
   // Outside-List / New Book Entry State (ادغام‌شده در کشوی واحد بخش ۳)
   const [outsideTitle, setOutsideTitle] = useState('');
@@ -214,6 +226,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
   const [outsideShelf, setOutsideShelf] = useState<ShelfCode>('SH-01');
   const [outsideLevel, setOutsideLevel] = useState<LevelCode>('T01');
   const [outsideNotes, setOutsideNotes] = useState('');
+  const [outsideRelatedMartyrs, setOutsideRelatedMartyrs] = useState<string[]>(['']);
   const [lastOutsideSavedBanner, setLastOutsideSavedBanner] = useState<{
     title: string;
     tempBookId: string;
@@ -456,6 +469,13 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       setFipaOverride(existing.fipa || row.fipaRaw || '');
       setRegNoOverride(existing.registrationNo || row.registrationNoRaw || '');
       setNotesValue(existing.notes || '');
+      const existingMartyrs =
+        existing.relatedMartyrs && existing.relatedMartyrs.length > 0
+          ? existing.relatedMartyrs
+          : getLinksForBookRow(row)
+              .map((l) => l.martyrNameRaw)
+              .filter(Boolean);
+      setRelatedMartyrsInputs(existingMartyrs.length > 0 ? existingMartyrs : ['']);
     } else {
       if (!isShelfLocked) {
         const matchedCat = SUBJECT_CATEGORIES.find(
@@ -477,6 +497,10 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       setFipaOverride(row.fipaRaw || '');
       setRegNoOverride(row.registrationNoRaw || '');
       setNotesValue(row.noteRaw || '');
+      const linkedMartyrs = getLinksForBookRow(row)
+        .map((l) => l.martyrNameRaw)
+        .filter(Boolean);
+      setRelatedMartyrsInputs(linkedMartyrs.length > 0 ? linkedMartyrs : ['']);
     }
   };
 
@@ -635,6 +659,8 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
         haystack: string;
         pubNorm: string;
         authNorm: string;
+        martyrsNorm: string;
+        martyrsCount: number;
         effectivePublisher: string;
         effectiveAuthor: string;
         effectiveCat: string;
@@ -668,6 +694,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
           }).isTehran
       );
 
+      const savedMartyrsList = savedRec?.relatedMartyrs?.join(' ') || '';
       const linkedMartyrsText =
         rowLinks.length > 0
           ? rowLinks
@@ -676,18 +703,22 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                   `${l.martyrNameRaw} ${l.sourceDescriptionRaw || ''} ${l.pageReferenceRaw || ''} ${l.alternativeTitle || ''}`
               )
               .join(' ')
-          : '';
+          : savedMartyrsList;
 
       const haystack = normalizePersianText(
-        `${r.tempBookId} ${r.titleRaw} ${r.descriptionRaw} ${effectiveAuthor} ${linkedMartyrsText} ${
-          hasTehranMartyr ? 'تهرانی شهدای تهرانی گلزار تهران' : ''
-        }`
+        `${r.tempBookId} ${r.titleRaw} ${r.descriptionRaw} ${effectiveAuthor} ${linkedMartyrsText} ${savedMartyrsList} ${
+          savedRec?.notes || ''
+        } ${hasTehranMartyr ? 'تهرانی شهدای تهرانی گلزار تهران' : ''}`
       );
 
       map.set(r.rowKey, {
         haystack,
         pubNorm: normalizePersianText(effectivePublisher),
         authNorm: normalizePersianText(authorAndDesc),
+        martyrsNorm: normalizePersianText(
+          `${linkedMartyrsText} ${savedMartyrsList} ${savedRec?.notes || ''} ${r.descriptionRaw || ''}`
+        ),
+        martyrsCount: Math.max(rowLinks.length, savedRec?.relatedMartyrs?.length || 0),
         effectivePublisher,
         effectiveAuthor,
         effectiveCat,
@@ -732,6 +763,8 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     const authWords = authQ ? authQ.split(' ').filter(Boolean) : [];
     const pubQ = normalizePersianText(publisherQuery);
     const pubWords = pubQ ? pubQ.split(' ').filter(Boolean) : [];
+    const martyrQ = normalizePersianText(relatedMartyrQuery);
+    const martyrWords = martyrQ ? martyrQ.split(' ').filter(Boolean) : [];
 
     return sourceRowsPool.filter((r) => {
       const savedRec = auditRecords[r.rowKey];
@@ -796,7 +829,16 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
         return false;
       }
 
-      // 5. General / Title / ID / Linked Martyr Query
+      // 5. Related Martyr Filter («شهید مرتبط»)
+      if (martyrStatusFilter === 'has_martyr' && meta.martyrsCount === 0) return false;
+      if (martyrStatusFilter === 'tehran_martyr' && !meta.hasTehranMartyr) return false;
+      if (martyrStatusFilter === 'multi_martyr' && meta.martyrsCount < 2) return false;
+      if (martyrStatusFilter === 'no_martyr' && meta.martyrsCount > 0) return false;
+      if (martyrWords.length > 0 && !martyrWords.every((w) => meta.martyrsNorm.includes(w))) {
+        return false;
+      }
+
+      // 6. General / Title / ID / Linked Martyr Query
       if (qWords.length === 0) return true;
       return qWords.every((word) => meta.haystack.includes(word));
     });
@@ -809,6 +851,8 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     publisherFilter,
     categoryFilter,
     shelfFilter,
+    relatedMartyrQuery,
+    martyrStatusFilter,
     auditFilter,
     auditRecords,
     precomputedSearchMap
@@ -823,6 +867,8 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     if (publisherFilter !== 'all') count++;
     if (categoryFilter !== 'all') count++;
     if (shelfFilter !== 'all') count++;
+    if (relatedMartyrQuery.trim()) count++;
+    if (martyrStatusFilter !== 'all') count++;
     if (auditFilter !== 'all') count++;
     return count;
   }, [
@@ -833,6 +879,8 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     publisherFilter,
     categoryFilter,
     shelfFilter,
+    relatedMartyrQuery,
+    martyrStatusFilter,
     auditFilter
   ]);
 
@@ -844,6 +892,8 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     setPublisherFilter('all');
     setCategoryFilter('all');
     setShelfFilter('all');
+    setRelatedMartyrQuery('');
+    setMartyrStatusFilter('all');
     setAuditFilter('all');
     setSelectedRow(null);
     setShowSection3Drawer(false);
@@ -904,6 +954,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
               ...existing,
               physical: 'verified',
               needsReview: false,
+              expertApproved: true,
               copyStatus: 'verified_present',
               notes: cleanedNotes || 'تأییدشده توسط کارشناس',
               updatedAt: new Date().toISOString()
@@ -925,6 +976,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
               location: targetLoc,
               physical: 'verified',
               needsReview: false,
+              expertApproved: true,
               copyStatus: 'verified_present',
               physicalCondition: 'healthy',
               countedCopies: fallbackRow?.countedCopiesRaw || '1',
@@ -1076,6 +1128,15 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
         ? false
         : Boolean(needsReviewFlag || physicalStatus === 'review');
 
+    const explicitMartyrsClean = Array.from(
+      new Set(
+        relatedMartyrsInputs
+          .flatMap((m) => splitMartyrNamesInput(m))
+          .map((m) => m.trim())
+          .filter(Boolean)
+      )
+    );
+
     const record: FieldAuditRecord = {
       key: targetRow.rowKey,
       source: isOutside ? 'outside-list' : 'catalog',
@@ -1096,6 +1157,10 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       location: locationCode,
       physical: physicalStatus,
       needsReview: effectiveNeedsReview,
+      expertApproved:
+        physicalStatus === 'verified' && !effectiveNeedsReview
+          ? true
+          : existingRec?.expertApproved,
       copyStatus:
         physicalStatus === 'not_found'
           ? 'missing'
@@ -1105,6 +1170,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       physicalCondition,
       countedCopies: countedCopies.trim() || '1',
       notes: notesValue.trim(),
+      relatedMartyrs: explicitMartyrsClean.length > 0 ? explicitMartyrsClean : undefined,
       backupSourceSheet: targetRow.backupSourceSheet,
       backupSourceRow: targetRow.backupSourceRow,
       updatedAt: new Date().toISOString()
@@ -1183,6 +1249,22 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
         const nowIso = new Date().toISOString();
         const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
 
+        const cleanOutsideMartyrs = Array.from(
+          new Set(
+            outsideRelatedMartyrs
+              .flatMap((m) => splitMartyrNamesInput(m))
+              .map((m) => m.trim())
+              .filter(Boolean)
+          )
+        );
+        const martyrsNotePrefix =
+          cleanOutsideMartyrs.length > 0
+            ? `شهید مرتبط: ${cleanOutsideMartyrs.join(' ، ')}`
+            : '';
+        const mergedOutsideNotes = [martyrsNotePrefix, outsideNotes.trim()]
+          .filter(Boolean)
+          .join(' | ');
+
         const record: FieldAuditRecord = {
           key: recordKey,
           source: 'outside-list',
@@ -1202,9 +1284,10 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
           copyStatus: 'pending_review',
           physicalCondition: 'healthy',
           countedCopies: '1',
-          notes: outsideNotes.trim()
-            ? `${outsideNotes.trim()} | خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس`
+          notes: mergedOutsideNotes
+            ? `${mergedOutsideNotes} | خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس`
             : 'خارج از فهرست اولیه ۹۸۰ کتاب — در انتظار تأیید کارشناس',
+          relatedMartyrs: cleanOutsideMartyrs.length > 0 ? cleanOutsideMartyrs : undefined,
           updatedAt: nowIso
         };
 
@@ -1240,6 +1323,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
         setOutsidePublisher('');
         setOutsideYear('');
         setOutsideNotes('');
+        setOutsideRelatedMartyrs(['']);
 
         onNotify(
           `✅ کتاب جدید «${cleanTitle}» با شناسه موقت ${tempId} و نسخه ${generatedOutCopyId} در محل ${locationCode} ثبت شد (در انتظار تأیید کارشناس).`
@@ -1598,11 +1682,73 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
             </button>
           </div>
 
-          {(searchQuery.trim() || authorQuery.trim() || publisherQuery.trim() || auditFilter !== 'all') && (
+          {/* ردیف فیلتر اختصاصی «شهید مرتبط» در بخش ۲ جست‌وجو و فیلتر پیشرفته کتاب‌ها */}
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center pt-1 border-t border-[#E6D5C1]/70">
+            <div className="sm:col-span-7 relative">
+              <Users className="w-4 h-4 text-[#8C3B2B] absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="search"
+                value={relatedMartyrQuery}
+                onChange={(e) => {
+                  setRelatedMartyrQuery(e.target.value);
+                  setShowBooksListDrawer(true);
+                  setSelectedRow(null);
+                  setVisibleLimit(12);
+                }}
+                placeholder="فیلتر شهید مرتبط: نام شهید را بنویسید (مثلاً: چمران، ابراهیم هادی، همت...)"
+                className="w-full min-h-[40px] pr-9 pl-7 py-1.5 bg-white border border-[#D8C2A7] focus:border-[#8C3B2B] rounded-xl text-xs text-[#2E2118] placeholder:text-[#8E735B] focus:outline-none"
+              />
+              {relatedMartyrQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRelatedMartyrQuery('');
+                    setVisibleLimit(12);
+                  }}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            <div className="sm:col-span-5">
+              <select
+                value={martyrStatusFilter}
+                onChange={(e) => {
+                  setMartyrStatusFilter(
+                    e.target.value as
+                      | 'all'
+                      | 'has_martyr'
+                      | 'tehran_martyr'
+                      | 'multi_martyr'
+                      | 'no_martyr'
+                  );
+                  setShowBooksListDrawer(true);
+                  setSelectedRow(null);
+                  setVisibleLimit(12);
+                }}
+                className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-[#D8C2A7] rounded-xl text-xs font-bold text-[#6B3E26] cursor-pointer"
+              >
+                <option value="all">فیلتر شهید مرتبط: همه کتاب‌ها</option>
+                <option value="has_martyr">فقط کتاب‌های دارای شهید مرتبط</option>
+                <option value="tehran_martyr">فقط شهدای گلزار شهدای تهران (تهرانی)</option>
+                <option value="multi_martyr">کتاب‌های چندشهیدی (۲ شهید یا بیشتر)</option>
+                <option value="no_martyr">کتاب‌های بدون شهید مرتبط ثبت‌شده</option>
+              </select>
+            </div>
+          </div>
+
+          {(searchQuery.trim() ||
+            authorQuery.trim() ||
+            publisherQuery.trim() ||
+            relatedMartyrQuery.trim() ||
+            martyrStatusFilter !== 'all' ||
+            auditFilter !== 'all') && (
             <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] px-3 py-1.5 bg-[#FAF2E8] border border-[#E6D5C1] rounded-lg text-[#755C48]">
               <span>
                 🔎 نتیجه فیلتر فعلی: <strong className="text-[#8C3B2B]">{toPersianDigits(allMatchingRows.length)}</strong> کتاب
                 {searchQuery.trim() ? ` برای عبارت «${searchQuery.trim()}»` : ''}
+                {relatedMartyrQuery.trim() ? ` · شهید مرتبط: «${relatedMartyrQuery.trim()}»` : ''}
               </span>
               <button
                 type="button"
@@ -2256,18 +2402,93 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                               </div>
                             </div>
 
-                            {/* توضیحات لازم زیر بخش ۲ (برای ثبت امانت یا یادداشت فوری پای قفسه) */}
-                            <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1">
-                              <label className="block text-xs font-bold text-slate-800">
-                                توضیحات لازم (در صورت امانت یا یادداشت قفسه):
-                              </label>
-                              <input
-                                type="text"
-                                value={notesValue}
-                                onChange={(e) => setNotesValue(e.target.value)}
-                                placeholder="مثلاً: به امانت داده شده / نیازمند بررسی جلد یا صفحه..."
-                                className="w-full min-h-[38px] px-3 py-1.5 bg-[#F5F7FA] focus:bg-white border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:border-[#1f4e79]"
-                              />
+                            {/* فیلد اختصاصی شهید مرتبط (با دکمه + برای افزودن چند شهید) و توضیحات زیر بخش ۲ */}
+                            <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-2.5">
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <label className="text-xs font-bold text-[#8C3B2B]">
+                                    نام شهید مرتبط با این کتاب (نام کامل شهید):
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setRelatedMartyrsInputs((prev) => [...prev, ''])
+                                    }
+                                    className="px-2.5 py-1 rounded-lg bg-[#8C3B2B] hover:bg-[#702D20] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>افزودن شهید دیگر</span>
+                                  </button>
+                                </div>
+                                <div className="space-y-1.5">
+                                  {relatedMartyrsInputs.map((mName, mIdx) => {
+                                    const matched28k = mName.trim()
+                                      ? findMartyrRecordIn28k(mName.trim())
+                                      : null;
+                                    return (
+                                      <div key={mIdx} className="space-y-1">
+                                        <div className="flex items-center gap-1.5">
+                                          <input
+                                            type="text"
+                                            value={mName}
+                                            onChange={(e) => {
+                                              const val = e.target.value;
+                                              setRelatedMartyrsInputs((prev) =>
+                                                prev.map((item, i) => (i === mIdx ? val : item))
+                                              );
+                                            }}
+                                            placeholder={`نام کامل شهید ${
+                                              relatedMartyrsInputs.length > 1
+                                                ? toPersianDigits(mIdx + 1)
+                                                : ''
+                                            } (مثلاً: شهید مصطفی چمران)`}
+                                            className="flex-1 min-h-[36px] px-3 py-1 bg-[#FAF5EE] focus:bg-white border border-[#D8C2A7] rounded-lg text-xs text-slate-900 focus:outline-none focus:border-[#8C3B2B]"
+                                          />
+                                          {relatedMartyrsInputs.length > 1 && (
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setRelatedMartyrsInputs((prev) =>
+                                                  prev.filter((_, i) => i !== mIdx)
+                                                )
+                                              }
+                                              className="min-h-[36px] px-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
+                                              title="حذف این کادر شهید"
+                                            >
+                                              ✕
+                                            </button>
+                                          )}
+                                        </div>
+                                        {matched28k && (
+                                          <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-0.5">
+                                            <TehranMartyrBadge size="xs" />
+                                            <span className="font-bold">{matched28k.fullName}</span>
+                                            <span>·</span>
+                                            <span>
+                                              قطعه {toPersianDigits(matched28k.gravePiece || '—')} · ردیف{' '}
+                                              {toPersianDigits(matched28k.graveRow || '—')} · شماره{' '}
+                                              {toPersianDigits(matched28k.graveNumber || '—')}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              <div className="space-y-1 pt-1 border-t border-slate-100">
+                                <label className="block text-xs font-bold text-slate-800">
+                                  توضیحات لازم (اگر نام شهید را در توضیحات هم بنویسید خودکار شناسایی و ثبت می‌شود):
+                                </label>
+                                <input
+                                  type="text"
+                                  value={notesValue}
+                                  onChange={(e) => setNotesValue(e.target.value)}
+                                  placeholder="مثلاً: شهید مصطفی چمران / به امانت داده شده..."
+                                  className="w-full min-h-[38px] px-3 py-1.5 bg-[#F5F7FA] focus:bg-white border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:border-[#1f4e79]"
+                                />
+                              </div>
                             </div>
 
                             {/* 3. Physical Presence Status (با قابلیت انتخاب هم‌زمان «نیازمند بررسی» با «موجود و تأییدشده») */}
@@ -2574,9 +2795,76 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                     </div>
                   </div>
 
+                  {/* فیلد شهید مرتبط (با دکمه + برای افزودن چند شهید به کتاب جدید) */}
+                  <div className="sm:col-span-2 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-xs font-bold text-[#8C3B2B]">
+                        شهید مرتبط با کتاب (نام کامل شهید — در صورت چندشهیدی بودن دکمه + را بزنید):
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setOutsideRelatedMartyrs((prev) => [...prev, ''])}
+                        className="px-2.5 py-1 rounded-lg bg-[#8C3B2B] hover:bg-[#702D20] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>افزودن شهید دیگر</span>
+                      </button>
+                    </div>
+                    <div className="space-y-1.5">
+                      {outsideRelatedMartyrs.map((mVal, mIdx) => {
+                        const matched28k = mVal.trim() ? findMartyrRecordIn28k(mVal.trim()) : null;
+                        return (
+                          <div key={mIdx} className="space-y-1">
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                value={mVal}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setOutsideRelatedMartyrs((prev) =>
+                                    prev.map((item, i) => (i === mIdx ? v : item))
+                                  );
+                                }}
+                                placeholder={`نام کامل شهید ${
+                                  outsideRelatedMartyrs.length > 1 ? toPersianDigits(mIdx + 1) : ''
+                                } (مثلاً: شهید مصطفی چمران)`}
+                                className="flex-1 min-h-[38px] px-3 py-1.5 bg-white border border-[#D8C2A7] rounded-xl text-xs text-slate-900 focus:outline-none focus:border-[#8C3B2B]"
+                              />
+                              {outsideRelatedMartyrs.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setOutsideRelatedMartyrs((prev) =>
+                                      prev.filter((_, i) => i !== mIdx)
+                                    )
+                                  }
+                                  className="min-h-[38px] px-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                            {matched28k && (
+                              <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-0.5">
+                                <TehranMartyrBadge size="xs" />
+                                <span className="font-bold">{matched28k.fullName}</span>
+                                <span>·</span>
+                                <span>
+                                  قطعه {toPersianDigits(matched28k.gravePiece || '—')} · ردیف{' '}
+                                  {toPersianDigits(matched28k.graveRow || '—')} · شماره{' '}
+                                  {toPersianDigits(matched28k.graveNumber || '—')}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-medium text-slate-600 mb-1">
-                      توضیحات لازم (اختیاری):
+                      توضیحات لازم (اختیاری — نام شهید در توضیحات نیز خودکار خوانده می‌شود):
                     </label>
                     <input
                       type="text"
@@ -3120,9 +3408,82 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                           </div>
                         </div>
 
+                        {/* فیلد شهید مرتبط در فرم کامل بخش ۳ (با دکمه + برای چند شهید) */}
+                        <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <label className="text-xs font-bold text-[#8C3B2B]">
+                              شهید مرتبط با کتاب (نام کامل شهید — قابلیت افزودن چند شهید با +):
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setRelatedMartyrsInputs((prev) => [...prev, ''])
+                              }
+                              className="px-2.5 py-1 rounded-lg bg-[#8C3B2B] hover:bg-[#702D20] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>افزودن شهید دیگر</span>
+                            </button>
+                          </div>
+                          <div className="space-y-1.5">
+                            {relatedMartyrsInputs.map((mName, mIdx) => {
+                              const matched28k = mName.trim()
+                                ? findMartyrRecordIn28k(mName.trim())
+                                : null;
+                              return (
+                                <div key={mIdx} className="space-y-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      type="text"
+                                      value={mName}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        setRelatedMartyrsInputs((prev) =>
+                                          prev.map((item, i) => (i === mIdx ? val : item))
+                                        );
+                                      }}
+                                      placeholder={`نام کامل شهید ${
+                                        relatedMartyrsInputs.length > 1
+                                          ? toPersianDigits(mIdx + 1)
+                                          : ''
+                                      } (مثلاً: شهید مصطفی چمران)`}
+                                      className="flex-1 min-h-[38px] px-3 py-1.5 bg-white border border-[#D8C2A7] rounded-xl text-xs text-slate-900 focus:outline-none focus:border-[#8C3B2B]"
+                                    />
+                                    {relatedMartyrsInputs.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setRelatedMartyrsInputs((prev) =>
+                                            prev.filter((_, i) => i !== mIdx)
+                                          )
+                                        }
+                                        className="min-h-[38px] px-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
+                                      >
+                                        ✕
+                                      </button>
+                                    )}
+                                  </div>
+                                  {matched28k && (
+                                    <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-0.5">
+                                      <TehranMartyrBadge size="xs" />
+                                      <span className="font-bold">{matched28k.fullName}</span>
+                                      <span>·</span>
+                                      <span>
+                                        قطعه {toPersianDigits(matched28k.gravePiece || '—')} · ردیف{' '}
+                                        {toPersianDigits(matched28k.graveRow || '—')} · شماره{' '}
+                                        {toPersianDigits(matched28k.graveNumber || '—')}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
                         <div>
                           <label className="block text-xs font-medium text-slate-600 mb-1">
-                            توضیحات لازم:
+                            توضیحات لازم (نام شهید در توضیحات نیز به صورت خودکار خوانده می‌شود):
                           </label>
                           <textarea
                             rows={2}

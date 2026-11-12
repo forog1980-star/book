@@ -191,6 +191,8 @@ export interface FieldAuditRecord {
   countedCopies: string; // تعداد نسخه‌های مشاهده‌شده در قفسه
   checkedBy?: string; // نام ثبت‌کننده / بازبین
   notes: string;
+  relatedMartyrs?: string[]; // فهرست نام کامل شهید یا شهدای مرتبط ثبت‌شده برای کتاب
+  expertApproved?: boolean; // آیا توسط کارشناس تأیید نهایی شده و از فهرست بررسی/ثبت‌های جدید خارج شده است
   backupSourceSheet?: string;
   backupSourceRow?: string;
   updatedAt: string;

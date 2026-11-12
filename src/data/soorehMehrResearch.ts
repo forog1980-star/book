@@ -890,7 +890,8 @@ export function buildUnifiedBookDossiers(params: {
     const copies = copiesByBookId.get(grp.primaryBookId) || [];
     const firstCopy = copies[0];
 
-    const isNewRegistration = aud?.source === 'outside-list';
+    const isExpertVerified = Boolean(aud?.expertApproved);
+    const isNewRegistration = Boolean(aud?.source === 'outside-list' && !isExpertVerified);
     const isDetermined = Boolean(aud);
 
     const hasInitialBaseResearchLink = grp.links.some(
@@ -907,15 +908,22 @@ export function buildUnifiedBookDossiers(params: {
       : 'catalog-determined';
 
     const physicalStatus: UnifiedBookDossier['physicalStatus'] = aud
-      ? aud.physical
+      ? isExpertVerified
+        ? 'verified'
+        : aud.physical
       : 'unchecked';
 
     let determinationStatusLabel = 'تعیین‌تکلیف‌نشده (فهرست اولیه)';
     if (aud) {
-      if (isNewRegistration) {
+      if (isExpertVerified) {
+        determinationStatusLabel =
+          aud.source === 'outside-list'
+            ? 'ثبت جدید — تأیید نهایی کارشناس (تعیین‌تکلیف‌شده)'
+            : 'تعیین‌تکلیف‌شده — تأیید نهایی کارشناس';
+      } else if (isNewRegistration) {
         determinationStatusLabel =
           aud.physical === 'verified' && aud.copyStatus === 'verified_present'
-            ? 'ثبت جدید — تأییدشده در قفسه'
+            ? 'ثبت جدید — تأییدشده در قفسه (در انتظار تأیید نهایی کارشناس)'
             : 'ثبت جدید — در انتظار تأیید کارشناس';
       } else if (aud.physical === 'verified') {
         determinationStatusLabel = 'تعیین‌تکلیف‌شده — موجود در قفسه';
@@ -948,7 +956,9 @@ export function buildUnifiedBookDossiers(params: {
         reviewStatus: lnk.reviewStatus,
         isGroupPhrase: lnk.isGroupPhrase
       });
-      const certainty = classifyMartyrLinkCertainty(lnk);
+      const rawCertainty = classifyMartyrLinkCertainty(lnk);
+      const certainty: MartyrRelationCertainty =
+        isExpertVerified && rawCertainty === 'نیازمند بررسی' ? 'قطعی' : rawCertainty;
       const relSheetCat: 'کتاب‌های مرتبط با یک شهید' | 'کتاب‌های مرتبط با چند شهید' =
         lnk.sourceSheet === 'چند شهید' || grp.links.length > 1 || lnk.isGroupPhrase
           ? 'کتاب‌های مرتبط با چند شهید'

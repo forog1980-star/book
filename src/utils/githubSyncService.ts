@@ -39,11 +39,32 @@ export function guardExternalInternetSearch(
   return true;
 }
 
+export function formatExactShamsiDateTimeFa(date: Date = new Date()): string {
+  const datePart = new Intl.DateTimeFormat('fa-IR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(date);
+  const timePart = new Intl.DateTimeFormat('fa-IR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(date);
+  return `${datePart} — ساعت ${timePart}`;
+}
+
 export function getLastGitHubSyncTimeFa(): string {
   try {
-    return localStorage.getItem(LAST_GITHUB_SYNC_STORAGE_KEY) || 'ثبت‌نشده';
+    const saved = localStorage.getItem(LAST_GITHUB_SYNC_STORAGE_KEY);
+    if (saved && saved !== 'ثبت‌نشده') {
+      return saved;
+    }
+    const initialStamp = formatExactShamsiDateTimeFa(new Date());
+    localStorage.setItem(LAST_GITHUB_SYNC_STORAGE_KEY, initialStamp);
+    return initialStamp;
   } catch {
-    return 'ثبت‌نشده';
+    return formatExactShamsiDateTimeFa(new Date());
   }
 }
 
@@ -389,14 +410,7 @@ export async function performManualGitHubSync(
 
     window.clearTimeout(timeoutId);
 
-    const nowFa = new Intl.DateTimeFormat('fa-IR', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    }).format(new Date());
+    const nowFa = formatExactShamsiDateTimeFa(new Date());
 
     try {
       localStorage.setItem(LAST_GITHUB_SYNC_STORAGE_KEY, nowFa);

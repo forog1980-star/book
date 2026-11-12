@@ -24,7 +24,10 @@ import {
   LogOut,
   ShieldCheck,
   FileSpreadsheet,
-  ArrowRight
+  ArrowRight,
+  SlidersHorizontal,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import {
   AuditLogEntry,
@@ -100,6 +103,7 @@ import {
 } from './data/soorehMehrResearch';
 import {
   enrichLinksAndCatalogBooksWith28kTehranIndex,
+  extractExplicitMartyrsFromBookNotesAndList,
   getAllUnifiedBooks,
   getCachedGolzarMartyrsSync,
   loadCachedGolzarMartyrs,
@@ -118,7 +122,7 @@ import {
   RECORD_META_MAP_KEY,
   SyncMetadataSnapshot
 } from './modules/device-sync';
-import { performManualGitHubSync } from './utils/githubSyncService';
+import { getLastGitHubSyncTimeFa, performManualGitHubSync } from './utils/githubSyncService';
 
 // عنوان و شناسه اختصاصی پایگاه داده در حافظه گوشی و مرورگر: book
 export const BOOK_STORAGE_NAMESPACE = 'book';
@@ -170,6 +174,8 @@ export default function App() {
   const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
   const [showComprehensiveDocModal, setShowComprehensiveDocModal] = useState<boolean>(false);
   const [isSyncingGitHub, setIsSyncingGitHub] = useState<boolean>(false);
+  const [showControlMenu, setShowControlMenu] = useState<boolean>(false);
+  const [lastGitHubSyncFa, setLastGitHubSyncFa] = useState<string>(() => getLastGitHubSyncTimeFa());
 
   // پشته تاریخچه مراحل برای بازگشت دو مرحله‌ای (اول بازگشت به مرحله قبل، سپس با دو بار کلیک خروج از برنامه)
   const navHistoryRef = React.useRef<
@@ -1283,7 +1289,14 @@ export default function App() {
       .trim();
 
     const isExpertApprovedSave =
-      record.physical === 'verified' && !record.needsReview && record.copyStatus !== 'pending_review';
+      Boolean(record.expertApproved) ||
+      (record.physical === 'verified' && !record.needsReview && record.copyStatus !== 'pending_review');
+
+    const extractedMartyrsFromRecord = extractExplicitMartyrsFromBookNotesAndList(
+      cleanedRecordNotes,
+      record.relatedMartyrs,
+      record.publisher
+    );
 
     // مقابله خودکار فقط برای کتاب‌های جدیدی که هنوز توسط کارشناس تأیید نشده‌اند (physical === 'review')
     // و فقط بر اساس عنوان کتاب و توضیحات کتاب (بدون نام ناشر و بدون یادداشت‌های سیستمی)
@@ -1294,7 +1307,7 @@ export default function App() {
           {
             tempBookId: record.tempBookId || record.key,
             title: record.title,
-            description: record.descriptionRaw,
+            description: [record.descriptionRaw, cleanedRecordNotes].filter(Boolean).join(' | '),
             publisher: record.publisher,
             category: record.category,
             location: record.location
@@ -1331,6 +1344,9 @@ export default function App() {
 
     const withActor: FieldAuditRecord & { _updatedAt?: number } = {
       ...record,
+      expertApproved: record.expertApproved,
+      relatedMartyrs:
+        extractedMartyrsFromRecord.length > 0 ? extractedMartyrsFromRecord : record.relatedMartyrs,
       needsReview: isExpertApprovedSave ? false : Boolean(record.needsReview || hasNewSimilarity),
       notes: cleanedRecordNotes,
       checkedBy: getRoleDisplayName(activeUserRole),
@@ -1897,115 +1913,176 @@ export default function App() {
             </div>
           </header>
 
-          {/* نوار ابزار واکنش‌گرا زیر هدر صفحه اصلی: چیدمان Grid دو ردیفه در موبایل و ۵ ستونه در دسکتاپ بدون بریدگی متن */}
-          <div className="w-full max-w-full bg-white border-b border-[#E6D5C1] px-2.5 sm:px-6 py-2.5">
-            <div className="max-w-6xl w-full mx-auto grid grid-cols-2 min-[380px]:grid-cols-6 lg:grid-cols-5 gap-2 text-xs">
-              {/* ۱. کلید پشتیبان و گزارش‌ها */}
-              <button
-                type="button"
-                onClick={() => {
-                  setShowDeviceSyncDrawer(false);
-                  setActiveTab('management');
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                title="پشتیبان و گزارش‌ها"
-                className="col-span-2 min-[380px]:col-span-2 lg:col-span-1 min-h-[44px] px-2.5 py-1.5 text-[11px] sm:text-xs font-bold rounded-xl bg-[#FDF8F2] text-[#8C3B2B] hover:bg-amber-100 border border-[#E6D5C1] transition-colors flex items-center justify-center gap-1.5 text-center leading-snug cursor-pointer"
-              >
-                <DatabaseBackup className="w-4 h-4 shrink-0" />
-                <span>پشتیبان و گزارش‌ها ({toPersianDigits(totalSavedCount)})</span>
-              </button>
-
-              {/* ۲. کلید نقش کاربر */}
-              <div className="col-span-2 min-[380px]:col-span-2 lg:col-span-1 min-h-[44px] px-2.5 py-1.5 bg-[#EAF1F7] border border-slate-200 rounded-xl flex items-center justify-center gap-1.5 text-center leading-snug">
-                <UserCog className="w-4 h-4 text-[#1F4E79] shrink-0" />
-                <span className="text-[11px] sm:text-xs text-[#475467] font-semibold shrink-0">نقش کاربر:</span>
-                <select
-                  value={activeUserRole}
-                  onChange={(e) => setActiveUserRole(e.target.value as UserRoleCode)}
-                  aria-label="نقش کاربر"
-                  className="bg-transparent font-bold text-[#253247] text-[11px] sm:text-xs focus:outline-none cursor-pointer"
+          {/* نوار ابزار فشرده زیر هدر صفحه اصلی: فقط دو کلید («کلید کنترل» در سمت راست و «خروج» در سمت چپ) + تاریخ و ساعت دقیق آخرین به‌روزرسانی از گیت‌هاب */}
+          <div className="w-full max-w-full bg-white border-b border-[#E6D5C1] px-2.5 sm:px-6 py-2">
+            <div className="max-w-6xl w-full mx-auto space-y-1.5">
+              {/* ردیف دو کلیدی: کلید کنترل (سمت راست) و کلید خروج (سمت چپ) */}
+              <div className="flex items-center justify-between gap-2">
+                {/* ۱. سمت راست: کلید کنترل (کشویی) */}
+                <button
+                  type="button"
+                  data-testid="home-control-menu-btn"
+                  onClick={() => setShowControlMenu((prev) => !prev)}
+                  className={`flex-1 sm:flex-initial sm:min-w-[220px] min-h-[38px] px-3.5 py-1.5 text-xs font-bold rounded-xl border transition-colors flex items-center justify-between gap-2 cursor-pointer ${
+                    showControlMenu
+                      ? 'bg-[#8C3B2B] text-white border-[#702D20] shadow-xs'
+                      : 'bg-[#FDF8F2] text-[#8C3B2B] hover:bg-amber-100/70 border-[#E6D5C1]'
+                  }`}
                 >
-                  {USER_ROLES.map((r) => (
-                    <option key={r.code} value={r.code}>
-                      {r.title}
-                    </option>
-                  ))}
-                </select>
+                  <span className="inline-flex items-center gap-1.5">
+                    <SlidersHorizontal className="w-4 h-4 shrink-0" />
+                    <span>کلید کنترل</span>
+                  </span>
+                  {showControlMenu ? (
+                    <ChevronUp className="w-4 h-4 shrink-0" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 shrink-0" />
+                  )}
+                </button>
+
+                {/* ۲. سمت چپ: کلید خروج */}
+                <button
+                  type="button"
+                  data-testid="home-exit-btn"
+                  onClick={() => setShowExitConfirmModal(true)}
+                  title="خروج کامل از نرم‌افزار"
+                  className="min-w-[110px] sm:min-w-[140px] min-h-[38px] px-3.5 py-1.5 text-xs font-bold bg-[#8C3B2B] text-white hover:bg-[#702D20] rounded-xl transition-colors flex items-center justify-center gap-1.5 text-center cursor-pointer shadow-xs"
+                >
+                  <LogOut className="w-4 h-4 shrink-0" />
+                  <span>خروج</span>
+                </button>
               </div>
 
-              {/* ۳. کلید ارتباط گوشی */}
-              <button
-                type="button"
-                onClick={() => {
-                  setShowDeviceSyncDrawer((prev) => !prev);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                title="ورود به صفحه اختصاصی ارتباط گوشی و انتقال اطلاعات"
-                className={`col-span-1 min-[380px]:col-span-2 lg:col-span-1 min-h-[44px] px-2.5 py-1.5 text-[11px] sm:text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 text-center leading-snug cursor-pointer border ${
-                  showDeviceSyncDrawer
-                    ? 'bg-[#8C3B2B] text-white border-[#702D20]'
-                    : 'bg-[#F5E6D3] text-[#8C3B2B] hover:bg-amber-200/70 border-[#E6D5C1]'
-                }`}
-              >
-                <Smartphone className="w-4 h-4 shrink-0" />
-                <span>ارتباط گوشی</span>
-              </button>
+              {/* پنل کشویی «کلید کنترل» (شامل پشتیبان و گزارش‌ها، نقش کاربر، ارتباط گوشی، بروزرسانی از گیت‌هاب و نشان ذخیره‌سازی محلی) */}
+              {showControlMenu && (
+                <div
+                  data-testid="home-control-menu-panel"
+                  className="bg-[#FAF5EE] border border-[#D8C7B2] rounded-2xl p-3 space-y-2.5 shadow-sm animate-in fade-in duration-150"
+                >
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-[#E6D5C1] text-[11px]">
+                    <div className="flex items-center gap-1.5 text-[#1E4D2B] font-bold">
+                      <ShieldCheck className="w-4 h-4 text-[#2E7D5B] shrink-0" />
+                      <span>ذخیره‌سازی محلی فعال است</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowControlMenu(false)}
+                      className="text-[#6E5846] hover:text-[#332218] font-bold cursor-pointer"
+                    >
+                      بستن ✕
+                    </button>
+                  </div>
 
-              {/* ۴. کلید بروزرسانی از گیت‌هاب (اتمیک و فقط با درخواست مستقیم کاربر) */}
-              <button
-                type="button"
-                disabled={isSyncingGitHub}
-                onClick={async () => {
-                  if (isSyncingGitHub) return;
-                  setIsSyncingGitHub(true);
-                  const res = await performManualGitHubSync((msg) => {
-                    showNotify(msg, 'warning');
-                  });
-                  setIsSyncingGitHub(false);
-                  if (res.ok) {
-                    showNotify(res.message, 'success');
-                    if (res.shouldReload) {
-                      window.setTimeout(() => {
-                        window.location.reload();
-                      }, 600);
-                    }
-                  } else {
-                    showNotify(res.message, 'warning');
-                  }
-                }}
-                title="بررسی و دریافت اتمیک آخرین نسخه از گیت‌هاب فقط با درخواست شما"
-                className="col-span-1 min-[380px]:col-span-3 lg:col-span-1 min-h-[44px] px-2.5 py-1.5 text-[11px] sm:text-xs font-bold rounded-xl bg-[#EDF4FB] text-[#1E3A5F] hover:bg-[#D8E8F8] border border-[#C5D9ED] transition-colors flex items-center justify-center gap-1.5 text-center leading-snug cursor-pointer disabled:opacity-60"
-              >
-                <RefreshCw className={`w-4 h-4 shrink-0 ${isSyncingGitHub ? 'animate-spin' : ''}`} />
-                <span>
-                  {isSyncingGitHub ? 'در حال بررسی و دریافت...' : 'بروزرسانی از گیت‌هاب'}
-                </span>
-              </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+                    {/* ۱. پشتیبان و گزارش‌ها */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowControlMenu(false);
+                        setShowDeviceSyncDrawer(false);
+                        setActiveTab('management');
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className="min-h-[40px] px-3 py-1.5 text-xs font-bold rounded-xl bg-white text-[#8C3B2B] hover:bg-amber-50 border border-[#E6D5C1] transition-colors flex items-center justify-center gap-1.5 text-center cursor-pointer"
+                    >
+                      <DatabaseBackup className="w-4 h-4 shrink-0" />
+                      <span>پشتیبان و گزارش‌ها ({toPersianDigits(totalSavedCount)})</span>
+                    </button>
 
-              {/* ۵. کلید خروج از برنامه */}
-              <button
-                type="button"
-                onClick={() => setShowExitConfirmModal(true)}
-                title="خروج کامل از نرم‌افزار"
-                className="col-span-2 min-[380px]:col-span-3 lg:col-span-1 min-h-[44px] px-2.5 py-1.5 text-[11px] sm:text-xs font-bold bg-[#8C3B2B] text-white hover:bg-[#702D20] rounded-xl transition-colors flex items-center justify-center gap-1.5 text-center leading-snug cursor-pointer shadow-xs"
-              >
-                <LogOut className="w-4 h-4 shrink-0" />
-                <span>خروج از برنامه</span>
-              </button>
-            </div>
+                    {/* ۲. نقش کاربر */}
+                    <div className="min-h-[40px] px-3 py-1.5 bg-[#EAF1F7] border border-slate-200 rounded-xl flex items-center justify-center gap-1.5 text-center">
+                      <UserCog className="w-4 h-4 text-[#1F4E79] shrink-0" />
+                      <span className="text-xs text-[#475467] font-semibold shrink-0">نقش کاربر:</span>
+                      <select
+                        value={activeUserRole}
+                        onChange={(e) => setActiveUserRole(e.target.value as UserRoleCode)}
+                        aria-label="نقش کاربر"
+                        className="bg-transparent font-bold text-[#253247] text-xs focus:outline-none cursor-pointer"
+                      >
+                        {USER_ROLES.map((r) => (
+                          <option key={r.code} value={r.code}>
+                            {r.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-            {/* نوار وضعیت آرام، کم‌ارتفاع و خوانا در پایین نوار ابزار */}
-            <div className="max-w-6xl mx-auto mt-2 pt-2 border-t border-[#F0E4D4] flex flex-col gap-1 text-[11px]">
-              <div className="flex items-center gap-1.5 text-[#1E4D2B] font-semibold leading-relaxed">
-                <ShieldCheck className="w-3.5 h-3.5 text-[#2E7D5B] shrink-0" />
-                <span>ذخیره‌سازی محلی فعال است • دریافت نسخه جدید از گیت‌هاب فقط با درخواست شما</span>
-              </div>
-              {!isOnline && (
-                <div className="flex items-center gap-1.5 text-amber-900 font-semibold leading-relaxed">
-                  <WifiOff className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                  <span>اینترنت دستگاه قطع است؛ جست‌وجوی بیرونی در دسترس نیست.</span>
+                    {/* ۳. ارتباط گوشی */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowControlMenu(false);
+                        setShowDeviceSyncDrawer((prev) => !prev);
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className={`min-h-[40px] px-3 py-1.5 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 text-center cursor-pointer border ${
+                        showDeviceSyncDrawer
+                          ? 'bg-[#8C3B2B] text-white border-[#702D20]'
+                          : 'bg-white text-[#8C3B2B] hover:bg-amber-50 border-[#E6D5C1]'
+                      }`}
+                    >
+                      <Smartphone className="w-4 h-4 shrink-0" />
+                      <span>ارتباط گوشی</span>
+                    </button>
+
+                    {/* ۴. بروزرسانی از گیت‌هاب */}
+                    <button
+                      type="button"
+                      disabled={isSyncingGitHub}
+                      onClick={async () => {
+                        if (isSyncingGitHub) return;
+                        setIsSyncingGitHub(true);
+                        const res = await performManualGitHubSync((msg) => {
+                          showNotify(msg, 'warning');
+                        });
+                        setIsSyncingGitHub(false);
+                        if (res.syncedAtFa) {
+                          setLastGitHubSyncFa(res.syncedAtFa);
+                        } else {
+                          setLastGitHubSyncFa(getLastGitHubSyncTimeFa());
+                        }
+                        if (res.ok) {
+                          showNotify(res.message, 'success');
+                          if (res.shouldReload) {
+                            window.setTimeout(() => {
+                              window.location.reload();
+                            }, 600);
+                          }
+                        } else {
+                          showNotify(res.message, 'warning');
+                        }
+                      }}
+                      className="min-h-[40px] px-3 py-1.5 text-xs font-bold rounded-xl bg-[#EDF4FB] text-[#1E3A5F] hover:bg-[#D8E8F8] border border-[#C5D9ED] transition-colors flex items-center justify-center gap-1.5 text-center cursor-pointer disabled:opacity-60"
+                    >
+                      <RefreshCw
+                        className={`w-4 h-4 shrink-0 ${isSyncingGitHub ? 'animate-spin' : ''}`}
+                      />
+                      <span>
+                        {isSyncingGitHub ? 'در حال بررسی و دریافت...' : 'بروزرسانی از گیت‌هاب'}
+                      </span>
+                    </button>
+                  </div>
                 </div>
               )}
+
+              {/* خط وضعیت زیر کلید کنترل: تاریخ شمسی و ساعت دقیق به دقیقه و ثانیه از آخرین به‌روزرسانی نرم‌افزار */}
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#5C4636] pt-0.5">
+                <div className="flex items-center gap-1.5 font-medium">
+                  <RefreshCw className="w-3 h-3 text-[#8C3B2B] shrink-0" />
+                  <span>
+                    آخرین به‌روزرسانی اطلاعات نرم‌افزار از گیت‌هاب:{' '}
+                    <strong className="text-[#332218] font-bold tabular-nums" dir="rtl">
+                      {lastGitHubSyncFa}
+                    </strong>
+                  </span>
+                </div>
+                {!isOnline && (
+                  <div className="flex items-center gap-1 text-amber-900 font-semibold">
+                    <WifiOff className="w-3 h-3 text-amber-700 shrink-0" />
+                    <span>آفلاین (کارکرد محلی فعال)</span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </>
@@ -2168,29 +2245,52 @@ export default function App() {
               }}
               onApproveOutsideBook={(recordKey) => {
                 const existing = auditRecords[recordKey];
-                if (!existing) return;
-                requestActionConfirmation({
-                  variant: 'confirm',
-                  title: 'تأیید نهایی کارشناسی کتاب جدید',
-                  message: `آیا از تأیید نهایی کارشناسی کتاب «${existing.title}» (${existing.tempBookId}) اطمینان دارید؟`,
-                  details: [
-                    `عنوان کتاب: ${existing.title}`,
-                    `شناسه موقت: ${existing.tempBookId} · نسخه: ${existing.copyId || '—'}`,
-                    `محل قفسه: ${existing.location || '—'} · موضوع: ${existing.category || '—'}`
-                  ],
-                  confirmLabel: 'بله، تأیید نهایی کارشناس انجام شود',
-                  onConfirm: () => {
-                    const updated: FieldAuditRecord = {
+                const catRow = catalogRows.find(
+                  (r) => r.rowKey === recordKey || r.tempBookId === recordKey
+                );
+                const bookTitle = existing?.title || catRow?.titleRaw || 'کتاب انتخابی';
+                const bookId = existing?.tempBookId || catRow?.tempBookId || recordKey;
+
+                const updated: FieldAuditRecord = existing
+                  ? {
                       ...existing,
+                      expertApproved: true,
                       physical: 'verified',
+                      needsReview: false,
                       copyStatus: 'verified_present',
-                      notes: existing.notes.replace(/در انتظار تأیید کارشناس/g, 'تأییدشده توسط کارشناس'),
+                      notes: existing.notes
+                        ? existing.notes.replace(/در انتظار تأیید کارشناس/g, 'تأییدشده توسط کارشناس')
+                        : 'تأییدشده توسط کارشناس',
+                      updatedAt: new Date().toISOString()
+                    }
+                  : {
+                      key: catRow?.rowKey || recordKey,
+                      source: 'catalog',
+                      sheet: currentSheetName,
+                      tempBookId: bookId,
+                      title: bookTitle,
+                      author: catRow?.authorRaw || '',
+                      publisher: catRow?.publisherRaw || '',
+                      year: '',
+                      descriptionRaw: catRow?.descriptionRaw || '',
+                      category: catRow?.categoryRaw || SUBJECT_CATEGORIES[0].label,
+                      shelf: 'SH-01',
+                      level: 'T01',
+                      location: catRow?.locationRaw || 'SH-01-T01',
+                      physical: 'verified',
+                      needsReview: false,
+                      expertApproved: true,
+                      copyStatus: 'verified_present',
+                      physicalCondition: 'healthy',
+                      countedCopies: catRow?.countedCopiesRaw || '1',
+                      notes: 'تأییدشده توسط کارشناس',
                       updatedAt: new Date().toISOString()
                     };
-                    handleSaveAuditRecord(updated);
-                    showNotify(`✅ کتاب «${existing.title}» (${existing.tempBookId}) توسط کارشناس تأیید نهایی شد.`);
-                  }
-                });
+
+                handleSaveAuditRecord(updated);
+                showNotify(
+                  `✅ کتاب «${bookTitle}» (${bookId}) توسط کارشناس تأیید نهایی شد و از فهرست بررسی/ثبت‌های جدید خارج گردید.`
+                );
               }}
               onDeleteAuditRecord={handleDeleteSingleRecord}
               onDownloadUnifiedExcel={handleQuickExcelExport}
