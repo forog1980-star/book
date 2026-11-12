@@ -1,0 +1,44 @@
+name: Validate main PWA offline shell
+
+on:
+  push:
+    branches:
+      - fix/offline-pwa-shell-cache-20261112
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/main.tsx'
+      - 'index.html'
+      - 'public/sw.js'
+      - 'scripts/test-offline-pwa.mjs'
+      - 'package.json'
+      - '.github/workflows/validate-main-pwa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Build production application
+        run: npm run build
+
+      - name: Validate offline app shell and cached assets
+        run: npm run test:offline-pwa
