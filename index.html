@@ -8,55 +8,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <script>
       (function () {
-        var BUILD_VER = '2026-11-11-v12';
-        var ACTIVE_CACHE = 'markaz-asnad-main-book-v12';
-
-        function purgeOldCaches() {
-          if (!('caches' in window)) return Promise.resolve();
-          return caches.keys().then(function (keys) {
-            return Promise.all(
-              keys.map(function (k) {
-                if (k !== ACTIVE_CACHE) {
-                  return caches.delete(k);
-                }
-                return Promise.resolve();
-              })
-            );
-          });
-        }
-
-        try {
-          var prevVer = localStorage.getItem('markaz_app_build_ver');
-          if (prevVer !== BUILD_VER) {
-            localStorage.setItem('markaz_app_build_ver', BUILD_VER);
-            purgeOldCaches();
-          }
-        } catch (e) {}
-
-        // بررسی آرام نسخه اسکریپت سرور تا اگر مرورگر موبایل فایل قدیمی را از حافظه برگردانده بود، یک‌بار نسخه جدید بارگذاری شود
+        // Best-effort online update hint only. Cache lifecycle belongs to the scoped Service Worker.
         var isCheckingBundle = false;
         function verifyLatestServerBundle() {
-          if (isCheckingBundle) return;
+          if (isCheckingBundle || !navigator.onLine) return;
           try {
-            if (!navigator.onLine) return;
             var loadedScripts = document.querySelectorAll('script[type="module"][src]');
             var currentScript = '';
             for (var i = 0; i < loadedScripts.length; i++) {
-              var s = loadedScripts[i].getAttribute('src') || '';
-              if (s.indexOf('/assets/index-') !== -1) {
-                currentScript = s.split('/').pop();
+              var src = loadedScripts[i].getAttribute('src') || '';
+              if (src.indexOf('/assets/index-') !== -1) {
+                currentScript = src.split('/').pop();
                 break;
               }
             }
-            // در محیط dev که فایل /src/main.tsx است، نیازی به رفرش خودکار نیست
             if (!currentScript) return;
 
             isCheckingBundle = true;
             var checkUrl = new URL('./index.html', window.location.href);
             checkUrl.searchParams.set('_check', String(Date.now()));
             fetch(checkUrl.toString(), { cache: 'no-store', credentials: 'same-origin' })
-              .then(function (r) {
-                return r.ok ? r.text() : '';
+              .then(function (response) {
+                return response.ok ? response.text() : '';
               })
               .then(function (html) {
                 if (!html) return;
@@ -67,24 +40,20 @@
                   var reloadKey = 'markaz_reloaded_for_' + serverScript;
                   if (sessionStorage.getItem(reloadKey) === '1') return;
                   sessionStorage.setItem(reloadKey, '1');
-                  purgeOldCaches().finally(function () {
-                    window.location.reload();
-                  });
+                  window.location.reload();
                 }
               })
               .catch(function () {})
               .finally(function () {
                 isCheckingBundle = false;
               });
-          } catch (e) {
+          } catch (error) {
             isCheckingBundle = false;
           }
         }
 
-        window.addEventListener('pageshow', function (ev) {
-          if (ev && ev.persisted) {
-            verifyLatestServerBundle();
-          }
+        window.addEventListener('pageshow', function (event) {
+          if (event && event.persisted) verifyLatestServerBundle();
         });
       })();
     </script>
