@@ -192,6 +192,7 @@ export interface FieldAuditRecord {
   checkedBy?: string; // نام ثبت‌کننده / بازبین
   notes: string;
   relatedMartyrs?: string[]; // فهرست نام کامل شهید یا شهدای مرتبط ثبت‌شده برای کتاب
+  excludedMartyrs?: string[]; // فهرست شهدایی که توسط کاربر از این کتاب حذف یا با نام اصلاح‌شده جایگزین شده‌اند
   expertApproved?: boolean; // آیا توسط کارشناس تأیید نهایی شده و از فهرست بررسی/ثبت‌های جدید خارج شده است
   backupSourceSheet?: string;
   backupSourceRow?: string;

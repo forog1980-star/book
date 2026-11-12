@@ -720,6 +720,13 @@ export function buildUnifiedBookDossiers(params: {
     if (ct && !catalogByCompactTitle.has(ct)) {
       catalogByCompactTitle.set(ct, row);
     }
+    const audForRow = auditRecords[row.rowKey];
+    if (audForRow?.title) {
+      const act = compactPersianForMatch(audForRow.title);
+      if (act && !catalogByCompactTitle.has(act)) {
+        catalogByCompactTitle.set(act, row);
+      }
+    }
   }
 
   const auditByBookId = new Map<string, FieldAuditRecord>();
@@ -805,7 +812,9 @@ export function buildUnifiedBookDossiers(params: {
     const catRow =
       (lnk.tempBookId ? catalogById.get(lnk.tempBookId) : undefined) ||
       catalogByCompactTitle.get(compactPersianForMatch(lnk.bookTitleRaw));
-    const audById = lnk.tempBookId ? auditByBookId.get(lnk.tempBookId) : undefined;
+    const audById =
+      (lnk.tempBookId ? auditByBookId.get(lnk.tempBookId) : undefined) ||
+      (catRow ? auditRecords[catRow.rowKey] : undefined);
     const resolvedBookId = lnk.tempBookId || catRow?.tempBookId || audById?.tempBookId || '';
     const canonicalTitleForKey = catRow?.titleRaw || audById?.title || lnk.bookTitleRaw;
     const groupKey =
@@ -840,7 +849,18 @@ export function buildUnifiedBookDossiers(params: {
     if (!grp.description && lnk.sourceDescriptionRaw) {
       grp.description = lnk.sourceDescriptionRaw;
     }
-    grp.links.push(lnk);
+    const lnkMartyrCompact = compactPersianForMatch(
+      lnk.martyrNameRaw.replace(/^(شهیدان|شهید)\s+/g, '')
+    );
+    const existingIdx = grp.links.findIndex((existing) => {
+      const exComp = compactPersianForMatch(
+        existing.martyrNameRaw.replace(/^(شهیدان|شهید)\s+/g, '')
+      );
+      return exComp === lnkMartyrCompact;
+    });
+    if (existingIdx === -1) {
+      grp.links.push(lnk);
+    }
   }
 
   // گام ۲: افزودن خودکار تمام کتاب‌های ثبت جدید (outside-list) یا کتاب‌های تعیین‌تکلیف‌شده در قفسه که هنوز در ۱۹۸ عنوان پایه نبوده‌اند

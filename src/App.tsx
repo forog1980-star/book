@@ -1283,7 +1283,14 @@ export default function App() {
   };
 
   const handleSaveAuditRecord = (record: FieldAuditRecord) => {
-    const cleanedRecordNotes = (record.notes || '')
+    const prevAudit = auditRecords[record.key];
+    const catRow = catalogRows.find(
+      (r) => r.rowKey === record.key || (record.tempBookId && r.tempBookId === record.tempBookId)
+    );
+    const effectiveBookId = record.tempBookId || prevAudit?.tempBookId || catRow?.tempBookId || record.key;
+    const effectiveTitle = (record.title || prevAudit?.title || catRow?.titleRaw || '').trim();
+
+    let cleanedRecordNotes = (record.notes || '')
       .replace(/\s*\|\s*⚠️\s*نیازمند بررسی:?\s*تشابه نام با[^|]*/g, '')
       .replace(/⚠️\s*نیازمند بررسی:?\s*تشابه نام با[^|]*/g, '')
       .trim();
@@ -1292,10 +1299,59 @@ export default function App() {
       Boolean(record.expertApproved) ||
       (record.physical === 'verified' && !record.needsReview && record.copyStatus !== 'pending_review');
 
+    // محاسبه شهدای حذف‌شده یا جایگزین‌شده در صورتی که کاربر لیست relatedMartyrs را از فرم کتابخانه ارسال کرده باشد
+    const explicitMartyrsPassed = Array.isArray(record.relatedMartyrs);
+    const currentExplicitCompacts = new Set(
+      (record.relatedMartyrs || [])
+        .map((m) => normalizePersianText(m.replace(/^(شهیدان|شهید)\s+/g, '')).replace(/\s+/g, ''))
+        .filter(Boolean)
+    );
+
+    const prevMartyrNamesOnBook = new Set<string>([
+      ...(prevAudit?.relatedMartyrs || []),
+      ...indexedLinks
+        .filter((l) => l.tempBookId === effectiveBookId)
+        .map((l) => l.martyrNameRaw)
+        .filter(Boolean)
+    ]);
+
+    const nextExcludedSet = new Set<string>(
+      (record.excludedMartyrs || prevAudit?.excludedMartyrs || []).filter((ex) => {
+        const c = normalizePersianText(ex.replace(/^(شهیدان|شهید)\s+/g, '')).replace(/\s+/g, '');
+        return c && !currentExplicitCompacts.has(c);
+      })
+    );
+
+    if (explicitMartyrsPassed) {
+      for (const prevM of prevMartyrNamesOnBook) {
+        const cleanPrev = prevM.replace(/^(شهیدان|شهید)\s+/g, '').trim();
+        const compPrev = normalizePersianText(cleanPrev).replace(/\s+/g, '');
+        if (compPrev && !currentExplicitCompacts.has(compPrev)) {
+          nextExcludedSet.add(cleanPrev);
+          // اگر نام شهید حذف‌شده یا قدیمی در متن یادداشت هم بود، از یادداشت پاک یا اصلاح شود تا دوباره استخراج نشود
+          if (cleanedRecordNotes && cleanPrev.length >= 3) {
+            const escaped = cleanPrev.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            cleanedRecordNotes = cleanedRecordNotes
+              .replace(new RegExp(`شهید\\s+مرتبط:\\s*${escaped}\\s*(?:[،,|]\\s*)?`, 'g'), '')
+              .replace(new RegExp(`شهید\\s+${escaped}\\b`, 'g'), '')
+              .replace(/\s*\|\s*\|\s*/g, ' | ')
+              .replace(/^\s*\|\s*|\s*\|\s*$/g, '')
+              .trim();
+          }
+        }
+      }
+    }
+
+    const nextExcludedMartyrs = Array.from(nextExcludedSet);
+    const effectiveRelatedInput = explicitMartyrsPassed
+      ? record.relatedMartyrs
+      : prevAudit?.relatedMartyrs;
+
     const extractedMartyrsFromRecord = extractExplicitMartyrsFromBookNotesAndList(
       cleanedRecordNotes,
-      record.relatedMartyrs,
-      record.publisher
+      effectiveRelatedInput,
+      record.publisher,
+      nextExcludedMartyrs
     );
 
     // مقابله خودکار فقط برای کتاب‌های جدیدی که هنوز توسط کارشناس تأیید نشده‌اند (physical === 'review')
@@ -1305,8 +1361,8 @@ export default function App() {
       ? []
       : matchSingleBookAgainstMartyrs(
           {
-            tempBookId: record.tempBookId || record.key,
-            title: record.title,
+            tempBookId: effectiveBookId,
+            title: effectiveTitle,
             description: [record.descriptionRaw, cleanedRecordNotes].filter(Boolean).join(' | '),
             publisher: record.publisher,
             category: record.category,
@@ -1319,23 +1375,23 @@ export default function App() {
 
     const unverifiedMatches = autoMatches.filter((m) => {
       const normM = normalizePersianText(m.martyrName.replace(/^شهید\s+/, ''));
-      const normB = normalizePersianText(record.title);
+      const normB = normalizePersianText(effectiveTitle);
       const alreadyLinked = links.some(
         (l) =>
           normalizePersianText(l.martyrNameRaw.replace(/^شهید\s+/, '')).includes(normM) &&
-          (l.tempBookId === record.tempBookId || normalizePersianText(l.bookTitleRaw).includes(normB))
+          (l.tempBookId === effectiveBookId || normalizePersianText(l.bookTitleRaw).includes(normB))
       );
       if (alreadyLinked) return false;
       const alreadyInSuggestions = smartSuggestions.some(
         (s) =>
           normalizePersianText(s.martyrName.replace(/^شهید\s+/, '')).includes(normM) &&
-          (s.matchedCatalogBookId === record.tempBookId || normalizePersianText(s.bookTitle).includes(normB))
+          (s.matchedCatalogBookId === effectiveBookId || normalizePersianText(s.bookTitle).includes(normB))
       );
       if (alreadyInSuggestions) return false;
       const alreadyRejected = rejectedSuggestionsArchive.some(
         (r) =>
           normalizePersianText(r.martyrName.replace(/^شهید\s+/, '')).includes(normM) &&
-          (r.bookId === record.tempBookId || normalizePersianText(r.bookTitle).includes(normB))
+          (r.bookId === effectiveBookId || normalizePersianText(r.bookTitle).includes(normB))
       );
       return !alreadyRejected;
     });
@@ -1344,9 +1400,11 @@ export default function App() {
 
     const withActor: FieldAuditRecord & { _updatedAt?: number } = {
       ...record,
-      expertApproved: record.expertApproved,
-      relatedMartyrs:
-        extractedMartyrsFromRecord.length > 0 ? extractedMartyrsFromRecord : record.relatedMartyrs,
+      tempBookId: effectiveBookId,
+      title: effectiveTitle,
+      expertApproved: record.expertApproved ?? prevAudit?.expertApproved,
+      relatedMartyrs: extractedMartyrsFromRecord,
+      excludedMartyrs: nextExcludedMartyrs.length > 0 ? nextExcludedMartyrs : undefined,
       needsReview: isExpertApprovedSave ? false : Boolean(record.needsReview || hasNewSimilarity),
       notes: cleanedRecordNotes,
       checkedBy: getRoleDisplayName(activeUserRole),
@@ -1356,6 +1414,102 @@ export default function App() {
       ...prev,
       [record.key]: withActor
     }));
+
+    // همگام‌سازی فوری عنوان کتاب در نسخه‌های فیزیکی (bookCopies)
+    if (effectiveBookId && effectiveTitle) {
+      setBookCopies((prev) =>
+        prev.map((cp) =>
+          cp.bookId === effectiveBookId && cp.bookTitle !== effectiveTitle
+            ? { ...cp, bookTitle: effectiveTitle }
+            : cp
+        )
+      );
+    }
+
+    // همگام‌سازی فوری پیوندهای کتاب و شهید (links): به‌روزرسانی عنوان کتاب و حذف/اصلاح شهدای تغییریافته در کتابخانه
+    const excludedCompactsSet = new Set(
+      nextExcludedMartyrs
+        .map((m) => normalizePersianText(m.replace(/^(شهیدان|شهید)\s+/g, '')).replace(/\s+/g, ''))
+        .filter(Boolean)
+    );
+    const activeCompactsMap = new Map<string, string>();
+    for (const m of extractedMartyrsFromRecord) {
+      const c = normalizePersianText(m.replace(/^(شهیدان|شهید)\s+/g, '')).replace(/\s+/g, '');
+      if (c) activeCompactsMap.set(c, m);
+    }
+
+    setLinks((prev) => {
+      const oldRawTitleNorm = normalizePersianText(catRow?.titleRaw || prevAudit?.title || '');
+      const newTitleNorm = normalizePersianText(effectiveTitle);
+      const isSameBookLink = (l: BookMartyrLinkRecord) =>
+        (effectiveBookId && l.tempBookId === effectiveBookId) ||
+        (oldRawTitleNorm && normalizePersianText(l.bookTitleRaw) === oldRawTitleNorm) ||
+        (newTitleNorm && normalizePersianText(l.bookTitleRaw) === newTitleNorm);
+
+      // بررسی آیا شهیدی در این کتاب تغییر نام داده است (مثلاً «سید علیرضا» به «سید علیرضا جزئی») تا اطلاعات مزار آن حفظ شود
+      const existingBookLinks = prev.filter(isSameBookLink);
+      const existingBookCompacts = new Set(
+        existingBookLinks.map((l) =>
+          normalizePersianText(l.martyrNameRaw.replace(/^(شهیدان|شهید)\s+/g, '')).replace(/\s+/g, '')
+        )
+      );
+      const newlyAddedMartyrNames = extractedMartyrsFromRecord.filter((m) => {
+        const c = normalizePersianText(m.replace(/^(شهیدان|شهید)\s+/g, '')).replace(/\s+/g, '');
+        return c && !existingBookCompacts.has(c);
+      });
+      let renameReplacementIdx = 0;
+
+      const nextLinks: BookMartyrLinkRecord[] = [];
+      const seenMartyrOnThisBook = new Set<string>();
+
+      for (const l of prev) {
+        if (!isSameBookLink(l)) {
+          nextLinks.push(l);
+          continue;
+        }
+        const lComp = normalizePersianText(
+          l.martyrNameRaw.replace(/^(شهیدان|شهید)\s+/g, '')
+        ).replace(/\s+/g, '');
+
+        // اگر این شهید در لیست حذف‌شده‌هاست یا در لیست صریح جدید نیست
+        if (
+          excludedCompactsSet.has(lComp) ||
+          (explicitMartyrsPassed && !activeCompactsMap.has(lComp))
+        ) {
+          // اگر کاربر نام این شهید را در کتابخانه اصلاح کرده است (مثلاً سید علیرضا -> سید علیرضا جزئی)، همان لینک قبلی با حفظ اطلاعات مزار به نام جدید ارتقا یابد
+          if (renameReplacementIdx < newlyAddedMartyrNames.length) {
+            const replacementName = newlyAddedMartyrNames[renameReplacementIdx++];
+            const repComp = normalizePersianText(
+              replacementName.replace(/^(شهیدان|شهید)\s+/g, '')
+            ).replace(/\s+/g, '');
+            if (repComp && !seenMartyrOnThisBook.has(repComp)) {
+              seenMartyrOnThisBook.add(repComp);
+              nextLinks.push({
+                ...l,
+                tempBookId: effectiveBookId || l.tempBookId,
+                bookTitleRaw: effectiveTitle || l.bookTitleRaw,
+                martyrNameRaw: replacementName,
+                rawNameInSource: `شهید ${replacementName}`
+              });
+            }
+          }
+          continue;
+        }
+
+        if (lComp && seenMartyrOnThisBook.has(lComp)) {
+          continue;
+        }
+        if (lComp) seenMartyrOnThisBook.add(lComp);
+
+        nextLinks.push({
+          ...l,
+          tempBookId: effectiveBookId || l.tempBookId,
+          bookTitleRaw: effectiveTitle || l.bookTitleRaw
+        });
+      }
+
+      return nextLinks;
+    });
 
     // اگر کارشناس کتاب را تأیید نهایی کرده است، تمام موارد نیازمند بررسی مرتبط با این کتاب در صف جست‌وجو و پیوندها نیز تعیین‌تکلیف شوند
     if (isExpertApprovedSave) {
@@ -2221,7 +2375,48 @@ export default function App() {
               onAddBookCopy={handleAddBookCopy}
               onMoveBookCopy={handleMoveBookCopy}
               onAddLink={(newLnk) => {
-                setLinks((prev) => [newLnk, ...prev]);
+                const cleanMartyr = newLnk.martyrNameRaw.replace(/^(شهیدان|شهید)\s+/g, '').trim();
+                const mComp = normalizePersianText(cleanMartyr).replace(/\s+/g, '');
+                setLinks((prev) => {
+                  const filtered = prev.filter((l) => {
+                    if (l.tempBookId !== newLnk.tempBookId) return true;
+                    const lc = normalizePersianText(
+                      l.martyrNameRaw.replace(/^(شهیدان|شهید)\s+/g, '')
+                    ).replace(/\s+/g, '');
+                    return lc !== mComp;
+                  });
+                  return [newLnk, ...filtered];
+                });
+                // همگام‌سازی با auditRecords همان کتاب تا در کتابخانه هم بلافاصله دیده شود
+                const catRow = catalogRows.find((r) => r.tempBookId === newLnk.tempBookId);
+                const recKey =
+                  Object.values(auditRecords).find((r) => r.tempBookId === newLnk.tempBookId)?.key ||
+                  catRow?.rowKey;
+                if (recKey) {
+                  setAuditRecords((prev) => {
+                    const existing = prev[recKey];
+                    if (!existing) return prev;
+                    const nextRelated = Array.from(
+                      new Set([...(existing.relatedMartyrs || []), cleanMartyr])
+                    );
+                    const nextExcluded = (existing.excludedMartyrs || []).filter(
+                      (ex) =>
+                        normalizePersianText(ex.replace(/^(شهیدان|شهید)\s+/g, '')).replace(
+                          /\s+/g,
+                          ''
+                        ) !== mComp
+                    );
+                    return {
+                      ...prev,
+                      [recKey]: {
+                        ...existing,
+                        relatedMartyrs: nextRelated,
+                        excludedMartyrs: nextExcluded.length > 0 ? nextExcluded : undefined,
+                        updatedAt: new Date().toISOString()
+                      }
+                    };
+                  });
+                }
                 markSessionModification();
                 appendAuditLog(
                   'ثبت یا ویرایش ارتباط کتاب و شهید',
@@ -2229,19 +2424,232 @@ export default function App() {
                   `ثبت ارتباط جدید میان کتاب «${newLnk.bookTitleRaw}» و شهید «${newLnk.martyrNameRaw}» از داخل پرونده کتاب`
                 );
               }}
-              onUpdateLink={(updatedLnk) => {
+              onUpdateLink={(updatedLnk, oldMartyrName) => {
+                const targetBookId = updatedLnk.tempBookId || '';
+                const newClean = updatedLnk.martyrNameRaw.replace(/^(شهیدان|شهید)\s+/g, '').trim();
+                const newComp = normalizePersianText(newClean).replace(/\s+/g, '');
+                const oldClean = (oldMartyrName || '').replace(/^(شهیدان|شهید)\s+/g, '').trim();
+                const oldComp = normalizePersianText(oldClean).replace(/\s+/g, '');
+
                 setLinks((prev) => {
-                  const exists = prev.some((l) => l.id === updatedLnk.id);
-                  return exists
-                    ? prev.map((l) => (l.id === updatedLnk.id ? updatedLnk : l))
-                    : [updatedLnk, ...prev];
+                  let replaced = false;
+                  const next: BookMartyrLinkRecord[] = [];
+                  for (const l of prev) {
+                    const sameBook =
+                      (targetBookId && l.tempBookId === targetBookId) ||
+                      normalizePersianText(l.bookTitleRaw) ===
+                        normalizePersianText(updatedLnk.bookTitleRaw);
+                    const lComp = normalizePersianText(
+                      l.martyrNameRaw.replace(/^(شهیدان|شهید)\s+/g, '')
+                    ).replace(/\s+/g, '');
+                    const isTarget =
+                      l.id === updatedLnk.id ||
+                      (sameBook && ((oldComp && lComp === oldComp) || (newComp && lComp === newComp)));
+
+                    if (isTarget) {
+                      if (!replaced) {
+                        next.push(updatedLnk);
+                        replaced = true;
+                      }
+                      continue;
+                    }
+                    next.push(l);
+                  }
+                  if (!replaced) {
+                    return [updatedLnk, ...next];
+                  }
+                  return next;
                 });
+
+                // همگام‌سازی فوری نام شهید ویرایش‌شده در auditRecords کتاب (جایگزینی نام قبلی مثل «سید علیرضا» با «سید علیرضا جزئی» بدون تکرار)
+                const catRow = catalogRows.find(
+                  (r) =>
+                    (targetBookId && r.tempBookId === targetBookId) ||
+                    normalizePersianText(r.titleRaw) ===
+                      normalizePersianText(updatedLnk.bookTitleRaw)
+                );
+                const existingAuditEntry = Object.values(auditRecords).find(
+                  (r) =>
+                    (targetBookId && r.tempBookId === targetBookId) ||
+                    (catRow && r.key === catRow.rowKey)
+                );
+                const targetKey = existingAuditEntry?.key || catRow?.rowKey || targetBookId;
+
+                if (targetKey) {
+                  setAuditRecords((prev) => {
+                    const existing = prev[targetKey];
+                    const prevRelated = existing?.relatedMartyrs || [];
+                    const filteredRelated = prevRelated.filter((m) => {
+                      const mc = normalizePersianText(
+                        m.replace(/^(شهیدان|شهید)\s+/g, '')
+                      ).replace(/\s+/g, '');
+                      if (!mc) return false;
+                      if (oldComp && mc === oldComp) return false;
+                      if (mc === newComp) return false;
+                      // حذف پیشوند ناقص قبلی اگر نام جدید کامل‌تر است
+                      if (newComp.length > mc.length && newComp.startsWith(mc)) return false;
+                      return true;
+                    });
+                    const nextRelated = newClean ? [...filteredRelated, newClean] : filteredRelated;
+
+                    const exclSet = new Set<string>(existing?.excludedMartyrs || []);
+                    if (oldClean && oldComp && oldComp !== newComp) {
+                      exclSet.add(oldClean);
+                    }
+                    for (const ex of Array.from(exclSet)) {
+                      const exc = normalizePersianText(
+                        ex.replace(/^(شهیدان|شهید)\s+/g, '')
+                      ).replace(/\s+/g, '');
+                      if (exc === newComp) exclSet.delete(ex);
+                    }
+
+                    let nextNotes = existing?.notes || '';
+                    if (nextNotes && oldClean && oldComp !== newComp) {
+                      const escapedOld = oldClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                      nextNotes = nextNotes.replace(new RegExp(escapedOld, 'g'), newClean);
+                    }
+
+                    if (existing) {
+                      return {
+                        ...prev,
+                        [targetKey]: {
+                          ...existing,
+                          relatedMartyrs: nextRelated,
+                          excludedMartyrs: exclSet.size > 0 ? Array.from(exclSet) : undefined,
+                          notes: nextNotes,
+                          updatedAt: new Date().toISOString()
+                        }
+                      };
+                    } else if (catRow) {
+                      return {
+                        ...prev,
+                        [targetKey]: {
+                          key: catRow.rowKey,
+                          source: 'catalog',
+                          sheet: currentSheetName,
+                          tempBookId: catRow.tempBookId,
+                          title: catRow.titleRaw,
+                          author: catRow.authorRaw || '',
+                          publisher: catRow.publisherRaw || '',
+                          year: '',
+                          descriptionRaw: catRow.descriptionRaw || '',
+                          category: catRow.categoryRaw || SUBJECT_CATEGORIES[0].label,
+                          shelf: '',
+                          level: '',
+                          location: catRow.locationRaw || '',
+                          physical: 'verified',
+                          countedCopies: catRow.countedCopiesRaw || '1',
+                          notes: catRow.noteRaw || '',
+                          relatedMartyrs: nextRelated,
+                          excludedMartyrs: exclSet.size > 0 ? Array.from(exclSet) : undefined,
+                          updatedAt: new Date().toISOString()
+                        }
+                      };
+                    }
+                    return prev;
+                  });
+                }
+
                 markSessionModification();
                 appendAuditLog(
                   'ثبت یا ویرایش ارتباط کتاب و شهید',
                   `${updatedLnk.id} / ${updatedLnk.tempBookId}`,
                   `ویرایش ارتباط کتاب «${updatedLnk.bookTitleRaw}» و شهید «${updatedLnk.martyrNameRaw}» در پرونده کتاب`
                 );
+              }}
+              onDeleteLink={(linkId, bookId, martyrName) => {
+                const cleanMartyr = (martyrName || '').replace(/^(شهیدان|شهید)\s+/g, '').trim();
+                const targetComp = normalizePersianText(cleanMartyr).replace(/\s+/g, '');
+
+                setLinks((prev) =>
+                  prev.filter((l) => {
+                    if (linkId && l.id === linkId) return false;
+                    const sameBook = bookId && l.tempBookId === bookId;
+                    const lComp = normalizePersianText(
+                      l.martyrNameRaw.replace(/^(شهیدان|شهید)\s+/g, '')
+                    ).replace(/\s+/g, '');
+                    if (sameBook && targetComp && lComp === targetComp) return false;
+                    return true;
+                  })
+                );
+
+                const catRow = catalogRows.find((r) => bookId && r.tempBookId === bookId);
+                const existingAuditEntry = Object.values(auditRecords).find(
+                  (r) => (bookId && r.tempBookId === bookId) || (catRow && r.key === catRow.rowKey)
+                );
+                const targetKey = existingAuditEntry?.key || catRow?.rowKey || bookId;
+
+                if (targetKey && cleanMartyr) {
+                  setAuditRecords((prev) => {
+                    const existing = prev[targetKey];
+                    const nextRelated = (existing?.relatedMartyrs || []).filter((m) => {
+                      const mc = normalizePersianText(
+                        m.replace(/^(شهیدان|شهید)\s+/g, '')
+                      ).replace(/\s+/g, '');
+                      return mc !== targetComp;
+                    });
+                    const nextExcluded = Array.from(
+                      new Set([...(existing?.excludedMartyrs || []), cleanMartyr])
+                    );
+                    let nextNotes = existing?.notes || '';
+                    if (nextNotes && cleanMartyr.length >= 3) {
+                      const escaped = cleanMartyr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                      nextNotes = nextNotes
+                        .replace(new RegExp(`شهید\\s+مرتبط:\\s*${escaped}\\s*(?:[،,|]\\s*)?`, 'g'), '')
+                        .replace(new RegExp(`شهید\\s+${escaped}\\b`, 'g'), '')
+                        .replace(/\s*\|\s*\|\s*/g, ' | ')
+                        .replace(/^\s*\|\s*|\s*\|\s*$/g, '')
+                        .trim();
+                    }
+
+                    if (existing) {
+                      return {
+                        ...prev,
+                        [targetKey]: {
+                          ...existing,
+                          relatedMartyrs: nextRelated,
+                          excludedMartyrs: nextExcluded,
+                          notes: nextNotes,
+                          updatedAt: new Date().toISOString()
+                        }
+                      };
+                    } else if (catRow) {
+                      return {
+                        ...prev,
+                        [targetKey]: {
+                          key: catRow.rowKey,
+                          source: 'catalog',
+                          sheet: currentSheetName,
+                          tempBookId: catRow.tempBookId,
+                          title: catRow.titleRaw,
+                          author: catRow.authorRaw || '',
+                          publisher: catRow.publisherRaw || '',
+                          year: '',
+                          descriptionRaw: catRow.descriptionRaw || '',
+                          category: catRow.categoryRaw || SUBJECT_CATEGORIES[0].label,
+                          shelf: '',
+                          level: '',
+                          location: catRow.locationRaw || '',
+                          physical: 'verified',
+                          countedCopies: catRow.countedCopiesRaw || '1',
+                          notes: nextNotes,
+                          relatedMartyrs: nextRelated,
+                          excludedMartyrs: nextExcluded,
+                          updatedAt: new Date().toISOString()
+                        }
+                      };
+                    }
+                    return prev;
+                  });
+                }
+
+                markSessionModification();
+                appendAuditLog(
+                  'ثبت یا ویرایش ارتباط کتاب و شهید',
+                  `${linkId} / ${bookId}`,
+                  `حذف ارتباط شهید «${cleanMartyr}» از کتاب (${bookId})`
+                );
+                showNotify(`🗑️ ارتباط شهید «${cleanMartyr}» از پرونده کتاب و کتابخانه حذف شد.`);
               }}
               onApproveOutsideBook={(recordKey) => {
                 const existing = auditRecords[recordKey];
@@ -2354,6 +2762,79 @@ export default function App() {
                 onUpdateColumnMap={handleUpdateColumnMap}
                 onSaveAuditRecord={handleSaveAuditRecord}
                 onDeleteAuditRecord={handleDeleteSingleRecord}
+                onDeleteMartyrLink={(linkId, bookId, martyrName) => {
+                  const cleanMartyr = (martyrName || '').replace(/^(شهیدان|شهید)\s+/g, '').trim();
+                  const targetComp = normalizePersianText(cleanMartyr).replace(/\s+/g, '');
+                  setLinks((prev) =>
+                    prev.filter((l) => {
+                      if (linkId && l.id === linkId) return false;
+                      const sameBook = bookId && l.tempBookId === bookId;
+                      const lComp = normalizePersianText(
+                        l.martyrNameRaw.replace(/^(شهیدان|شهید)\s+/g, '')
+                      ).replace(/\s+/g, '');
+                      if (sameBook && targetComp && lComp === targetComp) return false;
+                      return true;
+                    })
+                  );
+                  const catRow = catalogRows.find((r) => bookId && r.tempBookId === bookId);
+                  const existingAuditEntry = Object.values(auditRecords).find(
+                    (r) => (bookId && r.tempBookId === bookId) || (catRow && r.key === catRow.rowKey)
+                  );
+                  const targetKey = existingAuditEntry?.key || catRow?.rowKey || bookId;
+                  if (targetKey && cleanMartyr) {
+                    setAuditRecords((prev) => {
+                      const existing = prev[targetKey];
+                      const nextRelated = (existing?.relatedMartyrs || []).filter((m) => {
+                        const mc = normalizePersianText(
+                          m.replace(/^(شهیدان|شهید)\s+/g, '')
+                        ).replace(/\s+/g, '');
+                        return mc !== targetComp;
+                      });
+                      const nextExcluded = Array.from(
+                        new Set([...(existing?.excludedMartyrs || []), cleanMartyr])
+                      );
+                      if (existing) {
+                        return {
+                          ...prev,
+                          [targetKey]: {
+                            ...existing,
+                            relatedMartyrs: nextRelated,
+                            excludedMartyrs: nextExcluded,
+                            updatedAt: new Date().toISOString()
+                          }
+                        };
+                      } else if (catRow) {
+                        return {
+                          ...prev,
+                          [targetKey]: {
+                            key: catRow.rowKey,
+                            source: 'catalog',
+                            sheet: currentSheetName,
+                            tempBookId: catRow.tempBookId,
+                            title: catRow.titleRaw,
+                            author: catRow.authorRaw || '',
+                            publisher: catRow.publisherRaw || '',
+                            year: '',
+                            descriptionRaw: catRow.descriptionRaw || '',
+                            category: catRow.categoryRaw || SUBJECT_CATEGORIES[0].label,
+                            shelf: '',
+                            level: '',
+                            location: catRow.locationRaw || '',
+                            physical: 'verified',
+                            countedCopies: catRow.countedCopiesRaw || '1',
+                            notes: catRow.noteRaw || '',
+                            relatedMartyrs: nextRelated,
+                            excludedMartyrs: nextExcluded,
+                            updatedAt: new Date().toISOString()
+                          }
+                        };
+                      }
+                      return prev;
+                    });
+                  }
+                  markSessionModification();
+                  showNotify(`🗑️ ارتباط شهید «${cleanMartyr}» از این کتاب حذف شد.`);
+                }}
                 onAddBookCopy={handleAddBookCopy}
                 onMoveBookCopy={handleMoveBookCopy}
                 onNotify={showNotify}

@@ -873,34 +873,66 @@ const NOTE_STOP_WORDS = new Set([
 export function extractExplicitMartyrsFromBookNotesAndList(
   notesText?: string,
   relatedMartyrsList?: string[],
-  publisherRaw?: string
+  publisherRaw?: string,
+  excludedMartyrsList?: string[]
 ): string[] {
   const results: string[] = [];
   const seenCompacts = new Set<string>();
+  const excludedCompacts = new Set<string>(
+    (excludedMartyrsList || [])
+      .flatMap((m) => splitMartyrNamesInput(m))
+      .map((m) => compactNameForTehranIndex(m.replace(/^(شهیدان|شهید)\s+/g, '')))
+      .filter(Boolean)
+  );
 
-  const addCandidate = (rawName: string) => {
+  const isExcludedCompact = (comp: string): boolean => {
+    if (!comp) return true;
+    if (excludedCompacts.has(comp)) return true;
+    return false;
+  };
+
+  const addCandidate = (rawName: string, fromNotes = false) => {
     const cleaned = rawName
       .replace(/^(شهیدان|شهید)\s+/g, '')
       .replace(/^[\s\-•*0-9۰-۹.()]+|[\s\-•*.()]+$/g, '')
       .trim();
     if (!cleaned || cleaned.length < 3) return;
-    const comp = compactNameForTehranIndex(cleaned);
-    if (!comp || comp.length < 3 || seenCompacts.has(comp)) return;
-    seenCompacts.add(comp);
     const matched28k = findMartyrRecordIn28k(cleaned);
-    results.push(matched28k ? matched28k.fullName : cleaned);
+    const finalName = matched28k ? matched28k.fullName : cleaned;
+    const comp = compactNameForTehranIndex(finalName);
+    const rawComp = compactNameForTehranIndex(cleaned);
+    if (!comp || comp.length < 3 || seenCompacts.has(comp)) return;
+    if (isExcludedCompact(comp) || isExcludedCompact(rawComp)) return;
+
+    // اگر نام جدید پیشوند ناقصی از نام کامل‌تر موجود در لیست باشد (مثلاً «سید علیرضا» در برابر «سید علیرضا جزئی»)، نادیده گرفته شود
+    for (let i = 0; i < results.length; i++) {
+      const existingComp = compactNameForTehranIndex(results[i]);
+      if (existingComp.startsWith(comp) && existingComp.length > comp.length) {
+        return;
+      }
+      // برعکس: اگر قبلاً نام ناقص ثبت شده بود و اکنون نام کامل‌تر آمده است، نام کامل‌تر جایگزین قبلی شود
+      if (!fromNotes && comp.startsWith(existingComp) && comp.length > existingComp.length) {
+        seenCompacts.delete(existingComp);
+        seenCompacts.add(comp);
+        results[i] = finalName;
+        return;
+      }
+    }
+
+    seenCompacts.add(comp);
+    results.push(finalName);
   };
 
   // ۱. افزودن تمام نام‌های صریح در آرایه relatedMartyrs
   if (Array.isArray(relatedMartyrsList)) {
     for (const item of relatedMartyrsList) {
       for (const splitName of splitMartyrNamesInput(item)) {
-        addCandidate(splitName);
+        addCandidate(splitName, false);
       }
     }
   }
 
-  // ۲. استخراج نام شهدا از متن توضیحات (notes) ثبت‌شده برای کتاب
+  // ۲. استخراج نام شهدا از متن توضیحات (notes) ثبت‌شده برای کتاب (با فیلتر خودکار شهدای حذف‌شده یا اصلاح‌شده در excludedMartyrs)
   if (notesText) {
     const cleanedNotes = stripPublisherAndAutoNotesForMartyrMatch(notesText, publisherRaw)
       .replace(/ثبت سریع کنار قفسه\s*\([^)]*\)/g, ' ')
@@ -1516,18 +1548,110 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
   }
 
   const seenBookMartyrPairs = new Set<string>();
+  const seenLinkIds = new Set<string>();
   const matchedKnownMartyrsForPersist = new Map<string, LightweightGolzarMartyr>();
 
   const catalogByCompactTitle = new Map<string, ReferenceCatalogRow>();
+  const catalogByRowKey = new Map<string, ReferenceCatalogRow>();
+  const catalogByBookId = new Map<string, ReferenceCatalogRow>();
   for (const row of catalogRows) {
+    if (row.rowKey) catalogByRowKey.set(row.rowKey, row);
+    if (row.tempBookId) catalogByBookId.set(row.tempBookId, row);
     const ct = compactNameForTehranIndex(row.titleRaw);
     if (ct && !catalogByCompactTitle.has(ct)) {
       catalogByCompactTitle.set(ct, row);
     }
   }
 
+  // نگاشت آخرین عنوان اصلاح‌شده کتاب و فهرست شهدای حذف‌شده/مستثنی‌شده برای هر کتاب
+  const editedTitleByBookId = new Map<string, string>();
+  const excludedCompactsByBookId = new Map<string, Set<string>>();
+  for (const rec of Object.values(auditRecords)) {
+    const baseRow = catalogByRowKey.get(rec.key);
+    const bId = rec.tempBookId || baseRow?.tempBookId || rec.key;
+    const effectiveTitle = (rec.title || baseRow?.titleRaw || '').trim();
+    if (bId && effectiveTitle) {
+      editedTitleByBookId.set(bId, effectiveTitle);
+    }
+    if (baseRow && effectiveTitle) {
+      const editedCt = compactNameForTehranIndex(effectiveTitle);
+      if (editedCt && !catalogByCompactTitle.has(editedCt)) {
+        catalogByCompactTitle.set(editedCt, baseRow);
+      }
+    }
+    if (bId && Array.isArray(rec.excludedMartyrs) && rec.excludedMartyrs.length > 0) {
+      const set = excludedCompactsByBookId.get(bId) || new Set<string>();
+      for (const exName of rec.excludedMartyrs) {
+        const c = compactNameForTehranIndex(exName.replace(/^(شهیدان|شهید)\s+/g, ''));
+        if (c) set.add(c);
+      }
+      excludedCompactsByBookId.set(bId, set);
+    }
+  }
+
+  const isMartyrExcludedForBook = (bookId: string, martyrName: string): boolean => {
+    if (!bookId || !martyrName) return false;
+    const set = excludedCompactsByBookId.get(bookId);
+    if (!set || set.size === 0) return false;
+    const mComp = compactNameForTehranIndex(martyrName.replace(/^(شهیدان|شهید)\s+/g, ''));
+    return Boolean(mComp && set.has(mComp));
+  };
+
+  // پیش‌پالایش گام ۱: حذف پیوندهایی که شهید آن‌ها برای آن کتاب توسط کاربر حذف شده یا پیشوند ناقصی از یک پیوند کامل‌تر در همان کتاب است
+  const resolvedInputLinks = links
+    .map((lnk) => {
+      const resolvedBookId =
+        lnk.tempBookId ||
+        catalogByCompactTitle.get(compactNameForTehranIndex(lnk.bookTitleRaw))?.tempBookId ||
+        '';
+      const latestTitle =
+        (resolvedBookId ? editedTitleByBookId.get(resolvedBookId) : undefined) || lnk.bookTitleRaw;
+      return {
+        ...lnk,
+        tempBookId: resolvedBookId || lnk.tempBookId,
+        bookTitleRaw: latestTitle
+      };
+    })
+    .filter((lnk) => !isMartyrExcludedForBook(lnk.tempBookId || '', lnk.martyrNameRaw));
+
+  // اگر برای یک کتاب، هم نام ناقص (مثل «سید علیرضا» در RL-AUD-) و هم نام کامل‌تر (مثل «سید علیرضا جزئی») در links باشد، فقط نام کامل‌تر حفظ شود
+  const filteredInputLinks = resolvedInputLinks.filter((lnk, idx, arr) => {
+    const bId = lnk.tempBookId || compactNameForTehranIndex(lnk.bookTitleRaw);
+    const mComp = compactNameForTehranIndex(lnk.martyrNameRaw.replace(/^(شهیدان|شهید)\s+/g, ''));
+    if (!bId || !mComp) return true;
+    const hasFullerMartyrOnSameBook = arr.some((other, otherIdx) => {
+      if (otherIdx === idx) return false;
+      const otherBId = other.tempBookId || compactNameForTehranIndex(other.bookTitleRaw);
+      if (otherBId !== bId) return false;
+      const otherComp = compactNameForTehranIndex(
+        other.martyrNameRaw.replace(/^(شهیدان|شهید)\s+/g, '')
+      );
+      return otherComp.length > mComp.length && otherComp.startsWith(mComp);
+    });
+    if (hasFullerMartyrOnSameBook && (lnk.id.startsWith('RL-AUD-') || lnk.id.startsWith('RL-USR-'))) {
+      return false;
+    }
+    return true;
+  });
+
   // گام ۱: بررسی و غنی‌سازی پیوندهای موجود
-  const updatedLinks: BookMartyrLinkRecord[] = links.map((lnk) => {
+  const updatedLinks: BookMartyrLinkRecord[] = [];
+  for (const lnk of filteredInputLinks) {
+    const resolvedBookId = lnk.tempBookId || '';
+    const mCompact = compactNameForTehranIndex(lnk.martyrNameRaw);
+    const titleCompact = compactNameForTehranIndex(lnk.bookTitleRaw);
+
+    const pairKey1 = resolvedBookId && mCompact ? `${resolvedBookId}::${mCompact}` : '';
+    const pairKey2 = titleCompact && mCompact ? `${titleCompact}::${mCompact}` : '';
+
+    // جلوگیری از تکرار یک شهید روی یک کتاب در گام ۱
+    if ((pairKey1 && seenBookMartyrPairs.has(pairKey1)) || (pairKey2 && seenBookMartyrPairs.has(pairKey2))) {
+      continue;
+    }
+    if (pairKey1) seenBookMartyrPairs.add(pairKey1);
+    if (pairKey2) seenBookMartyrPairs.add(pairKey2);
+    if (lnk.id) seenLinkIds.add(lnk.id);
+
     const evalRes = evaluateMartyrTehranStatus(
       {
         martyrName: lnk.martyrNameRaw,
@@ -1546,19 +1670,6 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
       matchedKnownMartyrsForPersist.set(evalRes.matchedGolzarRecord.id, evalRes.matchedGolzarRecord);
     }
 
-    const resolvedBookId =
-      lnk.tempBookId ||
-      catalogByCompactTitle.get(compactNameForTehranIndex(lnk.bookTitleRaw))?.tempBookId ||
-      '';
-    const mCompact = compactNameForTehranIndex(lnk.martyrNameRaw);
-    if (resolvedBookId && mCompact) {
-      seenBookMartyrPairs.add(`${resolvedBookId}::${mCompact}`);
-    }
-    const titleCompact = compactNameForTehranIndex(lnk.bookTitleRaw);
-    if (titleCompact && mCompact) {
-      seenBookMartyrPairs.add(`${titleCompact}::${mCompact}`);
-    }
-
     // اگر کارشناس قبلاً این پیوند را تأیید نهایی کرده است، هرگز دوباره به نیازمند بررسی برنگردد
     const isAlreadyExpertApproved =
       lnk.reviewStatus === 'تأییدشده کارشناسی' ||
@@ -1575,28 +1686,30 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
         ? `${lnk.reviewerNote} | ${homonymNote}`
         : homonymNote;
 
-      return {
+      updatedLinks.push({
         ...lnk,
         tempBookId: resolvedBookId || lnk.tempBookId,
         reviewStatus: 'نیازمند بررسی کارشناسی (تشابه اسمی با شهدای تهران — ثبت‌شده به عنوان غیرتهرانی)',
         reviewerNote: nextNote
-      };
+      });
+      continue;
     }
 
     // اگر شهید تهرانی است و در بانک ۲۸ هزار شهید مزار دارد ولی در شیت قطعه مزار خالی بوده، تکمیل شود
     if (evalRes.isTehran && !evalRes.isNonTehran && evalRes.matchedGolzarRecord) {
       const gm = evalRes.matchedGolzarRecord;
-      return {
+      updatedLinks.push({
         ...lnk,
         tempBookId: resolvedBookId || lnk.tempBookId,
         gravePieceRaw: lnk.gravePieceRaw || gm.gravePiece || '',
         graveRowRaw: lnk.graveRowRaw || gm.graveRow || '',
         graveNumberRaw: lnk.graveNumberRaw || gm.graveNumber || ''
-      };
+      });
+      continue;
     }
 
-    return resolvedBookId && !lnk.tempBookId ? { ...lnk, tempBookId: resolvedBookId } : lnk;
-  });
+    updatedLinks.push(resolvedBookId && !lnk.tempBookId ? { ...lnk, tempBookId: resolvedBookId } : lnk);
+  }
 
   // گام ۲: افزودن پیوندهای شهدای تهرانی استخراج‌شده از کتاب‌ها (با اولویت کش یک‌بار مصرف برای حذف کامل معطلی)
   const full28kReady =
@@ -1614,6 +1727,9 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
       if (autoLnk.tempBookId && modifiedBookIds.has(autoLnk.tempBookId)) {
         continue;
       }
+      if (isMartyrExcludedForBook(autoLnk.tempBookId || '', autoLnk.martyrNameRaw)) {
+        continue;
+      }
       const mCompact = compactNameForTehranIndex(autoLnk.martyrNameRaw);
       const bKey1 = `${autoLnk.tempBookId}::${mCompact}`;
       const bKey2 = `${compactNameForTehranIndex(autoLnk.bookTitleRaw)}::${mCompact}`;
@@ -1622,15 +1738,12 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
       }
       seenBookMartyrPairs.add(bKey1);
       seenBookMartyrPairs.add(bKey2);
+      seenLinkIds.add(autoLnk.id);
       updatedLinks.push(autoLnk);
     }
 
     // فقط کتاب‌های ویرایش‌شده یا ثبت جدید در auditRecords را به صورت تفاضلی اسکن کن
     if ((full28kReady || cachedGolzarByNormName.size > 0) && Object.keys(auditRecords).length > 0) {
-      const catalogByRowKey = new Map<string, ReferenceCatalogRow>();
-      for (const r of catalogRows) {
-        catalogByRowKey.set(r.rowKey, r);
-      }
       for (const rec of Object.values(auditRecords)) {
         const baseRow = catalogByRowKey.get(rec.key);
         const bookId = rec.tempBookId || baseRow?.tempBookId || rec.key;
@@ -1647,6 +1760,7 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
           golzarMartyrs
         );
         for (const gm of matchedTehranMartyrs) {
+          if (isMartyrExcludedForBook(bookId, gm.fullName)) continue;
           const mCompact = gm.compactFullName || compactNameForTehranIndex(gm.fullName);
           const bKey1 = `${bookId}::${mCompact}`;
           const bKey2 = `${compactNameForTehranIndex(bookTitle)}::${mCompact}`;
@@ -1655,8 +1769,10 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
           }
           seenBookMartyrPairs.add(bKey1);
           seenBookMartyrPairs.add(bKey2);
+          const autoId = `RL-28K-${bookId}-${gm.id}`;
+          seenLinkIds.add(autoId);
           updatedLinks.push({
-            id: `RL-28K-${bookId}-${gm.id}`,
+            id: autoId,
             groupStartRow: String(baseRow?.rowIndex || ''),
             publisherRaw: bookPub,
             bookTitleRaw: bookTitle,
@@ -1686,6 +1802,7 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
     for (const book of allUnifiedBooks) {
       const matchedTehranMartyrs = extractTehranMartyrsFromBookText(book, golzarMartyrs);
       for (const gm of matchedTehranMartyrs) {
+        if (isMartyrExcludedForBook(book.tempBookId, gm.fullName)) continue;
         matchedKnownMartyrsForPersist.set(gm.id, gm);
         const mCompact = gm.compactFullName || compactNameForTehranIndex(gm.fullName);
         const bKey1 = `${book.tempBookId}::${mCompact}`;
@@ -1718,6 +1835,7 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
           reviewerNote: `تطبیق خودکار نام «شهید ${gm.fullName}» در مشخصات کتاب (${book.tempBookId}) با بانک ۲۸٬۳۶۸ شهید گلزار شهدای تهران (قطعه ${gm.gravePiece || 'خارج از قطعات'}، ردیف ${gm.graveRow || '—'}، شماره ${gm.graveNumber || '—'}).`
         };
 
+        seenLinkIds.add(autoLnk.id);
         newlyGeneratedAutoLinks.push(autoLnk);
         updatedLinks.push(autoLnk);
       }
@@ -1736,13 +1854,8 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
   // گام ۳: استخراج حتمی نام شهدای نوشته‌شده در فیلد «توضیحات/یادداشت» (notes) و «شهدای مرتبط» (relatedMartyrs)
   // برای تمام کتاب‌های ثبت‌شده یا ویرایش‌شده توسط کاربر در قفسه‌ها (auditRecords)
   if (Object.keys(auditRecords).length > 0) {
-    const catalogByRowKey = new Map<string, ReferenceCatalogRow>();
-    for (const r of catalogRows) {
-      catalogByRowKey.set(r.rowKey, r);
-    }
-
     for (const rec of Object.values(auditRecords)) {
-      const baseRow = catalogByRowKey.get(rec.key);
+      const baseRow = catalogByRowKey.get(rec.key) || (rec.tempBookId ? catalogByBookId.get(rec.tempBookId) : undefined);
       const bookId = rec.tempBookId || baseRow?.tempBookId || rec.key;
       const bookTitle = rec.title || baseRow?.titleRaw || '';
       const bookPub = rec.publisher || baseRow?.publisherRaw || '—';
@@ -1751,13 +1864,16 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
       const explicitMartyrNames = extractExplicitMartyrsFromBookNotesAndList(
         rec.notes,
         rec.relatedMartyrs,
-        bookPub
+        bookPub,
+        rec.excludedMartyrs
       );
 
       for (let idx = 0; idx < explicitMartyrNames.length; idx++) {
         const rawMName = explicitMartyrNames[idx];
         const gm = findMartyrRecordIn28k(rawMName, golzarMartyrs);
         const finalMartyrName = gm ? gm.fullName : rawMName.replace(/^شهید\s+/, '').trim();
+        if (isMartyrExcludedForBook(bookId, finalMartyrName)) continue;
+
         const mCompact = compactNameForTehranIndex(finalMartyrName);
         if (!mCompact) continue;
 
@@ -1766,11 +1882,31 @@ export function enrichLinksAndCatalogBooksWith28kTehranIndex(params: {
         if (seenBookMartyrPairs.has(bKey1) || seenBookMartyrPairs.has(bKey2)) {
           continue;
         }
+
+        // اگر برای همین کتاب، قبلاً در گام ۱ یک پیوند با نام کامل‌تر (که با این نام شروع می‌شود، مثل «سید علیرضا جزئی» در برابر «سید علیرضا») ثبت شده باشد، از تولید دوباره نام ناقص خودداری شود
+        const alreadyHasFullerNameOnBook = updatedLinks.some((existingLnk) => {
+          if (existingLnk.tempBookId !== bookId) return false;
+          const existingComp = compactNameForTehranIndex(
+            existingLnk.martyrNameRaw.replace(/^(شهیدان|شهید)\s+/g, '')
+          );
+          return existingComp.length > mCompact.length && existingComp.startsWith(mCompact);
+        });
+        if (alreadyHasFullerNameOnBook) {
+          continue;
+        }
+
+        const candidateId = gm ? `RL-28K-${bookId}-${gm.id}` : `RL-AUD-${bookId}-${idx + 1}`;
+        // اگر شناسه RL-AUD قبلاً در گام ۱ توسط کاربر ویرایش و جایگزین شده است، نسخه قدیمی بازتولید نشود
+        if (seenLinkIds.has(candidateId) && candidateId.startsWith('RL-AUD-')) {
+          continue;
+        }
+
         seenBookMartyrPairs.add(bKey1);
         seenBookMartyrPairs.add(bKey2);
+        seenLinkIds.add(candidateId);
 
         updatedLinks.push({
-          id: gm ? `RL-28K-${bookId}-${gm.id}` : `RL-AUD-${bookId}-${idx + 1}`,
+          id: candidateId,
           groupStartRow: String(baseRow?.rowIndex || ''),
           publisherRaw: bookPub,
           bookTitleRaw: bookTitle,

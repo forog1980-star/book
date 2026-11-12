@@ -101,6 +101,7 @@ interface QuickInventoryTabProps {
   }) => void;
   onSaveAuditRecord: (record: FieldAuditRecord) => void;
   onDeleteAuditRecord?: (key: string) => void;
+  onDeleteMartyrLink?: (linkId: string, bookId: string, martyrName: string) => void;
   onNotify: (message: string, type?: 'success' | 'warning') => void;
 }
 
@@ -123,6 +124,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
   onUpdateColumnMap,
   onSaveAuditRecord,
   onDeleteAuditRecord,
+  onDeleteMartyrLink,
   onNotify
 }) => {
   const initialLibSnap = useMemo(() => getLibraryTabNavSnapshot(), []);
@@ -208,6 +210,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
   const [physicalCondition, setPhysicalCondition] = useState<PhysicalConditionCode>('healthy');
   const [copyIdValue, setCopyIdValue] = useState<string>('');
   const [countedCopies, setCountedCopies] = useState<string>('1');
+  const [titleOverride, setTitleOverride] = useState<string>('');
   const [authorOverride, setAuthorOverride] = useState<string>('');
   const [publisherOverride, setPublisherOverride] = useState<string>('');
   const [yearOverride, setYearOverride] = useState<string>('');
@@ -462,6 +465,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       setPhysicalCondition(existing.physicalCondition || 'healthy');
       setCopyIdValue(existing.copyId || autoCopyId);
       setCountedCopies(existing.countedCopies || '1');
+      setTitleOverride(existing.title || row.titleRaw || '');
       setAuthorOverride(existing.author || row.authorRaw || '');
       setPublisherOverride(existing.publisher || row.publisherRaw || '');
       setYearOverride(existing.year || '');
@@ -469,13 +473,36 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       setFipaOverride(existing.fipa || row.fipaRaw || '');
       setRegNoOverride(existing.registrationNo || row.registrationNoRaw || '');
       setNotesValue(existing.notes || '');
-      const existingMartyrs =
-        existing.relatedMartyrs && existing.relatedMartyrs.length > 0
-          ? existing.relatedMartyrs
-          : getLinksForBookRow(row)
-              .map((l) => l.martyrNameRaw)
-              .filter(Boolean);
-      setRelatedMartyrsInputs(existingMartyrs.length > 0 ? existingMartyrs : ['']);
+      const linkedMartyrNames = getLinksForBookRow(row)
+        .map((l) => l.martyrNameRaw)
+        .filter(Boolean);
+      const combinedMartyrs = Array.from(
+        new Set([
+          ...linkedMartyrNames,
+          ...(existing.relatedMartyrs || [])
+        ])
+      ).filter((m) => {
+        const mc = normalizePersianText(m.replace(/^(شهیدان|شهید)\s+/g, '')).replace(/\s+/g, '');
+        if (!mc) return false;
+        const isExcl = (existing.excludedMartyrs || []).some(
+          (ex) =>
+            normalizePersianText(ex.replace(/^(شهیدان|شهید)\s+/g, '')).replace(/\s+/g, '') === mc
+        );
+        return !isExcl;
+      });
+      // حذف نام‌های ناقص پیشوندی در صورت وجود نام کامل‌تر در همان کتاب (مثلاً سید علیرضا در برابر سید علیرضا جزئی)
+      const dedupedMartyrs = combinedMartyrs.filter((m, idx, arr) => {
+        const mc = normalizePersianText(m.replace(/^(شهیدان|شهید)\s+/g, '')).replace(/\s+/g, '');
+        return !arr.some((other, oIdx) => {
+          if (oIdx === idx) return false;
+          const oc = normalizePersianText(other.replace(/^(شهیدان|شهید)\s+/g, '')).replace(
+            /\s+/g,
+            ''
+          );
+          return oc.length > mc.length && oc.startsWith(mc);
+        });
+      });
+      setRelatedMartyrsInputs(dedupedMartyrs.length > 0 ? dedupedMartyrs : ['']);
     } else {
       if (!isShelfLocked) {
         const matchedCat = SUBJECT_CATEGORIES.find(
@@ -490,6 +517,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       setPhysicalCondition('healthy');
       setCopyIdValue(autoCopyId);
       setCountedCopies(row.countedCopiesRaw || '1');
+      setTitleOverride(row.titleRaw || '');
       setAuthorOverride(row.authorRaw || '');
       setPublisherOverride(row.publisherRaw || '');
       setYearOverride('');
@@ -602,22 +630,42 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
   const getLinksForBookRow = React.useCallback(
     (row: ReferenceCatalogRow): BookMartyrLinkRecord[] => {
       const resultMap = new Map<string, BookMartyrLinkRecord>();
+      const seenMartyrCompact = new Set<string>();
+      const addUnique = (m: BookMartyrLinkRecord) => {
+        const mc = normalizePersianText(
+          (m.martyrNameRaw || '').replace(/^(شهیدان|شهید)\s+/g, '')
+        ).replace(/\s+/g, '');
+        if (!mc || seenMartyrCompact.has(mc)) return;
+        seenMartyrCompact.add(mc);
+        resultMap.set(m.id, m);
+      };
+
       if (row.tempBookId) {
         const idMatches = linksIndex.byBookId.get(row.tempBookId);
         if (idMatches) {
-          for (const m of idMatches) resultMap.set(m.id, m);
+          for (const m of idMatches) addUnique(m);
+        }
+      }
+      const savedTitle = auditRecords[row.rowKey]?.title;
+      if (savedTitle) {
+        const normSavedTitle = normalizePersianText(savedTitle);
+        if (normSavedTitle) {
+          const savedTitleMatches = linksIndex.byNormTitle.get(normSavedTitle);
+          if (savedTitleMatches) {
+            for (const m of savedTitleMatches) addUnique(m);
+          }
         }
       }
       const normTitle = normalizePersianText(row.titleRaw);
       if (normTitle) {
         const titleMatches = linksIndex.byNormTitle.get(normTitle);
         if (titleMatches) {
-          for (const m of titleMatches) resultMap.set(m.id, m);
+          for (const m of titleMatches) addUnique(m);
         }
       }
       return Array.from(resultMap.values());
     },
-    [linksIndex]
+    [linksIndex, auditRecords]
   );
 
   // Linked martyrs for the currently selected book
@@ -705,8 +753,9 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
               .join(' ')
           : savedMartyrsList;
 
+      const effectiveTitle = (savedRec?.title || r.titleRaw || '').trim();
       const haystack = normalizePersianText(
-        `${r.tempBookId} ${r.titleRaw} ${r.descriptionRaw} ${effectiveAuthor} ${linkedMartyrsText} ${savedMartyrsList} ${
+        `${r.tempBookId} ${effectiveTitle} ${r.titleRaw} ${r.descriptionRaw} ${effectiveAuthor} ${linkedMartyrsText} ${savedMartyrsList} ${
           savedRec?.notes || ''
         } ${hasTehranMartyr ? 'تهرانی شهدای تهرانی گلزار تهران' : ''}`
       );
@@ -718,7 +767,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
         martyrsNorm: normalizePersianText(
           `${linkedMartyrsText} ${savedMartyrsList} ${savedRec?.notes || ''} ${r.descriptionRaw || ''}`
         ),
-        martyrsCount: Math.max(rowLinks.length, savedRec?.relatedMartyrs?.length || 0),
+        martyrsCount: rowLinks.length,
         effectivePublisher,
         effectiveAuthor,
         effectiveCat,
@@ -910,8 +959,9 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     setShowBooksListDrawer(true);
     if (filteredRows.length > 0) {
       handleSelectRow(filteredRows[0], false);
+      const dispTitle = auditRecords[filteredRows[0].rowKey]?.title || filteredRows[0].titleRaw;
       onNotify(
-        `🔎 ${toPersianDigits(allMatchingRows.length)} کتاب یافت شد؛ «${filteredRows[0].titleRaw}» انتخاب شد.`
+        `🔎 ${toPersianDigits(allMatchingRows.length)} کتاب یافت شد؛ «${dispTitle}» انتخاب شد.`
       );
     } else if (searchQuery.trim()) {
       setSelectedRow(null);
@@ -1028,7 +1078,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       return {
         'ردیف': idx + 1,
         'شناسه موقت کتاب': r.tempBookId,
-        'عنوان کتاب': r.titleRaw,
+        'عنوان کتاب': rec?.title || r.titleRaw,
         'نویسنده / گردآورنده': rec?.author || r.authorRaw || '',
         'ناشر': rec?.publisher || r.publisherRaw || '',
         'سال چاپ': rec?.year || '',
@@ -1137,13 +1187,16 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       )
     );
 
+    const finalBookTitle =
+      titleOverride.trim() || existingRec?.title || targetRow.titleRaw;
+
     const record: FieldAuditRecord = {
       key: targetRow.rowKey,
       source: isOutside ? 'outside-list' : 'catalog',
       sheet: isOutside ? existingRec?.sheet || 'خارج از فهرست مرجع' : currentSheetName,
       tempBookId: targetRow.tempBookId,
       copyId: autoCopyId,
-      title: existingRec?.title || targetRow.titleRaw,
+      title: finalBookTitle,
       author: authorOverride.trim() || targetRow.authorRaw,
       publisher: publisherOverride.trim() || targetRow.publisherRaw,
       year: yearOverride.trim() || existingRec?.year || '',
@@ -1170,7 +1223,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       physicalCondition,
       countedCopies: countedCopies.trim() || '1',
       notes: notesValue.trim(),
-      relatedMartyrs: explicitMartyrsClean.length > 0 ? explicitMartyrsClean : undefined,
+      relatedMartyrs: explicitMartyrsClean,
       backupSourceSheet: targetRow.backupSourceSheet,
       backupSourceRow: targetRow.backupSourceRow,
       updatedAt: new Date().toISOString()
@@ -1181,7 +1234,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
 
     if (advanceToNextRow) {
       onNotify(
-        `✅ کتاب «${targetRow.titleRaw}» (${autoCopyId}) ثبت شد و کتاب بعدی باز شد.`
+        `✅ کتاب «${finalBookTitle}» (${autoCopyId}) ثبت شد و کتاب بعدی باز شد.`
       );
       handleSelectRow(advanceToNextRow);
       setTimeout(() => {
@@ -1192,7 +1245,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       }, 70);
     } else {
       onNotify(
-        `✅ تغییرات کتاب «${targetRow.titleRaw}» (${autoCopyId}) در محل ${locationCode || 'بدون محل'} ذخیره شد.`
+        `✅ تغییرات کتاب «${finalBookTitle}» (${autoCopyId}) در کل نرم‌افزار (کتابخانه و خانه) ذخیره شد.`
       );
       // حفظ همان کتاب در حالت انتخاب‌شده و حفظ کامل جست‌وجو، فیلتر و اسکرول
       setTimeout(() => {
@@ -1985,7 +2038,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
               </span>
               {selectedRow && (
                 <span className="px-2 py-0.5 rounded-md bg-[#1f4e79] text-white text-[11px] font-bold">
-                  انتخاب‌شده: {selectedRow.titleRaw}
+                  انتخاب‌شده: {auditRecords[selectedRow.rowKey]?.title || selectedRow.titleRaw}
                 </span>
               )}
             </div>
@@ -2090,7 +2143,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                 {row.tempBookId}
                               </span>
                               <span className="font-bold text-sm sm:text-base text-slate-900 leading-snug break-words">
-                                {row.titleRaw || '(بدون عنوان)'}
+                                {savedRec?.title || row.titleRaw || '(بدون عنوان)'}
                               </span>
                               {precomputedSearchMap.get(row.rowKey)?.hasTehranMartyr && (
                                 <TehranMartyrBadge size="sm" />
@@ -2241,6 +2294,40 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                           {lnk.pageReferenceRaw ? (
                                             <span>(ص {toPersianDigits(lnk.pageReferenceRaw)})</span>
                                           ) : null}
+                                          {onDeleteMartyrLink && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                onDeleteMartyrLink(
+                                                  lnk.id,
+                                                  row.tempBookId,
+                                                  lnk.martyrNameRaw
+                                                );
+                                                if (selectedRow?.rowKey === row.rowKey) {
+                                                  setRelatedMartyrsInputs((prev) => {
+                                                    const targetC = normalizePersianText(
+                                                      lnk.martyrNameRaw.replace(
+                                                        /^(شهیدان|شهید)\s+/g,
+                                                        ''
+                                                      )
+                                                    ).replace(/\s+/g, '');
+                                                    const next = prev.filter(
+                                                      (item) =>
+                                                        normalizePersianText(
+                                                          item.replace(/^(شهیدان|شهید)\s+/g, '')
+                                                        ).replace(/\s+/g, '') !== targetC
+                                                    );
+                                                    return next.length > 0 ? next : [''];
+                                                  });
+                                                }
+                                              }}
+                                              className="mr-0.5 w-4 h-4 rounded-full hover:bg-rose-100 text-rose-600 flex items-center justify-center font-bold cursor-pointer"
+                                              title={`حذف شهید «${lnk.martyrNameRaw}» از این کتاب`}
+                                            >
+                                              ×
+                                            </button>
+                                          )}
                                         </span>
                                       );
                                     })}
@@ -2263,7 +2350,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                               <div className="flex items-center gap-2">
                                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
                                 <span className="text-xs sm:text-sm font-bold text-[#1f4e79]">
-                                  کشوی ثبت سریع در قفسه — {row.titleRaw} ({row.tempBookId})
+                                  کشوی ثبت سریع در قفسه — {titleOverride || savedRec?.title || row.titleRaw} ({row.tempBookId})
                                 </span>
                               </div>
                               <div className="flex items-center gap-2">
@@ -2402,8 +2489,22 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                               </div>
                             </div>
 
-                            {/* فیلد اختصاصی شهید مرتبط (با دکمه + برای افزودن چند شهید) و توضیحات زیر بخش ۲ */}
+                            {/* فیلد اصلاح عنوان کتاب + فیلد اختصاصی شهید مرتبط (با دکمه + برای افزودن چند شهید) و توضیحات زیر بخش ۲ */}
                             <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-2.5">
+                              {/* امکان اصلاح مستقیم عنوان کتاب در همان کشوی ثبت سریع کتابخانه */}
+                              <div className="space-y-1 pb-2 border-b border-slate-100">
+                                <label className="block text-xs font-bold text-[#1f4e79]">
+                                  عنوان کتاب (امکان اصلاح عنوان در صورت اشتباه در فهرست اولیه — مثلاً اصلاح «شاکر» به «شاگرد»):
+                                </label>
+                                <input
+                                  type="text"
+                                  value={titleOverride}
+                                  onChange={(e) => setTitleOverride(e.target.value)}
+                                  placeholder={row.titleRaw || 'عنوان صحیح کتاب را وارد کنید...'}
+                                  className="w-full min-h-[38px] px-3 py-1.5 bg-[#EDF4FA]/60 focus:bg-white border border-[#1f4e79]/30 rounded-lg text-xs font-bold text-slate-900 focus:outline-none focus:border-[#1f4e79]"
+                                />
+                              </div>
+
                               <div className="space-y-1.5">
                                 <div className="flex items-center justify-between gap-2">
                                   <label className="text-xs font-bold text-[#8C3B2B]">
@@ -2444,16 +2545,18 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                             } (مثلاً: شهید مصطفی چمران)`}
                                             className="flex-1 min-h-[36px] px-3 py-1 bg-[#FAF5EE] focus:bg-white border border-[#D8C2A7] rounded-lg text-xs text-slate-900 focus:outline-none focus:border-[#8C3B2B]"
                                           />
-                                          {relatedMartyrsInputs.length > 1 && (
+                                          {(relatedMartyrsInputs.length > 1 || mName.trim() !== '') && (
                                             <button
                                               type="button"
                                               onClick={() =>
                                                 setRelatedMartyrsInputs((prev) =>
-                                                  prev.filter((_, i) => i !== mIdx)
+                                                  prev.length > 1
+                                                    ? prev.filter((_, i) => i !== mIdx)
+                                                    : ['']
                                                 )
                                               }
                                               className="min-h-[36px] px-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
-                                              title="حذف این کادر شهید"
+                                              title="حذف این شهید"
                                             >
                                               ✕
                                             </button>
@@ -2624,7 +2727,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
             </h2>
             {selectedRow && section3Mode === 'selected' ? (
               <span className="px-2.5 py-0.5 rounded-lg bg-[#edf4fa] text-[#1f4e79] border border-[#b8d0e8] text-xs font-bold">
-                کتاب فعال: «{selectedRow.titleRaw}» ({selectedRow.tempBookId})
+                کتاب فعال: «{titleOverride || auditRecords[selectedRow.rowKey]?.title || selectedRow.titleRaw}» ({selectedRow.tempBookId})
               </span>
             ) : section3Mode === 'new' ? (
               <span className="px-2.5 py-0.5 rounded-lg bg-[#FAF3EA] text-[#8C3B2B] border border-[#E6D5C1] text-xs font-bold">
@@ -2932,7 +3035,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                         </div>
                       </div>
                       <div className="text-base font-bold text-slate-900 flex flex-wrap items-center gap-2">
-                        <span>{selectedRow.titleRaw}</span>
+                        <span>{titleOverride || auditRecords[selectedRow.rowKey]?.title || selectedRow.titleRaw}</span>
                         {precomputedSearchMap.get(selectedRow.rowKey)?.hasTehranMartyr && (
                           <TehranMartyrBadge size="sm" />
                         )}
@@ -3329,6 +3432,19 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                     </button>
                     {showOptionalBiblioFields && (
                       <div className="p-3.5 space-y-3 bg-white">
+                        <div>
+                          <label className="block text-xs font-bold text-[#1f4e79] mb-1">
+                            عنوان کتاب (امکان اصلاح عنوان کتاب):
+                          </label>
+                          <input
+                            type="text"
+                            value={titleOverride}
+                            onChange={(e) => setTitleOverride(e.target.value)}
+                            placeholder="عنوان صحیح کتاب..."
+                            className="w-full min-h-[40px] px-3 py-1.5 bg-[#EDF4FA]/60 focus:bg-white border border-[#1f4e79]/30 rounded-xl text-xs font-bold text-slate-900"
+                          />
+                        </div>
+
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div>
                             <label className="block text-xs font-medium text-slate-600 mb-1">
@@ -3449,15 +3565,18 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                       } (مثلاً: شهید مصطفی چمران)`}
                                       className="flex-1 min-h-[38px] px-3 py-1.5 bg-white border border-[#D8C2A7] rounded-xl text-xs text-slate-900 focus:outline-none focus:border-[#8C3B2B]"
                                     />
-                                    {relatedMartyrsInputs.length > 1 && (
+                                    {(relatedMartyrsInputs.length > 1 || mName.trim() !== '') && (
                                       <button
                                         type="button"
                                         onClick={() =>
                                           setRelatedMartyrsInputs((prev) =>
-                                            prev.filter((_, i) => i !== mIdx)
+                                            prev.length > 1
+                                              ? prev.filter((_, i) => i !== mIdx)
+                                              : ['']
                                           )
                                         }
                                         className="min-h-[38px] px-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
+                                        title="حذف این شهید"
                                       >
                                         ✕
                                       </button>

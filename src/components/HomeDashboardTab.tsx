@@ -90,7 +90,8 @@ interface HomeDashboardTabProps {
   onAddBookCopy?: (newCopy: BookCopyRecord) => void;
   onMoveBookCopy?: (copyId: string, toShelf: ShelfCode, toLevel: LevelCode, reason: string) => void;
   onAddLink?: (newLink: BookMartyrLinkRecord) => void;
-  onUpdateLink?: (updatedLink: BookMartyrLinkRecord) => void;
+  onUpdateLink?: (updatedLink: BookMartyrLinkRecord, oldMartyrName?: string) => void;
+  onDeleteLink?: (linkId: string, bookId: string, martyrName: string) => void;
   onApproveOutsideBook?: (recordKey: string) => void;
   onDeleteAuditRecord?: (recordKey: string) => void;
   onDownloadUnifiedExcel?: () => void;
@@ -131,6 +132,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
   onMoveBookCopy,
   onAddLink,
   onUpdateLink,
+  onDeleteLink,
   onApproveOutsideBook,
   onDeleteAuditRecord,
   fullOperationalState,
@@ -213,6 +215,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
 
   // وضعیت ویرایش یا افزودن ارتباط شهید در داخل پرونده کتاب (با قابلیت افزودن چند شهید هم‌زمان با دکمه +)
   const [editingRelationLinkId, setEditingRelationLinkId] = useState<string | 'NEW' | null>(null);
+  const [editingOriginalMartyrName, setEditingOriginalMartyrName] = useState<string>('');
   const [relMartyrName, setRelMartyrName] = useState('');
   const [relAdditionalMartyrNames, setRelAdditionalMartyrNames] = useState<string[]>([]);
   const [relGravePiece, setRelGravePiece] = useState('');
@@ -523,6 +526,10 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
           physicalCondition: existingAudit?.physicalCondition || 'healthy',
           countedCopies: editBookCopies.trim() || '1',
           notes: editBookNotes.trim(),
+          relatedMartyrs: existingAudit?.relatedMartyrs,
+          excludedMartyrs: existingAudit?.excludedMartyrs,
+          expertApproved: existingAudit?.expertApproved,
+          needsReview: existingAudit?.needsReview,
           backupSourceSheet: existingAudit?.backupSourceSheet || catRow?.backupSourceSheet,
           backupSourceRow: existingAudit?.backupSourceRow || catRow?.backupSourceRow,
           updatedAt: new Date().toISOString()
@@ -532,7 +539,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
         setLastInteractedDossierId(selectedBookDossier.dossierId);
         setIsEditingDossierBook(false);
         onNotify(
-          `✅ تغییرات پرونده کتاب «${updatedRecord.title}» (${updatedRecord.tempBookId}) بدون ایجاد تکرار ذخیره شد.`
+          `✅ تغییرات پرونده کتاب «${updatedRecord.title}» (${updatedRecord.tempBookId}) در کل نرم‌افزار (خانه و کتابخانه) ذخیره شد.`
         );
       }
     });
@@ -542,6 +549,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
   const startEditMartyrRelation = (rel?: BookDossierMartyrRelation) => {
     if (!rel) {
       setEditingRelationLinkId('NEW');
+      setEditingOriginalMartyrName('');
       setRelMartyrName('');
       setRelAdditionalMartyrNames([]);
       setRelGravePiece('');
@@ -554,6 +562,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       return;
     }
     setEditingRelationLinkId(rel.linkId);
+    setEditingOriginalMartyrName(rel.martyrName || '');
     setRelMartyrName(rel.martyrName || '');
     setRelAdditionalMartyrNames([]);
     setRelGravePiece(rel.gravePiece === '—' ? '' : rel.gravePiece);
@@ -660,24 +669,63 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
     } else {
       const item = resolvedMartyrs[0];
       const existingLink = links.find((l) => l.id === editingRelationLinkId);
-      if (existingLink && onUpdateLink) {
-        const updatedLink: BookMartyrLinkRecord = {
-          ...existingLink,
-          martyrNameRaw: item.canonicalName,
-          gravePieceRaw: item.piece,
-          graveRowRaw: item.row,
-          graveNumberRaw: item.number,
-          pageReferenceRaw: relPageRef.trim(),
-          sourceDescriptionRaw: relSourceDesc.trim(),
-          reviewStatus: relCertainty,
-          reviewerNote: relReviewerNote.trim()
-        };
-        onUpdateLink(updatedLink);
-        onNotify(`✅ اطلاعات ارتباط شهید «${item.canonicalName}» در پرونده کتاب به‌روزرسانی شد.`);
+      const existingRel = selectedBookDossier.martyrRelations.find(
+        (r) => r.linkId === editingRelationLinkId
+      );
+      if (onUpdateLink) {
+        const updatedLink: BookMartyrLinkRecord = existingLink
+          ? {
+              ...existingLink,
+              tempBookId: selectedBookDossier.bookId || existingLink.tempBookId,
+              bookTitleRaw: selectedBookDossier.title || existingLink.bookTitleRaw,
+              martyrNameRaw: item.canonicalName,
+              rawNameInSource: `شهید ${item.canonicalName}`,
+              gravePieceRaw: item.piece,
+              graveRowRaw: item.row,
+              graveNumberRaw: item.number,
+              pageReferenceRaw: relPageRef.trim(),
+              sourceDescriptionRaw: relSourceDesc.trim(),
+              reviewStatus: relCertainty,
+              reviewerNote: relReviewerNote.trim()
+            }
+          : {
+              id: editingRelationLinkId,
+              tempBookId: selectedBookDossier.bookId,
+              bookTitleRaw: selectedBookDossier.title,
+              alternativeTitle: selectedBookDossier.alternativeTitle || undefined,
+              publisherRaw:
+                selectedBookDossier.publisher === 'ثبت‌نشده' ? '' : selectedBookDossier.publisher,
+              martyrNameRaw: item.canonicalName,
+              rawNameInSource: `شهید ${item.canonicalName}`,
+              isGroupPhrase: false,
+              gravePieceRaw: item.piece,
+              graveRowRaw: item.row,
+              graveNumberRaw: item.number,
+              pageReferenceRaw: relPageRef.trim(),
+              sourceDescriptionRaw: relSourceDesc.trim(),
+              sourceFile: existingRel?.sourceFile || 'ویرایش کارشناس در پرونده کتاب',
+              sourceSheet: existingRel?.sourceSheet || 'یک شهید',
+              sourceExcelRow: existingRel?.sourceExcelRow || '—',
+              reviewStatus: relCertainty,
+              reviewerNote: relReviewerNote.trim()
+            };
+        const oldName =
+          editingOriginalMartyrName ||
+          existingRel?.martyrName ||
+          existingLink?.martyrNameRaw ||
+          '';
+        onUpdateLink(updatedLink, oldName);
+        if (selectedMartyrDossierName && oldName && selectedMartyrDossierName === oldName) {
+          setSelectedMartyrDossierName(item.canonicalName);
+        }
+        onNotify(
+          `✅ اطلاعات ارتباط شهید «${item.canonicalName}» در پرونده کتاب و کتابخانه به‌روزرسانی شد.`
+        );
       }
     }
     setLastInteractedDossierId(selectedBookDossier.dossierId);
     setEditingRelationLinkId(null);
+    setEditingOriginalMartyrName('');
   };
 
   // ساخت اطلاعات کامل پرونده اختصاصی شهید برای پنجره مودال شهید (`selectedMartyrDossierName`)
@@ -3080,6 +3128,23 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                             <Edit3 className="w-3 h-3 text-[#6B3E26]" />
                             <span>ویرایش ارتباط</span>
                           </button>
+                          {onDeleteLink && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onDeleteLink(
+                                  rel.linkId,
+                                  selectedBookDossier.bookId,
+                                  rel.martyrName
+                                )
+                              }
+                              className="px-2 py-0.5 rounded bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-[10.5px] inline-flex items-center gap-1 cursor-pointer"
+                              title="حذف این شهید از پرونده کتاب و کتابخانه"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>حذف شهید</span>
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -3289,19 +3354,38 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                         )}
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedMartyrDossierName(null);
-                          setLastInteractedDossierId(book.dossierId);
-                          setIsEditingDossierBook(false);
-                          setEditingRelationLinkId(null);
-                          setSelectedBookDossierId(book.dossierId);
-                        }}
-                        className="px-2.5 py-1.5 rounded-lg bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-[11px] shrink-0 cursor-pointer"
-                      >
-                        مشاهده پرونده کتاب
-                      </button>
+                      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedMartyrDossierName(null);
+                            setLastInteractedDossierId(book.dossierId);
+                            setIsEditingDossierBook(false);
+                            setEditingRelationLinkId(null);
+                            setSelectedBookDossierId(book.dossierId);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-[11px] shrink-0 cursor-pointer"
+                        >
+                          مشاهده پرونده کتاب
+                        </button>
+                        {onDeleteLink && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const remaining = selectedMartyrDossierData.relatedRelations.length;
+                              onDeleteLink(rel.linkId, book.bookId, rel.martyrName);
+                              if (remaining <= 1) {
+                                setSelectedMartyrDossierName(null);
+                              }
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-[11px] inline-flex items-center gap-1 shrink-0 cursor-pointer"
+                            title="حذف ارتباط این شهید با این کتاب"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>حذف از این کتاب</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
