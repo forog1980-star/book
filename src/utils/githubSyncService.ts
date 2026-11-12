@@ -125,7 +125,7 @@ async function sendSwMessage<T = any>(
   });
 }
 
-async function waitForInstallingWorker(worker: ServiceWorker, timeoutMs = 15000): Promise<boolean> {
+async function waitForInstallingWorker(worker: ServiceWorker, timeoutMs = 35000): Promise<boolean> {
   if (worker.state === 'installed' || worker.state === 'activated') {
     return true;
   }
@@ -214,8 +214,9 @@ export async function performManualGitHubSync(
     };
   }
 
+  // افزایش مهلت به ۹۵ ثانیه برای سازگاری کامل با دانلود فایل‌های حجیم روی اینترنت موبایل
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 28000);
+  const timeoutId = window.setTimeout(() => controller.abort(), 95000);
   const operationId = `op_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const tabId = `tab_${Math.random().toString(36).slice(2, 10)}`;
   let stagingCacheName = `${OFFLINE_SW_CACHE_NAME}-staging-${Date.now()}`;
@@ -238,7 +239,7 @@ export async function performManualGitHubSync(
           operationId,
           tabId,
           expectedActiveCacheName: OFFLINE_SW_CACHE_NAME,
-          leaseDurationMs: 35000
+          leaseDurationMs: 45000
         });
 
         if (lockRes && !lockRes.ok) {
@@ -263,14 +264,14 @@ export async function performManualGitHubSync(
             sendSwMessage(swTargetWorker, {
               type: 'RENEW_UPDATE_LEASE',
               operationId,
-              additionalMs: 25000
+              additionalMs: 30000
             }).catch(() => {});
           }
         }, 8000);
       }
     }
 
-    onProgress?.('در حال بررسی نسخه جدید در گیت‌هاب...');
+    onProgress?.('در حال بررسی آخرین نسخه در گیت‌هاب...');
 
     const checkUrl = new URL('./index.html', window.location.href);
     checkUrl.searchParams.set('_manual_github_sync', '1');
@@ -301,6 +302,67 @@ export async function performManualGitHubSync(
       htmlText.matchAll(/href=["']([^"']*\/assets\/[^"']+\.css)["']/gi)
     );
 
+    let serverJsBundle = '';
+    let serverCssBundle = '';
+
+    for (const m of scriptMatches) {
+      const norm = normalizeRelativeUrl(m[1]);
+      if (norm) {
+        serverJsBundle = norm.split('/').pop() || '';
+      }
+    }
+
+    for (const m of styleMatches) {
+      const norm = normalizeRelativeUrl(m[1]);
+      if (norm) {
+        serverCssBundle = norm.split('/').pop() || '';
+      }
+    }
+
+    const { jsBundle: currentJsBundle, cssBundle: currentCssBundle } = getCurrentlyLoadedBundles();
+
+    // بررسی اولیه و سریع به‌روز بودن نسخه بدون نیاز به دانلود غیرضروری ۱۰ مگابایت فایل
+    const nowFa = formatExactShamsiDateTimeFa(new Date());
+    const bundleChanged =
+      Boolean(currentJsBundle && serverJsBundle && currentJsBundle !== serverJsBundle) ||
+      Boolean(currentCssBundle && serverCssBundle && currentCssBundle !== serverCssBundle);
+
+    if (!bundleChanged && currentJsBundle && serverJsBundle) {
+      if (heartbeatTimer !== null) {
+        window.clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+      window.clearTimeout(timeoutId);
+
+      if (swTargetWorker && lockAcquired) {
+        await sendSwMessage(swTargetWorker, {
+          type: 'RELEASE_UPDATE_OPERATION',
+          operationId
+        }).catch(() => {});
+        lockAcquired = false;
+      }
+
+      try {
+        localStorage.setItem(LAST_GITHUB_SYNC_STORAGE_KEY, nowFa);
+      } catch {
+        // ignore
+      }
+
+      return {
+        ok: true,
+        status: 'up_to_date',
+        shouldReload: false,
+        updatedBundle: currentJsBundle,
+        syncedAtFa: nowFa,
+        message: '✅ نسخه فعلی نرم‌افزار به‌روز است و نیازی به بارگذاری مجدد نیست.'
+      };
+    }
+
+    if (currentJsBundle && (!serverJsBundle || !serverCssBundle)) {
+      throw new Error('فایل‌های اجرایی نسخه جدید در پاسخ سرور یافت نشد');
+    }
+
+    // مرحله ۱: دریافت و اعتبارسنجی فایل‌های نسخه جدید در حافظه با گزارش پیشرفت
     const requiredShellUrls = new Set<string>([
       './manifest.webmanifest',
       './golzar-logo.png',
@@ -314,43 +376,28 @@ export async function performManualGitHubSync(
       './data/sooreh_mehr_book_martyr_research.json'
     ]);
 
-    let serverJsBundle = '';
-    let serverCssBundle = '';
-
     for (const m of scriptMatches) {
       const norm = normalizeRelativeUrl(m[1]);
-      if (norm) {
-        requiredShellUrls.add(norm);
-        serverJsBundle = norm.split('/').pop() || '';
-      }
+      if (norm) requiredShellUrls.add(norm);
     }
-
     for (const m of preloadAndFontMatches) {
       const norm = normalizeRelativeUrl(m[1]);
-      if (norm) {
-        requiredShellUrls.add(norm);
-      }
+      if (norm) requiredShellUrls.add(norm);
     }
-
     for (const m of styleMatches) {
       const norm = normalizeRelativeUrl(m[1]);
-      if (norm) {
-        requiredShellUrls.add(norm);
-        serverCssBundle = norm.split('/').pop() || '';
-      }
+      if (norm) requiredShellUrls.add(norm);
     }
 
-    const { jsBundle: currentJsBundle, cssBundle: currentCssBundle } = getCurrentlyLoadedBundles();
-    if (currentJsBundle && (!serverJsBundle || !serverCssBundle)) {
-      throw new Error('فایل‌های اجرایی نسخه جدید در پاسخ سرور یافت نشد');
-    }
-
-    onProgress?.('در حال دریافت و اعتبارسنجی کامل فایل‌های نسخه جدید...');
-
-    // مرحله ۱: دریافت و راستی‌آزمایی تمام فایل‌های ضروری در حافظه موقت
     const verifiedResponses = new Map<string, { bytes: ArrayBuffer; contentType: string }>();
+    const totalFiles = requiredShellUrls.size;
+    let completedFiles = 0;
 
     for (const relUrl of Array.from(requiredShellUrls)) {
+      completedFiles++;
+      const shortLabel = relUrl.split('/').pop() || relUrl;
+      onProgress?.(`در حال دریافت نسخه جدید: ${shortLabel} (${completedFiles}/${totalFiles})...`);
+
       const fetchUrl = new URL(relUrl, window.location.href);
       fetchUrl.searchParams.set('_manual_github_sync', '1');
       fetchUrl.searchParams.set('_t', String(Date.now()));
@@ -417,6 +464,7 @@ export async function performManualGitHubSync(
     }
 
     // مرحله ۲: ذخیره در کش کاندید موقت و راستی‌آزمایی صحت ذخیره‌سازی (Read-back Verification)
+    onProgress?.('در حال ثبت و اعتبارسنجی کش آفلاین...');
     if ('caches' in window) {
       const stagingCache = await window.caches.open(stagingCacheName);
       await stagingCache.put(
@@ -485,7 +533,7 @@ export async function performManualGitHubSync(
       await reg.update();
 
       if (reg.installing) {
-        onProgress?.('در حال نصب و اعتبارسنجی Service Worker نسخه جدید...');
+        onProgress?.('در حال راه‌اندازی Service Worker نسخه جدید...');
         const installedOk = await waitForInstallingWorker(reg.installing);
         if (!installedOk) {
           throw new Error('نصب Service Worker نسخه جدید کامل نشد؛ نسخه قبلی حفظ گردید.');
@@ -508,7 +556,7 @@ export async function performManualGitHubSync(
               navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
               resolve(true);
             }
-          }, 4000);
+          }, 5000);
         });
 
         reg.waiting.postMessage({ type: 'SKIP_WAITING' });
@@ -563,26 +611,10 @@ export async function performManualGitHubSync(
     }
     window.clearTimeout(timeoutId);
 
-    const nowFa = formatExactShamsiDateTimeFa(new Date());
     try {
       localStorage.setItem(LAST_GITHUB_SYNC_STORAGE_KEY, nowFa);
     } catch {
       // ignore
-    }
-
-    const bundleChanged =
-      Boolean(currentJsBundle && serverJsBundle && currentJsBundle !== serverJsBundle) ||
-      Boolean(currentCssBundle && serverCssBundle && currentCssBundle !== serverCssBundle);
-
-    if (!bundleChanged && !swUpdatedAndActivated) {
-      return {
-        ok: true,
-        status: 'up_to_date',
-        shouldReload: false,
-        updatedBundle: serverJsBundle || currentJsBundle,
-        syncedAtFa: nowFa,
-        message: '✅ نسخه فعلی نرم‌افزار به‌روز است و نیازی به بارگذاری مجدد نیست.'
-      };
     }
 
     return {
@@ -617,7 +649,7 @@ export async function performManualGitHubSync(
       ok: false,
       status: 'failed',
       shouldReload: false,
-      message: `⚠️ دریافت نسخه جدید با شکست مواجه شد: ${error?.message || 'خطای شبکه'}. نسخه پایدار قبلی بدون تغییر حفظ شد.`
+      message: `⚠️ دریافت نسخه جدید با شکست مواجه شد: ${error?.message || 'خطای شبکه یا پایان مهلت اتصال'}. نسخه پایدار قبلی بدون تغییر حفظ شد.`
     };
   }
 }
