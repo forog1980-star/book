@@ -72,7 +72,9 @@ import { GlobalConfirmModal } from './components/GlobalConfirmModal';
 import { requestActionConfirmation } from './utils/confirmDialogService';
 import {
   GlobalExcelExportConfigModal,
-  openStandardExcelExportModal
+  openStandardExcelExportModal,
+  buildEmergencyZeroToHundredTables,
+  generateEmergencyZeroToHundredExcel
 } from './modules/excel-export';
 import {
   closeTopModalIfAny,
@@ -1239,25 +1241,88 @@ export default function App() {
   const handleFullJsonBackupDownload = () => {
     try {
       const envelope = createFullSystemBackupEnvelope(getFullOperationalState(), '3.5.0');
-      const blob = new Blob([JSON.stringify(envelope, null, 2)], {
+      const zeroToHundred = buildEmergencyZeroToHundredTables({
+        catalogRows,
+        auditRecords,
+        bookCopies,
+        links: indexedLinks,
+        extractedItems,
+        customMartyrs,
+        workbookMartyrs
+      });
+      const fullPayload = {
+        ...envelope,
+        fullZeroToHundredSnapshot: {
+          description:
+            'خروجی کامل ۰ تا ۱۰۰ کل بانک اطلاعات نرم‌افزار (شامل تمام کتاب‌های کارشده و کارنشده، اسامی تمام شهدا، و جدول ارتباط متقابل شهدا و کتاب‌ها با تمام فیلدهای متصل)',
+          counts: zeroToHundred.counts,
+          sheet1_allBooks: zeroToHundred.booksRows,
+          sheet2_allMartyrs: zeroToHundred.martyrsRows,
+          sheet3_martyrBookRelations: zeroToHundred.relationsRows
+        }
+      };
+      const blob = new Blob([JSON.stringify(fullPayload, null, 2)], {
         type: 'application/json;charset=utf-8'
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `markaz-asnad-full-backup-v3-${new Date().toISOString().slice(0, 10)}.json`;
+      let dateStamp = new Date().toISOString().slice(0, 10);
+      try {
+        dateStamp = new Date().toLocaleDateString('fa-IR').replace(/\//g, '-');
+      } catch {
+        // fallback to ISO date
+      }
+      a.download = `خروجی_اضطراری_۰_تا_۱۰۰_کل_اطلاعات_مرکز_اسناد_${dateStamp}.json`;
       a.click();
       URL.revokeObjectURL(url);
       showNotify(
-        `پشتیبان کامل سامانه (JSON نسخه ۳ شامل هر ۱۱ مجموعه داده و ${toPersianDigits(
-          envelope.counts.totalOperationalItems
-        )} رکورد عملیاتی) با موفقیت دانلود شد.`
+        `خروجی کامل جیسون (JSON ۰ تا ۱۰۰ شامل ${toPersianDigits(
+          zeroToHundred.counts.totalBooks
+        )} کتاب، ${toPersianDigits(zeroToHundred.counts.totalMartyrs)} شهید و ${toPersianDigits(
+          zeroToHundred.counts.totalBookMartyrRelations
+        )} ارتباط + ۱۱ مجموعه عملیاتی قابل بازیابی) با موفقیت دانلود شد.`
       );
       return true;
     } catch {
       showNotify('خطا در تولید فایل پشتیبان کامل JSON.', 'warning');
       return false;
     }
+  };
+
+  const handleEmergencyZeroToHundredExcelDownload = () => {
+    try {
+      const res = generateEmergencyZeroToHundredExcel({
+        catalogRows,
+        auditRecords,
+        bookCopies,
+        links: indexedLinks,
+        extractedItems,
+        customMartyrs,
+        workbookMartyrs
+      });
+      showNotify(
+        `خروجی اکسل کامل ۰ تا ۱۰۰ در ۳ شیت مجزا (شیت ۱: ${toPersianDigits(
+          res.counts.totalBooks
+        )} کتاب کارشده و کارنشده | شیت ۲: ${toPersianDigits(
+          res.counts.totalMartyrs
+        )} شهید | شیت ۳: ${toPersianDigits(
+          res.counts.totalBookMartyrRelations
+        )} ارتباط کتاب و شهید) دانلود شد.`
+      );
+      return true;
+    } catch {
+      showNotify('خطا در تولید فایل اکسل کامل ۰ تا ۱۰۰.', 'warning');
+      return false;
+    }
+  };
+
+  const handleEmergencyZeroToHundredBothDownload = () => {
+    const excelOk = handleEmergencyZeroToHundredExcelDownload();
+    window.setTimeout(() => {
+      handleFullJsonBackupDownload();
+    }, 250);
+    return excelOk;
   };
 
   const handleApplyRestoredState = (restored: FullOperationalState, summaryMessage: string) => {
@@ -2125,6 +2190,58 @@ export default function App() {
                     >
                       بستن ✕
                     </button>
+                  </div>
+
+                  {/* بخش ویژه قرمزرنگ: خروجی اضطراری ۰ تا ۱۰۰ کل اطلاعات نرم‌افزار (اکسل ۳ شیته + جیسون کامل) */}
+                  <div
+                    data-testid="emergency-full-export-box"
+                    className="bg-[#FEF2F2] border-2 border-[#DC2626] rounded-xl p-3 space-y-2.5 shadow-xs"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-[#991B1B] font-extrabold text-xs sm:text-sm">
+                        <Download className="w-4 h-4 text-[#DC2626] shrink-0" />
+                        <span>
+                          خروجی از کل اطلاعات نرم‌افزار در مورد تمام شهدا، اسامی شهدایی که هست و کتاب‌هایی که تا حالا کار شده (بانک کامل ۰ تا ۱۰۰ — کارشده و کارنشده)
+                        </span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-md bg-[#DC2626] text-white text-[10px] font-bold shrink-0">
+                        خروجی اضطراری ۰ تا ۱۰۰
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#7F1D1D] leading-5">
+                      شامل تمام اطلاعات بارگذاری‌شده در نرم‌افزار طبق فیلدهای جستجو و جدول‌بندی‌شده در <strong>۳ شیت مجزا</strong>: ۱) شیت کل کتاب‌ها (کارشده و کارنشده)، ۲) شیت اسامی شهدا، ۳) شیت اسامی شهدا و کتاب‌های مرتبط با تمام فیلدهای متصل — به‌همراه فایل پشتیبان کامل جیسون (JSON).
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-0.5">
+                      <button
+                        type="button"
+                        data-testid="emergency-export-both-btn"
+                        onClick={handleEmergencyZeroToHundredBothDownload}
+                        className="min-h-[42px] px-3 py-2 text-xs font-extrabold rounded-xl bg-[#DC2626] hover:bg-[#B91C1B] text-white shadow-sm transition-colors flex items-center justify-center gap-1.5 text-center cursor-pointer"
+                      >
+                        <Download className="w-4 h-4 shrink-0" />
+                        <span>خروجی اضطراری کامل (دانلود هم‌زمان اکسل + جیسون ۰ تا ۱۰۰)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        data-testid="emergency-export-excel-btn"
+                        onClick={handleEmergencyZeroToHundredExcelDownload}
+                        className="min-h-[42px] px-3 py-2 text-xs font-bold rounded-xl bg-white hover:bg-red-50 text-[#991B1B] border border-[#FCA5A5] transition-colors flex items-center justify-center gap-1.5 text-center cursor-pointer"
+                      >
+                        <FileSpreadsheet className="w-4 h-4 text-[#1E4D2B] shrink-0" />
+                        <span>فقط خروجی اکسل ۳ شیته (کتاب‌ها | شهدا | ارتباط‌ها)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        data-testid="emergency-export-json-btn"
+                        onClick={handleFullJsonBackupDownload}
+                        className="min-h-[42px] px-3 py-2 text-xs font-bold rounded-xl bg-white hover:bg-red-50 text-[#991B1B] border border-[#FCA5A5] transition-colors flex items-center justify-center gap-1.5 text-center cursor-pointer"
+                      >
+                        <DatabaseBackup className="w-4 h-4 text-[#991B1B] shrink-0" />
+                        <span>فقط خروجی جیسون کامل (JSON ۰ تا ۱۰۰ کل اطلاعات)</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
