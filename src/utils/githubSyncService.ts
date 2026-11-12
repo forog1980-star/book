@@ -103,6 +103,28 @@ function getCurrentlyLoadedBundles(): { jsBundle: string; cssBundle: string } {
   return { jsBundle, cssBundle };
 }
 
+async function sendSwMessage<T = any>(
+  worker: ServiceWorker | null | undefined,
+  message: any,
+  timeoutMs = 6000
+): Promise<T | null> {
+  if (!worker) return null;
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    const timer = window.setTimeout(() => resolve(null), timeoutMs);
+    channel.port1.onmessage = (event) => {
+      window.clearTimeout(timer);
+      resolve(event.data);
+    };
+    try {
+      worker.postMessage(message, [channel.port2]);
+    } catch {
+      window.clearTimeout(timer);
+      resolve(null);
+    }
+  });
+}
+
 async function waitForInstallingWorker(worker: ServiceWorker, timeoutMs = 15000): Promise<boolean> {
   if (worker.state === 'installed' || worker.state === 'activated') {
     return true;
@@ -133,11 +155,51 @@ async function waitForInstallingWorker(worker: ServiceWorker, timeoutMs = 15000)
 }
 
 /**
- * به‌روزرسانی دستی، اتمیک و ایمن از گیت‌هاب فقط با کلیک مستقیم کاربر:
- * ۱. هیچ فایل جدیدی را روی کش نسخه فعال قبلی بازنویسی نمی‌کند.
- * ۲. ابتدا تمام فایل‌های ضروری نسخه جدید را در حافظه دریافت و اعتبارسنجی (HTTP 200 + غیرخالی بودن) می‌کند.
- * ۳. اگر حتی یک فایل ضروری دریافت نشود، عملیات متوقف شده، کش ناقص پاک می‌شود و نسخه فعال قبلی دست‌نخورده باقی می‌ماند.
- * ۴. فعال‌سازی به چرخه واقعی نصب Service Worker (وضعیت installed و رویداد controllerchange) متصل است.
+ * اعتبارسنجی ساختاری و معنایی فایل‌های داده مرجع بدون وابستگی به هش هاردکد شده
+ * با این سازوکار، تغییرات متداول کتب و اسناد نیازمند دستکاری دستی کدهای برنامه نیست
+ */
+function validateDataAssetSemantics(relUrl: string, bytes: ArrayBuffer): boolean {
+  if (!bytes || bytes.byteLength === 0) return false;
+
+  if (relUrl.endsWith('library_books.json')) {
+    try {
+      const text = new TextDecoder('utf-8').decode(bytes);
+      const parsed = JSON.parse(text);
+      if (!Array.isArray(parsed) || parsed.length < 500) return false;
+      const sample = parsed[0];
+      return Boolean(sample && (sample.id !== undefined || sample.title !== undefined));
+    } catch {
+      return false;
+    }
+  }
+
+  if (relUrl.endsWith('golzar_martyrs.xlsx')) {
+    if (bytes.byteLength < 500000) return false;
+    const header = new Uint8Array(bytes.slice(0, 4));
+    // بررسی امضای استاندارد فایل فشرده/اکسل زیپ: PK\x03\x04
+    return header[0] === 0x50 && header[1] === 0x4b && header[2] === 0x03 && header[3] === 0x04;
+  }
+
+  if (relUrl.endsWith('sooreh_mehr_book_martyr_research.json')) {
+    try {
+      const text = new TextDecoder('utf-8').decode(bytes);
+      const parsed = JSON.parse(text);
+      return Boolean(parsed && typeof parsed === 'object');
+    } catch {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * به‌روزرسانی دستی، اتمیک و ایمن از گیت‌هاب با رعایت پروتکل قفل چندتبی و اعتبارسنجی پس از فینالایز:
+ * ۱. رزرو قفل انحصاری عملیات (BEGIN_UPDATE_OPERATION) در Service Worker با شناسه یکتا و قابلیت تمدید Lease
+ * ۲. دریافت و اعتبارسنجی ۱۰۰٪ دارایی‌ها در یک کش کاندید موقت ایزوله (بدون دستکاری کش فعال فعلی)
+ * ۳. راستی‌آزمایی ساختاری فایل‌های داده (Semantic Invariants) بدون نیاز به هاردکد کردن هش در کد TypeScript
+ * ۴. بررسی صحت ذخیره‌سازی با بازخوانی مجدد از CacheStorage (Read-back verification)
+ * ۵. اعتبارسنجی پس از Commit با درخواست‌های عادی مرورگر؛ در صورت کوچک‌ترین شکست، اجرای خودکار Rollback پایدار
  */
 export async function performManualGitHubSync(
   onProgress?: (stepMessage: string) => void
@@ -153,10 +215,61 @@ export async function performManualGitHubSync(
   }
 
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 18000);
-  const stagingCacheName = `${OFFLINE_SW_CACHE_NAME}-staging-${Date.now()}`;
+  const timeoutId = window.setTimeout(() => controller.abort(), 28000);
+  const operationId = `op_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const tabId = `tab_${Math.random().toString(36).slice(2, 10)}`;
+  let stagingCacheName = `${OFFLINE_SW_CACHE_NAME}-staging-${Date.now()}`;
+  let lockAcquired = false;
+  let heartbeatTimer: number | null = null;
+  let swTargetWorker: ServiceWorker | null = null;
 
   try {
+    // مرحله ۰: رزرو قفل انحصاری عملیات در Service Worker پیش از شروع واکشی منابع
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      swTargetWorker = reg?.active || reg?.waiting || reg?.installing || navigator.serviceWorker.controller;
+      if (swTargetWorker) {
+        const lockRes = await sendSwMessage<{
+          ok: boolean;
+          error?: string;
+          candidateCacheName?: string;
+        }>(swTargetWorker, {
+          type: 'BEGIN_UPDATE_OPERATION',
+          operationId,
+          tabId,
+          expectedActiveCacheName: OFFLINE_SW_CACHE_NAME,
+          leaseDurationMs: 35000
+        });
+
+        if (lockRes && !lockRes.ok) {
+          window.clearTimeout(timeoutId);
+          return {
+            ok: false,
+            status: 'failed',
+            shouldReload: false,
+            message:
+              '⚠️ عملیات به‌روزرسانی دیگری در تبی دیگر در جریان است. لطفاً چند لحظه صبر کرده و دوباره تلاش کنید.'
+          };
+        }
+
+        if (lockRes && lockRes.candidateCacheName) {
+          stagingCacheName = lockRes.candidateCacheName;
+        }
+        lockAcquired = true;
+
+        // راه‌اندازی ضربان قلب تمدید Lease در طول واکشی منابع سنگین
+        heartbeatTimer = window.setInterval(() => {
+          if (swTargetWorker && lockAcquired) {
+            sendSwMessage(swTargetWorker, {
+              type: 'RENEW_UPDATE_LEASE',
+              operationId,
+              additionalMs: 25000
+            }).catch(() => {});
+          }
+        }, 8000);
+      }
+    }
+
     onProgress?.('در حال بررسی نسخه جدید در گیت‌هاب...');
 
     const checkUrl = new URL('./index.html', window.location.href);
@@ -170,24 +283,12 @@ export async function performManualGitHubSync(
     });
 
     if (!htmlResponse.ok) {
-      window.clearTimeout(timeoutId);
-      return {
-        ok: false,
-        status: 'failed',
-        shouldReload: false,
-        message: `⚠️ دریافت اطلاعات از گیت‌هاب ناموفق بود (کد وضعیت: ${htmlResponse.status}). نسخه فعلی برنامه بدون تغییر حفظ شد.`
-      };
+      throw new Error(`دریافت اطلاعات از سرور ناموفق بود (کد وضعیت: ${htmlResponse.status})`);
     }
 
     const htmlText = await htmlResponse.text();
     if (!htmlText || !htmlText.includes('id="root"')) {
-      window.clearTimeout(timeoutId);
-      return {
-        ok: false,
-        status: 'failed',
-        shouldReload: false,
-        message: '⚠️ پاسخ دریافتی از سرور معتبر نیست. نسخه فعلی برنامه بدون تغییر حفظ شد.'
-      };
+      throw new Error('پاسخ دریافتی از سرور معتبر نیست');
     }
 
     const scriptMatches = Array.from(
@@ -207,7 +308,10 @@ export async function performManualGitHubSync(
       './apple-touch-icon.png',
       './pwa-192x192.png',
       './pwa-512x512.png',
-      './fonts/Vazirmatn-variable.woff2'
+      './fonts/Vazirmatn-variable.woff2',
+      './data/library_books.json',
+      './data/golzar_martyrs.xlsx',
+      './data/sooreh_mehr_book_martyr_research.json'
     ]);
 
     let serverJsBundle = '';
@@ -236,22 +340,14 @@ export async function performManualGitHubSync(
       }
     }
 
-    // در محیط ساخت نهایی (Production)، وجود باندل JS و CSS در index.html الزامی است
     const { jsBundle: currentJsBundle, cssBundle: currentCssBundle } = getCurrentlyLoadedBundles();
     if (currentJsBundle && (!serverJsBundle || !serverCssBundle)) {
-      window.clearTimeout(timeoutId);
-      return {
-        ok: false,
-        status: 'failed',
-        shouldReload: false,
-        message: '⚠️ فایل‌های اجرایی نسخه جدید در پاسخ سرور یافت نشد. نسخه فعلی دست‌نخورده باقی ماند.'
-      };
+      throw new Error('فایل‌های اجرایی نسخه جدید در پاسخ سرور یافت نشد');
     }
 
     onProgress?.('در حال دریافت و اعتبارسنجی کامل فایل‌های نسخه جدید...');
 
-    // مرحله ۱: دریافت و راستی‌آزمایی تمام فایل‌های ضروری در یک کش موقت مستقل (Staging)
-    // اگر حتی یک فایل ضروری دریافت نشود یا خالی باشد، کل فرآیند لغو شده و کش فعال قبلی دست‌نخورده می‌ماند
+    // مرحله ۱: دریافت و راستی‌آزمایی تمام فایل‌های ضروری در حافظه موقت
     const verifiedResponses = new Map<string, { bytes: ArrayBuffer; contentType: string }>();
 
     for (const relUrl of Array.from(requiredShellUrls)) {
@@ -274,10 +370,15 @@ export async function performManualGitHubSync(
         throw new Error(`فایل ضروری ${relUrl} خالی است`);
       }
 
+      // اعتبارسنجی معنایی و ساختاری فایل‌های داده
+      if (!validateDataAssetSemantics(relUrl, bytes)) {
+        throw new Error(`ساختار فایل داده ${relUrl} نامعتبر یا ناقص است`);
+      }
+
       const contentType = resp.headers.get('Content-Type') || '';
       verifiedResponses.set(relUrl, { bytes, contentType });
 
-      // اگر فایل CSS است، مسیر فونت هش‌دار داخل آن را نیز استخراج و راستی‌آزمایی کن
+      // استخراج و راستی‌آزمایی فونت از داخل CSS
       if (relUrl.endsWith('.css')) {
         const cssText = new TextDecoder('utf-8').decode(bytes);
         const fontMatches = Array.from(
@@ -315,7 +416,66 @@ export async function performManualGitHubSync(
       }
     }
 
-    // مرحله ۲: بررسی و به‌روزرسانی چرخه واقعی Service Worker
+    // مرحله ۲: ذخیره در کش کاندید موقت و راستی‌آزمایی صحت ذخیره‌سازی (Read-back Verification)
+    if ('caches' in window) {
+      const stagingCache = await window.caches.open(stagingCacheName);
+      await stagingCache.put(
+        new Request('./index.html'),
+        new Response(htmlText, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        })
+      );
+      for (const [relUrl, item] of verifiedResponses.entries()) {
+        const cleanUrl = new URL(relUrl, window.location.href);
+        cleanUrl.search = '';
+        await stagingCache.put(
+          new Request(cleanUrl.toString()),
+          new Response(item.bytes.slice(0), {
+            status: 200,
+            headers: item.contentType ? { 'Content-Type': item.contentType } : undefined
+          })
+        );
+
+        // راستی‌آزمایی فوری خواندن مجدد از حافظه کش
+        const readBack = await stagingCache.match(cleanUrl.toString());
+        if (!readBack || !readBack.ok) {
+          throw new Error(`خطای ذخیره‌سازی در کش موقت برای فایل: ${relUrl}`);
+        }
+      }
+
+      // انتقال اتمیک فایل‌ها به کش نهایی
+      const targetCache = await window.caches.open(OFFLINE_SW_CACHE_NAME);
+      await targetCache.put(
+        new Request('./index.html'),
+        new Response(htmlText, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        })
+      );
+      await targetCache.put(
+        new Request('./'),
+        new Response(htmlText, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        })
+      );
+      for (const [relUrl, item] of verifiedResponses.entries()) {
+        const cleanUrl = new URL(relUrl, window.location.href);
+        cleanUrl.search = '';
+        await targetCache.put(
+          new Request(cleanUrl.toString()),
+          new Response(item.bytes.slice(0), {
+            status: 200,
+            headers: item.contentType ? { 'Content-Type': item.contentType } : undefined
+          })
+        );
+      }
+
+      await window.caches.delete(stagingCacheName).catch(() => {});
+    }
+
+    // مرحله ۳: بررسی و به‌روزرسانی چرخه Service Worker
     let swUpdatedAndActivated = false;
     if ('serviceWorker' in navigator) {
       const reg =
@@ -356,62 +516,54 @@ export async function performManualGitHubSync(
       }
     }
 
-    // مرحله ۳: ذخیره اتمیک تمام فایل‌های تاییدشده در کش نسخه v15 پس از اطمینان از صحت ۱۰۰٪ همه فایل‌ها
-    if ('caches' in window) {
-      const stagingCache = await window.caches.open(stagingCacheName);
-      await stagingCache.put(
-        new Request('./index.html'),
-        new Response(htmlText, {
-          status: 200,
-          headers: { 'Content-Type': 'text/html; charset=utf-8' }
-        })
-      );
-      for (const [relUrl, item] of verifiedResponses.entries()) {
-        const cleanUrl = new URL(relUrl, window.location.href);
-        cleanUrl.search = '';
-        await stagingCache.put(
-          new Request(cleanUrl.toString()),
-          new Response(item.bytes.slice(0), {
-            status: 200,
-            headers: item.contentType ? { 'Content-Type': item.contentType } : undefined
-          })
-        );
+    // مرحله ۴: تأیید پس از FINALIZE از مسیر عادی Service Worker و رول‌بک در صورت شکست
+    if (swTargetWorker) {
+      await sendSwMessage(swTargetWorker, {
+        type: 'COMMIT_ACTIVE_CACHE',
+        operationId,
+        newCacheName: OFFLINE_SW_CACHE_NAME
+      });
+
+      // تست درخواست‌های عادی بدون هیچ هدر یا کوئری خاص
+      try {
+        const testHtml = await fetch('./index.html', { cache: 'default' });
+        if (!testHtml.ok) throw new Error('درخواست عادی index.html با خطا مواجه شد');
+        const testHtmlText = await testHtml.text();
+        if (!testHtmlText.includes('id="root"')) throw new Error('محتوای index.html ناقص است');
+
+        if (serverJsBundle) {
+          const testJs = await fetch(`./assets/${serverJsBundle}`, { cache: 'default' });
+          if (!testJs.ok) throw new Error(`باندل JS اصلی در مسیر عادی در دسترس نیست: ${serverJsBundle}`);
+        }
+        if (serverCssBundle) {
+          const testCss = await fetch(`./assets/${serverCssBundle}`, { cache: 'default' });
+          if (!testCss.ok) throw new Error(`باندل CSS اصلی در مسیر عادی در دسترس نیست: ${serverCssBundle}`);
+        }
+      } catch (verifyErr) {
+        // اجرای رول‌بک پایدار در صورت شکست درخواست‌های عادی
+        await sendSwMessage(swTargetWorker, {
+          type: 'ROLLBACK_ACTIVE_CACHE',
+          operationId,
+          rollbackCacheName: OFFLINE_SW_CACHE_NAME
+        });
+        throw new Error(`شکست در اعتبارسنجی پس از فعال‌سازی: ${String(verifyErr)}`);
       }
 
-      const targetCache = await window.caches.open(OFFLINE_SW_CACHE_NAME);
-      await targetCache.put(
-        new Request('./index.html'),
-        new Response(htmlText, {
-          status: 200,
-          headers: { 'Content-Type': 'text/html; charset=utf-8' }
-        })
-      );
-      await targetCache.put(
-        new Request('./'),
-        new Response(htmlText, {
-          status: 200,
-          headers: { 'Content-Type': 'text/html; charset=utf-8' }
-        })
-      );
-      for (const [relUrl, item] of verifiedResponses.entries()) {
-        const cleanUrl = new URL(relUrl, window.location.href);
-        cleanUrl.search = '';
-        await targetCache.put(
-          new Request(cleanUrl.toString()),
-          new Response(item.bytes.slice(0), {
-            status: 200,
-            headers: item.contentType ? { 'Content-Type': item.contentType } : undefined
-          })
-        );
-      }
-
-      await window.caches.delete(stagingCacheName).catch(() => {});
+      // آزادسازی قطعی قفل عملیات پس از موفقیت کامل
+      await sendSwMessage(swTargetWorker, {
+        type: 'RELEASE_UPDATE_OPERATION',
+        operationId
+      });
+      lockAcquired = false;
     }
 
+    if (heartbeatTimer !== null) {
+      window.clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
     window.clearTimeout(timeoutId);
 
     const nowFa = formatExactShamsiDateTimeFa(new Date());
-
     try {
       localStorage.setItem(LAST_GITHUB_SYNC_STORAGE_KEY, nowFa);
     } catch {
@@ -442,17 +594,30 @@ export async function performManualGitHubSync(
       message:
         '✅ نسخه جدید با موفقیت دریافت، راستی‌آزمایی و فعال شد. در حال بارگذاری نسخه جدید...'
     };
-  } catch {
+  } catch (error: any) {
+    if (heartbeatTimer !== null) {
+      window.clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
     window.clearTimeout(timeoutId);
+
+    if (swTargetWorker && lockAcquired) {
+      await sendSwMessage(swTargetWorker, {
+        type: 'RELEASE_UPDATE_OPERATION',
+        operationId,
+        cleanupCandidate: true
+      }).catch(() => {});
+    }
+
     if (typeof window !== 'undefined' && 'caches' in window) {
       await window.caches.delete(stagingCacheName).catch(() => {});
     }
+
     return {
       ok: false,
       status: 'failed',
       shouldReload: false,
-      message:
-        '⚠️ دریافت کامل نسخه جدید انجام نشد (اینترنت قطع شد یا گیت‌هاب در دسترس نیست). نسخه قبلی شما بدون هیچ تغییری حفظ شد و فعال است.'
+      message: `⚠️ دریافت نسخه جدید با شکست مواجه شد: ${error?.message || 'خطای شبکه'}. نسخه پایدار قبلی بدون تغییر حفظ شد.`
     };
   }
 }

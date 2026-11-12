@@ -5,6 +5,25 @@ const CACHE_PREFIX = 'markaz-asnad-main-book-';
 const LEGACY_CACHE_PREFIX = 'markaz-asnad-pwa-';
 const CACHE_NAME = `${CACHE_PREFIX}v15`;
 
+// کش کنترلی و پایدار اختصاصی جهت ذخیره قفل عملیات و پیوند هویت تب‌ها در برابر Restart شدن Worker
+const CONTROL_CACHE_NAME = 'markaz-asnad-sw-control-v1';
+const LOCK_STORAGE_KEY = 'https://markaz-asnad.internal/__sw_operation_lock.json';
+const ACTIVE_VERSION_STORAGE_KEY = 'https://markaz-asnad.internal/__sw_active_version.json';
+
+// پیوند هویت هر تب (clientId) به نسخه اختصاصی آن جهت تضمین ایزولاسیون کامل در حالت Multi-Tab
+const tabAffinityMap = new Map();
+
+// صف ترتیبی اجرای پیام‌های قفل در Worker جهت رفع محدودیت عدم اتمیک بودن CacheStorage
+let lockMutexQueue = Promise.resolve();
+function withLockMutex(fn) {
+  const next = lockMutexQueue.then(fn, fn);
+  lockMutexQueue = next.then(
+    () => {},
+    () => {}
+  );
+  return next;
+}
+
 const PRECACHE_ASSETS = [
   './',
   './index.html',
@@ -19,6 +38,73 @@ const PRECACHE_ASSETS = [
   './data/golzar_martyrs.xlsx',
   './data/sooreh_mehr_book_martyr_research.json'
 ];
+
+async function getPersistedLock() {
+  try {
+    const cache = await caches.open(CONTROL_CACHE_NAME);
+    const resp = await cache.match(LOCK_STORAGE_KEY);
+    if (!resp || !resp.ok) return null;
+    const data = await resp.json();
+    if (!data || typeof data !== 'object') return null;
+    if (Date.now() > data.expiresAt) {
+      await cache.delete(LOCK_STORAGE_KEY).catch(() => {});
+      if (data.candidateCacheName) {
+        await caches.delete(data.candidateCacheName).catch(() => {});
+      }
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+async function savePersistedLock(lockData) {
+  try {
+    const cache = await caches.open(CONTROL_CACHE_NAME);
+    await cache.put(
+      new Request(LOCK_STORAGE_KEY),
+      new Response(JSON.stringify(lockData), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' }
+      })
+    );
+  } catch {}
+}
+
+async function clearPersistedLock() {
+  try {
+    const cache = await caches.open(CONTROL_CACHE_NAME);
+    await cache.delete(LOCK_STORAGE_KEY).catch(() => {});
+  } catch {}
+}
+
+async function getActiveWorkingCacheName() {
+  try {
+    const cache = await caches.open(CONTROL_CACHE_NAME);
+    const resp = await cache.match(ACTIVE_VERSION_STORAGE_KEY);
+    if (resp && resp.ok) {
+      const data = await resp.json();
+      if (data && data.activeCacheName) {
+        return data.activeCacheName;
+      }
+    }
+  } catch {}
+  return CACHE_NAME;
+}
+
+async function setActiveWorkingCacheName(newName) {
+  try {
+    const cache = await caches.open(CONTROL_CACHE_NAME);
+    await cache.put(
+      new Request(ACTIVE_VERSION_STORAGE_KEY),
+      new Response(JSON.stringify({ activeCacheName: newName, updatedAt: Date.now() }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' }
+      })
+    );
+  } catch {}
+}
 
 function normalizeRelativeAssetUrl(rawUrl) {
   if (!rawUrl) return null;
@@ -119,29 +205,210 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
+  const data = event.data;
+  if (!data || typeof data !== 'object') return;
+
+  if (data.type === 'SKIP_WAITING') {
     self.skipWaiting();
+    return;
+  }
+
+  // پروتکل مدیریت انحصاری قفل و لایف‌سایکل کش چندتبی
+  if (data.type === 'BEGIN_UPDATE_OPERATION') {
+    event.waitUntil(
+      withLockMutex(async () => {
+        const port = event.ports && event.ports[0];
+        try {
+          const currentLock = await getPersistedLock();
+          if (currentLock && currentLock.operationId !== data.operationId) {
+            if (port) {
+              port.postMessage({
+                ok: false,
+                error: 'UPDATE_IN_PROGRESS',
+                holderTabId: currentLock.holderTabId,
+                remainingMs: Math.max(0, currentLock.expiresAt - Date.now())
+              });
+            }
+            return;
+          }
+
+          const currentActive = await getActiveWorkingCacheName();
+          if (data.expectedActiveCacheName && data.expectedActiveCacheName !== currentActive) {
+            if (port) {
+              port.postMessage({
+                ok: false,
+                error: 'VERSION_MISMATCH',
+                currentActive
+              });
+            }
+            return;
+          }
+
+          const leaseMs = Number(data.leaseDurationMs) || 25000;
+          const candidateCacheName = `${CACHE_PREFIX}candidate-${data.operationId}`;
+          const newLock = {
+            operationId: data.operationId,
+            holderTabId: data.tabId || 'unknown-client',
+            candidateCacheName,
+            expectedActiveCacheName: currentActive,
+            epoch: (currentLock ? currentLock.epoch + 1 : 1),
+            acquiredAt: Date.now(),
+            expiresAt: Date.now() + leaseMs,
+            leaseDurationMs: leaseMs
+          };
+
+          await savePersistedLock(newLock);
+
+          if (port) {
+            port.postMessage({
+              ok: true,
+              operationId: data.operationId,
+              candidateCacheName
+            });
+          }
+        } catch (err) {
+          if (port) port.postMessage({ ok: false, error: String(err) });
+        }
+      })
+    );
+    return;
+  }
+
+  if (data.type === 'RENEW_UPDATE_LEASE') {
+    event.waitUntil(
+      withLockMutex(async () => {
+        const port = event.ports && event.ports[0];
+        try {
+          const currentLock = await getPersistedLock();
+          if (!currentLock || currentLock.operationId !== data.operationId) {
+            if (port) port.postMessage({ ok: false, error: 'LOCK_NOT_FOUND' });
+            return;
+          }
+          const addMs = Number(data.additionalMs) || 20000;
+          currentLock.expiresAt = Date.now() + addMs;
+          currentLock.epoch += 1;
+          await savePersistedLock(currentLock);
+          if (port) port.postMessage({ ok: true, expiresAt: currentLock.expiresAt });
+        } catch (err) {
+          if (port) port.postMessage({ ok: false, error: String(err) });
+        }
+      })
+    );
+    return;
+  }
+
+  if (data.type === 'RELEASE_UPDATE_OPERATION') {
+    event.waitUntil(
+      withLockMutex(async () => {
+        const port = event.ports && event.ports[0];
+        try {
+          const currentLock = await getPersistedLock();
+          if (currentLock && currentLock.operationId === data.operationId) {
+            await clearPersistedLock();
+            if (data.cleanupCandidate && currentLock.candidateCacheName) {
+              await caches.delete(currentLock.candidateCacheName).catch(() => {});
+            }
+          }
+          if (port) port.postMessage({ ok: true });
+        } catch (err) {
+          if (port) port.postMessage({ ok: false, error: String(err) });
+        }
+      })
+    );
+    return;
+  }
+
+  if (data.type === 'COMMIT_ACTIVE_CACHE') {
+    event.waitUntil(
+      withLockMutex(async () => {
+        const port = event.ports && event.ports[0];
+        try {
+          const newCache = data.newCacheName || CACHE_NAME;
+          await setActiveWorkingCacheName(newCache);
+          await clearPersistedLock();
+          if (port) port.postMessage({ ok: true, activeCacheName: newCache });
+        } catch (err) {
+          if (port) port.postMessage({ ok: false, error: String(err) });
+        }
+      })
+    );
+    return;
+  }
+
+  if (data.type === 'ROLLBACK_ACTIVE_CACHE') {
+    event.waitUntil(
+      withLockMutex(async () => {
+        const port = event.ports && event.ports[0];
+        try {
+          const rollbackCache = data.rollbackCacheName || CACHE_NAME;
+          await setActiveWorkingCacheName(rollbackCache);
+          await clearPersistedLock();
+          if (port) port.postMessage({ ok: true, activeCacheName: rollbackCache });
+        } catch (err) {
+          if (port) port.postMessage({ ok: false, error: String(err) });
+        }
+      })
+    );
+    return;
+  }
+
+  if (data.type === 'GET_SW_STATUS') {
+    event.waitUntil(
+      (async () => {
+        const port = event.ports && event.ports[0];
+        try {
+          const activeWorking = await getActiveWorkingCacheName();
+          const lock = await getPersistedLock();
+          if (port) {
+            port.postMessage({
+              ok: true,
+              activeCacheName: activeWorking,
+              lockActive: Boolean(lock),
+              lockHolder: lock ? lock.holderTabId : null
+            });
+          }
+        } catch (err) {
+          if (port) port.postMessage({ ok: false, error: String(err) });
+        }
+      })()
+    );
+    return;
   }
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(
-          keys.map((key) => {
-            if (
-              (key.startsWith(CACHE_PREFIX) || key.startsWith(LEGACY_CACHE_PREFIX)) &&
-              key !== CACHE_NAME
-            ) {
-              return caches.delete(key);
-            }
-            return Promise.resolve(false);
-          })
-        )
-      )
-      .then(() => self.clients.claim())
+    (async () => {
+      const activeWorking = await getActiveWorkingCacheName();
+      const allKeys = await caches.keys();
+      const activeClients = await self.clients.matchAll({ type: 'window' });
+
+      // پین کردن کش‌های در حال استفاده توسط تب‌های فعال
+      const inUseCaches = new Set();
+      inUseCaches.add(activeWorking);
+      inUseCaches.add(CACHE_NAME);
+      inUseCaches.add(CONTROL_CACHE_NAME);
+
+      for (const client of activeClients) {
+        const bound = tabAffinityMap.get(client.id);
+        if (bound) inUseCaches.add(bound);
+      }
+
+      // حذف ایمن فقط کش‌های غیرفعال و بدون کلاینت متصل
+      await Promise.all(
+        allKeys.map((key) => {
+          if (
+            (key.startsWith(CACHE_PREFIX) || key.startsWith(LEGACY_CACHE_PREFIX)) &&
+            !inUseCaches.has(key)
+          ) {
+            return caches.delete(key);
+          }
+          return Promise.resolve(false);
+        })
+      );
+
+      await self.clients.claim();
+    })()
   );
 });
 
@@ -174,14 +441,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // تفکیک شناسه کلاینت: در درخواست‌های Navigation مقدار resultingClientId معتبر است
+  const clientId = event.resultingClientId || event.clientId;
+
   const isHtmlNavigation =
     event.request.mode === 'navigate' ||
     (event.request.headers.get('accept') || '').includes('text/html');
 
-  // ۱. پاسخ‌دهی به درخواست صفحه اصلی (HTML) منحصراً از کش اختصاصی نسخه فعال (CACHE_NAME)
+  // ۱. پاسخ‌دهی به درخواست صفحه اصلی (HTML) با رعایت پیوند نسخه هر تب
   if (isHtmlNavigation) {
     event.respondWith(
-      caches.open(CACHE_NAME).then(async (activeCache) => {
+      (async () => {
+        const currentActive = await getActiveWorkingCacheName();
+        // اتصال هویت این تب جدید یا بارگذاری‌شده به نسخه فعال جاری
+        if (clientId) {
+          tabAffinityMap.set(clientId, currentActive);
+        }
+        const activeCache = await caches.open(currentActive);
         const cachedHtml =
           (await activeCache.match('./index.html', { ignoreSearch: true })) ||
           (await activeCache.match(event.request, { ignoreSearch: true }));
@@ -194,25 +470,28 @@ self.addEventListener('fetch', (event) => {
           await activeCache.put('./index.html', networkResp.clone()).catch(() => {});
         }
         return networkResp;
-      })
+      })()
     );
     return;
   }
 
   // ۲. پاسخ‌دهی به فایل‌های برنامه (JS، CSS، فونت، تصاویر و داده‌های مرجع /data/)
-  // منحصراً از کش اختصاصی نسخه فعال (CACHE_NAME) بدون جست‌وجوی سراسری در کش‌های قدیمی
+  // منحصراً از کش نسخه اختصاصی و پیوندخورده به تب درخواست‌دهنده (Multi-Tab Version Pinning)
   event.respondWith(
-    caches.open(CACHE_NAME).then(async (activeCache) => {
-      const cachedResp = await activeCache.match(event.request, { ignoreSearch: true });
+    (async () => {
+      const currentActive = await getActiveWorkingCacheName();
+      const boundCacheName = (clientId && tabAffinityMap.get(clientId)) || currentActive;
+      const targetCache = await caches.open(boundCacheName);
+      const cachedResp = await targetCache.match(event.request, { ignoreSearch: true });
       if (cachedResp) {
         return cachedResp;
       }
 
       const netResp = await fetch(event.request);
       if (netResp && netResp.status === 200) {
-        await activeCache.put(event.request, netResp.clone()).catch(() => {});
+        await targetCache.put(event.request, netResp.clone()).catch(() => {});
       }
       return netResp;
-    })
+    })()
   );
 });

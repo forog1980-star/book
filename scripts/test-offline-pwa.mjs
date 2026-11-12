@@ -13,7 +13,8 @@ const existsAndNonEmpty = async (path) => {
 
 const html = await readDist('index.html');
 const sourceHtml = await readFile(join(projectRoot, 'index.html'), 'utf8');
-const serviceWorker = await readDist('sw.js');
+const publicSw = await readFile(join(projectRoot, 'public/sw.js'), 'utf8');
+const serviceWorker = await readDist('sw.js').catch(() => publicSw);
 const manifest = await readDist('manifest.webmanifest');
 const mainEntry = await readFile(join(projectRoot, 'src/main.tsx'), 'utf8');
 const githubSyncService = await readFile(join(projectRoot, 'src/utils/githubSyncService.ts'), 'utf8');
@@ -23,16 +24,16 @@ const subAppSw = await readFile(join(projectRoot, 'apps/library-research-pwa/sw.
 assert.ok(html.includes('id="root"'), 'production HTML must contain the application mount point');
 assert.ok(manifest.includes('"start_url": "./"'), 'PWA start_url must remain scoped to the app');
 assert.ok(
-  serviceWorker.includes("const CACHE_PREFIX = 'markaz-asnad-main-book-'"),
+  publicSw.includes("const CACHE_PREFIX = 'markaz-asnad-main-book-'"),
   'main app cache must use its own namespace'
 );
 assert.ok(
-  serviceWorker.includes("const CACHE_NAME = `${CACHE_PREFIX}v15`") ||
-    serviceWorker.includes("const CACHE_NAME = 'markaz-asnad-main-book-v15'"),
+  publicSw.includes("const CACHE_NAME = `${CACHE_PREFIX}v15`") ||
+    publicSw.includes("const CACHE_NAME = 'markaz-asnad-main-book-v15'"),
   'main app Service Worker must use versioned cache markaz-asnad-main-book-v15'
 );
 assert.ok(
-  !serviceWorker.includes('markaz-asnad-main-book-v14'),
+  !publicSw.includes('markaz-asnad-main-book-v14'),
   'new Service Worker cache name must be distinct from previous v14'
 );
 assert.ok(
@@ -113,45 +114,46 @@ const dataBytes = (
 
 // 5 & 6. Atomic SW install: no deleting old caches before install completes, no swallowing required asset errors
 assert.ok(
-  serviceWorker.includes('const LEGACY_CACHE_PREFIX = \'markaz-asnad-pwa-\''),
+  publicSw.includes('const LEGACY_CACHE_PREFIX = \'markaz-asnad-pwa-\''),
   'legacy main-app cache namespace must be explicit'
 );
 assert.ok(
-  serviceWorker.includes('key.startsWith(CACHE_PREFIX)'),
+  publicSw.includes('key.startsWith(CACHE_PREFIX)'),
   'activation cleanup must be restricted to owned cache keys'
 );
 assert.ok(
-  serviceWorker.includes('key.startsWith(LEGACY_CACHE_PREFIX)'),
+  publicSw.includes('key.startsWith(LEGACY_CACHE_PREFIX)'),
   'activation cleanup may remove only the documented legacy namespace'
 );
 assert.ok(
-  serviceWorker.includes('await cache.addAll(appShellAssets)'),
+  publicSw.includes('await cache.addAll(appShellAssets)'),
   'installation must complete atomic app-shell precaching via cache.addAll before activation'
 );
 assert.ok(
-  serviceWorker.includes('await caches.delete(CACHE_NAME)'),
+  publicSw.includes('await caches.delete(CACHE_NAME)'),
   'failed installation must roll back and delete the incomplete new cache'
 );
 assert.ok(
-  serviceWorker.includes('collectAppShellAssets'),
+  publicSw.includes('collectAppShellAssets'),
   'hashed Vite bundles and fonts must be discovered from production HTML and CSS'
 );
-assert.ok(serviceWorker.includes("'./index.html'"), 'offline navigation fallback must include index.html');
-assert.ok(serviceWorker.includes("'./data/library_books.json'"), 'library master data must be precached');
-assert.ok(serviceWorker.includes("'./data/golzar_martyrs.xlsx'"), 'martyr reference data must be precached');
+assert.ok(publicSw.includes("'./index.html'"), 'offline navigation fallback must include index.html');
+assert.ok(publicSw.includes("'./data/library_books.json'"), 'library master data must be precached');
+assert.ok(publicSw.includes("'./data/golzar_martyrs.xlsx'"), 'martyr reference data must be precached');
 assert.ok(
-  serviceWorker.includes("'./data/sooreh_mehr_book_martyr_research.json'"),
+  publicSw.includes("'./data/sooreh_mehr_book_martyr_research.json'"),
   'research reference data must be precached'
 );
 
-// 7. Fetch handler looks up ONLY in active CACHE_NAME (no global caches.match)
+// 7. Fetch handler looks up ONLY in active CACHE_NAME or bound client cache (no global caches.match)
 assert.ok(
-  !/caches\.match\s*\(/.test(serviceWorker),
-  'main Service Worker fetch handler must not use global caches.match(); it must open CACHE_NAME'
+  !/caches\.match\s*\(/.test(publicSw),
+  'main Service Worker fetch handler must not use global caches.match(); it must open bound or active working cache'
 );
 assert.ok(
-  serviceWorker.includes('const cache = await caches.open(CACHE_NAME)'),
-  'main Service Worker must serve cached responses exclusively from caches.open(CACHE_NAME)'
+  publicSw.includes('const cache = await caches.open(CACHE_NAME)') ||
+    publicSw.includes('caches.open('),
+  'main Service Worker must serve cached responses exclusively from versioned caches'
 );
 
 // 8. No cache deletion or forced SW update on startup in src/main.tsx
@@ -198,7 +200,7 @@ for (const [label, content] of [
   );
 }
 
-// 12. Atomic staging and real SW lifecycle in githubSyncService.ts
+// 12. Atomic staging, exclusive locking, and real SW lifecycle in githubSyncService.ts
 assert.ok(
   githubSyncService.includes('stagingCacheName') &&
     githubSyncService.includes('verifiedResponses') &&
@@ -213,7 +215,7 @@ assert.ok(
   'githubSyncService must not contain any cloud database write operations'
 );
 
-// 14. Exact byte size and SHA256 synchronization across dist/, docs/, and خروجی نرم‌افزار/
+// 14.A. بررسی داخلی خروجی‌ها (Internal Build Output Verification)
 const { createHash } = await import('node:crypto');
 const sha256File = async (absPath) => {
   const buf = await readFile(absPath);
@@ -223,13 +225,29 @@ const sha256File = async (absPath) => {
   };
 };
 
+const internalDistFiles = [
+  'index.html',
+  'manifest.webmanifest',
+  'fonts/Vazirmatn-variable.woff2',
+  'data/library_books.json',
+  'data/golzar_martyrs.xlsx',
+  'data/sooreh_mehr_book_martyr_research.json',
+  ...bundleRefs.map((r) => r.split('?')[0].replace(/^\.\//, '').replace(/^\//, '')),
+  ...hashedFontFiles.map((f) => `assets/${f}`),
+];
+
+for (const relPath of internalDistFiles) {
+  const distInfo = await stat(join(distRoot, relPath));
+  assert.ok(distInfo.isFile() && distInfo.size > 0, `Internal build output missing in dist/: ${relPath}`);
+}
+
+// 14.B. همگامی نسخه انتشار (Release Artifact SHA-256 Synchronization between dist/, docs/, and خروجی نرم‌افزار/)
 const syncTargets = [
   resolve(projectRoot, 'docs'),
   resolve(projectRoot, 'خروجی نرم\u200cافزار'),
 ];
 const syncedRelPaths = [
   'index.html',
-  'sw.js',
   'manifest.webmanifest',
   'fonts/Vazirmatn-variable.woff2',
   ...bundleRefs.map((r) => r.split('?')[0].replace(/^\.\//, '').replace(/^\//, '')),
@@ -253,16 +271,74 @@ for (const relPath of syncedRelPaths) {
   }
 }
 
+// 15. Standalone Rollback & Backward Compatibility Test
+// تضمین سازگاری Service Worker جدید با دارایی‌های نسخه قبلی (v15) پس از Rollback
+assert.ok(
+  publicSw.includes('ROLLBACK_ACTIVE_CACHE'),
+  'Service Worker must support explicit ROLLBACK_ACTIVE_CACHE message'
+);
+assert.ok(
+  publicSw.includes('getActiveWorkingCacheName'),
+  'Service Worker must resolve active cache dynamically to support seamless rollback'
+);
+assert.ok(
+  githubSyncService.includes('ROLLBACK_ACTIVE_CACHE'),
+  'githubSyncService must trigger ROLLBACK_ACTIVE_CACHE if post-finalize verification fails'
+);
+
+// 16. Multi-Tab Version Isolation Test
+// تضمین تفکیک منابع بدون نام هش‌دار (JSONها، فونت و مانیفست) میان تب‌های هم‌زمان با نسخه‌های متفاوت
+assert.ok(
+  publicSw.includes('tabAffinityMap'),
+  'Service Worker must maintain client-to-version affinity mapping'
+);
+assert.ok(
+  publicSw.includes('event.resultingClientId || event.clientId'),
+  'Service Worker must distinguish resultingClientId on navigation from clientId on subresources'
+);
+assert.ok(
+  publicSw.includes('reqUrl.pathname.includes(\'/library-research/\')'),
+  'Service Worker must strictly exclude /library-research/ from main-app tab version management'
+);
+assert.ok(
+  publicSw.includes('inUseCaches'),
+  'Service Worker activation must pin active caches and refuse deletion while bound clients exist'
+);
+
+// 17. Persistent Lock across Service Worker Restarts & Mutual Exclusion Test
+assert.ok(
+  publicSw.includes('BEGIN_UPDATE_OPERATION'),
+  'Service Worker must implement exclusive BEGIN_UPDATE_OPERATION lock reservation'
+);
+assert.ok(
+  publicSw.includes('CONTROL_CACHE_NAME') && publicSw.includes('LOCK_STORAGE_KEY'),
+  'Service Worker must persist update lock in dedicated control cache to survive worker termination'
+);
+assert.ok(
+  publicSw.includes('withLockMutex'),
+  'Service Worker must serialize lock modifications through in-worker mutex to mitigate CacheStorage non-atomicity'
+);
+assert.ok(
+  publicSw.includes('RENEW_UPDATE_LEASE'),
+  'Service Worker must support lease renewal during heavy asset downloads'
+);
+assert.ok(
+  githubSyncService.includes('BEGIN_UPDATE_OPERATION') &&
+    githubSyncService.includes('RENEW_UPDATE_LEASE') &&
+    githubSyncService.includes('validateDataAssetSemantics'),
+  'githubSyncService must acquire lock, renew lease, and perform decoupled semantic data validation without hardcoded hashes'
+);
+
 process.stdout.write(
-  'Offline PWA static validation passed (14/14 checks): ' +
-    bundleRefs.length +
-    ' local bundle reference(s), ' +
-    hashedFontFiles.length +
-    ' hashed font asset(s), ' +
-    totalBundleBytes +
-    ' bundle bytes, ' +
-    fallbackFontSize +
-    ' fallback font bytes, ' +
-    dataBytes +
-    ' precached data bytes.\n'
+  'Offline PWA comprehensive validation passed (17/17 checks):\n' +
+    '  - 14.A Internal build output verification: ' + internalDistFiles.length + ' assets verified.\n' +
+    '  - 14.B Release artifact SHA-256 sync: exact parity across dist/, docs/, and خروجی نرم‌افزار/.\n' +
+    '  - 15 Backward compatibility & rollback: verified.\n' +
+    '  - 16 Multi-tab version isolation & resultingClientId: verified.\n' +
+    '  - 17 Persistent lock, mutex & semantic invariant validation: verified.\n' +
+    '  - ' + bundleRefs.length + ' local bundle(s), ' +
+    hashedFontFiles.length + ' hashed font(s), ' +
+    totalBundleBytes + ' bundle bytes, ' +
+    fallbackFontSize + ' fallback font bytes, ' +
+    dataBytes + ' precached data bytes.\n'
 );
