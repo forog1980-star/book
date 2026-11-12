@@ -2,29 +2,11 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
-const ACTIVE_SW_CACHE = 'markaz-asnad-main-book-v12';
-
-// پاک‌سازی فوری کش‌های قدیمی سرویس‌ورکر در لحظه بارگذاری اولیه در گوشی و سیستم
-if (typeof window !== 'undefined' && 'caches' in window) {
-  window.caches
-    .keys()
-    .then((keys) => {
-      keys.forEach((key) => {
-        if (
-          (key.startsWith('markaz-asnad-main-book-') || key.startsWith('markaz-asnad-pwa-')) &&
-          key !== ACTIVE_SW_CACHE
-        ) {
-          window.caches.delete(key).catch(() => {});
-        }
-      });
-    })
-    .catch(() => {});
-}
-
+// Service Worker نسخه ۱۴؛ چرخهٔ کش فقط در محدودهٔ خود Service Worker مدیریت می‌شود.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('./sw.js?v=12', { updateViaCache: 'none' })
+      .register('./sw.js?v=14', { updateViaCache: 'none' })
       .then((reg) => {
         reg.update().catch(() => {});
         if (reg.waiting) {
@@ -41,7 +23,7 @@ if ('serviceWorker' in navigator) {
         });
       })
       .catch(() => {
-        // Service worker registration optional in dev iframe
+        // Service worker registration is optional in development/embedded previews.
       });
   });
 }
