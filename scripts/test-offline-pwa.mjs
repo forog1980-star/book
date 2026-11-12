@@ -213,8 +213,48 @@ assert.ok(
   'githubSyncService must not contain any cloud database write operations'
 );
 
+// 14. Exact byte size and SHA256 synchronization across dist/, docs/, and خروجی نرم‌افزار/
+const { createHash } = await import('node:crypto');
+const sha256File = async (absPath) => {
+  const buf = await readFile(absPath);
+  return {
+    size: buf.length,
+    sha256: createHash('sha256').update(buf).digest('hex'),
+  };
+};
+
+const syncTargets = [
+  resolve(projectRoot, 'docs'),
+  resolve(projectRoot, 'خروجی نرم\u200cافزار'),
+];
+const syncedRelPaths = [
+  'index.html',
+  'sw.js',
+  'manifest.webmanifest',
+  'fonts/Vazirmatn-variable.woff2',
+  ...bundleRefs.map((r) => r.split('?')[0].replace(/^\.\//, '').replace(/^\//, '')),
+  ...hashedFontFiles.map((f) => `assets/${f}`),
+];
+
+for (const relPath of syncedRelPaths) {
+  const distMeta = await sha256File(join(distRoot, relPath));
+  for (const targetDir of syncTargets) {
+    const targetMeta = await sha256File(join(targetDir, relPath));
+    assert.equal(
+      targetMeta.size,
+      distMeta.size,
+      `Byte size mismatch for ${relPath} between dist/ and ${targetDir}`
+    );
+    assert.equal(
+      targetMeta.sha256,
+      distMeta.sha256,
+      `SHA256 mismatch for ${relPath} between dist/ and ${targetDir}`
+    );
+  }
+}
+
 process.stdout.write(
-  'Offline PWA static validation passed (13/13 checks): ' +
+  'Offline PWA static validation passed (14/14 checks): ' +
     bundleRefs.length +
     ' local bundle reference(s), ' +
     hashedFontFiles.length +

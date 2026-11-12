@@ -172,6 +172,9 @@ export async function performManualGitHubSync(
     const scriptMatches = Array.from(
       htmlText.matchAll(/src=["']([^"']*\/assets\/[^"']+\.m?js)["']/gi)
     );
+    const preloadAndFontMatches = Array.from(
+      htmlText.matchAll(/href=["']([^"']*\/assets\/[^"']+\.(?:m?js|woff2))["']/gi)
+    );
     const styleMatches = Array.from(
       htmlText.matchAll(/href=["']([^"']*\/assets\/[^"']+\.css)["']/gi)
     );
@@ -181,6 +184,8 @@ export async function performManualGitHubSync(
       './golzar-logo.png',
       './icon.svg',
       './apple-touch-icon.png',
+      './pwa-192x192.png',
+      './pwa-512x512.png',
       './fonts/Vazirmatn-variable.woff2'
     ]);
 
@@ -192,6 +197,13 @@ export async function performManualGitHubSync(
       if (norm) {
         requiredShellUrls.add(norm);
         serverJsBundle = norm.split('/').pop() || '';
+      }
+    }
+
+    for (const m of preloadAndFontMatches) {
+      const norm = normalizeRelativeUrl(m[1]);
+      if (norm) {
+        requiredShellUrls.add(norm);
       }
     }
 
