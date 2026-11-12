@@ -165,9 +165,26 @@ function validateDataAssetSemantics(relUrl: string, bytes: ArrayBuffer): boolean
     try {
       const text = new TextDecoder('utf-8').decode(bytes);
       const parsed = JSON.parse(text);
-      if (!Array.isArray(parsed) || parsed.length < 500) return false;
-      const sample = parsed[0];
-      return Boolean(sample && (sample.id !== undefined || sample.title !== undefined));
+      // پشتیبانی از هر دو فرمت استاندارد کارپوشه چندشیت مرکز اسناد و فرمت آرایه تخت کتب
+      if (parsed && typeof parsed === 'object') {
+        if (
+          parsed.format === 'markaz-asnad-library-workbook-json' &&
+          Array.isArray(parsed.sheets) &&
+          parsed.sheets.length >= 3
+        ) {
+          return true;
+        }
+        if (Array.isArray(parsed.sheets) && parsed.sheets.length > 0) {
+          return true;
+        }
+        if (Array.isArray(parsed.books) && parsed.books.length > 0) {
+          return true;
+        }
+      }
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return true;
+      }
+      return false;
     } catch {
       return false;
     }
@@ -188,6 +205,12 @@ function validateDataAssetSemantics(relUrl: string, bytes: ArrayBuffer): boolean
     } catch {
       return false;
     }
+  }
+
+  if (relUrl.endsWith('.xlsx')) {
+    if (bytes.byteLength < 10000) return false;
+    const header = new Uint8Array(bytes.slice(0, 4));
+    return header[0] === 0x50 && header[1] === 0x4b && header[2] === 0x03 && header[3] === 0x04;
   }
 
   return true;
