@@ -313,7 +313,12 @@ export default function App() {
       try {
         const res = await fetch('./data/library_books.json');
         if (!res.ok) return;
-        const parsed = await res.json();
+        const rawParsed = await res.json();
+        const parsed = Array.isArray(rawParsed)
+          ? rawParsed[0]?.sheets
+            ? rawParsed[0]
+            : rawParsed
+          : rawParsed;
         if (parsed?.format === 'markaz-asnad-library-workbook-json' && Array.isArray(parsed.sheets)) {
           const sNames = parsed.sheets.map((s: { name: string }) => s.name);
           setLoadedFileName(parsed.source_file || 'فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx');
