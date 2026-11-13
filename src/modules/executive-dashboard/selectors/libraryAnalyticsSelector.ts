@@ -48,8 +48,18 @@ function hasOpenLinkIssueStatus(status: string | undefined): boolean {
   );
 }
 
+function isPendingTicketClosed(trackingStatus: string | undefined): boolean {
+  const st = normalizePersian(trackingStatus || 'باز');
+  return (
+    st === 'بررسی شده' ||
+    st === 'بررسی‌شده' ||
+    st === 'بسته' ||
+    st === 'ردشده با دلیل'
+  );
+}
+
 /**
- * تحلیل‌گر مستقل وضعیت کتاب‌ها، عناوین مشابه، نسخه‌های فیزیکی (CP) و وضعیت بررسی کتاب‌ها.
+ * تحلیل‌گر مستقل وضعیت کتاب‌ها، عناوین مشابه، نسخه‌های فیزیکی (CP) و افراز بدون هم‌پوشانی وضعیت بررسی (گزینه ج).
  */
 export function selectLibraryAnalytics(
   inputs: ExecutiveDashboardInputs
@@ -110,7 +120,12 @@ export function selectLibraryAnalytics(
     const audit = auditRecords[rKey];
     const copiesRaw = audit?.countedCopies ?? row.countedCopiesRaw;
     const numericCopies = Number(toEnglishDigits(copiesRaw).trim());
-    if (copiesRaw && String(copiesRaw).trim() !== '' && Number.isFinite(numericCopies) && numericCopies >= 0) {
+    if (
+      copiesRaw &&
+      String(copiesRaw).trim() !== '' &&
+      Number.isFinite(numericCopies) &&
+      numericCopies >= 0
+    ) {
       reportedCountedCopiesSum += numericCopies;
       booksWithCountedCopiesNumberCount += 1;
     }
@@ -187,7 +202,7 @@ export function selectLibraryAnalytics(
     }
   }
 
-  // نگاشت پیوندهای شهید و پیگیری‌های باز به هر کتاب برای تشخیص دقیق وضعیت بررسی
+  // نگاشت پیوندهای شهید و پیگیری‌های باز به هر کتاب
   const bookActiveMartyrsMap = new Map<string, Set<string>>();
   const bookHasOpenLinkIssue = new Set<string>();
 
@@ -201,7 +216,6 @@ export function selectLibraryAnalytics(
       const aud = auditByTempBookId.get(bookId)!;
       bookKey = aud.key || `BK::${bookId}`;
     } else {
-      // فقط زمانی با عنوان به کتاب متصل می‌کنیم که عنوان و ناشر یکتا باشد و ابهام هم‌نامی ایجاد نکند
       const compLinkTitle = compactPersian(lnk.bookTitleRaw);
       if (compLinkTitle) {
         const candidates = catalogRows.filter(
@@ -229,7 +243,11 @@ export function selectLibraryAnalytics(
     }
   }
 
-  const bookHasOpenPendingItem = new Set<string>();
+  // تفکیک تیکت‌های باز کتاب (مانند PV-0558..PV-0567) از تیکت‌های باز شیت ارتباط
+  const bookHasOpenDirectTicket = new Set<string>();
+  const bookHasOpenAnyPendingItem = new Set<string>();
+  const openBookTicketIds: string[] = [];
+
   const linkIdToBookKey = new Map<string, string>();
   for (const lnk of links) {
     const bid = (lnk.tempBookId || '').trim();
@@ -238,19 +256,31 @@ export function selectLibraryAnalytics(
     }
   }
   for (const pv of pendingReviews) {
-    const st = normalizePersian(pv.trackingStatus || 'باز');
-    if (st === 'بررسی شده' || st === 'بررسی‌شده' || st === 'بسته' || st === 'ردشده با دلیل') {
+    if (isPendingTicketClosed(pv.trackingStatus)) {
       continue;
     }
     const recId = (pv.mainRecordId || '').trim();
+    const isBookSheetTicket =
+      normalizePersian(pv.mainSheet) === 'فهرست کتاب ها' || /^BK-/i.test(recId);
     if (recId && catalogByTempBookId.has(recId)) {
-      bookHasOpenPendingItem.add(resolveCatalogRowKey(catalogByTempBookId.get(recId)!));
+      const bKey = resolveCatalogRowKey(catalogByTempBookId.get(recId)!);
+      bookHasOpenAnyPendingItem.add(bKey);
+      if (isBookSheetTicket) {
+        bookHasOpenDirectTicket.add(bKey);
+        if (pv.trackingId) openBookTicketIds.push(pv.trackingId);
+      }
+    } else if (recId && auditByTempBookId.has(recId)) {
+      const bKey = auditByTempBookId.get(recId)!.key || `BK::${recId}`;
+      bookHasOpenAnyPendingItem.add(bKey);
+      if (isBookSheetTicket) {
+        bookHasOpenDirectTicket.add(bKey);
+        if (pv.trackingId) openBookTicketIds.push(pv.trackingId);
+      }
     } else if (recId && linkIdToBookKey.has(recId)) {
-      bookHasOpenPendingItem.add(linkIdToBookKey.get(recId)!);
+      bookHasOpenAnyPendingItem.add(linkIdToBookKey.get(recId)!);
     }
   }
 
-  // محاسبه افراز دقیق تمام کتاب‌های تحت پایش بدون شمارش مضاعف
   const trackedKeys: Array<{ key: string; row?: ReferenceCatalogRow; audit?: FieldAuditRecord }> = [];
   for (const row of catalogRows) {
     const key = resolveCatalogRowKey(row);
@@ -266,6 +296,11 @@ export function selectLibraryAnalytics(
   let untouchedUnreviewedCount = 0;
   let reviewedBooksWithOpenRelationQueueCount = 0;
 
+  // سه برش مستقل مصوب کارفرما (گزینه ج) در لایه مدیریتی
+  let managerialCompletedClean = 0;
+  let managerialOpenBookTicket = 0;
+  let managerialUnreviewed = 0;
+
   for (const item of trackedKeys) {
     const { key, row, audit } = item;
     const isCompletedAudit = isAuditRecordCompletedForBookReview(audit);
@@ -276,7 +311,6 @@ export function selectLibraryAnalytics(
       !isBookReviewed &&
       Boolean(audit && (audit.physical === 'review' || audit.needsReview === true));
 
-    // تشخیص آیا کتاب پیوند غیرردشده با شهید دارد (از شیت ارتباط یا آرایه relatedMartyrs منهای excludedMartyrs)
     const excludedSet = new Set(
       (audit?.excludedMartyrs || []).map((m) => stripMartyrHonorifics(m)).filter(Boolean)
     );
@@ -298,13 +332,28 @@ export function selectLibraryAnalytics(
       } else {
         reviewedWithoutMartyrLinkCount += 1;
       }
-      if (bookHasOpenLinkIssue.has(key) || bookHasOpenPendingItem.has(key)) {
+      if (bookHasOpenLinkIssue.has(key) || bookHasOpenAnyPendingItem.has(key)) {
         reviewedBooksWithOpenRelationQueueCount += 1;
       }
     } else if (isInFieldReview) {
       inFieldReviewCount += 1;
     } else {
       untouchedUnreviewedCount += 1;
+    }
+
+    // افراز سه وضعیت مستقل بدون هم‌پوشانی (گزینه ج) در لایه مدیریتی:
+    // ۱. اگر کتاب تیکت باز کتاب در صف PV (مانند PV-0558..PV-0567) داشته باشد یا در بررسی میدانی «نیازمند بررسی» باشد -> گروه «دارای تیکت باز تکرار عنوان / نیازمند بررسی»
+    // ۲. در غیر این صورت، اگر بررسی میدانی کتاب تکمیل شده یا وضعیت پایه «بررسی شد» بدون هیچ تیکت باز باشد -> «تکمیل‌شده بدون تیکت باز»
+    // ۳. در غیر این صورت -> «بررسی‌نشده»
+    const hasOpenDirectBookTicket = bookHasOpenDirectTicket.has(key);
+    const isNeedsFieldReview = Boolean(audit && (audit.physical === 'review' || audit.needsReview === true));
+
+    if (hasOpenDirectBookTicket || isNeedsFieldReview) {
+      managerialOpenBookTicket += 1;
+    } else if (isCompletedAudit || (!audit && isCatalogMarkedReviewed)) {
+      managerialCompletedClean += 1;
+    } else {
+      managerialUnreviewed += 1;
     }
   }
 
@@ -337,6 +386,13 @@ export function selectLibraryAnalytics(
       eligibleForReviewCount,
       overlapRemainingAndEligibleCount: remainingForReviewCount,
       reviewedBooksWithOpenRelationQueueCount,
+      managerialStatusPartition: {
+        completedWithoutOpenTicketCount: managerialCompletedClean,
+        openBookTicketCount: managerialOpenBookTicket,
+        unreviewedCount: managerialUnreviewed,
+        totalTrackedBooksCount,
+        openBookTicketIds: Array.from(new Set(openBookTicketIds)).sort(),
+      },
     },
     fieldAuditSummary: {
       totalAuditRecords: Object.keys(auditRecords).length,

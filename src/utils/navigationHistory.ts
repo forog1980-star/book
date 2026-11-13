@@ -136,6 +136,8 @@ export interface MartyrsCrossTabTarget {
   sourceBookDossierId: string | null;
   sourceBookTitle?: string;
   sourceMartyrDossierName: string;
+  returnTarget?: 'home' | 'executive_dashboard';
+  sourceDashboardMartyrKey?: string;
   timestamp: number;
 }
 

@@ -1004,7 +1004,11 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
             className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer shrink-0"
           >
             <ArrowRight className="w-4 h-4" />
-            <span>بازگشت به پرونده اختصاصی شهید</span>
+            <span>
+              {activeCrossTabTarget.returnTarget === 'executive_dashboard'
+                ? 'بازگشت به پرونده خلاصه شهید در داشبورد'
+                : 'بازگشت به پرونده اختصاصی شهید'}
+            </span>
           </button>
         </div>
       )}
@@ -1977,7 +1981,11 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                 className="w-full min-h-[40px] px-3.5 py-2 bg-[#6B3E26] hover:bg-[#56311E] text-white rounded-xl font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors text-xs"
               >
                 <ArrowRight className="w-4 h-4 shrink-0" />
-                <span>بازگشت به پرونده اختصاصی شهید</span>
+                <span>
+                  {activeCrossTabTarget.returnTarget === 'executive_dashboard'
+                    ? 'بازگشت به پرونده خلاصه شهید در داشبورد'
+                    : 'بازگشت به پرونده اختصاصی شهید'}
+                </span>
               </button>
             )}
           </div>

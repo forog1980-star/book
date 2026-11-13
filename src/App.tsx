@@ -27,7 +27,8 @@ import {
   ArrowRight,
   SlidersHorizontal,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  LayoutDashboard
 } from 'lucide-react';
 import {
   AuditLogEntry,
@@ -79,7 +80,9 @@ import {
 import {
   closeTopModalIfAny,
   popInnerBackStepIfAny,
-  clearMartyrsCrossTabTarget
+  clearMartyrsCrossTabTarget,
+  getMartyrsCrossTabTarget,
+  setMartyrsCrossTabTarget
 } from './utils/navigationHistory';
 import { useOnlineStatus } from './utils/usePWAInstall';
 import {
@@ -125,6 +128,14 @@ import {
   SyncMetadataSnapshot
 } from './modules/device-sync';
 import { getLastGitHubSyncTimeFa, performManualGitHubSync } from './utils/githubSyncService';
+import {
+  ExecutiveDashboardView,
+  DEFAULT_EXECUTIVE_DASHBOARD_STATE,
+  buildExecutiveDashboardInputs,
+  type ExecutiveDashboardViewState,
+  type DashboardBookListItem,
+  type DashboardMartyrListItem
+} from './modules/executive-dashboard';
 
 // عنوان و شناسه اختصاصی پایگاه داده در حافظه گوشی و مرورگر: book
 export const BOOK_STORAGE_NAMESPACE = 'book';
@@ -164,7 +175,14 @@ const DEFAULT_HEADERS = [
   'ردیف منبع (پشتیبان)'
 ];
 
-export type MainMenuTab = 'home' | 'library' | 'martyrs' | 'smart_search' | 'research' | 'management';
+export type MainMenuTab =
+  | 'home'
+  | 'library'
+  | 'martyrs'
+  | 'smart_search'
+  | 'research'
+  | 'management'
+  | 'executive_dashboard';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<MainMenuTab>('home');
@@ -173,6 +191,24 @@ export default function App() {
   const [preselectedSmartMartyrName, setPreselectedSmartMartyrName] = useState<string>('');
   const [homeGlobalQuery, setHomeGlobalQuery] = useState<string>('');
   const [libraryInitialSearchQuery, setLibraryInitialSearchQuery] = useState<string>('');
+  const [executiveDashboardState, setExecutiveDashboardState] =
+    useState<ExecutiveDashboardViewState>(DEFAULT_EXECUTIVE_DASHBOARD_STATE);
+  const [executiveReturnContext, setExecutiveReturnContext] = useState<{
+    tab: MainMenuTab;
+    librarySubView: 'catalog' | 'shelves';
+    showPilotSubView: boolean;
+  }>({
+    tab: 'home',
+    librarySubView: 'catalog',
+    showPilotSubView: false
+  });
+  const [libraryDirectBookTarget, setLibraryDirectBookTarget] = useState<{
+    rowKey?: string;
+    tempBookId?: string;
+    nonce: number;
+  } | null>(null);
+  const [libraryReturnToDashboardDossier, setLibraryReturnToDashboardDossier] =
+    useState<boolean>(false);
   const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
   const [showComprehensiveDocModal, setShowComprehensiveDocModal] = useState<boolean>(false);
   const [isSyncingGitHub, setIsSyncingGitHub] = useState<boolean>(false);
@@ -1175,6 +1211,41 @@ export default function App() {
     [catalogRows, auditRecords, links, golzarIndexVersion]
   );
 
+  // ورودی زنده داشبورد مدیریتی از State عملیاتی اصلی (بدون مصرف پیوندهای خودکار RL-28K)
+  const executiveDashboardInputs = React.useMemo(
+    () =>
+      activeTab === 'executive_dashboard'
+        ? buildExecutiveDashboardInputs({
+            catalogRows,
+            auditRecords,
+            bookCopies,
+            links,
+            pendingReviews,
+            extractedItems,
+            smartSuggestions,
+            rejectedSuggestionsArchive,
+            customMartyrs,
+            golzarList: getCachedGolzarMartyrsSync(),
+            golzarIndexVersion,
+            auditLogs: auditLog
+          })
+        : null,
+    [
+      activeTab,
+      catalogRows,
+      auditRecords,
+      bookCopies,
+      links,
+      pendingReviews,
+      extractedItems,
+      smartSuggestions,
+      rejectedSuggestionsArchive,
+      customMartyrs,
+      golzarIndexVersion,
+      auditLog
+    ]
+  );
+
   const handleQuickExcelExport = () => {
     openStandardExcelExportModal({
       mode: 'books_list',
@@ -1991,6 +2062,10 @@ export default function App() {
     },
     management: {
       title: 'پشتیبانی و گزارش‌ها',
+      description: ''
+    },
+    executive_dashboard: {
+      title: 'داشبورد مدیریتی مرکز اسناد',
       description: ''
     }
   };
@@ -2879,6 +2954,22 @@ export default function App() {
                 loadedFileName={loadedFileName}
                 initialSearchQuery={libraryInitialSearchQuery}
                 onClearInitialSearchQuery={() => setLibraryInitialSearchQuery('')}
+                initialDirectBookTarget={libraryDirectBookTarget}
+                onClearInitialDirectBookTarget={() => setLibraryDirectBookTarget(null)}
+                returnToDashboardLabel={
+                  libraryReturnToDashboardDossier
+                    ? 'بازگشت به پرونده خلاصه کتاب در داشبورد'
+                    : undefined
+                }
+                onReturnToDashboardDossier={
+                  libraryReturnToDashboardDossier
+                    ? () => {
+                        setLibraryReturnToDashboardDossier(false);
+                        isPoppingHistoryRef.current = true;
+                        setActiveTab('executive_dashboard');
+                      }
+                    : undefined
+                }
                 onWorkbookLoaded={handleWorkbookLoaded}
                 onSwitchSheet={handleSwitchSheet}
                 onUpdateColumnMap={handleUpdateColumnMap}
@@ -3157,15 +3248,18 @@ export default function App() {
               setActiveTab('smart_search');
             }}
             onReturnToMartyrDossier={() => {
+              const crossTarget = getMartyrsCrossTabTarget();
+              const isFromExecDashboard = crossTarget?.returnTarget === 'executive_dashboard';
               clearMartyrsCrossTabTarget();
+              const targetTab = isFromExecDashboard ? 'executive_dashboard' : 'home';
               if (
                 navHistoryRef.current.length > 0 &&
-                navHistoryRef.current[navHistoryRef.current.length - 1].tab === 'home'
+                navHistoryRef.current[navHistoryRef.current.length - 1].tab === targetTab
               ) {
                 navHistoryRef.current.pop();
               }
               isPoppingHistoryRef.current = true;
-              setActiveTab('home');
+              setActiveTab(targetTab);
             }}
             onNotify={showNotify}
           />
@@ -3577,6 +3671,75 @@ export default function App() {
             />
           </div>
         )}
+
+        {/* EXECUTIVE DASHBOARD (داشبورد مدیریتی مرکز اسناد — ماژول مستقل با ارجاع دوطرفه) */}
+        {activeTab === 'executive_dashboard' && executiveDashboardInputs && (
+          <ExecutiveDashboardView
+            inputs={executiveDashboardInputs}
+            viewState={executiveDashboardState}
+            onUpdateViewState={(updater) =>
+              setExecutiveDashboardState((prev) =>
+                typeof updater === 'function' ? updater(prev) : { ...prev, ...updater }
+              )
+            }
+            returnButtonLabel={
+              executiveReturnContext.tab === 'library'
+                ? 'بازگشت به کتابخانه'
+                : executiveReturnContext.tab === 'martyrs'
+                ? 'بازگشت به بخش شهدا'
+                : executiveReturnContext.tab === 'research'
+                ? 'بازگشت به پژوهش'
+                : executiveReturnContext.tab === 'smart_search'
+                ? 'بازگشت به جست‌وجو'
+                : executiveReturnContext.tab === 'management'
+                ? 'بازگشت به مدیریت'
+                : 'بازگشت به خانه'
+            }
+            onReturnPreviousTab={() => {
+              const target =
+                executiveReturnContext.tab &&
+                executiveReturnContext.tab !== 'executive_dashboard'
+                  ? executiveReturnContext
+                  : { tab: 'home' as MainMenuTab, librarySubView: 'catalog' as const, showPilotSubView: false };
+              isPoppingHistoryRef.current = true;
+              setActiveTab(target.tab);
+              setLibrarySubView(target.librarySubView);
+              setShowPilotSubView(target.showPilotSubView);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onOpenOriginalBookRecord={(book: DashboardBookListItem) => {
+              setLibrarySubView('catalog');
+              setLibraryReturnToDashboardDossier(true);
+              setLibraryDirectBookTarget({
+                rowKey: book.bookKey,
+                tempBookId: book.tempBookId,
+                nonce: Date.now()
+              });
+              setActiveTab('library');
+            }}
+            onOpenOriginalMartyrRecord={(martyr: DashboardMartyrListItem) => {
+              setMartyrsCrossTabTarget({
+                martyrId: martyr.customMartyrId || martyr.golzarId,
+                fullName: martyr.fullName,
+                normalizedName: martyr.normalizedName,
+                gravePiece: martyr.gravePiece || undefined,
+                graveRow: martyr.graveRow || undefined,
+                graveNumber: martyr.graveNumber || undefined,
+                sourceBookDossierId: null,
+                sourceMartyrDossierName: martyr.fullName,
+                returnTarget: 'executive_dashboard',
+                sourceDashboardMartyrKey: martyr.martyrKey,
+                timestamp: Date.now()
+              });
+              setActiveTab('martyrs');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onRequestLoadGolzarBank={() => {
+              void loadCachedGolzarMartyrs();
+            }}
+            onNotify={showNotify}
+          />
+        )}
         </div>
       </main>
 
@@ -3600,16 +3763,17 @@ export default function App() {
         </button>
       )}
 
-      {/* پنج برگه اصلی پایین صفحه همراه با آیکون‌هایشان (با فاصله امن از کلیدهای ناوبری پایین گوشی) */}
+      {/* نوار ناوبری پایین صفحه: حفظ کامل ۵ برگه اصلی + کلید مرکزی برجسته و دایره‌ای داشبورد */}
       <nav
-        aria-label="پنج منوی اصلی پایین صفحه"
-        className="fixed bottom-0 inset-x-0 w-full max-w-full overflow-hidden z-40 bg-[#FDF8F2]/95 backdrop-blur-md border-t border-[#E6D5C1] shadow-sm pb-[env(safe-area-inset-bottom,0px)]"
+        aria-label="منوی اصلی و داشبورد پایین صفحه"
+        className="fixed bottom-0 inset-x-0 w-full max-w-full overflow-visible z-40 bg-[#FDF8F2]/95 backdrop-blur-md border-t border-[#E6D5C1] shadow-sm pb-[env(safe-area-inset-bottom,0px)]"
       >
-        <div className="max-w-6xl mx-auto grid grid-cols-5 items-center h-16 px-1 sm:px-4">
+        <div className="max-w-6xl mx-auto grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_58px_minmax(0,1fr)_minmax(0,1fr)] items-center h-16 px-1 sm:px-4 gap-0.5">
           <button
             type="button"
             onClick={() => {
               clearMartyrsCrossTabTarget();
+              setLibraryReturnToDashboardDossier(false);
               setShowDeviceSyncDrawer(false);
               setActiveTab('home');
               window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -3621,13 +3785,16 @@ export default function App() {
             }`}
           >
             <Home className="w-5 h-5 shrink-0" />
-            <span className="text-[10px] sm:text-xs mt-1 truncate max-w-full">خانه</span>
+            <span className="text-[10px] sm:text-xs mt-1 truncate max-w-full whitespace-nowrap">
+              خانه
+            </span>
           </button>
 
           <button
             type="button"
             onClick={() => {
               clearMartyrsCrossTabTarget();
+              setLibraryReturnToDashboardDossier(false);
               setShowDeviceSyncDrawer(false);
               setActiveTab('library');
               window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -3639,13 +3806,16 @@ export default function App() {
             }`}
           >
             <BookOpen className="w-5 h-5 shrink-0" />
-            <span className="text-[10px] sm:text-xs mt-1 truncate max-w-full">کتابخانه</span>
+            <span className="text-[10px] sm:text-xs mt-1 truncate max-w-full whitespace-nowrap">
+              کتابخانه
+            </span>
           </button>
 
           <button
             type="button"
             onClick={() => {
               clearMartyrsCrossTabTarget();
+              setLibraryReturnToDashboardDossier(false);
               setShowDeviceSyncDrawer(false);
               setActiveTab('martyrs');
               window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -3657,13 +3827,55 @@ export default function App() {
             }`}
           >
             <Users className="w-5 h-5 shrink-0" />
-            <span className="text-[10px] sm:text-xs mt-1 truncate max-w-full">شهدا</span>
+            <span className="text-[10px] sm:text-xs mt-1 truncate max-w-full whitespace-nowrap">
+              شهدا
+            </span>
           </button>
+
+          {/* ستون اختصاصی میانی: کلید دایره‌ای برجسته داشبورد مدیریتی بدون هم‌پوشانی با تب‌های کناری */}
+          <div className="flex flex-col items-center justify-center relative -mt-4">
+            <button
+              type="button"
+              data-testid="bottom-nav-executive-dashboard-btn"
+              aria-label="داشبورد مدیریتی مرکز اسناد"
+              onClick={() => {
+                clearMartyrsCrossTabTarget();
+                setLibraryReturnToDashboardDossier(false);
+                setShowDeviceSyncDrawer(false);
+                if (activeTab !== 'executive_dashboard') {
+                  setExecutiveReturnContext({
+                    tab: activeTab,
+                    librarySubView,
+                    showPilotSubView
+                  });
+                }
+                setActiveTab('executive_dashboard');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className={`w-12 h-12 rounded-full border-2 border-[#FDF8F2] shadow-md flex items-center justify-center cursor-pointer transition-transform active:scale-95 ${
+                activeTab === 'executive_dashboard' && !showDeviceSyncDrawer
+                  ? 'bg-[#6B3E26] text-white ring-2 ring-[#6B3E26]/30'
+                  : 'bg-[#8C3B2B] hover:bg-[#702D20] text-[#FDF8F2]'
+              }`}
+            >
+              <LayoutDashboard className="w-5 h-5 shrink-0" />
+            </button>
+            <span
+              className={`text-[10px] mt-0.5 whitespace-nowrap leading-none font-bold ${
+                activeTab === 'executive_dashboard' && !showDeviceSyncDrawer
+                  ? 'text-[#6B3E26]'
+                  : 'text-[#5C4636]'
+              }`}
+            >
+              داشبورد
+            </span>
+          </div>
 
           <button
             type="button"
             onClick={() => {
               clearMartyrsCrossTabTarget();
+              setLibraryReturnToDashboardDossier(false);
               setShowDeviceSyncDrawer(false);
               setActiveTab('smart_search');
               window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -3675,13 +3887,16 @@ export default function App() {
             }`}
           >
             <Sparkles className="w-5 h-5 shrink-0" />
-            <span className="text-[10px] sm:text-xs mt-1 truncate max-w-full">جست‌وجو</span>
+            <span className="text-[10px] sm:text-xs mt-1 truncate max-w-full whitespace-nowrap">
+              جست‌وجو
+            </span>
           </button>
 
           <button
             type="button"
             onClick={() => {
               clearMartyrsCrossTabTarget();
+              setLibraryReturnToDashboardDossier(false);
               setShowDeviceSyncDrawer(false);
               setActiveTab('research');
               window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -3693,7 +3908,9 @@ export default function App() {
             }`}
           >
             <FileSearch className="w-5 h-5 shrink-0" />
-            <span className="text-[10px] sm:text-xs mt-1 truncate max-w-full">پژوهش</span>
+            <span className="text-[10px] sm:text-xs mt-1 truncate max-w-full whitespace-nowrap">
+              پژوهش
+            </span>
           </button>
         </div>
       </nav>

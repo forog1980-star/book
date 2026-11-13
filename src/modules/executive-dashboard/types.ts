@@ -51,6 +51,7 @@ export interface ExecutiveDashboardInputs {
   rejectedSuggestionsArchive?: RejectedSuggestionInput[];
   customMartyrs?: CustomMartyrRecord[];
   golzarRecords?: GolzarRawMartyrInput[];
+  golzarIndexVersion?: number;
   auditLogs?: AuditLogEntry[];
 }
 
@@ -61,6 +62,19 @@ export interface SimilarTitleGroup {
   bookIds: string[];
   publishers: string[];
   disambiguationNote: string;
+}
+
+export interface BookManagerialStatusPartition {
+  /** ۱) تکمیل‌شده بدون تیکت باز (گزینه ج: ۰ در داده پایه) */
+  completedWithoutOpenTicketCount: number;
+  /** ۲) دارای تیکت باز تکرار عنوان / بازبینی کتاب (شامل PV-0558..PV-0567 = ۱۰ در داده پایه) */
+  openBookTicketCount: number;
+  /** ۳) بررسی‌نشده (۹۷۰ در داده پایه) */
+  unreviewedCount: number;
+  /** جمع دقیق بدون هم‌پوشانی = totalTrackedBooksCount (۹۸۰ در داده پایه) */
+  totalTrackedBooksCount: number;
+  /** شناسه‌های تیکت باز کتاب در صف PV */
+  openBookTicketIds: string[];
 }
 
 export interface BookReviewStatusBreakdown {
@@ -80,30 +94,23 @@ export interface BookReviewStatusBreakdown {
   remainingForReviewCount: number;
   /** واجد شرایط بررسی کارشناسی (شامل باقی‌مانده‌های کتاب + کتاب‌های دارای پیوند/پرونده باز نیازمند بررسی) */
   eligibleForReviewCount: number;
-  /** هم‌پوشانی صریح بین remainingForReviewCount و eligibleForReviewCount (کتاب‌هایی که هم بررسی‌نشده‌اند و هم در صف واجد شرایط قرار دارند) */
+  /** هم‌پوشانی صریح بین remainingForReviewCount و eligibleForReviewCount */
   overlapRemainingAndEligibleCount: number;
-  /** کتاب‌هایی که وضعیت کتابشان بررسی‌شده است اما پیوند یا پیگیری شهید باز دارند */
+  /** کتاب‌هایی که وضعیت خامشان بررسی‌شده بوده اما تیکت/پیگیری باز دارند */
   reviewedBooksWithOpenRelationQueueCount: number;
+  /** افراز مصوب کارفرما (گزینه ج) در لایه مدیریتی بدون تغییر وضعیت اصلی داده‌ها */
+  managerialStatusPartition: BookManagerialStatusPartition;
 }
 
 export interface LibraryAnalyticsResult {
-  /** تعداد ردیف‌های خام ثبت‌شده در شیت «فهرست کتاب‌ها» */
   catalogRowsCount: number;
-  /** تعداد شناسه‌های مستقل کتاب در کاتالوگ (BK-xxxx) */
   distinctCatalogBookIdsCount: number;
-  /** کتاب‌های ثبت‌شده خارج از فهرست اولیه ۹۸۰ کتاب */
   outsideCatalogBooksCount: number;
-  /** مجموع کتاب‌های مستقل تحت پایش (کاتالوگ + خارج از فهرست بدون تکرار کلید) */
   totalTrackedBooksCount: number;
-  /** تعداد عناوین یکتای دقیق در کاتالوگ */
   exactUniqueCatalogTitlesCount: number;
-  /** تعداد عناوین یکتای نرمال‌شده در کاتالوگ */
   normalizedUniqueCatalogTitlesCount: number;
-  /** گروه‌های دارای عنوان تکراری یا هم‌نام بدون ادغام خودکار */
   similarTitleGroups: SimilarTitleGroup[];
-  /** تعداد نسخه‌های فیزیکی ثبت‌شده رسمی دارای شناسه مستقل (CP-xxxxxx) */
   registeredPhysicalCopiesCount: number;
-  /** تعداد نسخه‌های فیزیکی متعلق به کاتالوگ اولیه vs کل */
   physicalCopiesStatusBreakdown: {
     verifiedPresent: number;
     pendingReview: number;
@@ -111,13 +118,9 @@ export interface LibraryAnalyticsResult {
     missing: number;
     outOfCollection: number;
   };
-  /** مجموع شمارش عددی خام فیلد countedCopies (در صورت ثبت، صرفاً عدد شمارشی قفسه و متمایز از شناسنامه CP) */
   reportedCountedCopiesSum: number;
-  /** تعداد ردیف‌هایی که عدد شمارش فیزیکی برایشان ثبت شده است */
   booksWithCountedCopiesNumberCount: number;
-  /** وضعیت بررسی کتاب‌ها با تفکیک دقیق بدون شمارش تکراری */
   reviewBreakdown: BookReviewStatusBreakdown;
-  /** توزیع وضعیت میدانی auditRecords */
   fieldAuditSummary: {
     totalAuditRecords: number;
     verified: number;
@@ -136,48 +139,73 @@ export interface HomonymAmbiguityGroup {
   distinctGraveAddresses: string[];
 }
 
+export interface MartyrDiscrepancyWarning {
+  normalizedName: string;
+  displayName: string;
+  kind:
+    | 'grave_coordinate_mismatch'
+    | 'mixed_confirmed_and_ambiguous'
+    | 'homonym_conflict'
+    | 'custom_martyr_ambiguous';
+  message: string;
+  gravesObserved: string[];
+  affectedLinkIds: string[];
+  affectedBookIds: string[];
+}
+
+export interface CustomMartyrBankCandidate {
+  golzarId: string;
+  fullName: string;
+  fatherName: string;
+  graveAddress: string;
+  source: 'golzar' | 'outside';
+}
+
+export interface CustomMartyrBankMatch {
+  customMartyrId: string;
+  customFullName: string;
+  matchCertainty: 'definite' | 'candidate_suggestion' | 'unmatched';
+  matchedGolzarId?: string;
+  matchEvidence: string;
+  candidateGolzarMatches: CustomMartyrBankCandidate[];
+}
+
 export interface MartyrAnalyticsResult {
-  /** آمار پایگاه رسمی گلزار (در صورت ورودی داده گلزار؛ شیت نمونه ۱۹۶ شهید هرگز در این آمار مخلوط نمی‌شود) */
   officialBank: {
     hasOfficialBankLoaded: boolean;
     totalRows: number;
     golzarMainSheetRows: number;
     outsideGolzarSheetRows: number;
-    /** ردیف‌های با نوع «martyr» (شهید نام‌دار) */
     namedMartyrRowsCount: number;
-    /** ردیف‌های با نوع «unknown_martyr» (شهید گمنام / یادبود گمنام) */
     unknownMartyrRowsCount: number;
-    /** ردیف‌های با نوع «non_martyr» (اموات / غیرشهید ثبت‌شده در فایل خام) */
     nonMartyrRowsCount: number;
-    /** تعداد پروفایل‌های تفکیک‌شده بر پایه کلید هویت غیرهم‌نام (نام + پدر + نشانی مزار) */
     disambiguatedNamedProfilesCount: number;
-    /** تعداد نام‌های کامل یکتای نرمال‌شده در ردیف‌های شهید نام‌دار */
     distinctNormalizedFullNamesCount: number;
-    /** گروه‌های هم‌نام در بانک شهدا که بدون نام پدر/مزار نباید ادغام شوند */
     homonymGroupsCount: number;
-    /** جمع فراوانی ردیف‌های داخل گروه‌های هم‌نام */
     homonymRowsCount: number;
   };
-  /** پرونده‌های دستی شهید ثبت‌شده در سامانه (MR-xxxxxx) */
   customMartyrs: {
     totalCount: number;
     verifiedCount: number;
     needsReviewCount: number;
     unreviewedCount: number;
     rejectedCount: number;
+    definiteBankMatchesCount: number;
+    candidateSuggestionsCount: number;
+    matches: CustomMartyrBankMatch[];
   };
-  /** تحلیل شهدای دارای ارتباط با کتاب‌ها (با تفکیک شفاف میان نامِ پیوندخورده و شخصِ احرازشده) */
   linkedMartyrsSummary: {
-    /** تعداد نام‌های متمایز نرمال‌شده دارای ارتباط غیرردشده در شیت ارتباط و پرونده‌های کتاب (بدون ادعای یکتا بودن قطعی اشخاص هم‌نام) */
+    /** تعداد نام‌های متمایز مرتبط (۳۹۵ در داده پایه) */
     distinctNormalizedLinkedNamesCount: number;
-    /** تعداد شهدای یکتای احرازشده (دارای شناسه قطعی شهید یا مزار مشخص یا تطبیق یکتای غیرهم‌نام با بانک رسمی) */
+    /** هویت‌های یکتای احرازشده بر پایه شخص یکتا (۳۳۲ در داده پایه — بدون تکرار مختصات مزار) */
     confirmedUniqueLinkedMartyrsCount: number;
-    /** تعداد نام‌های پیوندخورده که به دلیل هم‌نامی در بانک یا نبود مزار/شناسه قطعی در وضعیت نیازمند احراز هستند */
+    /** نام‌های نیازمند احراز هویت (۶۳ در داده پایه — مجموع دقیق با احرازشده = ۳۹۵) */
     ambiguousOrUnverifiedLinkedNamesCount: number;
-    /** تعداد ردیف‌های پیوند مبهم/گروهی/ستاره (*) که هیچ شخص مشخصی نیستند */
+    /** ردیف‌های گروهی یا * بدون نام شهید مشخص (۲۹۶ در داده پایه) */
     placeholderOrGroupLinkRowsCount: number;
-    /** نمونه یا فهرست نام‌های دارای تعارض هم‌نامی با بانک رسمی */
     homonymAmbiguityNames: string[];
+    /** هشدارهای کارشناسی اختلاف مختصات یا هم‌نامی (مانند صیاد شیرازی و علی خرمدل) بدون حذف خودکار داده */
+    discrepancyWarnings: MartyrDiscrepancyWarning[];
   };
 }
 
@@ -188,47 +216,39 @@ export type RelationCertaintyBucket =
   | 'rejected'
   | 'undetermined';
 
+export const RELATION_CERTAINTY_DISPLAY_LABELS: Record<RelationCertaintyBucket, string> = {
+  confirmedByExpert: 'تأییدشده کارشناسی',
+  probable: 'دارای مشخصات مزار، اما بررسی‌نشده کارشناسی',
+  needsReview: 'نیازمند بررسی',
+  rejected: 'ردشده با دلیل',
+  undetermined: 'بررسی‌نشده بدون مشخصات مزار',
+};
+
 export type RelationKindValue =
   | 'کتاب اختصاصی شهید'
   | 'دارای بخش یا اشاره به شهید'
   | 'نامشخص';
 
 export interface RelationAnalyticsResult {
-  /** تعداد کل رکوردهای خام شیت ارتباط + پیوندهای افزوده‌شده کاربر/پژوهش */
   totalRawLinkRows: number;
-  /** تعداد جفت‌های متمایز (کلید کتاب + نام نرمال‌شده هدف) برای پیشگیری از شمارش مضاعف پیوند تکراری یکسان */
   distinctBookTargetPairsCount: number;
-  /** تعداد رکوردهای خام تکراری برای یک جفت کتاب-شهید یکسان */
   duplicatePairRowsCount: number;
-  /** تفکیک قطعی سطح اطمینان و اعتبارسنجی روی تمام رکوردهای ارتباط (مجموع دقیق = totalRawLinkRows) */
   certaintyByRawRows: Record<RelationCertaintyBucket, number>;
-  /** تفکیک سطح اطمینان روی جفت‌های یکتای کتاب-هدف (پس از رفع تکرار یکسان) */
   certaintyByDistinctPairs: Record<RelationCertaintyBucket, number>;
-  /** تعداد موارد ردشده مستقل در آرشیو پیشنهادهای هوشمند (rejectedSuggestionsArchive) و جدول پیشنهادها */
   rejectedArchiveSuggestionsCount: number;
-  /** تعداد شهدای حذف/مستثنی‌شده توسط کارشناس در auditRecords.excludedMartyrs */
   excludedAuditMartyrCount: number;
-  /** تفکیک نوع ارتباط کتاب و شهید بدون حدس‌زدن از صفحه خالی یا نام شیت تک‌شهید */
   relationKindBreakdown: Record<RelationKindValue, number>;
-  /** تعداد کتاب‌های منحصربه‌فردی که دارای پیوند غیرردشده با نام مشخص یا عبارت گروهی هستند */
   booksWithLinksBreakdown: {
-    /** کل کتاب‌های یکتای دارای حداقل یک ارتباط غیرردشده (با نام مشخص یا گروهی) */
     totalBooksWithActiveLinks: number;
-    /** کتاب‌های یکتای دارای حداقل یک نام شهید مشخص غیرردشده */
     booksWithNamedMartyrLinks: number;
-    /** کتاب‌های تک‌شهیدی (دقیقاً یک نام شهید مشخص و بدون گروه چندشهیدی) */
     booksWithSingleNamedMartyr: number;
-    /** کتاب‌های چندشهیدی (بیش از یک نام شهید مشخص یا عضو گروه چندشهیدی) */
     booksWithMultiMartyrLinks: number;
-    /** کتاب‌هایی که فقط ارتباط گروهی/ستاره/نیازمند تفکیک دارند */
     booksWithOnlyGroupOrPlaceholderLinks: number;
-    /** کتاب‌های دارای حداقل یک ارتباط تأییدشده توسط کارشناس */
     booksWithExpertConfirmedLink: number;
   };
 }
 
 export interface ReviewQueueResult {
-  /** جدول پیگیری «موارد نیازمند بررسی» (PV-xxxx) */
   pendingReviews: {
     totalCount: number;
     openCount: number;
@@ -237,17 +257,13 @@ export interface ReviewQueueResult {
     openByMainSheet: Record<string, number>;
     openByIssueType: Record<string, number>;
   };
-  /** گروه‌های کتاب‌های چندشهیدی استخراج‌شده از شیت «چند شهید» (مانند G001..G016) */
   multiMartyrGroups: {
     totalGroupsCount: number;
     totalMemberRowsCount: number;
     groupKeys: string[];
   };
-  /** صف بررسی پیوندهای کتاب-شهید */
   linkReviewBacklogCount: number;
-  /** صف بررسی کتاب‌ها */
   bookReviewBacklogCount: number;
-  /** صف پیشنهادهای جست‌وجوی هوشمند */
   smartSuggestionsQueue: {
     totalCount: number;
     pendingExpertQueueCount: number;
@@ -255,7 +271,6 @@ export interface ReviewQueueResult {
     approvedCount: number;
     rejectedCount: number;
   };
-  /** صف مطالب استخراج‌شده */
   extractedItemsQueue: {
     totalCount: number;
     expertApprovedCount: number;
@@ -286,14 +301,13 @@ export interface TemporalSourceAudit {
 }
 
 export interface TemporalMonthlyBucket {
-  periodKey: string; // e.g. "1405-08" or "ISO-2026-11"
+  periodKey: string;
   calendarType: 'jalali' | 'gregorian';
   totalValidEvents: number;
   bySource: Partial<Record<TemporalSourceAudit['sourceKey'], number>>;
 }
 
 export interface TemporalAuditResult {
-  /** داده‌های تاریخی ذاتاً بدون مهر زمان (کاتالوگ اولیه، پیوندهای اکسل پایه، پیگیری‌های پایه، بانک گلزار) */
   structurallyDatelessSources: {
     catalogRowsCount: number;
     linksCount: number;
@@ -301,38 +315,29 @@ export interface TemporalAuditResult {
     golzarRecordsCount: number;
     totalDatelessRecordsCount: number;
   };
-  /** ممیزی منابع دارای فیلد تاریخ */
   timestampedSources: TemporalSourceAudit[];
   totalTimestampEvaluatedRecords: number;
   totalValidTimestampRecords: number;
   totalMissingTimestampRecords: number;
   totalInvalidTimestampRecords: number;
-  /** توزیع زمانی منحصراً روی رکوردهای دارای مهر زمان معتبر */
   monthlyActivity: TemporalMonthlyBucket[];
-  /** آیا داده‌های تاریخی بدون مهر زمان از محاسبه عملکرد دوره‌ای کنار گذاشته شده‌اند؟ (همواره true) */
   datelessLegacyExcludedFromPeriodicMetrics: true;
 }
 
 export interface DashboardSummaryResult {
-  /** ۱) کارت اول داشبورد آینده: مرتبط با شهدا */
   martyrRelatedKpi: {
     title: 'مرتبط با شهدا';
-    /** تعداد کتاب‌های منحصربه‌فرد مرتبط با حداقل یک شهید مشخص (غیرردشده و غیرستاره) */
     relatedBooksWithNamedMartyrsCount: number;
-    /** تعداد کل کتاب‌های دارای هرگونه پیوند فعال (شامل کتاب‌های فقط دارای عبارت گروهی) */
+    relatedBooksGroupOnlyCount: number;
     relatedBooksIncludingGroupLinksCount: number;
-    /** تعداد کتاب‌های دارای حداقل یک پیوند تأییدشده توسط کارشناس */
     expertConfirmedRelatedBooksCount: number;
-    /** تعداد نام‌های متمایز نرمال‌شده دارای ارتباط ثبت‌شده (بدون ادعای یکتا بودن قطعی اشخاص هم‌نام) */
     distinctLinkedMartyrNamesCount: number;
-    /** تعداد شهدای یکتای احرازشده در پیوندها */
     confirmedUniqueLinkedMartyrsCount: number;
-    /** تعداد کل ردیف‌های ارتباط فعال غیرردشده */
+    ambiguousOrUnverifiedLinkedNamesCount: number;
+    expertConfirmedRelationsCount: number;
     activeRelationRowsCount: number;
-    /** خلاصه پایگاه رسمی گلزار در صورت بارگذاری */
     officialBankNamedMartyrsCount: number;
   };
-  /** ۲) کارت دوم داشبورد آینده: کل کتاب‌ها */
   totalBooksKpi: {
     title: 'کل کتاب‌ها';
     subtitle: 'از کل کتابهای ثبتشده در کتابخانه';
@@ -343,9 +348,12 @@ export interface DashboardSummaryResult {
     exactUniqueTitlesCount: number;
     similarTitleGroupsCount: number;
   };
-  /** ۳) کارت سوم داشبورد آینده: وضعیت بررسی کتاب‌ها */
   bookReviewStatusKpi: {
     title: 'وضعیت بررسی کتاب‌ها';
+    completedWithoutOpenTicketCount: number;
+    openBookTicketCount: number;
+    unreviewedCount: number;
+    totalTrackedBooksCount: number;
     reviewedCount: number;
     reviewedWithoutMartyrLinkCount: number;
     remainingForReviewCount: number;
@@ -358,4 +366,191 @@ export interface DashboardSummaryResult {
   relations: RelationAnalyticsResult;
   reviewQueue: ReviewQueueResult;
   temporalAudit: TemporalAuditResult;
+}
+
+// ============================================================================
+// فاز دوم: موجودیت‌ها، پرونده‌های خلاصه، خروجی مدیریتی و تاریخچه
+// ============================================================================
+
+export type ManagerialBookStatusCode =
+  | 'completed_without_ticket'
+  | 'open_duplicate_ticket'
+  | 'unreviewed';
+
+export type TehranValidityStatus = 'tehran' | 'non_tehran' | 'unknown';
+
+export interface DashboardBookLinkedRelationRef {
+  linkId: string;
+  martyrKey: string;
+  martyrDisplayCode: string;
+  martyrName: string;
+  isPlaceholderOrGroup: boolean;
+  graveAddress: string;
+  tehranStatus: TehranValidityStatus;
+  pageReferenceRaw: string;
+  sourceDescriptionRaw: string;
+  certaintyBucket: RelationCertaintyBucket;
+  certaintyLabel: string;
+  reviewStatus: string;
+  reviewerNote: string;
+  sourceFile: string;
+  sourceSheet: string;
+  sourceExcelRow: string;
+}
+
+export interface DashboardBookListItem {
+  bookKey: string;
+  tempBookId: string;
+  source: 'catalog' | 'outside-list';
+  title: string;
+  publisher: string;
+  author: string;
+  locationDisplay: string;
+  shelf: string;
+  level: string;
+  subjectCategory: string;
+  description: string;
+  notes: string;
+  /** شابک و فیپا در داده و خروجی JSON/Excel مدیریتی حفظ می‌شوند اما در نمای خلاصه پنهان هستند */
+  isbn: string;
+  fipa: string;
+  registrationNo: string;
+  countedCopiesRaw: string;
+  physicalCopiesCount: number;
+  physicalStatusRaw: string;
+  managerialStatus: ManagerialBookStatusCode;
+  managerialStatusLabel: string;
+  openTicketIds: string[];
+  openTicketSubjects: string[];
+  hasNamedMartyrLink: boolean;
+  hasGroupOrPlaceholderOnly: boolean;
+  hasActiveLink: boolean;
+  hasExpertConfirmedLink: boolean;
+  relations: DashboardBookLinkedRelationRef[];
+  extractedPassages: ExtractedContentItem[];
+}
+
+export interface DashboardMartyrLinkedBookRef {
+  linkId: string;
+  bookKey: string;
+  tempBookId: string;
+  bookTitle: string;
+  publisher: string;
+  pageReferenceRaw: string;
+  sourceDescriptionRaw: string;
+  certaintyBucket: RelationCertaintyBucket;
+  certaintyLabel: string;
+  reviewStatus: string;
+  reviewerNote: string;
+}
+
+export interface DashboardMartyrListItem {
+  martyrKey: string;
+  displayCode: string;
+  customMartyrId?: string;
+  golzarId?: string;
+  fullName: string;
+  normalizedName: string;
+  fatherName: string;
+  gravePiece: string;
+  graveRow: string;
+  graveNumber: string;
+  graveAddress: string;
+  tehranStatus: TehranValidityStatus;
+  tehranEvidenceNote: string;
+  identityStatus: 'confirmed' | 'needs_verification';
+  identityStatusLabel: string;
+  homonymCountInBank: number;
+  hasExpertConfirmedRelation: boolean;
+  linkedBooksCount: number;
+  linkedBooks: DashboardMartyrLinkedBookRef[];
+  discrepancyWarnings: MartyrDiscrepancyWarning[];
+  customMatchCandidates: CustomMartyrBankCandidate[];
+}
+
+export interface DashboardRelationListItem {
+  linkId: string;
+  bookKey: string;
+  tempBookId: string;
+  bookTitle: string;
+  publisher: string;
+  martyrKey: string;
+  martyrDisplayCode: string;
+  martyrName: string;
+  graveAddress: string;
+  tehranStatus: TehranValidityStatus;
+  pageReferenceRaw: string;
+  sourceDescriptionRaw: string;
+  reviewerNote: string;
+  certaintyBucket: RelationCertaintyBucket;
+  certaintyLabel: string;
+  reviewStatus: string;
+  isPlaceholderOrGroup: boolean;
+  sourceFile: string;
+  sourceSheet: string;
+  sourceExcelRow: string;
+  extractedTexts: string[];
+}
+
+export interface ExecutiveDashboardExportV1 {
+  schema_id: 'ExecutiveDashboardExportV1';
+  schema_version: '1.0.0';
+  exportedAt: string;
+  exportedAtFa: string;
+  appliedFilterNote: string;
+  kpisSnapshot: DashboardSummaryResult;
+  books: Array<{
+    bookKey: string;
+    tempBookId: string;
+    source: 'catalog' | 'outside-list';
+    title: string;
+    publisher: string;
+    author: string;
+    locationDisplay: string;
+    subjectCategory: string;
+    description: string;
+    notes: string;
+    isbn: string;
+    fipa: string;
+    registrationNo: string;
+    managerialStatus: ManagerialBookStatusCode;
+    managerialStatusLabel: string;
+    openTicketIds: string[];
+    linkedMartyrKeys: string[];
+    linkedLinkIds: string[];
+  }>;
+  martyrs: Array<{
+    martyrKey: string;
+    displayCode: string;
+    customMartyrId?: string;
+    golzarId?: string;
+    fullName: string;
+    normalizedName: string;
+    fatherName: string;
+    gravePiece: string;
+    graveRow: string;
+    graveNumber: string;
+    graveAddress: string;
+    tehranStatus: TehranValidityStatus;
+    identityStatus: 'confirmed' | 'needs_verification';
+    homonymCountInBank: number;
+    linkedBookKeys: string[];
+    discrepancyWarnings: MartyrDiscrepancyWarning[];
+  }>;
+  relations: DashboardRelationListItem[];
+  extractedItems: ExtractedContentItem[];
+  pendingReviews: PendingReviewItem[];
+}
+
+export interface ExecutiveExportHistoryRecord {
+  exportId: string;
+  fileName: string;
+  fileType: 'excel' | 'json';
+  exportScope: 'dashboard_management' | 'filtered_books' | 'filtered_martyrs';
+  timestampIso: string;
+  timestampDisplay: string;
+  recordCount: number;
+  appliedFiltersSummary: string;
+  status: 'success' | 'failed';
+  errorMessage?: string;
 }

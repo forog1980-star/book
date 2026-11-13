@@ -38,7 +38,7 @@ function hasCompleteGraveInfo(lnk: BookMartyrLinkRecord): boolean {
   return Boolean(p && r && n && /\d/.test(p));
 }
 
-function classifySingleLinkCertainty(
+export function classifySingleLinkCertainty(
   lnk: BookMartyrLinkRecord,
   matchingAudit?: FieldAuditRecord
 ): RelationCertaintyBucket {
@@ -66,12 +66,10 @@ function classifySingleLinkCertainty(
     return 'needsReview';
   }
 
-  // ۳. تأییدشده توسط کارشناس (صراحتاً نیازمند برچسب تأیید کارشناس است؛ استخراج از توضیحات کافی نیست)
+  // ۳. تأییدشده توسط کارشناس (صراحتاً نیازمند برچسب صریح تأیید کارشناس است؛ صرف مزار کامل یا «قطعی» بودن کافی نیست)
   const isExplicitlyExpertLink =
     st === 'تاییدشده کارشناسی' ||
     st === 'تایید کارشناس' ||
-    st === 'تاییدشده' ||
-    st === 'تایید' ||
     st === 'تاییدشده و افزودهشده به پرونده' ||
     st === 'تاییدشده و افزوده شده به پرونده';
 
@@ -94,7 +92,8 @@ function classifySingleLinkCertainty(
     return 'needsReview';
   }
 
-  // ۵. احتمالی (پژوهش اصلی، تطبیق خودکار کتاب/توضیحات/مزار یا کاندید، بدون تأیید کارشناس)
+  // ۵. دارای مشخصات مزار یا پژوهش اولیه، اما بررسی‌نشده کارشناسی
+  // (توجه مدیریتی فاز دوم: این گروه هرگز «تأیید کارشناسی» یا «احتمالی قطعی» محسوب نمی‌شود)
   if (
     st === 'احتمالی' ||
     st === 'بررسی شده در پژوهش اصلی' ||
@@ -102,14 +101,13 @@ function classifySingleLinkCertainty(
     st.includes('تطبیق کتاب') ||
     st.includes('احتمالی') ||
     note.includes('کاندید') ||
-    st === 'قطعی' ||
     hasCompleteGraveInfo(lnk) ||
     cleanOptionalField(lnk.gravePieceRaw).includes('تهرانی')
   ) {
     return 'probable';
   }
 
-  // ۶. فاقد تعیین تکلیف (مانند «بررسی‌نشده» یا خالی بدون شواهد پژوهشی/مزار/تأیید کارشناس)
+  // ۶. بررسی‌نشده بدون مشخصات مزار یا مدرک پژوهشی
   return 'undetermined';
 }
 
@@ -126,8 +124,6 @@ function resolveLinkBookKey(
 }
 
 function classifyRelationKindStrict(lnk: BookMartyrLinkRecord): RelationKindValue {
-  // قانون سخت‌گیرانه فاز ۱: هرگز نوع ارتباط از صفحه خالی یا نام شیت «یک شهید» حدس زده نمی‌شود.
-  // فقط اگر فیلد صریح متادیتای نوع ارتباط در رکورد وجود داشته باشد ثبت می‌شود؛ در غیر این صورت «نامشخص».
   const explicit = (lnk as unknown as { relationKind?: string }).relationKind;
   const norm = normalizePersian(explicit);
   if (norm === 'کتاب اختصاصی شهید' || norm === 'dedicated') return 'کتاب اختصاصی شهید';
@@ -139,9 +135,8 @@ function classifyRelationKindStrict(lnk: BookMartyrLinkRecord): RelationKindValu
 
 /**
  * تحلیل‌گر مستقل روابط کتاب و شهید:
- * - تفکیک قطعی تأیید کارشناس / احتمالی / نیازمند بررسی / ردشده / فاقد تعیین تکلیف
- * - جلوگیری از شمارش مضاعف پیوندهای تکراری یا یکسان‌گرفتن تعداد ارتباط با تعداد شهید
- * - پرهیز از حدس نوع ارتباط (کتاب اختصاصی vs اشاره) از صفحه خالی یا تک‌شهیدی
+ * - تأیید کارشناسی فقط با وضعیت یا مدرک صریح کارشناسی شمارش می‌شود (۰ در داده پایه)
+ * - گروه ۲۷۹ مورد با عنوان مدیریتی «دارای مشخصات مزار، اما بررسی‌نشده کارشناسی» نمایش داده می‌شود
  */
 export function selectRelationAnalytics(
   inputs: ExecutiveDashboardInputs

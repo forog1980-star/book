@@ -1,0 +1,25 @@
+168202 src/App.tsx
+185992 src/components/QuickInventoryTab.tsx
+115627 src/components/AllMartyrsDatabaseTab.tsx
+  8261 src/utils/navigationHistory.ts
+ 37252 src/utils/indexedDbStorage.ts
+ 28996 src/utils/backupService.ts
+ 25744 src/utils/githubSyncService.ts
+  7127 firestore.rules
+ 88692 src/modules/excel-export/excelBuilderEngine.ts
+ 19801 src/modules/excel-export/fieldCatalog.ts
+   137 src/modules/excel-export/index.ts
+  4200 src/modules/excel-export/types.ts
+ 31762 src/modules/excel-export/ExcelExportConfigModal.tsx
+   525 src/modules/executive-dashboard/index.ts
+ 12772 src/modules/executive-dashboard/normalization.ts
+ 17353 src/modules/executive-dashboard/types.ts
+  3410 src/modules/executive-dashboard/selectors/dashboardSummarySelector.ts
+ 13095 src/modules/executive-dashboard/selectors/libraryAnalyticsSelector.ts
+ 10870 src/modules/executive-dashboard/selectors/martyrAnalyticsSelector.ts
+ 10602 src/modules/executive-dashboard/selectors/relationAnalyticsSelector.ts
+  4814 src/modules/executive-dashboard/selectors/reviewQueueSelector.ts
+  6049 src/modules/executive-dashboard/selectors/temporalAuditSelector.ts
+ 21629 src/modules/executive-dashboard/tests/executiveDashboardSelectors.test.ts
+  7660 src/modules/executive-dashboard/tests/realDataReconciliation.test.ts
+830572 total

@@ -6,8 +6,7 @@ import { selectReviewQueue } from './reviewQueueSelector';
 import { selectTemporalAudit } from './temporalAuditSelector';
 
 /**
- * تجمیع‌کننده نهایی داشبورد مدیریتی (فاز ۱ — خالص و مستقل از رابط کاربری):
- * محاسبه تمام شاخص‌ها، ۳ کارت کلیدی آینده صفحه خانه و جداول تفکیکی بدون هیچ عدد ثابت.
+ * تجمیع‌کننده نهایی داشبورد مدیریتی مرکز اسناد (فاز اول + دوم — خالص و واکنش‌گرا به State زنده):
  */
 export function selectExecutiveDashboardSummary(
   inputs: ExecutiveDashboardInputs
@@ -22,12 +21,15 @@ export function selectExecutiveDashboardSummary(
     relations.totalRawLinkRows - relations.certaintyByRawRows.rejected;
 
   const rb = library.reviewBreakdown;
+  const part = rb.managerialStatusPartition;
 
   return {
     martyrRelatedKpi: {
       title: 'مرتبط با شهدا',
       relatedBooksWithNamedMartyrsCount:
         relations.booksWithLinksBreakdown.booksWithNamedMartyrLinks,
+      relatedBooksGroupOnlyCount:
+        relations.booksWithLinksBreakdown.booksWithOnlyGroupOrPlaceholderLinks,
       relatedBooksIncludingGroupLinksCount:
         relations.booksWithLinksBreakdown.totalBooksWithActiveLinks,
       expertConfirmedRelatedBooksCount:
@@ -36,6 +38,9 @@ export function selectExecutiveDashboardSummary(
         martyrs.linkedMartyrsSummary.distinctNormalizedLinkedNamesCount,
       confirmedUniqueLinkedMartyrsCount:
         martyrs.linkedMartyrsSummary.confirmedUniqueLinkedMartyrsCount,
+      ambiguousOrUnverifiedLinkedNamesCount:
+        martyrs.linkedMartyrsSummary.ambiguousOrUnverifiedLinkedNamesCount,
+      expertConfirmedRelationsCount: relations.certaintyByRawRows.confirmedByExpert,
       activeRelationRowsCount,
       officialBankNamedMartyrsCount: martyrs.officialBank.namedMartyrRowsCount,
     },
@@ -51,12 +56,16 @@ export function selectExecutiveDashboardSummary(
     },
     bookReviewStatusKpi: {
       title: 'وضعیت بررسی کتاب‌ها',
+      completedWithoutOpenTicketCount: part.completedWithoutOpenTicketCount,
+      openBookTicketCount: part.openBookTicketCount,
+      unreviewedCount: part.unreviewedCount,
+      totalTrackedBooksCount: part.totalTrackedBooksCount,
       reviewedCount: rb.reviewedCount,
       reviewedWithoutMartyrLinkCount: rb.reviewedWithoutMartyrLinkCount,
       remainingForReviewCount: rb.remainingForReviewCount,
       eligibleForReviewCount: rb.eligibleForReviewCount,
       overlapRemainingAndEligibleCount: rb.overlapRemainingAndEligibleCount,
-      reconciliationNote: `بررسی‌شده (${rb.reviewedCount}) + باقی‌مانده (${rb.remainingForReviewCount}) = کل کتاب‌ها (${rb.totalTrackedBooksCount})؛ هم‌پوشانی باقی‌مانده با واجد شرایط بررسی = ${rb.overlapRemainingAndEligibleCount} و کتاب‌های بررسی‌شده دارای پیگیری باز = ${rb.reviewedBooksWithOpenRelationQueueCount}.`,
+      reconciliationNote: `افراز بدون هم‌پوشانی (گزینه ج): تکمیل‌شده بدون تیکت باز (${part.completedWithoutOpenTicketCount}) + دارای تیکت باز تکرار عنوان (${part.openBookTicketCount}) + بررسی‌نشده (${part.unreviewedCount}) = ${part.totalTrackedBooksCount} کتاب.`,
     },
     library,
     martyrs,

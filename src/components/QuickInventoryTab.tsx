@@ -20,7 +20,8 @@ import {
   ShieldCheck,
   AlertTriangle,
   Plus,
-  Users
+  Users,
+  ArrowRight
 } from 'lucide-react';
 import {
   BookCopyRecord,
@@ -73,6 +74,14 @@ interface QuickInventoryTabProps {
   loadedFileName: string;
   initialSearchQuery?: string;
   onClearInitialSearchQuery?: () => void;
+  initialDirectBookTarget?: {
+    rowKey?: string;
+    tempBookId?: string;
+    nonce?: number;
+  } | null;
+  onClearInitialDirectBookTarget?: () => void;
+  returnToDashboardLabel?: string;
+  onReturnToDashboardDossier?: () => void;
   onWorkbookLoaded: (
     fileName: string,
     sheetNames: string[],
@@ -119,6 +128,10 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
   loadedFileName,
   initialSearchQuery,
   onClearInitialSearchQuery,
+  initialDirectBookTarget,
+  onClearInitialDirectBookTarget,
+  returnToDashboardLabel,
+  onReturnToDashboardDossier,
   onWorkbookLoaded,
   onSwitchSheet,
   onUpdateColumnMap,
@@ -281,8 +294,54 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     }
   }, [initialSearchQuery, onClearInitialSearchQuery]);
 
-  // ثبت کشوی باز کتاب در پشته بازگشت (Back) بدون بستن فهرست کتاب‌ها حین کار
+  // بازشدن مستقیم پرونده اصلی یک کتاب هنگام انتقال از «داشبورد مدیریتی مرکز اسناد»
   useEffect(() => {
+    if (!initialDirectBookTarget) return;
+    const { rowKey, tempBookId } = initialDirectBookTarget;
+    let targetRow =
+      (rowKey ? catalogRows.find((r) => r.rowKey === rowKey) : undefined) ||
+      (tempBookId ? catalogRows.find((r) => r.tempBookId === tempBookId) : undefined);
+
+    // پشتیبانی از کتاب‌های ثبت‌شده خارج از فهرست اولیه (auditRecords)
+    if (!targetRow && rowKey && auditRecords[rowKey]) {
+      const aud = auditRecords[rowKey];
+      targetRow = {
+        rowKey: aud.key,
+        rowIndex: 2,
+        tempBookId: aud.tempBookId,
+        titleRaw: aud.title,
+        publisherRaw: aud.publisher,
+        descriptionRaw: aud.descriptionRaw || '',
+        categoryRaw: aud.category,
+        authorRaw: aud.author,
+        isbnRaw: aud.isbn || '',
+        fipaRaw: aud.fipa || '',
+        registrationNoRaw: aud.registrationNo || '',
+        locationRaw: aud.location,
+        countedCopiesRaw: aud.countedCopies,
+        reviewStatusRaw: 'بررسی‌نشده',
+        noteRaw: aud.notes,
+        backupSourceSheet: aud.sheet || 'ثبت خارج از فهرست',
+        backupSourceRow: '—',
+        allValues: []
+      };
+    }
+
+    if (targetRow) {
+      handleSelectRow(targetRow, true);
+      setTimeout(() => {
+        const el = document.getElementById('section-3-physical-audit');
+        el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 60);
+    }
+    onClearInitialDirectBookTarget?.();
+  }, [initialDirectBookTarget]);
+
+  // ثبت کشوی باز کتاب یا بازگشت مستقیم به پرونده خلاصه کتاب در داشبورد
+  useEffect(() => {
+    if (onReturnToDashboardDossier) {
+      return registerInnerBackStep('quick-inventory-dashboard-return', onReturnToDashboardDossier);
+    }
     if (!showSection3Drawer && !selectedRow) return;
     return registerInnerBackStep('quick-inventory-drawer', () => {
       if (showSection3Drawer) {
@@ -297,7 +356,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
         }, 40);
       }
     });
-  }, [showSection3Drawer, selectedRow]);
+  }, [showSection3Drawer, selectedRow, onReturnToDashboardDossier]);
 
   // Helper to infer columns from headers of «فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx»
   const inferColumnsFromHeaders = (hdrs: string[]) => {
@@ -1486,6 +1545,32 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
               بستن پیام
             </button>
           </div>
+        </div>
+      )}
+
+      {/* بنر بازگشت مستقیم به پرونده خلاصه کتاب در داشبورد مدیریتی */}
+      {onReturnToDashboardDossier && (
+        <div
+          data-testid="quick-inventory-dashboard-return-banner"
+          className="bg-[#FAF5EE] border-2 border-[#6B3E26] rounded-2xl p-3 sm:p-3.5 flex flex-wrap items-center justify-between gap-2.5 text-xs text-[#332218]"
+        >
+          <div className="space-y-0.5">
+            <div className="font-bold text-[#6B3E26]">
+              پرونده اصلی کتاب از داشبورد مدیریتی باز شد
+            </div>
+            <div className="text-[11px] text-[#5C4636]">
+              پس از مشاهده یا ویرایش اطلاعات کتاب در بخش ۳، می‌توانید به همان پرونده خلاصه در داشبورد برگردید.
+            </div>
+          </div>
+          <button
+            type="button"
+            data-testid="return-to-dashboard-book-dossier-btn"
+            onClick={onReturnToDashboardDossier}
+            className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer shrink-0"
+          >
+            <ArrowRight className="w-4 h-4 shrink-0" />
+            <span>{returnToDashboardLabel || 'بازگشت به پرونده خلاصه کتاب در داشبورد'}</span>
+          </button>
         </div>
       )}
 
