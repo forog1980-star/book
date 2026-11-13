@@ -50,6 +50,4 @@ export {
   type DashboardDossierStackEntry,
 } from './components/ExecutiveDashboardView';
 export { ExecutiveOverviewCards } from './components/ExecutiveOverviewCards';
-export { ExecutiveDetailedReportsView } from './components/ExecutiveDetailedReportsView';
-export { BookSummaryDossierModal } from './components/BookSummaryDossierModal';
-export { MartyrSummaryDossierModal } from './components/MartyrSummaryDossierModal';
+export { StatisticsAndReportsRouteView } from './components/StatisticsAndReportsRouteView';

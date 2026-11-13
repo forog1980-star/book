@@ -58,6 +58,14 @@ export function selectThreeCardOverviewFromSummary(
     reviewQueueTotalCount
   );
 
+  const completedByType =
+    reviewQueueCompletedCount > 0
+      ? Object.entries(pv.resolvedByMainSheet || {})
+          .filter(([, count]) => count > 0)
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'fa'))
+          .map(([label, count]) => ({ label, count }))
+      : [];
+
   const exQueue = summary.reviewQueue.extractedItemsQueue;
   const activeExtractedOutputsCount = Math.max(
     0,
@@ -92,6 +100,7 @@ export function selectThreeCardOverviewFromSummary(
       reviewQueueRemainingCount,
       reviewQueueCompletionPercent: workPct.primaryPercent,
       reviewQueueRemainingPercent: workPct.remainingPercent,
+      completedByType,
       activeExtractedOutputsCount,
       expertApprovedOutputsCount: exQueue.expertApprovedCount,
       pendingExtractedReviewCount: exQueue.needsReviewCount,

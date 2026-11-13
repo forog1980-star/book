@@ -19,6 +19,7 @@ export function selectReviewQueue(
   let resolvedCount = 0;
   let otherStatusCount = 0;
   const openByMainSheet: Record<string, number> = {};
+  const resolvedByMainSheet: Record<string, number> = {};
   const openByIssueType: Record<string, number> = {};
 
   let pvBookBacklog = 0;
@@ -37,6 +38,8 @@ export function selectReviewQueue(
       else pvLinkBacklog += 1;
     } else if (st === 'بررسی شده' || st === 'بررسی‌شده' || st === 'بسته' || st === 'ردشده با دلیل') {
       resolvedCount += 1;
+      const sheetName = (pv.mainSheet || 'نامشخص').trim();
+      resolvedByMainSheet[sheetName] = (resolvedByMainSheet[sheetName] || 0) + 1;
     } else {
       otherStatusCount += 1;
     }
@@ -104,6 +107,7 @@ export function selectReviewQueue(
       resolvedCount,
       otherStatusCount,
       openByMainSheet,
+      resolvedByMainSheet,
       openByIssueType,
     },
     multiMartyrGroups: {

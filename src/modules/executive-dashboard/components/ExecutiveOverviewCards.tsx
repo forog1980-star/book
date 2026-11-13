@@ -97,6 +97,17 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
 
   const { libraryCard, martyrsCard, workAndOutputsCard } = overview;
 
+  const isLibraryEmpty = libraryCard.totalTrackedBooksCount === 0;
+  const hasRelationCounts =
+    martyrsCard.expertConfirmedRelationsCount > 0 ||
+    martyrsCard.needsReviewRelationsCount > 0;
+  const isMartyrsEmpty =
+    martyrsCard.totalLinkedMartyrsCount === 0 && !hasRelationCounts;
+  const isWorkEmpty =
+    workAndOutputsCard.reviewQueueTotalCount === 0 &&
+    workAndOutputsCard.activeExtractedOutputsCount === 0 &&
+    workAndOutputsCard.exportHistoryCount === 0;
+
   return (
     <div
       data-testid="executive-overview-screen"
@@ -207,68 +218,79 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                   <span className="text-xs text-[#78604E]">وضعیت بررسی کتاب‌ها</span>
                 </div>
 
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0 space-y-1">
-                    <div className="text-3xl font-bold text-[#332218] tabular-nums leading-tight">
-                      {toPersianDigits(libraryCard.totalTrackedBooksCount)}
+                {isLibraryEmpty ? (
+                  <div
+                    data-testid="library-card-empty"
+                    className="py-8 text-center text-sm text-[#78604E]"
+                  >
+                    اطلاعات موجود نیست
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <div className="text-3xl font-bold text-[#332218] tabular-nums leading-tight">
+                        {toPersianDigits(libraryCard.totalTrackedBooksCount)}
+                      </div>
+                      <div className="text-xs sm:text-sm text-[#5C4636]">
+                        کتاب تحت پایش
+                      </div>
                     </div>
-                    <div className="text-xs sm:text-sm text-[#5C4636]">
-                      کتاب تحت پایش
-                    </div>
+
+                    <OverviewDonutChart
+                      primaryPercent={libraryCard.completedPercent}
+                      primaryColor="#2E6F40"
+                      centerValueText={toPersianDigits(libraryCard.completedPercent)}
+                      centerLabel="تکمیل‌شده"
+                      ariaLabel={`پیشرفت بررسی کتاب‌ها ${toPersianDigits(libraryCard.completedPercent)} درصد`}
+                    />
                   </div>
-
-                  <OverviewDonutChart
-                    primaryPercent={libraryCard.completedPercent}
-                    primaryColor="#2E6F40"
-                    centerValueText={toPersianDigits(libraryCard.completedPercent)}
-                    centerLabel="تکمیل‌شده"
-                    ariaLabel={`پیشرفت بررسی کتاب‌ها ${toPersianDigits(libraryCard.completedPercent)} درصد`}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2.5">
-                <div className="divide-y divide-[#EFE4D6] border-t border-[#EFE4D6] text-xs sm:text-sm tabular-nums">
-                  <div className="py-2.5 flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-2 text-[#5C4636] min-w-0">
-                      <span
-                        className="w-2.5 h-2.5 rounded-full bg-[#2E6F40] shrink-0"
-                        aria-hidden="true"
-                      />
-                      <span className="truncate">بررسی‌شده و تکمیل‌شده</span>
-                    </span>
-                    <span className="font-bold text-[#332218] shrink-0">
-                      {toPersianDigits(libraryCard.completedCount)} کتاب{' '}
-                      <span className="font-normal text-[#78604E]">
-                        ({toPersianDigits(libraryCard.completedPercent)}٪)
-                      </span>
-                    </span>
-                  </div>
-
-                  <div className="py-2.5 flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-2 text-[#5C4636] min-w-0">
-                      <span
-                        className="w-2.5 h-2.5 rounded-full bg-[#C9B49B] shrink-0"
-                        aria-hidden="true"
-                      />
-                      <span className="truncate">باقیمانده برای بررسی</span>
-                    </span>
-                    <span className="font-bold text-[#332218] shrink-0">
-                      {toPersianDigits(libraryCard.remainingForReviewCount)} کتاب{' '}
-                      <span className="font-normal text-[#78604E]">
-                        ({toPersianDigits(libraryCard.remainingPercent)}٪)
-                      </span>
-                    </span>
-                  </div>
-                </div>
-
-                {libraryCard.openDuplicateTicketCount > 0 && (
-                  <p className="text-xs text-[#78604E] pt-1">
-                    شامل {toPersianDigits(libraryCard.openDuplicateTicketCount)} کتاب دارای
-                    پرونده باز تکرار عنوان
-                  </p>
                 )}
               </div>
+
+              {!isLibraryEmpty && (
+                <div className="space-y-2.5">
+                  <div className="divide-y divide-[#EFE4D6] border-t border-[#EFE4D6] text-xs sm:text-sm tabular-nums">
+                    <div className="py-2.5 flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-2 text-[#5C4636] min-w-0">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full bg-[#2E6F40] shrink-0"
+                          aria-hidden="true"
+                        />
+                        <span className="truncate">بررسی‌شده و تکمیل‌شده</span>
+                      </span>
+                      <span className="font-bold text-[#332218] shrink-0">
+                        {toPersianDigits(libraryCard.completedCount)} کتاب{' '}
+                        <span className="font-normal text-[#78604E]">
+                          ({toPersianDigits(libraryCard.completedPercent)}٪)
+                        </span>
+                      </span>
+                    </div>
+
+                    <div className="py-2.5 flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-2 text-[#5C4636] min-w-0">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full bg-[#C9B49B] shrink-0"
+                          aria-hidden="true"
+                        />
+                        <span className="truncate">باقیمانده برای بررسی</span>
+                      </span>
+                      <span className="font-bold text-[#332218] shrink-0">
+                        {toPersianDigits(libraryCard.remainingForReviewCount)} کتاب{' '}
+                        <span className="font-normal text-[#78604E]">
+                          ({toPersianDigits(libraryCard.remainingPercent)}٪)
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+
+                  {libraryCard.openDuplicateTicketCount > 0 && (
+                    <p className="text-xs text-[#78604E] pt-1">
+                      شامل {toPersianDigits(libraryCard.openDuplicateTicketCount)} کتاب دارای
+                      پرونده باز تکرار عنوان
+                    </p>
+                  )}
+                </div>
+              )}
             </section>
 
             {/* کارت ۲: شهدا */}
@@ -304,6 +326,13 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                       در حال بررسی احراز هویت شهدای مرتبط...
                     </p>
                   </div>
+                ) : isMartyrsEmpty ? (
+                  <div
+                    data-testid="martyrs-card-empty"
+                    className="py-8 text-center text-sm text-[#78604E]"
+                  >
+                    اطلاعات موجود نیست
+                  </div>
                 ) : (
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0 space-y-1">
@@ -333,7 +362,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
               </div>
 
               <div className="space-y-2">
-                {!isMartyrBankLoading && (
+                {!isMartyrBankLoading && !isMartyrsEmpty && (
                   <div className="divide-y divide-[#EFE4D6] border-t border-[#EFE4D6] text-xs sm:text-sm tabular-nums">
                     <div className="py-2 flex items-center justify-between gap-2">
                       <span className="flex items-center gap-2 text-[#5C4636] min-w-0">
@@ -367,23 +396,27 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                       </span>
                     </div>
 
-                    <div className="py-2 flex items-center justify-between gap-2">
-                      <span className="text-[#5C4636] truncate">
-                        ارتباط تأییدشده کارشناسی
-                      </span>
-                      <span className="font-bold text-[#2E6F40] shrink-0">
-                        {toPersianDigits(martyrsCard.expertConfirmedRelationsCount)} مورد
-                      </span>
-                    </div>
+                    {hasRelationCounts && (
+                      <>
+                        <div className="py-2 flex items-center justify-between gap-2">
+                          <span className="text-[#5C4636] truncate">
+                            ارتباط تأییدشده کارشناسی
+                          </span>
+                          <span className="font-bold text-[#2E6F40] shrink-0">
+                            {toPersianDigits(martyrsCard.expertConfirmedRelationsCount)} مورد
+                          </span>
+                        </div>
 
-                    <div className="py-2 flex items-center justify-between gap-2">
-                      <span className="text-[#5C4636] truncate">
-                        ارتباط در انتظار بررسی
-                      </span>
-                      <span className="font-bold text-[#332218] shrink-0">
-                        {toPersianDigits(martyrsCard.needsReviewRelationsCount)} مورد
-                      </span>
-                    </div>
+                        <div className="py-2 flex items-center justify-between gap-2">
+                          <span className="text-[#5C4636] truncate">
+                            ارتباط در انتظار بررسی
+                          </span>
+                          <span className="font-bold text-[#332218] shrink-0">
+                            {toPersianDigits(martyrsCard.needsReviewRelationsCount)} مورد
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -421,79 +454,113 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                   <span className="text-xs text-[#78604E]">پیگیری و دستاوردها</span>
                 </div>
 
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0 space-y-1">
-                    <div className="text-3xl font-bold text-[#332218] tabular-nums leading-tight">
-                      {toPersianDigits(workAndOutputsCard.reviewQueueTotalCount)}
+                {isWorkEmpty ? (
+                  <div
+                    data-testid="work-card-empty"
+                    className="py-8 text-center text-sm text-[#78604E]"
+                  >
+                    اطلاعات موجود نیست
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <div className="text-3xl font-bold text-[#332218] tabular-nums leading-tight">
+                        {toPersianDigits(workAndOutputsCard.reviewQueueTotalCount)}
+                      </div>
+                      <div className="text-xs sm:text-sm text-[#5C4636]">
+                        مورد در صف پیگیری
+                      </div>
                     </div>
-                    <div className="text-xs sm:text-sm text-[#5C4636]">
-                      مورد در صف پیگیری
-                    </div>
+
+                    <OverviewDonutChart
+                      primaryPercent={workAndOutputsCard.reviewQueueCompletionPercent}
+                      primaryColor="#2E6F40"
+                      centerValueText={toPersianDigits(
+                        workAndOutputsCard.reviewQueueCompletionPercent
+                      )}
+                      centerLabel="انجام‌شده"
+                      ariaLabel={`پیشرفت صف پیگیری ${toPersianDigits(workAndOutputsCard.reviewQueueCompletionPercent)} درصد`}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {!isWorkEmpty && (
+                <div className="divide-y divide-[#EFE4D6] border-t border-[#EFE4D6] text-xs sm:text-sm tabular-nums">
+                  <div className="py-2 flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-[#5C4636] min-w-0">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full bg-[#2E6F40] shrink-0"
+                        aria-hidden="true"
+                      />
+                      <span className="truncate">انجام‌شده در صف پیگیری</span>
+                    </span>
+                    <span className="font-bold text-[#332218] shrink-0">
+                      {toPersianDigits(workAndOutputsCard.reviewQueueCompletedCount)} مورد{' '}
+                      <span className="font-normal text-[#78604E]">
+                        ({toPersianDigits(workAndOutputsCard.reviewQueueCompletionPercent)}٪)
+                      </span>
+                    </span>
                   </div>
 
-                  <OverviewDonutChart
-                    primaryPercent={workAndOutputsCard.reviewQueueCompletionPercent}
-                    primaryColor="#2E6F40"
-                    centerValueText={toPersianDigits(
-                      workAndOutputsCard.reviewQueueCompletionPercent
+                  {workAndOutputsCard.reviewQueueCompletedCount > 0 &&
+                    workAndOutputsCard.completedByType.length > 0 && (
+                      <div
+                        data-testid="work-completed-by-type"
+                        className="py-2 pr-4 space-y-1 text-xs text-[#78604E]"
+                      >
+                        <div className="font-medium text-[#5C4636]">
+                          تفکیک کارهای انجام‌شده:
+                        </div>
+                        {workAndOutputsCard.completedByType.map((item) => (
+                          <div
+                            key={item.label}
+                            className="flex items-center justify-between gap-2"
+                          >
+                            <span className="truncate">{item.label}</span>
+                            <span className="font-bold text-[#332218] shrink-0">
+                              {toPersianDigits(item.count)} مورد
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     )}
-                    centerLabel="انجام‌شده"
-                    ariaLabel={`پیشرفت صف پیگیری ${toPersianDigits(workAndOutputsCard.reviewQueueCompletionPercent)} درصد`}
-                  />
-                </div>
-              </div>
 
-              <div className="divide-y divide-[#EFE4D6] border-t border-[#EFE4D6] text-xs sm:text-sm tabular-nums">
-                <div className="py-2 flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-2 text-[#5C4636] min-w-0">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full bg-[#2E6F40] shrink-0"
-                      aria-hidden="true"
-                    />
-                    <span className="truncate">انجام‌شده در صف پیگیری</span>
-                  </span>
-                  <span className="font-bold text-[#332218] shrink-0">
-                    {toPersianDigits(workAndOutputsCard.reviewQueueCompletedCount)} مورد{' '}
-                    <span className="font-normal text-[#78604E]">
-                      ({toPersianDigits(workAndOutputsCard.reviewQueueCompletionPercent)}٪)
+                  <div className="py-2 flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 text-[#5C4636] min-w-0">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full bg-[#C9B49B] shrink-0"
+                        aria-hidden="true"
+                      />
+                      <span className="truncate">باقیمانده در صف پیگیری</span>
                     </span>
-                  </span>
-                </div>
-
-                <div className="py-2 flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-2 text-[#5C4636] min-w-0">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full bg-[#C9B49B] shrink-0"
-                      aria-hidden="true"
-                    />
-                    <span className="truncate">باقیمانده در صف پیگیری</span>
-                  </span>
-                  <span className="font-bold text-[#332218] shrink-0">
-                    {toPersianDigits(workAndOutputsCard.reviewQueueRemainingCount)} مورد{' '}
-                    <span className="font-normal text-[#78604E]">
-                      ({toPersianDigits(workAndOutputsCard.reviewQueueRemainingPercent)}٪)
+                    <span className="font-bold text-[#332218] shrink-0">
+                      {toPersianDigits(workAndOutputsCard.reviewQueueRemainingCount)} مورد{' '}
+                      <span className="font-normal text-[#78604E]">
+                        ({toPersianDigits(workAndOutputsCard.reviewQueueRemainingPercent)}٪)
+                      </span>
                     </span>
-                  </span>
-                </div>
+                  </div>
 
-                <div className="py-2 flex items-center justify-between gap-2">
-                  <span className="text-[#5C4636] truncate">
-                    خروجی‌های پژوهشی ثبت‌شده
-                  </span>
-                  <span className="font-bold text-[#332218] shrink-0">
-                    {toPersianDigits(workAndOutputsCard.activeExtractedOutputsCount)} مورد
-                  </span>
-                </div>
+                  <div className="py-2 flex items-center justify-between gap-2">
+                    <span className="text-[#5C4636] truncate">
+                      خروجی‌های پژوهشی ثبت‌شده
+                    </span>
+                    <span className="font-bold text-[#332218] shrink-0">
+                      {toPersianDigits(workAndOutputsCard.activeExtractedOutputsCount)} مورد
+                    </span>
+                  </div>
 
-                <div className="py-2 flex items-center justify-between gap-2">
-                  <span className="text-[#5C4636] truncate">
-                    گزارش‌های مدیریتی صادرشده
-                  </span>
-                  <span className="font-bold text-[#332218] shrink-0">
-                    {toPersianDigits(workAndOutputsCard.exportHistoryCount)} گزارش
-                  </span>
+                  <div className="py-2 flex items-center justify-between gap-2">
+                    <span className="text-[#5C4636] truncate">
+                      گزارش‌های مدیریتی صادرشده
+                    </span>
+                    <span className="font-bold text-[#332218] shrink-0">
+                      {toPersianDigits(workAndOutputsCard.exportHistoryCount)} گزارش
+                    </span>
+                  </div>
                 </div>
-              </div>
+              )}
             </section>
           </div>
 

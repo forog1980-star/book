@@ -27,8 +27,7 @@ import {
   ArrowRight,
   SlidersHorizontal,
   ChevronDown,
-  ChevronUp,
-  LayoutDashboard
+  ChevronUp
 } from 'lucide-react';
 import {
   AuditLogEntry,
@@ -130,11 +129,10 @@ import {
 import { getLastGitHubSyncTimeFa, performManualGitHubSync } from './utils/githubSyncService';
 import {
   ExecutiveDashboardView,
+  StatisticsAndReportsRouteView,
   DEFAULT_EXECUTIVE_DASHBOARD_STATE,
   buildExecutiveDashboardInputs,
-  type ExecutiveDashboardViewState,
-  type DashboardBookListItem,
-  type DashboardMartyrListItem
+  type ExecutiveDashboardViewState
 } from './modules/executive-dashboard';
 
 // عنوان و شناسه اختصاصی پایگاه داده در حافظه گوشی و مرورگر: book
@@ -182,7 +180,49 @@ export type MainMenuTab =
   | 'smart_search'
   | 'research'
   | 'management'
-  | 'executive_dashboard';
+  | 'executive_dashboard'
+  | 'executive_statistics';
+
+const ExecutiveDashboardNavIcon: React.FC<{ active?: boolean }> = ({ active = false }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={active ? 2 : 1.75}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className="w-5 h-5 shrink-0"
+    aria-hidden="true"
+  >
+    <rect
+      x="3"
+      y="4"
+      width="5"
+      height="16"
+      rx="1.2"
+      fill={active ? 'currentColor' : 'none'}
+      fillOpacity={active ? 0.16 : 0}
+    />
+    <rect
+      x="9.5"
+      y="4"
+      width="5"
+      height="16"
+      rx="1.2"
+      fill={active ? 'currentColor' : 'none'}
+      fillOpacity={active ? 0.16 : 0}
+    />
+    <rect
+      x="16"
+      y="4"
+      width="5"
+      height="16"
+      rx="1.2"
+      fill={active ? 'currentColor' : 'none'}
+      fillOpacity={active ? 0.16 : 0}
+    />
+  </svg>
+);
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<MainMenuTab>('home');
@@ -310,7 +350,10 @@ export default function App() {
   }, [requestLoadGolzarBank]);
 
   useEffect(() => {
-    if (activeTab === 'executive_dashboard' && golzarLoadState === 'idle') {
+    if (
+      (activeTab === 'executive_dashboard' || activeTab === 'executive_statistics') &&
+      golzarLoadState === 'idle'
+    ) {
       void requestLoadGolzarBank();
     }
   }, [activeTab, golzarLoadState, requestLoadGolzarBank]);
@@ -1252,7 +1295,7 @@ export default function App() {
   // ورودی زنده داشبورد مدیریتی از State عملیاتی اصلی (بدون مصرف پیوندهای خودکار RL-28K)
   const executiveDashboardInputs = React.useMemo(
     () =>
-      activeTab === 'executive_dashboard'
+      activeTab === 'executive_dashboard' || activeTab === 'executive_statistics'
         ? buildExecutiveDashboardInputs({
             catalogRows,
             auditRecords,
@@ -2104,6 +2147,10 @@ export default function App() {
     },
     executive_dashboard: {
       title: 'داشبورد مدیریتی مرکز اسناد',
+      description: ''
+    },
+    executive_statistics: {
+      title: 'آمار و گزارش‌های تفصیلی',
       description: ''
     }
   };
@@ -3710,7 +3757,7 @@ export default function App() {
           </div>
         )}
 
-        {/* EXECUTIVE DASHBOARD (داشبورد مدیریتی مرکز اسناد — ماژول مستقل با نمای سه‌کادره و گزارش‌های تفصیلی) */}
+        {/* EXECUTIVE DASHBOARD (ورود مستقیم به نمای سه‌کادره داشبورد مدیریتی بدون صفحه واسط قدیمی) */}
         {activeTab === 'executive_dashboard' && executiveDashboardInputs && (
           <ExecutiveDashboardView
             inputs={executiveDashboardInputs}
@@ -3737,37 +3784,32 @@ export default function App() {
                 typeof updater === 'function' ? updater(prev) : { ...prev, ...updater }
               )
             }
-            onOpenOriginalBookRecord={(book: DashboardBookListItem) => {
-              setLibrarySubView('catalog');
-              setLibraryReturnToDashboardDossier(true);
-              setLibraryDirectBookTarget({
-                rowKey: book.bookKey,
-                tempBookId: book.tempBookId,
-                nonce: Date.now()
-              });
-              setActiveTab('library');
-            }}
-            onOpenOriginalMartyrRecord={(martyr: DashboardMartyrListItem) => {
-              setMartyrsCrossTabTarget({
-                martyrId: martyr.customMartyrId || martyr.golzarId,
-                fullName: martyr.fullName,
-                normalizedName: martyr.normalizedName,
-                gravePiece: martyr.gravePiece || undefined,
-                graveRow: martyr.graveRow || undefined,
-                graveNumber: martyr.graveNumber || undefined,
-                sourceBookDossierId: null,
-                sourceMartyrDossierName: martyr.fullName,
-                returnTarget: 'executive_dashboard',
-                sourceDashboardMartyrKey: martyr.martyrKey,
-                timestamp: Date.now()
-              });
-              setActiveTab('martyrs');
+            onOpenDetailedReports={() => {
+              setShowDeviceSyncDrawer(false);
+              setActiveTab('executive_statistics');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onRequestLoadGolzarBank={() => {
               void requestLoadGolzarBank();
             }}
-            onNotify={showNotify}
+          />
+        )}
+
+        {/* EXECUTIVE STATISTICS & REPORTS ROUTE (مسیر مستقل آماده توسعه برای آمار و گزارش‌های تفصیلی) */}
+        {activeTab === 'executive_statistics' && (
+          <StatisticsAndReportsRouteView
+            onBackToDashboard={() => {
+              if (
+                navHistoryRef.current.length > 0 &&
+                navHistoryRef.current[navHistoryRef.current.length - 1].tab ===
+                  'executive_dashboard'
+              ) {
+                navHistoryRef.current.pop();
+              }
+              isPoppingHistoryRef.current = true;
+              setActiveTab('executive_dashboard');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
           />
         )}
         </div>
@@ -3793,12 +3835,12 @@ export default function App() {
         </button>
       )}
 
-      {/* نوار ناوبری پایین صفحه: حفظ کامل ۵ برگه اصلی + کلید مرکزی برجسته و دایره‌ای داشبورد */}
+      {/* نوار ناوبری پایین صفحه: ۵ برگه اصلی + کلید هماهنگ و روشن داشبورد سه‌کادره */}
       <nav
         aria-label="منوی اصلی و داشبورد پایین صفحه"
         className="fixed bottom-0 inset-x-0 w-full max-w-full overflow-visible z-40 bg-[#FDF8F2]/95 backdrop-blur-md border-t border-[#E6D5C1] shadow-sm pb-[env(safe-area-inset-bottom,0px)]"
       >
-        <div className="max-w-6xl mx-auto grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_58px_minmax(0,1fr)_minmax(0,1fr)] items-center h-16 px-1 sm:px-4 gap-0.5">
+        <div className="max-w-6xl mx-auto grid grid-cols-6 items-center h-16 px-1 sm:px-4 gap-0.5">
           <button
             type="button"
             onClick={() => {
@@ -3862,43 +3904,47 @@ export default function App() {
             </span>
           </button>
 
-          {/* ستون اختصاصی میانی: کلید دایره‌ای برجسته داشبورد مدیریتی بدون هم‌پوشانی با تب‌های کناری */}
-          <div className="flex flex-col items-center justify-center relative -mt-4">
-            <button
-              type="button"
-              data-testid="bottom-nav-executive-dashboard-btn"
-              aria-label="داشبورد مدیریتی مرکز اسناد"
-              onClick={() => {
-                clearMartyrsCrossTabTarget();
-                setLibraryReturnToDashboardDossier(false);
-                setShowDeviceSyncDrawer(false);
-                setExecutiveDashboardState((prev) => ({
-                  ...prev,
-                  subView: 'overview',
-                  dossierStack: [],
-                  scrollTop: 0
-                }));
-                setActiveTab('executive_dashboard');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              className={`w-12 h-12 rounded-full border-2 border-[#FDF8F2] shadow-md flex items-center justify-center cursor-pointer transition-transform active:scale-95 ${
-                activeTab === 'executive_dashboard' && !showDeviceSyncDrawer
-                  ? 'bg-[#6B3E26] text-white ring-2 ring-[#6B3E26]/30'
-                  : 'bg-[#8C3B2B] hover:bg-[#702D20] text-[#FDF8F2]'
-              }`}
-            >
-              <LayoutDashboard className="w-5 h-5 shrink-0" />
-            </button>
-            <span
-              className={`text-[10px] mt-0.5 whitespace-nowrap leading-none font-bold ${
-                activeTab === 'executive_dashboard' && !showDeviceSyncDrawer
-                  ? 'text-[#6B3E26]'
-                  : 'text-[#5C4636]'
-              }`}
-            >
+          {/* کلید هم‌تراز، روشن و هماهنگ داشبورد مدیریتی با آیکن سه‌کادره */}
+          <button
+            type="button"
+            data-testid="bottom-nav-executive-dashboard-btn"
+            aria-label="داشبورد مدیریتی مرکز اسناد"
+            aria-current={
+              (activeTab === 'executive_dashboard' || activeTab === 'executive_statistics') &&
+              !showDeviceSyncDrawer
+                ? 'page'
+                : undefined
+            }
+            onClick={() => {
+              clearMartyrsCrossTabTarget();
+              setLibraryReturnToDashboardDossier(false);
+              setShowDeviceSyncDrawer(false);
+              setExecutiveDashboardState((prev) => ({
+                ...prev,
+                subView: 'overview',
+                dossierStack: [],
+                scrollTop: 0
+              }));
+              setActiveTab('executive_dashboard');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className={`min-w-0 min-h-[48px] flex flex-col items-center justify-center rounded-xl transition-colors px-0.5 cursor-pointer border ${
+              (activeTab === 'executive_dashboard' || activeTab === 'executive_statistics') &&
+              !showDeviceSyncDrawer
+                ? 'text-[#6B3E26] font-bold bg-[#F3E4D2] border-[#DFC9AE]'
+                : 'text-[#755C48] hover:bg-[#F5E6D3]/50 border-transparent'
+            }`}
+          >
+            <ExecutiveDashboardNavIcon
+              active={
+                (activeTab === 'executive_dashboard' || activeTab === 'executive_statistics') &&
+                !showDeviceSyncDrawer
+              }
+            />
+            <span className="text-[10px] sm:text-xs mt-1 truncate max-w-full whitespace-nowrap">
               داشبورد
             </span>
-          </div>
+          </button>
 
           <button
             type="button"

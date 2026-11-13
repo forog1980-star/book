@@ -863,6 +863,7 @@ test('16 - سلکتور نمای سه‌کادره: ایمنی تقسیم بر �
   assert.equal(emptyOverview.libraryCard.remainingPercent, 0);
   assert.equal(emptyOverview.martyrsCard.confirmedIdentityPercent, 0);
   assert.equal(emptyOverview.workAndOutputsCard.reviewQueueCompletionPercent, 0);
+  assert.deepEqual(emptyOverview.workAndOutputsCard.completedByType, []);
 
   // داده زنده اولیه (فقط در حافظه موقت تست)
   const catalogRows: ReferenceCatalogRow[] = [
@@ -942,6 +943,7 @@ test('16 - سلکتور نمای سه‌کادره: ایمنی تقسیم بر �
   assert.equal(before.martyrsCard.needsReviewRelationsCount, 1);
   assert.equal(before.workAndOutputsCard.reviewQueueCompletedCount, 0);
   assert.equal(before.workAndOutputsCard.reviewQueueRemainingCount, 2);
+  assert.deepEqual(before.workAndOutputsCard.completedByType, []);
   assert.equal(before.workAndOutputsCard.exportHistoryCount, 1);
 
   // تغییر زنده بدون reload: تأیید یک ارتباط، بستن دو تیکت PV، ثبت یک خروجی جدید
@@ -990,11 +992,12 @@ test('16 - سلکتور نمای سه‌کادره: ایمنی تقسیم بر �
   assert.equal(after.workAndOutputsCard.reviewQueueCompletedCount, 2);
   assert.equal(after.workAndOutputsCard.reviewQueueCompletionPercent, 100);
   assert.equal(after.workAndOutputsCard.reviewQueueRemainingPercent, 0);
+  assert.equal(after.workAndOutputsCard.completedByType.length, 2);
   assert.equal(after.workAndOutputsCard.activeExtractedOutputsCount, 1);
   assert.equal(after.workAndOutputsCard.exportHistoryCount, 2);
 });
 
-test('17 - پاک‌سازی کامل صفحه اصلی داشبورد سه‌کادره: نبود اقلام ممنوعه فنی و وجود فقط یک کلید ورود تفصیلی', () => {
+test('17 - پاک‌سازی کامل صفحه سه‌کادره: نبود اقلام فنی یا اعداد فرضی نمونه و وجود وضعیت «اطلاعات موجود نیست»', () => {
   const overviewSource = fs.readFileSync(
     path.join(process.cwd(), 'src/modules/executive-dashboard/components/ExecutiveOverviewCards.tsx'),
     'utf8'
@@ -1004,7 +1007,7 @@ test('17 - پاک‌سازی کامل صفحه اصلی داشبورد سه‌ک
     'utf8'
   );
 
-  const bannedInOverview = [
+  const bannedTokens = [
     '۲۸٬۳۶۸',
     '28368',
     '23751',
@@ -1018,14 +1021,72 @@ test('17 - پاک‌سازی کامل صفحه اصلی داشبورد سه‌ک
     'بازگشت به خانه',
     'اکسل مدیریتی (۵ شیت)',
     'خروجی JSON مدیریتی',
+    // اعداد نمونه فرضی در صورت‌جلسه‌ها (نباید به‌عنوان عدد ثابت در UI باشند)
+    '993',
+    '۹۹۳',
+    '445',
+    '۴۴۵',
+    '548',
+    '۵۴۸',
+    '420',
+    '۴۲۰',
+    '355',
+    '۳۵۵',
+    '567',
+    '۵۶۷',
+    '561',
+    '۵۶۱',
+    '309',
+    '۳۰۹',
   ];
-  for (const token of bannedInOverview) {
+  for (const token of bannedTokens) {
     assert.equal(overviewSource.includes(token), false, `Forbidden token found in overview: ${token}`);
   }
 
   assert.equal(overviewSource.includes('data-testid="open-detailed-reports-btn"'), true);
   assert.equal(overviewSource.includes('آمار و گزارش‌های تفصیلی'), true);
+  assert.equal(overviewSource.includes('اطلاعات موجود نیست'), true);
+  assert.equal(overviewSource.includes('تفکیک کارهای انجام‌شده'), true);
+
+  // قطع کامل صفحه واسط قدیمی از ExecutiveDashboardView
+  assert.equal(dashboardSource.includes('ExecutiveDetailedReportsView'), false);
+  assert.equal(dashboardSource.includes('BookSummaryDossierModal'), false);
+  assert.equal(dashboardSource.includes('MartyrSummaryDossierModal'), false);
   assert.equal(dashboardSource.includes("subView: 'overview'"), true);
+});
+
+test('18 - مسیر مستقل آمار و گزارش‌ها، حذف دکمه دایره‌ای تیره ناوبری و یکپارچگی کلید سه‌کادره روشن', () => {
+  const indexSource = fs.readFileSync(
+    path.join(process.cwd(), 'src/modules/executive-dashboard/index.ts'),
+    'utf8'
+  );
+  const statsRouteSource = fs.readFileSync(
+    path.join(process.cwd(), 'src/modules/executive-dashboard/components/StatisticsAndReportsRouteView.tsx'),
+    'utf8'
+  );
+  const appSource = fs.readFileSync(
+    path.join(process.cwd(), 'src/App.tsx'),
+    'utf8'
+  );
+
+  // عدم اکسپورت فعال نمای قدیمی فاز ۲ از ماژول
+  assert.equal(indexSource.includes('ExecutiveDetailedReportsView'), false);
+  assert.equal(indexSource.includes('StatisticsAndReportsRouteView'), true);
+
+  // پوسته تمیز مسیر آمار و گزارش‌ها بدون بازگردانی ۶ تب قدیمی یا اعداد جعلی
+  assert.equal(statsRouteSource.includes('data-testid="executive-statistics-route-view"'), true);
+  assert.equal(statsRouteSource.includes('data-testid="back-to-dashboard-btn"'), true);
+  assert.equal(statsRouteSource.includes('بازگشت به داشبورد'), true);
+  assert.equal(statsRouteSource.includes('ExecutiveDetailedReportsView'), false);
+  assert.equal(statsRouteSource.includes('خروجی JSON مدیریتی'), false);
+
+  // مسیریابی مستقل و اصلاح آیکن/رنگ دکمه داشبورد در نوار پایین
+  assert.equal(appSource.includes("'executive_statistics'"), true);
+  assert.equal(appSource.includes('<StatisticsAndReportsRouteView'), true);
+  assert.equal(appSource.includes('ExecutiveDashboardNavIcon'), true);
+  assert.equal(appSource.includes('LayoutDashboard'), false);
+  assert.equal(appSource.includes('-mt-4'), false);
+  assert.equal(appSource.includes('grid-cols-6'), true);
 });
 
 console.log(`\nALL_UNIT_TESTS_PASSED (${passed} tests)`);

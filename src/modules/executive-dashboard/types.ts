@@ -255,6 +255,7 @@ export interface ReviewQueueResult {
     resolvedCount: number;
     otherStatusCount: number;
     openByMainSheet: Record<string, number>;
+    resolvedByMainSheet: Record<string, number>;
     openByIssueType: Record<string, number>;
   };
   multiMartyrGroups: {
@@ -593,6 +594,7 @@ export interface ThreeCardOverviewResult {
     reviewQueueRemainingCount: number;
     reviewQueueCompletionPercent: number;
     reviewQueueRemainingPercent: number;
+    completedByType: Array<{ label: string; count: number }>;
     activeExtractedOutputsCount: number;
     expertApprovedOutputsCount: number;
     pendingExtractedReviewCount: number;
