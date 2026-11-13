@@ -31,6 +31,10 @@ import {
   selectReviewQueue,
   selectTemporalAudit,
   selectThreeCardOverview,
+  selectThreeCardOverviewFromSummary,
+  selectDrilldownData,
+  DRILLDOWN_META_MAP,
+  type DashboardDrilldownKey,
   type ExecutiveExportHistoryRecord,
 } from '../index';
 
@@ -1087,6 +1091,269 @@ test('18 - مسیر مستقل آمار و گزارش‌ها، حذف دکمه �
   assert.equal(appSource.includes('LayoutDashboard'), false);
   assert.equal(appSource.includes('-mt-4'), false);
   assert.equal(appSource.includes('grid-cols-6'), true);
+});
+
+test('19 - مسیرهای تعاملی ۱۱گانه داشبورد، تطابق ۱ به ۱ با اعداد کارت‌ها، تفکیک مفاهیم و بازکردن پرونده واقعی', () => {
+  const catalogRows: ReferenceCatalogRow[] = [
+    makeCatalogRow({ rowIndex: 2, tempBookId: 'BK-0001', titleRaw: 'کتاب یکم', reviewStatusRaw: 'بررسی شد' }),
+    makeCatalogRow({ rowIndex: 3, tempBookId: 'BK-0002', titleRaw: 'کتاب دوم', reviewStatusRaw: 'بررسی‌نشده' }),
+    makeCatalogRow({ rowIndex: 4, tempBookId: 'BK-0003', titleRaw: 'کتاب سوم', reviewStatusRaw: 'بررسی‌نشده' }),
+  ];
+  const golzarRecords = [
+    {
+      id: 'GLZ-101',
+      firstName: 'محسن',
+      lastName: 'وزوایی',
+      fatherName: 'غلامحسین',
+      gravePiece: '26',
+      graveRow: '4',
+      graveNumber: '15',
+      source: 'golzar' as const,
+    },
+    {
+      id: 'GLZ-102',
+      firstName: 'محمد',
+      lastName: 'حسینی',
+      fatherName: 'علی',
+      gravePiece: '24',
+      graveRow: '10',
+      graveNumber: '1',
+      source: 'golzar' as const,
+    },
+    {
+      id: 'GLZ-103',
+      firstName: 'محمد',
+      lastName: 'حسینی',
+      fatherName: 'رضا',
+      gravePiece: '26',
+      graveRow: '5',
+      graveNumber: '12',
+      source: 'golzar' as const,
+    },
+  ];
+  const links: BookMartyrLinkRecord[] = [
+    // ارتباط ۱: شهید احرازشده، اما رابطه هنوز در انتظار بررسی است
+    makeLink({
+      id: 'RL-101',
+      tempBookId: 'BK-0001',
+      bookTitleRaw: 'کتاب یکم',
+      martyrNameRaw: 'شهید محسن وزوایی',
+      gravePieceRaw: '26',
+      graveRowRaw: '4',
+      graveNumberRaw: '15',
+      reviewStatus: 'نیازمند بررسی',
+    }),
+    // ارتباط ۲: شهید هم‌نام نیازمند احراز، با تأیید صریح کارشناسی رابطه
+    makeLink({
+      id: 'RL-102',
+      tempBookId: 'BK-0002',
+      bookTitleRaw: 'کتاب دوم',
+      martyrNameRaw: 'شهید محمد حسینی',
+      reviewStatus: 'تأییدشده کارشناسی',
+    }),
+  ];
+  const pendingReviews: PendingReviewItem[] = [
+    {
+      trackingId: 'PV-0558',
+      mainSheet: 'فهرست کتاب‌ها',
+      mainRecordId: 'BK-0002',
+      nameOrPhrase: 'کتاب دوم',
+      bookTitle: 'کتاب دوم',
+      publisher: 'سوره مهر',
+      issueSubject: 'تکرار عنوان',
+      suggestedAction: 'تعیین جلد',
+      trackingStatus: 'باز',
+    },
+    {
+      trackingId: 'PV-0559',
+      mainSheet: 'ارتباط کتاب و شهید',
+      mainRecordId: 'RL-101',
+      nameOrPhrase: 'شهید محسن وزوایی',
+      bookTitle: 'کتاب یکم',
+      publisher: 'سوره مهر',
+      issueSubject: 'تأیید نهایی رابطه',
+      suggestedAction: 'بررسی صفحه',
+      trackingStatus: 'بررسی‌شده',
+    },
+  ];
+  const auditLogs = [
+    {
+      id: 'LOG-1',
+      timestamp: '۱۴۰۵/۰۸/۲۰ - ۱۰:۳۰',
+      actorName: 'کارشناس کتابخانه',
+      actorRole: 'reviewer' as const,
+      actionType: 'تغییر وضعیت پیگیری' as const,
+      targetId: 'PV-0559',
+      summary: 'بررسی مورد PV-0559 تکمیل شد',
+    },
+  ];
+  const extractedItems = [
+    {
+      id: 'EX-0001',
+      tempBookId: 'BK-0001',
+      bookTitleRaw: 'کتاب یکم',
+      publisherRaw: 'سوره مهر',
+      martyrNameRaw: 'شهید محسن وزوایی',
+      gravePieceRaw: '26',
+      pageReferenceRaw: '۱۴',
+      contentType: 'خاطره' as const,
+      passageTitle: 'عملیات بیت‌المقدس',
+      extractedText: 'متن خاطره ثبت‌شده',
+      researcherNote: '',
+      reviewStatus: 'تأییدشده کارشناسی' as const,
+      recordedBy: 'پژوهشگر',
+      reviewedBy: 'کارشناس',
+      sourceFile: 'فایل مرجع',
+      sourceSheet: 'Sheet2',
+      sourceRow: '2',
+      updatedAt: '۱۴۰۵/۰۸/۲۰',
+    },
+  ];
+  const exportHistory: ExecutiveExportHistoryRecord[] = [
+    {
+      exportId: 'EXP-1',
+      fileName: 'management_report.xlsx',
+      fileType: 'excel',
+      exportScope: 'dashboard_management',
+      timestampIso: '2026-11-13T10:00:00Z',
+      timestampDisplay: '۱۴۰۵/۰۸/۲۲',
+      recordCount: 3,
+      appliedFiltersSummary: 'همه',
+      status: 'success',
+    },
+  ];
+
+  const inputs = {
+    catalogRows,
+    golzarRecords,
+    links,
+    pendingReviews,
+    auditLogs,
+    extractedItems,
+  };
+  const projection = buildExecutiveEntityProjection(inputs);
+  const overview = selectThreeCardOverviewFromSummary(projection.summary, exportHistory.length);
+
+  // انطباق کامل ۱ به ۱ بین ارقام سه‌کادره و فهرست ۱۱گانه
+  assert.equal(
+    selectDrilldownData('library_all', inputs, projection, exportHistory).items.length,
+    overview.libraryCard.totalTrackedBooksCount
+  );
+  assert.equal(
+    selectDrilldownData('library_completed', inputs, projection, exportHistory).items.length,
+    overview.libraryCard.completedCount
+  );
+  assert.equal(
+    selectDrilldownData('library_remaining', inputs, projection, exportHistory).items.length,
+    overview.libraryCard.remainingForReviewCount
+  );
+  assert.equal(
+    selectDrilldownData('martyrs_confirmed', inputs, projection, exportHistory).items.length,
+    overview.martyrsCard.confirmedIdentityCount
+  );
+  assert.equal(
+    selectDrilldownData('martyrs_needs_verification', inputs, projection, exportHistory).items.length,
+    overview.martyrsCard.needsVerificationCount
+  );
+  assert.equal(
+    selectDrilldownData('relations_confirmed', inputs, projection, exportHistory).items.length,
+    overview.martyrsCard.expertConfirmedRelationsCount
+  );
+  assert.equal(
+    selectDrilldownData('relations_needs_review', inputs, projection, exportHistory).items.length,
+    overview.martyrsCard.needsReviewRelationsCount
+  );
+  assert.equal(
+    selectDrilldownData('work_completed', inputs, projection, exportHistory).items.length,
+    overview.workAndOutputsCard.reviewQueueCompletedCount
+  );
+  assert.equal(
+    selectDrilldownData('work_remaining', inputs, projection, exportHistory).items.length,
+    overview.workAndOutputsCard.reviewQueueRemainingCount
+  );
+  assert.equal(
+    selectDrilldownData('research_outputs', inputs, projection, exportHistory).items.length,
+    overview.workAndOutputsCard.activeExtractedOutputsCount
+  );
+  assert.equal(
+    selectDrilldownData('management_reports', inputs, projection, exportHistory).items.length,
+    overview.workAndOutputsCard.exportHistoryCount
+  );
+
+  // عدم خلط هویت شهید با تأیید کارشناسی ارتباط: محسن وزوایی در martyrs_confirmed است ولی رابطه‌اش در relations_needs_review
+  const martyrsConf = selectDrilldownData('martyrs_confirmed', inputs, projection, exportHistory);
+  assert.equal(martyrsConf.kind, 'martyrs');
+  assert.equal(martyrsConf.items[0].fullName, 'محسن وزوایی');
+  const relNeedsRev = selectDrilldownData('relations_needs_review', inputs, projection, exportHistory);
+  assert.equal(relNeedsRev.kind, 'relations');
+  assert.equal(relNeedsRev.items[0].relation.linkId, 'RL-101');
+  assert.equal(relNeedsRev.items[0].bookItem?.tempBookId, 'BK-0001');
+  assert.equal(relNeedsRev.items[0].martyrItem?.golzarId, 'GLZ-101');
+
+  // تطبیق auditLog + پرونده کتاب و شهید برای صف کار و خروجی پژوهشی
+  const workDone = selectDrilldownData('work_completed', inputs, projection, exportHistory);
+  assert.equal(workDone.kind, 'work');
+  assert.equal(workDone.items.length, 1);
+  assert.equal(workDone.items[0].relatedAuditLog?.id, 'LOG-1');
+  assert.equal(workDone.items[0].bookItem?.tempBookId, 'BK-0001');
+  assert.equal(workDone.items[0].martyrItem?.golzarId, 'GLZ-101');
+
+  const research = selectDrilldownData('research_outputs', inputs, projection, exportHistory);
+  assert.equal(research.kind, 'research_outputs');
+  assert.equal(research.items.length, 1);
+  assert.equal(research.items[0].bookItem?.tempBookId, 'BK-0001');
+  assert.equal(research.items[0].martyrItem?.golzarId, 'GLZ-101');
+
+  // حالت خالی صادقانه بدون جعل داده
+  const emptyInputs = { catalogRows: [], links: [], pendingReviews: [], extractedItems: [] };
+  const emptyProj = buildExecutiveEntityProjection(emptyInputs);
+  for (const k of Object.keys(DRILLDOWN_META_MAP) as DashboardDrilldownKey[]) {
+    const res = selectDrilldownData(k, emptyInputs, emptyProj, []);
+    assert.equal(res.items.length, 0);
+    assert.ok(res.emptyReason.includes('اطلاعات جزئیات در دسترس نیست'));
+  }
+
+  // بررسی پیاده‌سازی دقیق محرک‌ها در UI، نبود نمای قدیمی و وجود مسیر بازگشت با حفظ فیلتر/اسکرول
+  const overviewSource = fs.readFileSync(
+    path.join(process.cwd(), 'src/modules/executive-dashboard/components/ExecutiveOverviewCards.tsx'),
+    'utf8'
+  );
+  const drilldownViewSource = fs.readFileSync(
+    path.join(process.cwd(), 'src/modules/executive-dashboard/components/DashboardDrilldownListView.tsx'),
+    'utf8'
+  );
+  const dashboardSource = fs.readFileSync(
+    path.join(process.cwd(), 'src/modules/executive-dashboard/components/ExecutiveDashboardView.tsx'),
+    'utf8'
+  );
+  const appSource = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
+
+  const expectedTriggers: DashboardDrilldownKey[] = [
+    'library_all',
+    'library_completed',
+    'library_remaining',
+    'martyrs_confirmed',
+    'martyrs_needs_verification',
+    'relations_confirmed',
+    'relations_needs_review',
+    'work_completed',
+    'work_remaining',
+    'research_outputs',
+    'management_reports',
+  ];
+  for (const k of expectedTriggers) {
+    assert.equal(
+      overviewSource.includes(`drilldown-trigger-${k}`),
+      true,
+      `Missing trigger in ExecutiveOverviewCards for ${k}`
+    );
+  }
+  assert.equal(drilldownViewSource.includes('اطلاعات جزئیات در دسترس نیست'), true);
+  assert.equal(dashboardSource.includes('DashboardDrilldownListView'), true);
+  assert.equal(dashboardSource.includes('ExecutiveDetailedReportsView'), false);
+  assert.equal(appSource.includes('onOpenOriginalBookRecord'), true);
+  assert.equal(appSource.includes('onOpenOriginalMartyrRecord'), true);
+  assert.equal(appSource.includes("returnTarget: 'executive_dashboard'"), true);
 });
 
 console.log(`\nALL_UNIT_TESTS_PASSED (${passed} tests)`);

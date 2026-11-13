@@ -602,3 +602,25 @@ export interface ThreeCardOverviewResult {
   };
 }
 
+export type DashboardDrilldownKey =
+  | 'library_all'
+  | 'library_completed'
+  | 'library_remaining'
+  | 'martyrs_confirmed'
+  | 'martyrs_needs_verification'
+  | 'relations_confirmed'
+  | 'relations_needs_review'
+  | 'work_completed'
+  | 'work_remaining'
+  | 'research_outputs'
+  | 'management_reports';
+
+export interface DrilldownContextMeta {
+  key: DashboardDrilldownKey;
+  title: string;
+  sourceCardLabel: 'کتابخانه' | 'شهدا' | 'وضعیت کار و خروجی‌ها';
+  subtitle: string;
+  dataSourceNote: string;
+}
+
+

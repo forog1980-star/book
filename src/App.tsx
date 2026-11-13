@@ -131,7 +131,11 @@ import {
   ExecutiveDashboardView,
   StatisticsAndReportsRouteView,
   DEFAULT_EXECUTIVE_DASHBOARD_STATE,
+  DRILLDOWN_META_MAP,
   buildExecutiveDashboardInputs,
+  type DashboardBookListItem,
+  type DashboardDrilldownKey,
+  type DashboardMartyrListItem,
   type ExecutiveDashboardViewState
 } from './modules/executive-dashboard';
 
@@ -240,6 +244,7 @@ export default function App() {
   } | null>(null);
   const [libraryReturnToDashboardDossier, setLibraryReturnToDashboardDossier] =
     useState<boolean>(false);
+  const [dashboardReturnLabel, setDashboardReturnLabel] = useState<string>('');
   const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
   const [showComprehensiveDocModal, setShowComprehensiveDocModal] = useState<boolean>(false);
   const [isSyncingGitHub, setIsSyncingGitHub] = useState<boolean>(false);
@@ -3043,13 +3048,21 @@ export default function App() {
                 onClearInitialDirectBookTarget={() => setLibraryDirectBookTarget(null)}
                 returnToDashboardLabel={
                   libraryReturnToDashboardDossier
-                    ? 'بازگشت به پرونده خلاصه کتاب در داشبورد'
+                    ? dashboardReturnLabel || 'بازگشت به داشبورد مدیریتی'
                     : undefined
                 }
                 onReturnToDashboardDossier={
                   libraryReturnToDashboardDossier
                     ? () => {
                         setLibraryReturnToDashboardDossier(false);
+                        setDashboardReturnLabel('');
+                        if (
+                          navHistoryRef.current.length > 0 &&
+                          navHistoryRef.current[navHistoryRef.current.length - 1].tab ===
+                            'executive_dashboard'
+                        ) {
+                          navHistoryRef.current.pop();
+                        }
                         isPoppingHistoryRef.current = true;
                         setActiveTab('executive_dashboard');
                       }
@@ -3789,6 +3802,50 @@ export default function App() {
               setActiveTab('executive_statistics');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
+            onOpenOriginalBookRecord={(book: DashboardBookListItem, sourceDrilldown: DashboardDrilldownKey) => {
+              const metaTitle = DRILLDOWN_META_MAP[sourceDrilldown]?.title;
+              setDashboardReturnLabel(
+                metaTitle
+                  ? `بازگشت به فهرست «${metaTitle}» در داشبورد`
+                  : 'بازگشت به داشبورد مدیریتی'
+              );
+              setLibrarySubView('catalog');
+              setLibraryDirectBookTarget({
+                rowKey: book.bookKey,
+                tempBookId: book.tempBookId,
+                nonce: Date.now()
+              });
+              setLibraryReturnToDashboardDossier(true);
+              setShowDeviceSyncDrawer(false);
+              setActiveTab('library');
+            }}
+            onOpenOriginalMartyrRecord={(
+              martyr: DashboardMartyrListItem,
+              sourceDrilldown: DashboardDrilldownKey
+            ) => {
+              const metaTitle = DRILLDOWN_META_MAP[sourceDrilldown]?.title;
+              setMartyrsCrossTabTarget({
+                martyrId: martyr.customMartyrId || martyr.golzarId || undefined,
+                fullName: martyr.fullName,
+                normalizedName: martyr.normalizedName || martyr.fullName,
+                gravePiece: martyr.gravePiece || undefined,
+                graveRow: martyr.graveRow || undefined,
+                graveNumber: martyr.graveNumber || undefined,
+                sourceBookDossierId: martyr.linkedBooks[0]?.tempBookId || null,
+                sourceBookTitle: martyr.linkedBooks[0]?.bookTitle || undefined,
+                sourceMartyrDossierName: martyr.fullName,
+                returnTarget: 'executive_dashboard',
+                returnLabel: metaTitle
+                  ? `بازگشت به فهرست «${metaTitle}» در داشبورد`
+                  : 'بازگشت به داشبورد مدیریتی',
+                sourceDashboardMartyrKey: martyr.martyrKey,
+                timestamp: Date.now()
+              });
+              setShowDeviceSyncDrawer(false);
+              setActiveTab('martyrs');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onNotify={showNotify}
             onRequestLoadGolzarBank={() => {
               void requestLoadGolzarBank();
             }}
@@ -3918,10 +3975,15 @@ export default function App() {
             onClick={() => {
               clearMartyrsCrossTabTarget();
               setLibraryReturnToDashboardDossier(false);
+              setDashboardReturnLabel('');
               setShowDeviceSyncDrawer(false);
               setExecutiveDashboardState((prev) => ({
                 ...prev,
                 subView: 'overview',
+                activeDrilldown: null,
+                drilldownSearch: '',
+                drilldownSubFilter: 'all',
+                drilldownScrollTop: 0,
                 dossierStack: [],
                 scrollTop: 0
               }));

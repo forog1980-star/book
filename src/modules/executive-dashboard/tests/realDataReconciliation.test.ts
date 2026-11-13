@@ -20,7 +20,9 @@ import {
   exportExecutiveManagementExcel,
   extractLibraryWorkbookInputsFromJson,
   normalizeGolzarRawRows,
+  selectDrilldownData,
   selectThreeCardOverview,
+  type DashboardDrilldownKey,
 } from '../index';
 
 const XLSX =
@@ -252,6 +254,38 @@ assert.equal(threeCard.workAndOutputsCard.reviewQueueCompletedCount, 0);
 assert.equal(threeCard.workAndOutputsCard.reviewQueueRemainingCount, 567);
 assert.equal(threeCard.workAndOutputsCard.reviewQueueCompletionPercent, 0);
 assert.equal(threeCard.workAndOutputsCard.reviewQueueRemainingPercent, 100);
+
+// ۱۰. بررسی تطبیق ۱ به ۱ تمام ۱۱ مسیر جزئیات با اعداد زنده واقعی مخزن
+const expectedCountsByKey: Record<DashboardDrilldownKey, number> = {
+  library_all: 980,
+  library_completed: 0,
+  library_remaining: 980,
+  martyrs_confirmed: 332,
+  martyrs_needs_verification: 63,
+  relations_confirmed: 0,
+  relations_needs_review: 557,
+  work_completed: 0,
+  work_remaining: 567,
+  research_outputs: 0,
+  management_reports: 0,
+};
+for (const [key, expectedCount] of Object.entries(expectedCountsByKey) as Array<
+  [DashboardDrilldownKey, number]
+>) {
+  const drillRes = selectDrilldownData(key, inputs, projection, []);
+  assert.equal(
+    drillRes.items.length,
+    expectedCount,
+    `Mismatch in selectDrilldownData('${key}')`
+  );
+}
+
+const sampleNeedsReview = selectDrilldownData('relations_needs_review', inputs, projection, []);
+assert.equal(sampleNeedsReview.kind, 'relations');
+assert.ok(
+  sampleNeedsReview.items.some((r) => r.bookItem?.tempBookId && r.martyrItem?.displayCode),
+  'Expected linked book & martyr entities resolved in real relations drilldown'
+);
 
 console.log('=== REAL DATA RECONCILIATION REPORT (THREE-CARD OVERVIEW) ===');
 console.log(

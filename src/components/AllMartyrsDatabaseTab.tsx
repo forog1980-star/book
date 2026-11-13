@@ -354,10 +354,11 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
       }
   );
 
-  // زمینه انتقال مستقیم از پرونده اختصاصی شهید (برای جست‌وجوی خودکار و بازگشت مرحله‌به‌مرحله)
+  // زمینه انتقال مستقیم از پرونده اختصاصی شهید یا داشبورد (برای جست‌وجوی خودکار و بازگشت مرحله‌به‌مرحله)
   const [activeCrossTabTarget, setActiveCrossTabTarget] = useState<MartyrsCrossTabTarget | null>(
     () => getMartyrsCrossTabTarget()
   );
+  const lastHandledCustomTargetTsRef = React.useRef<number | null>(null);
 
   // Search State
   const [queryText, setQueryText] = useState(() => {
@@ -774,7 +775,7 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
     setActiveResults(res);
   };
 
-  // اجرای خودکار جست‌وجو و باز شدن پرونده در صورت وجود یک نتیجه یکتا هنگام ورود از «پرونده اختصاصی شهید»
+  // اجرای خودکار جست‌وجو و باز شدن پرونده در صورت وجود یک نتیجه یکتا هنگام ورود از «پرونده اختصاصی شهید» یا «داشبورد مدیریتی»
   useEffect(() => {
     const target = activeCrossTabTarget;
     if (!target) return;
@@ -784,24 +785,43 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
       setQueryText(target.normalizedName || target.fullName);
     }
 
+    const matchCustomExact = (): CustomMartyrRecord | null => {
+      if (!customMartyrs.length) return null;
+      if (target.martyrId?.startsWith('MR-')) {
+        const byId = customMartyrs.find((cm) => cm.martyrId === target.martyrId);
+        if (byId) return byId;
+      }
+      if (!searchName) return null;
+      const customExact = customMartyrs.filter(
+        (cm) =>
+          (target.martyrId && cm.martyrId === target.martyrId) ||
+          cleanText(cm.fullName.replace(/^شهید\s+/, '')) === searchName
+      );
+      return customExact.length === 1 ? customExact[0] : null;
+    };
+
+    // پشتیبانی مستقیم از شهدای ثبت‌شده دستی (MR-) حتی پس از بارگذاری بانک گلزار
+    if (target.martyrId?.startsWith('MR-')) {
+      const matchedCustom = matchCustomExact();
+      if (matchedCustom && lastHandledCustomTargetTsRef.current !== target.timestamp) {
+        lastHandledCustomTargetTsRef.current = target.timestamp;
+        setEditingCustomMartyr(matchedCustom);
+      }
+    }
+
     // اگر هنوز رکوردهای بانک ۲۸٬۳۶۸ نفری در حال بارگذاری هستند، بررسی کن آیا در customMartyrs تطابق یکتا دارد
     if (loading || records.length === 0) {
-      if (customMartyrs.length > 0 && searchName) {
-        const customExact = customMartyrs.filter(
-          (cm) =>
-            (target.martyrId && cm.martyrId === target.martyrId) ||
-            cleanText(cm.fullName.replace(/^شهید\s+/, '')) === searchName
-        );
-        if (customExact.length === 1 && !editingCustomMartyr) {
-          setEditingCustomMartyr(customExact[0]);
-        }
+      const matchedCustom = matchCustomExact();
+      if (matchedCustom && lastHandledCustomTargetTsRef.current !== target.timestamp) {
+        lastHandledCustomTargetTsRef.current = target.timestamp;
+        setEditingCustomMartyr(matchedCustom);
       }
       return;
     }
 
     // گام ۱: بررسی تطابق دقیق با شناسه یا نام کامل + مختصات مزار
     let matched: AllMartyrRecord[] = [];
-    if (target.martyrId) {
+    if (target.martyrId && !target.martyrId.startsWith('MR-')) {
       const idMatches = records.filter((r) => r.id === target.martyrId);
       if (idMatches.length === 1) {
         matched = idMatches;
@@ -854,14 +874,21 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
       setInspectedRecord(matched[0]);
     } else if (matched.length > 1) {
       setInspectedRecord(null);
+    } else {
+      const matchedCustom = matchCustomExact();
+      if (matchedCustom && lastHandledCustomTargetTsRef.current !== target.timestamp) {
+        lastHandledCustomTargetTsRef.current = target.timestamp;
+        setEditingCustomMartyr(matchedCustom);
+      }
     }
-  }, [activeCrossTabTarget, loading, records]);
+  }, [activeCrossTabTarget, loading, records, customMartyrs]);
 
-  // بازگشت مستقیم به «پرونده اختصاصی همان شهید» هنگام زدن بازگشت (Back)
+  // بازگشت مستقیم به «پرونده اختصاصی همان شهید» یا «فهرست داشبورد» هنگام زدن بازگشت (Back)
   const handleBackToSourceMartyrDossier = React.useCallback(() => {
     clearMartyrsCrossTabTarget();
     setActiveCrossTabTarget(null);
     setInspectedRecord(null);
+    setEditingCustomMartyr(null);
     if (onReturnToMartyrDossier) {
       onReturnToMartyrDossier();
     }
@@ -989,6 +1016,8 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
             <div className="text-[11px] text-[#5C4636]">
               {loading
                 ? 'در حال بارگذاری و جست‌وجوی خودکار در بانک جامع شهدا...'
+                : editingCustomMartyr
+                ? '۱ پرونده مستقل شهید در سامانه باز شد.'
                 : activeResults.length === 1
                 ? '۱ پرونده یکتا در بانک جامع شهدا یافت و باز شد.'
                 : activeResults.length > 1
@@ -1006,7 +1035,7 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
             <ArrowRight className="w-4 h-4" />
             <span>
               {activeCrossTabTarget.returnTarget === 'executive_dashboard'
-                ? 'بازگشت به پرونده خلاصه شهید در داشبورد'
+                ? activeCrossTabTarget.returnLabel || 'بازگشت به داشبورد مدیریتی'
                 : 'بازگشت به پرونده اختصاصی شهید'}
             </span>
           </button>
@@ -1983,7 +2012,7 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                 <ArrowRight className="w-4 h-4 shrink-0" />
                 <span>
                   {activeCrossTabTarget.returnTarget === 'executive_dashboard'
-                    ? 'بازگشت به پرونده خلاصه شهید در داشبورد'
+                    ? activeCrossTabTarget.returnLabel || 'بازگشت به داشبورد مدیریتی'
                     : 'بازگشت به پرونده اختصاصی شهید'}
                 </span>
               </button>
@@ -2495,6 +2524,21 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                 <span>ذخیره تغییرات و وضعیت</span>
               </button>
             </div>
+            {activeCrossTabTarget && onReturnToMartyrDossier && (
+              <button
+                type="button"
+                data-testid="custom-modal-return-to-martyr-dossier-btn"
+                onClick={handleBackToSourceMartyrDossier}
+                className="w-full min-h-[40px] px-3.5 py-2 bg-[#6B3E26] hover:bg-[#56311E] text-white rounded-xl font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors text-xs"
+              >
+                <ArrowRight className="w-4 h-4 shrink-0" />
+                <span>
+                  {activeCrossTabTarget.returnTarget === 'executive_dashboard'
+                    ? activeCrossTabTarget.returnLabel || 'بازگشت به داشبورد مدیریتی'
+                    : 'بازگشت به پرونده اختصاصی شهید'}
+                </span>
+              </button>
+            )}
           </form>
         </ModalWindow>
       )}

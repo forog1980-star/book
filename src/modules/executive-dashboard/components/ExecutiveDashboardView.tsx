@@ -1,13 +1,22 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { registerInnerBackStep } from '../../../utils/navigationHistory';
 import { loadExecutiveExportHistory } from '../export/exportHistoryStore';
-import { selectExecutiveDashboardSummary } from '../selectors/dashboardSummarySelector';
+import { exportExecutiveManagementExcel } from '../export/managementExcelAdapter';
+import { downloadExecutiveDashboardJsonV1 } from '../export/managementJsonExport';
+import { selectDrilldownData } from '../selectors/drilldownListsSelector';
+import { buildExecutiveEntityProjection } from '../selectors/entityDossiersSelector';
 import { selectThreeCardOverviewFromSummary } from '../selectors/executiveThreeCardOverviewSelector';
 import type {
+  DashboardBookListItem,
+  DashboardDrilldownKey,
+  DashboardMartyrListItem,
   ExecutiveDashboardInputs,
   ExecutiveDashboardReadiness,
   ExecutiveDashboardSubView,
+  ExecutiveExportHistoryRecord,
   RelationCertaintyBucket,
 } from '../types';
+import { DashboardDrilldownListView } from './DashboardDrilldownListView';
 import { ExecutiveOverviewCards } from './ExecutiveOverviewCards';
 
 export type ExecutiveDashboardSection =
@@ -43,6 +52,10 @@ export type DashboardDossierStackEntry = {
 export interface ExecutiveDashboardViewState {
   subView: ExecutiveDashboardSubView;
   activeSection: ExecutiveDashboardSection;
+  activeDrilldown: DashboardDrilldownKey | null;
+  drilldownSearch: string;
+  drilldownSubFilter: string;
+  drilldownScrollTop: number;
   bookSearch: string;
   bookFilter: DashboardBookFilterKey;
   martyrSearch: string;
@@ -56,6 +69,10 @@ export interface ExecutiveDashboardViewState {
 export const DEFAULT_EXECUTIVE_DASHBOARD_STATE: ExecutiveDashboardViewState = {
   subView: 'overview',
   activeSection: 'overview',
+  activeDrilldown: null,
+  drilldownSearch: '',
+  drilldownSubFilter: 'all',
+  drilldownScrollTop: 0,
   bookSearch: '',
   bookFilter: 'all',
   martyrSearch: '',
@@ -76,25 +93,40 @@ interface ExecutiveDashboardViewProps {
       | ((prev: ExecutiveDashboardViewState) => ExecutiveDashboardViewState)
   ) => void;
   onOpenDetailedReports: () => void;
+  onOpenOriginalBookRecord: (
+    book: DashboardBookListItem,
+    sourceDrilldown: DashboardDrilldownKey
+  ) => void;
+  onOpenOriginalMartyrRecord: (
+    martyr: DashboardMartyrListItem,
+    sourceDrilldown: DashboardDrilldownKey
+  ) => void;
+  onNotify?: (msg: string, type?: 'success' | 'warning') => void;
   onRequestLoadGolzarBank?: () => void;
 }
 
 /**
  * نمای اصلی داشبورد مدیریتی مرکز اسناد
  * - ورود مستقیم و بدون صفحه واسط به نمای سه‌کادره (کتابخانه / شهدا / وضعیت کار و خروجی‌ها)
+ * - مسیرهای تعاملی ورود به فهرست زنده هر شاخص و بازکردن پرونده واقعی کتاب/شهید با بازگشت دوطرفه
  * - اتصال دکمه «آمار و گزارش‌های تفصیلی» به مسیر مستقل StatisticsAndReportsRouteView
  */
 export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
   inputs,
   viewState,
   readiness,
+  onUpdateViewState,
   onOpenDetailedReports,
+  onOpenOriginalBookRecord,
+  onOpenOriginalMartyrRecord,
+  onNotify,
   onRequestLoadGolzarBank,
 }) => {
-  const summary = useMemo(() => selectExecutiveDashboardSummary(inputs), [inputs]);
+  const projection = useMemo(() => buildExecutiveEntityProjection(inputs), [inputs]);
+  const summary = projection.summary;
   const isGolzarLoaded = summary.martyrs.officialBank.hasOfficialBankLoaded;
 
-  const [exportHistoryCount, setExportHistoryCount] = useState<number>(0);
+  const [exportHistory, setExportHistory] = useState<ExecutiveExportHistoryRecord[]>([]);
 
   const effectiveReadiness: ExecutiveDashboardReadiness = useMemo(
     () =>
@@ -110,8 +142,16 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
   );
 
   const threeCardOverview = useMemo(
-    () => selectThreeCardOverviewFromSummary(summary, exportHistoryCount),
-    [summary, exportHistoryCount]
+    () => selectThreeCardOverviewFromSummary(summary, exportHistory.length),
+    [summary, exportHistory.length]
+  );
+
+  const drilldownSelection = useMemo(
+    () =>
+      viewState.activeDrilldown
+        ? selectDrilldownData(viewState.activeDrilldown, inputs, projection, exportHistory)
+        : null,
+    [viewState.activeDrilldown, inputs, projection, exportHistory]
   );
 
   useEffect(() => {
@@ -125,34 +165,124 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
     loadExecutiveExportHistory()
       .then((list) => {
         if (mounted) {
-          setExportHistoryCount(list.length);
+          setExportHistory(list);
         }
       })
       .catch(() => {
-        if (mounted) setExportHistoryCount(0);
+        if (mounted) setExportHistory([]);
       });
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [viewState.activeDrilldown]);
+
+  const handleBackFromDrilldown = useCallback(() => {
+    onUpdateViewState({
+      activeDrilldown: null,
+      drilldownSearch: '',
+      drilldownSubFilter: 'all',
+      drilldownScrollTop: 0,
+    });
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [onUpdateViewState]);
 
   useEffect(() => {
-    if (viewState.scrollTop > 0 && typeof window !== 'undefined') {
+    if (!viewState.activeDrilldown) return;
+    return registerInnerBackStep('executive-dashboard-drilldown', handleBackFromDrilldown);
+  }, [viewState.activeDrilldown, handleBackFromDrilldown]);
+
+  useEffect(() => {
+    if (!viewState.activeDrilldown && viewState.scrollTop > 0 && typeof window !== 'undefined') {
       const targetY = viewState.scrollTop;
       const timer = window.setTimeout(() => {
         window.scrollTo({ top: targetY, behavior: 'auto' });
       }, 40);
       return () => window.clearTimeout(timer);
     }
-  }, []);
+  }, [viewState.activeDrilldown, viewState.scrollTop]);
+
+  const handleSelectDrilldown = (key: DashboardDrilldownKey) => {
+    const overviewScroll =
+      typeof window !== 'undefined'
+        ? window.scrollY || document.documentElement.scrollTop || 0
+        : 0;
+    onUpdateViewState({
+      activeDrilldown: key,
+      drilldownSearch: '',
+      drilldownSubFilter: 'all',
+      drilldownScrollTop: 0,
+      scrollTop: overviewScroll,
+    });
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleOpenBook = (book: DashboardBookListItem) => {
+    if (!viewState.activeDrilldown) return;
+    const currentScroll =
+      typeof window !== 'undefined'
+        ? window.scrollY || document.documentElement.scrollTop || 0
+        : 0;
+    onUpdateViewState({ drilldownScrollTop: currentScroll });
+    onOpenOriginalBookRecord(book, viewState.activeDrilldown);
+  };
+
+  const handleOpenMartyr = (martyr: DashboardMartyrListItem) => {
+    if (!viewState.activeDrilldown) return;
+    const currentScroll =
+      typeof window !== 'undefined'
+        ? window.scrollY || document.documentElement.scrollTop || 0
+        : 0;
+    onUpdateViewState({ drilldownScrollTop: currentScroll });
+    onOpenOriginalMartyrRecord(martyr, viewState.activeDrilldown);
+  };
+
+  const handleRegenerateReport = (record: ExecutiveExportHistoryRecord) => {
+    if (record.fileType === 'excel') {
+      const res = exportExecutiveManagementExcel(inputs);
+      if (res.ok) {
+        onNotify?.(`فایل اکسل مدیریتی (${res.fileName}) مجدداً تولید و دریافت شد.`, 'success');
+      } else {
+        onNotify?.(res.error || 'تولید مجدد فایل اکسل با خطا مواجه شد.', 'warning');
+      }
+      return;
+    }
+    const res = downloadExecutiveDashboardJsonV1(inputs, { projection });
+    if (res.ok) {
+      onNotify?.(`فایل JSON مدیریتی (${res.fileName}) مجدداً تولید و دریافت شد.`, 'success');
+    } else {
+      onNotify?.(res.error || 'تولید مجدد فایل JSON با خطا مواجه شد.', 'warning');
+    }
+  };
 
   return (
     <div data-testid="executive-dashboard-view">
-      <ExecutiveOverviewCards
-        overview={threeCardOverview}
-        readiness={effectiveReadiness}
-        onOpenDetailedReports={onOpenDetailedReports}
-      />
+      {drilldownSelection ? (
+        <DashboardDrilldownListView
+          selection={drilldownSelection}
+          searchQuery={viewState.drilldownSearch}
+          subFilter={viewState.drilldownSubFilter}
+          initialScrollTop={viewState.drilldownScrollTop}
+          onChangeSearch={(q) => onUpdateViewState({ drilldownSearch: q, drilldownScrollTop: 0 })}
+          onChangeSubFilter={(f) =>
+            onUpdateViewState({ drilldownSubFilter: f, drilldownScrollTop: 0 })
+          }
+          onBackToDashboard={handleBackFromDrilldown}
+          onOpenOriginalBook={handleOpenBook}
+          onOpenOriginalMartyr={handleOpenMartyr}
+          onRegenerateReport={handleRegenerateReport}
+        />
+      ) : (
+        <ExecutiveOverviewCards
+          overview={threeCardOverview}
+          readiness={effectiveReadiness}
+          onOpenDetailedReports={onOpenDetailedReports}
+          onSelectDrilldown={handleSelectDrilldown}
+        />
+      )}
     </div>
   );
 };

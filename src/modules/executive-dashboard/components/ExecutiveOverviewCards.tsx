@@ -1,7 +1,8 @@
 import React from 'react';
-import { BarChart3, RefreshCw } from 'lucide-react';
+import { BarChart3, ChevronLeft, RefreshCw } from 'lucide-react';
 import { toPersianDigits } from '../../../data/markazAsnadData';
 import type {
+  DashboardDrilldownKey,
   ExecutiveDashboardReadiness,
   ThreeCardOverviewResult,
 } from '../types';
@@ -81,12 +82,14 @@ interface ExecutiveOverviewCardsProps {
   overview: ThreeCardOverviewResult;
   readiness: ExecutiveDashboardReadiness;
   onOpenDetailedReports: () => void;
+  onSelectDrilldown?: (key: DashboardDrilldownKey) => void;
 }
 
 export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
   overview,
   readiness,
   onOpenDetailedReports,
+  onSelectDrilldown,
 }) => {
   const isInitialLoading =
     !readiness.isStorageHydrated || readiness.workbookLoadState === 'loading';
@@ -107,6 +110,10 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
     workAndOutputsCard.reviewQueueTotalCount === 0 &&
     workAndOutputsCard.activeExtractedOutputsCount === 0 &&
     workAndOutputsCard.exportHistoryCount === 0;
+
+  const triggerDrilldown = (key: DashboardDrilldownKey) => {
+    onSelectDrilldown?.(key);
+  };
 
   return (
     <div
@@ -194,7 +201,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
         </div>
       )}
 
-      {/* Ready State: Strictly 3 Equal-Height Visual Cards + 1 Action Button Below */}
+      {/* Ready State: Strictly 3 Equal-Height Visual Cards + Interactive Drill-Down Triggers + 1 Action Button Below */}
       {!isInitialLoading && !isWorkbookError && (
         <>
           <div
@@ -227,14 +234,24 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                   </div>
                 ) : (
                   <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 space-y-1">
-                      <div className="text-3xl font-bold text-[#332218] tabular-nums leading-tight">
+                    <button
+                      type="button"
+                      data-testid="drilldown-trigger-library_all"
+                      onClick={() => triggerDrilldown('library_all')}
+                      className="min-w-0 flex-1 text-right space-y-1 rounded-xl p-1.5 -m-1.5 hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
+                      title="مشاهده فهرست کامل کتاب‌های تحت پایش"
+                    >
+                      <div className="text-3xl font-bold text-[#332218] tabular-nums leading-tight group-hover:text-[#6B3E26] transition-colors">
                         {toPersianDigits(libraryCard.totalTrackedBooksCount)}
                       </div>
-                      <div className="text-xs sm:text-sm text-[#5C4636]">
-                        کتاب تحت پایش
+                      <div className="text-xs sm:text-sm text-[#5C4636] inline-flex items-center gap-1">
+                        <span>کتاب تحت پایش</span>
+                        <ChevronLeft
+                          className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] transition-colors shrink-0"
+                          aria-hidden="true"
+                        />
                       </div>
-                    </div>
+                    </button>
 
                     <OverviewDonutChart
                       primaryPercent={libraryCard.completedPercent}
@@ -250,37 +267,63 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
               {!isLibraryEmpty && (
                 <div className="space-y-2.5">
                   <div className="divide-y divide-[#EFE4D6] border-t border-[#EFE4D6] text-xs sm:text-sm tabular-nums">
-                    <div className="py-2.5 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      data-testid="drilldown-trigger-library_completed"
+                      onClick={() => triggerDrilldown('library_completed')}
+                      className="w-full py-2.5 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
+                    >
                       <span className="flex items-center gap-2 text-[#5C4636] min-w-0">
                         <span
                           className="w-2.5 h-2.5 rounded-full bg-[#2E6F40] shrink-0"
                           aria-hidden="true"
                         />
-                        <span className="truncate">بررسی‌شده و تکمیل‌شده</span>
-                      </span>
-                      <span className="font-bold text-[#332218] shrink-0">
-                        {toPersianDigits(libraryCard.completedCount)} کتاب{' '}
-                        <span className="font-normal text-[#78604E]">
-                          ({toPersianDigits(libraryCard.completedPercent)}٪)
+                        <span className="truncate group-hover:text-[#332218]">
+                          بررسی‌شده و تکمیل‌شده
                         </span>
                       </span>
-                    </div>
+                      <span className="font-bold text-[#332218] shrink-0 inline-flex items-center gap-1">
+                        <span>
+                          {toPersianDigits(libraryCard.completedCount)} کتاب{' '}
+                          <span className="font-normal text-[#78604E]">
+                            ({toPersianDigits(libraryCard.completedPercent)}٪)
+                          </span>
+                        </span>
+                        <ChevronLeft
+                          className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </button>
 
-                    <div className="py-2.5 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      data-testid="drilldown-trigger-library_remaining"
+                      onClick={() => triggerDrilldown('library_remaining')}
+                      className="w-full py-2.5 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
+                    >
                       <span className="flex items-center gap-2 text-[#5C4636] min-w-0">
                         <span
                           className="w-2.5 h-2.5 rounded-full bg-[#C9B49B] shrink-0"
                           aria-hidden="true"
                         />
-                        <span className="truncate">باقیمانده برای بررسی</span>
-                      </span>
-                      <span className="font-bold text-[#332218] shrink-0">
-                        {toPersianDigits(libraryCard.remainingForReviewCount)} کتاب{' '}
-                        <span className="font-normal text-[#78604E]">
-                          ({toPersianDigits(libraryCard.remainingPercent)}٪)
+                        <span className="truncate group-hover:text-[#332218]">
+                          باقیمانده برای بررسی
                         </span>
                       </span>
-                    </div>
+                      <span className="font-bold text-[#332218] shrink-0 inline-flex items-center gap-1">
+                        <span>
+                          {toPersianDigits(libraryCard.remainingForReviewCount)} کتاب{' '}
+                          <span className="font-normal text-[#78604E]">
+                            ({toPersianDigits(libraryCard.remainingPercent)}٪)
+                          </span>
+                        </span>
+                        <ChevronLeft
+                          className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </button>
                   </div>
 
                   {libraryCard.openDuplicateTicketCount > 0 && (
@@ -364,59 +407,103 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
               <div className="space-y-2">
                 {!isMartyrBankLoading && !isMartyrsEmpty && (
                   <div className="divide-y divide-[#EFE4D6] border-t border-[#EFE4D6] text-xs sm:text-sm tabular-nums">
-                    <div className="py-2 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      data-testid="drilldown-trigger-martyrs_confirmed"
+                      onClick={() => triggerDrilldown('martyrs_confirmed')}
+                      className="w-full py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
+                    >
                       <span className="flex items-center gap-2 text-[#5C4636] min-w-0">
                         <span
                           className="w-2.5 h-2.5 rounded-full bg-[#2E6F40] shrink-0"
                           aria-hidden="true"
                         />
-                        <span className="truncate">هویت احرازشده</span>
-                      </span>
-                      <span className="font-bold text-[#332218] shrink-0">
-                        {toPersianDigits(martyrsCard.confirmedIdentityCount)} شهید{' '}
-                        <span className="font-normal text-[#78604E]">
-                          ({toPersianDigits(martyrsCard.confirmedIdentityPercent)}٪)
+                        <span className="truncate group-hover:text-[#332218]">
+                          هویت احرازشده
                         </span>
                       </span>
-                    </div>
+                      <span className="font-bold text-[#332218] shrink-0 inline-flex items-center gap-1">
+                        <span>
+                          {toPersianDigits(martyrsCard.confirmedIdentityCount)} شهید{' '}
+                          <span className="font-normal text-[#78604E]">
+                            ({toPersianDigits(martyrsCard.confirmedIdentityPercent)}٪)
+                          </span>
+                        </span>
+                        <ChevronLeft
+                          className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </button>
 
-                    <div className="py-2 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      data-testid="drilldown-trigger-martyrs_needs_verification"
+                      onClick={() => triggerDrilldown('martyrs_needs_verification')}
+                      className="w-full py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
+                    >
                       <span className="flex items-center gap-2 text-[#5C4636] min-w-0">
                         <span
                           className="w-2.5 h-2.5 rounded-full bg-[#C87A3B] shrink-0"
                           aria-hidden="true"
                         />
-                        <span className="truncate">نیازمند بررسی هویت</span>
-                      </span>
-                      <span className="font-bold text-[#332218] shrink-0">
-                        {toPersianDigits(martyrsCard.needsVerificationCount)} مورد{' '}
-                        <span className="font-normal text-[#78604E]">
-                          ({toPersianDigits(martyrsCard.needsVerificationPercent)}٪)
+                        <span className="truncate group-hover:text-[#332218]">
+                          نیازمند بررسی هویت
                         </span>
                       </span>
-                    </div>
+                      <span className="font-bold text-[#332218] shrink-0 inline-flex items-center gap-1">
+                        <span>
+                          {toPersianDigits(martyrsCard.needsVerificationCount)} مورد{' '}
+                          <span className="font-normal text-[#78604E]">
+                            ({toPersianDigits(martyrsCard.needsVerificationPercent)}٪)
+                          </span>
+                        </span>
+                        <ChevronLeft
+                          className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </button>
 
-                    {hasRelationCounts && (
-                      <>
-                        <div className="py-2 flex items-center justify-between gap-2">
-                          <span className="text-[#5C4636] truncate">
-                            ارتباط تأییدشده کارشناسی
-                          </span>
-                          <span className="font-bold text-[#2E6F40] shrink-0">
-                            {toPersianDigits(martyrsCard.expertConfirmedRelationsCount)} مورد
-                          </span>
-                        </div>
+                    <button
+                      type="button"
+                      data-testid="drilldown-trigger-relations_confirmed"
+                      onClick={() => triggerDrilldown('relations_confirmed')}
+                      className="w-full py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
+                    >
+                      <span className="text-[#5C4636] truncate group-hover:text-[#332218]">
+                        ارتباط تأییدشده کارشناسی
+                      </span>
+                      <span className="font-bold text-[#2E6F40] shrink-0 inline-flex items-center gap-1">
+                        <span>
+                          {toPersianDigits(martyrsCard.expertConfirmedRelationsCount)} مورد
+                        </span>
+                        <ChevronLeft
+                          className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </button>
 
-                        <div className="py-2 flex items-center justify-between gap-2">
-                          <span className="text-[#5C4636] truncate">
-                            ارتباط در انتظار بررسی
-                          </span>
-                          <span className="font-bold text-[#332218] shrink-0">
-                            {toPersianDigits(martyrsCard.needsReviewRelationsCount)} مورد
-                          </span>
-                        </div>
-                      </>
-                    )}
+                    <button
+                      type="button"
+                      data-testid="drilldown-trigger-relations_needs_review"
+                      onClick={() => triggerDrilldown('relations_needs_review')}
+                      className="w-full py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
+                    >
+                      <span className="text-[#5C4636] truncate group-hover:text-[#332218]">
+                        ارتباط در انتظار بررسی
+                      </span>
+                      <span className="font-bold text-[#332218] shrink-0 inline-flex items-center gap-1">
+                        <span>
+                          {toPersianDigits(martyrsCard.needsReviewRelationsCount)} مورد
+                        </span>
+                        <ChevronLeft
+                          className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </button>
                   </div>
                 )}
 
@@ -463,14 +550,29 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                   </div>
                 ) : (
                   <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 space-y-1">
-                      <div className="text-3xl font-bold text-[#332218] tabular-nums leading-tight">
+                    <button
+                      type="button"
+                      data-testid="drilldown-trigger-work_queue_total"
+                      onClick={() =>
+                        triggerDrilldown(
+                          workAndOutputsCard.reviewQueueRemainingCount > 0
+                            ? 'work_remaining'
+                            : 'work_completed'
+                        )
+                      }
+                      className="min-w-0 flex-1 text-right space-y-1 rounded-xl p-1.5 -m-1.5 hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
+                    >
+                      <div className="text-3xl font-bold text-[#332218] tabular-nums leading-tight group-hover:text-[#6B3E26] transition-colors">
                         {toPersianDigits(workAndOutputsCard.reviewQueueTotalCount)}
                       </div>
-                      <div className="text-xs sm:text-sm text-[#5C4636]">
-                        مورد در صف پیگیری
+                      <div className="text-xs sm:text-sm text-[#5C4636] inline-flex items-center gap-1">
+                        <span>مورد در صف پیگیری</span>
+                        <ChevronLeft
+                          className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
+                          aria-hidden="true"
+                        />
                       </div>
-                    </div>
+                    </button>
 
                     <OverviewDonutChart
                       primaryPercent={workAndOutputsCard.reviewQueueCompletionPercent}
@@ -487,21 +589,34 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
 
               {!isWorkEmpty && (
                 <div className="divide-y divide-[#EFE4D6] border-t border-[#EFE4D6] text-xs sm:text-sm tabular-nums">
-                  <div className="py-2 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    data-testid="drilldown-trigger-work_completed"
+                    onClick={() => triggerDrilldown('work_completed')}
+                    className="w-full py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
+                  >
                     <span className="flex items-center gap-2 text-[#5C4636] min-w-0">
                       <span
                         className="w-2.5 h-2.5 rounded-full bg-[#2E6F40] shrink-0"
                         aria-hidden="true"
                       />
-                      <span className="truncate">انجام‌شده در صف پیگیری</span>
-                    </span>
-                    <span className="font-bold text-[#332218] shrink-0">
-                      {toPersianDigits(workAndOutputsCard.reviewQueueCompletedCount)} مورد{' '}
-                      <span className="font-normal text-[#78604E]">
-                        ({toPersianDigits(workAndOutputsCard.reviewQueueCompletionPercent)}٪)
+                      <span className="truncate group-hover:text-[#332218]">
+                        انجام‌شده در صف پیگیری
                       </span>
                     </span>
-                  </div>
+                    <span className="font-bold text-[#332218] shrink-0 inline-flex items-center gap-1">
+                      <span>
+                        {toPersianDigits(workAndOutputsCard.reviewQueueCompletedCount)} مورد{' '}
+                        <span className="font-normal text-[#78604E]">
+                          ({toPersianDigits(workAndOutputsCard.reviewQueueCompletionPercent)}٪)
+                        </span>
+                      </span>
+                      <ChevronLeft
+                        className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
+                        aria-hidden="true"
+                      />
+                    </span>
+                  </button>
 
                   {workAndOutputsCard.reviewQueueCompletedCount > 0 &&
                     workAndOutputsCard.completedByType.length > 0 && (
@@ -526,39 +641,74 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                       </div>
                     )}
 
-                  <div className="py-2 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    data-testid="drilldown-trigger-work_remaining"
+                    onClick={() => triggerDrilldown('work_remaining')}
+                    className="w-full py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
+                  >
                     <span className="flex items-center gap-2 text-[#5C4636] min-w-0">
                       <span
                         className="w-2.5 h-2.5 rounded-full bg-[#C9B49B] shrink-0"
                         aria-hidden="true"
                       />
-                      <span className="truncate">باقیمانده در صف پیگیری</span>
-                    </span>
-                    <span className="font-bold text-[#332218] shrink-0">
-                      {toPersianDigits(workAndOutputsCard.reviewQueueRemainingCount)} مورد{' '}
-                      <span className="font-normal text-[#78604E]">
-                        ({toPersianDigits(workAndOutputsCard.reviewQueueRemainingPercent)}٪)
+                      <span className="truncate group-hover:text-[#332218]">
+                        باقیمانده در صف پیگیری
                       </span>
                     </span>
-                  </div>
+                    <span className="font-bold text-[#332218] shrink-0 inline-flex items-center gap-1">
+                      <span>
+                        {toPersianDigits(workAndOutputsCard.reviewQueueRemainingCount)} مورد{' '}
+                        <span className="font-normal text-[#78604E]">
+                          ({toPersianDigits(workAndOutputsCard.reviewQueueRemainingPercent)}٪)
+                        </span>
+                      </span>
+                      <ChevronLeft
+                        className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
+                        aria-hidden="true"
+                      />
+                    </span>
+                  </button>
 
-                  <div className="py-2 flex items-center justify-between gap-2">
-                    <span className="text-[#5C4636] truncate">
+                  <button
+                    type="button"
+                    data-testid="drilldown-trigger-research_outputs"
+                    onClick={() => triggerDrilldown('research_outputs')}
+                    className="w-full py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
+                  >
+                    <span className="text-[#5C4636] truncate group-hover:text-[#332218]">
                       خروجی‌های پژوهشی ثبت‌شده
                     </span>
-                    <span className="font-bold text-[#332218] shrink-0">
-                      {toPersianDigits(workAndOutputsCard.activeExtractedOutputsCount)} مورد
+                    <span className="font-bold text-[#332218] shrink-0 inline-flex items-center gap-1">
+                      <span>
+                        {toPersianDigits(workAndOutputsCard.activeExtractedOutputsCount)} مورد
+                      </span>
+                      <ChevronLeft
+                        className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
+                        aria-hidden="true"
+                      />
                     </span>
-                  </div>
+                  </button>
 
-                  <div className="py-2 flex items-center justify-between gap-2">
-                    <span className="text-[#5C4636] truncate">
+                  <button
+                    type="button"
+                    data-testid="drilldown-trigger-management_reports"
+                    onClick={() => triggerDrilldown('management_reports')}
+                    className="w-full py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
+                  >
+                    <span className="text-[#5C4636] truncate group-hover:text-[#332218]">
                       گزارش‌های مدیریتی صادرشده
                     </span>
-                    <span className="font-bold text-[#332218] shrink-0">
-                      {toPersianDigits(workAndOutputsCard.exportHistoryCount)} گزارش
+                    <span className="font-bold text-[#332218] shrink-0 inline-flex items-center gap-1">
+                      <span>
+                        {toPersianDigits(workAndOutputsCard.exportHistoryCount)} گزارش
+                      </span>
+                      <ChevronLeft
+                        className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
+                        aria-hidden="true"
+                      />
                     </span>
-                  </div>
+                  </button>
                 </div>
               )}
             </section>

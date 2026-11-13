@@ -185,10 +185,24 @@ export function buildExecutiveEntityProjection(
     copyCountByBookId.set(cp.bookId, (copyCountByBookId.get(cp.bookId) || 0) + 1);
   }
 
+  const isClosedTicketStatus = (status: unknown): boolean => {
+    const st = normalizePersian(status || 'باز');
+    return (
+      st === 'بررسی شده' ||
+      st === 'بررسی‌شده' ||
+      st === 'بسته' ||
+      st === 'ردشده با دلیل'
+    );
+  };
+
   const openBookTicketsByBookId = new Map<string, PendingReviewItem[]>();
   for (const pv of pendingReviews) {
-    if (pv.trackingStatus === 'باز' && pv.mainSheet === 'فهرست کتاب‌ها' && pv.mainRecordId) {
-      const id = pv.mainRecordId.trim();
+    if (isClosedTicketStatus(pv.trackingStatus)) continue;
+    const id = (pv.mainRecordId || '').trim();
+    if (!id) continue;
+    const isBookTicket =
+      normalizePersian(pv.mainSheet) === 'فهرست کتاب ها' || /^BK-/i.test(id);
+    if (isBookTicket) {
       const arr = openBookTicketsByBookId.get(id) || [];
       arr.push(pv);
       openBookTicketsByBookId.set(id, arr);
@@ -212,14 +226,18 @@ export function buildExecutiveEntityProjection(
     const aud: FieldAuditRecord | undefined = auditRecords[rKey];
     const openTickets = tid ? openBookTicketsByBookId.get(tid) || [] : [];
     const rawRev = normalizePersian(row.reviewStatusRaw);
+    const isCatalogMarkedReviewed =
+      rawRev === 'بررسی شد' ||
+      rawRev === 'بررسی شده' ||
+      rawRev === 'تاییدشده' ||
+      rawRev === 'تایید شده';
     const isFieldReview = Boolean(aud && (aud.physical === 'review' || aud.needsReview));
     const isReviewedBaseline =
-      rawRev === 'بررسی شد' ||
       Boolean(
         aud &&
           !aud.needsReview &&
           (aud.expertApproved || aud.physical === 'verified' || aud.physical === 'not_found')
-      );
+      ) || (!aud && isCatalogMarkedReviewed);
 
     let managerialStatus: ManagerialBookStatusCode = 'unreviewed';
     if (openTickets.length > 0 || isFieldReview) {
@@ -582,24 +600,28 @@ export function buildExecutiveEntityProjection(
       if (!graveAddress) graveAddress = mAcc.graveAddress;
       tehranStatus = mAcc.tehranStatus;
 
-      if (matchedBook) {
-        const dedupKey = `${lnk.id}::${matchedBook.bookKey}`;
-        if (!mAcc.seenBookLinkKeys.has(dedupKey)) {
-          mAcc.seenBookLinkKeys.add(dedupKey);
-          mAcc.linkedBooks.push({
-            linkId: lnk.id,
-            bookKey: matchedBook.bookKey,
-            tempBookId: matchedBook.tempBookId,
-            bookTitle: matchedBook.title,
-            publisher: matchedBook.publisher,
-            pageReferenceRaw: (lnk.pageReferenceRaw || '').trim(),
-            sourceDescriptionRaw: (lnk.sourceDescriptionRaw || '').trim(),
-            certaintyBucket: bucket,
-            certaintyLabel,
-            reviewStatus: lnk.reviewStatus,
-            reviewerNote: lnk.reviewerNote || '',
-          });
-        }
+      const resolvedBookKey =
+        matchedBook?.bookKey || `UNMAPPED::${tid || compactPersian(lnk.bookTitleRaw)}`;
+      const resolvedTempBookId = matchedBook?.tempBookId || tid || '—';
+      const resolvedBookTitle = matchedBook?.title || lnk.bookTitleRaw || 'بدون عنوان';
+      const resolvedPublisher = matchedBook?.publisher || lnk.publisherRaw || '';
+
+      const dedupKey = `${lnk.id}::${resolvedBookKey}`;
+      if (!mAcc.seenBookLinkKeys.has(dedupKey)) {
+        mAcc.seenBookLinkKeys.add(dedupKey);
+        mAcc.linkedBooks.push({
+          linkId: lnk.id,
+          bookKey: resolvedBookKey,
+          tempBookId: resolvedTempBookId,
+          bookTitle: resolvedBookTitle,
+          publisher: resolvedPublisher,
+          pageReferenceRaw: (lnk.pageReferenceRaw || '').trim(),
+          sourceDescriptionRaw: (lnk.sourceDescriptionRaw || '').trim(),
+          certaintyBucket: bucket,
+          certaintyLabel,
+          reviewStatus: lnk.reviewStatus,
+          reviewerNote: lnk.reviewerNote || '',
+        });
       }
     } else if (!isPlaceholder && normName) {
       const evalTeh = evaluateStrictTehranStatus({

@@ -41,6 +41,14 @@ export {
   saveExecutiveExportHistory,
 } from './export/exportHistoryStore';
 export {
+  selectDrilldownData,
+  DRILLDOWN_META_MAP,
+  type DrilldownSelectionResult,
+  type DrilldownRelationRow,
+  type DrilldownWorkRow,
+  type DrilldownResearchOutputRow,
+} from './selectors/drilldownListsSelector';
+export {
   ExecutiveDashboardView,
   DEFAULT_EXECUTIVE_DASHBOARD_STATE,
   type ExecutiveDashboardViewState,
@@ -50,4 +58,5 @@ export {
   type DashboardDossierStackEntry,
 } from './components/ExecutiveDashboardView';
 export { ExecutiveOverviewCards } from './components/ExecutiveOverviewCards';
+export { DashboardDrilldownListView } from './components/DashboardDrilldownListView';
 export { StatisticsAndReportsRouteView } from './components/StatisticsAndReportsRouteView';
