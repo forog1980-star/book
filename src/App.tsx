@@ -192,39 +192,19 @@ const ExecutiveDashboardNavIcon: React.FC<{ active?: boolean }> = ({ active = fa
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    strokeWidth={active ? 2 : 1.75}
+    strokeWidth={active ? 2.2 : 2}
     strokeLinecap="round"
     strokeLinejoin="round"
-    className="w-5 h-5 shrink-0"
+    className="w-6 h-6 shrink-0"
     aria-hidden="true"
   >
-    <rect
-      x="3"
-      y="4"
-      width="5"
-      height="16"
-      rx="1.2"
-      fill={active ? 'currentColor' : 'none'}
-      fillOpacity={active ? 0.16 : 0}
-    />
-    <rect
-      x="9.5"
-      y="4"
-      width="5"
-      height="16"
-      rx="1.2"
-      fill={active ? 'currentColor' : 'none'}
-      fillOpacity={active ? 0.16 : 0}
-    />
-    <rect
-      x="16"
-      y="4"
-      width="5"
-      height="16"
-      rx="1.2"
-      fill={active ? 'currentColor' : 'none'}
-      fillOpacity={active ? 0.16 : 0}
-    />
+    <path d="M4.2 16a8.5 8.5 0 1 1 15.6 0" />
+    <path d="M12 7.5v1.6" />
+    <path d="M7.2 10.2l1.1 1.1" />
+    <path d="M16.8 10.2l-1.1 1.1" />
+    <path d="M12 15.5l3.6-4.2" />
+    <circle cx="12" cy="15.5" r="1.6" fill="currentColor" stroke="none" />
+    <path d="M7.5 19h9" />
   </svg>
 );
 
@@ -3961,7 +3941,7 @@ export default function App() {
             </span>
           </button>
 
-          {/* کلید هم‌تراز، روشن و هماهنگ داشبورد مدیریتی با آیکن سه‌کادره */}
+          {/* کلید دایره‌ای بیرون‌زده داشبورد مدیریتی با حاشیه طلایی و زمینه قهوه‌ای کمرنگ */}
           <button
             type="button"
             data-testid="bottom-nav-executive-dashboard-btn"
@@ -3990,20 +3970,31 @@ export default function App() {
               setActiveTab('executive_dashboard');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className={`min-w-0 min-h-[48px] flex flex-col items-center justify-center rounded-xl transition-colors px-0.5 cursor-pointer border ${
-              (activeTab === 'executive_dashboard' || activeTab === 'executive_statistics') &&
-              !showDeviceSyncDrawer
-                ? 'text-[#6B3E26] font-bold bg-[#F3E4D2] border-[#DFC9AE]'
-                : 'text-[#755C48] hover:bg-[#F5E6D3]/50 border-transparent'
-            }`}
+            className="min-w-0 h-full flex flex-col items-center justify-end pb-1.5 px-0.5 cursor-pointer group focus:outline-none"
           >
-            <ExecutiveDashboardNavIcon
-              active={
+            <span
+              className={`-mt-5 w-11 h-11 sm:w-12 sm:h-12 rounded-full border-2 flex items-center justify-center transition-all shadow-md shrink-0 ${
                 (activeTab === 'executive_dashboard' || activeTab === 'executive_statistics') &&
                 !showDeviceSyncDrawer
-              }
-            />
-            <span className="text-[10px] sm:text-xs mt-1 truncate max-w-full whitespace-nowrap">
+                  ? 'border-[#C5931E] bg-[#DFBE95] text-[#4A2613] ring-2 ring-[#F5DF9D]/90 scale-105'
+                  : 'border-[#D4A63B] bg-[#EAD2B5] text-[#5C341E] ring-2 ring-[#FDF8F2] group-hover:bg-[#E2C39E]'
+              }`}
+            >
+              <ExecutiveDashboardNavIcon
+                active={
+                  (activeTab === 'executive_dashboard' || activeTab === 'executive_statistics') &&
+                  !showDeviceSyncDrawer
+                }
+              />
+            </span>
+            <span
+              className={`text-[10px] sm:text-xs mt-0.5 truncate max-w-full whitespace-nowrap ${
+                (activeTab === 'executive_dashboard' || activeTab === 'executive_statistics') &&
+                !showDeviceSyncDrawer
+                  ? 'text-[#8C3B2B] font-bold'
+                  : 'text-[#6B3E26] font-semibold'
+              }`}
+            >
               داشبورد
             </span>
           </button>

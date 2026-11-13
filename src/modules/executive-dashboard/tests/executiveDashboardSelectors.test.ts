@@ -1084,12 +1084,13 @@ test('18 - مسیر مستقل آمار و گزارش‌ها، حذف دکمه �
   assert.equal(statsRouteSource.includes('ExecutiveDetailedReportsView'), false);
   assert.equal(statsRouteSource.includes('خروجی JSON مدیریتی'), false);
 
-  // مسیریابی مستقل و اصلاح آیکن/رنگ دکمه داشبورد در نوار پایین
+  // مسیریابی مستقل و طراحی دایره بیرون‌زده طلایی/قهوه‌ای کمرنگ دکمه داشبورد در نوار پایین
   assert.equal(appSource.includes("'executive_statistics'"), true);
   assert.equal(appSource.includes('<StatisticsAndReportsRouteView'), true);
   assert.equal(appSource.includes('ExecutiveDashboardNavIcon'), true);
-  assert.equal(appSource.includes('LayoutDashboard'), false);
-  assert.equal(appSource.includes('-mt-4'), false);
+  assert.equal(appSource.includes('rounded-full border-2'), true);
+  assert.equal(appSource.includes('border-[#D4A63B] bg-[#EAD2B5]'), true);
+  assert.equal(appSource.includes('-mt-5'), true);
   assert.equal(appSource.includes('grid-cols-6'), true);
 });
 
