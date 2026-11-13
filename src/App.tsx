@@ -193,15 +193,6 @@ export default function App() {
   const [libraryInitialSearchQuery, setLibraryInitialSearchQuery] = useState<string>('');
   const [executiveDashboardState, setExecutiveDashboardState] =
     useState<ExecutiveDashboardViewState>(DEFAULT_EXECUTIVE_DASHBOARD_STATE);
-  const [executiveReturnContext, setExecutiveReturnContext] = useState<{
-    tab: MainMenuTab;
-    librarySubView: 'catalog' | 'shelves';
-    showPilotSubView: boolean;
-  }>({
-    tab: 'home',
-    librarySubView: 'catalog',
-    showPilotSubView: false
-  });
   const [libraryDirectBookTarget, setLibraryDirectBookTarget] = useState<{
     rowKey?: string;
     tempBookId?: string;
@@ -283,20 +274,46 @@ export default function App() {
   const isOnline = useOnlineStatus();
 
   const [golzarIndexVersion, setGolzarIndexVersion] = useState<number>(0);
+  const [golzarLoadState, setGolzarLoadState] = useState<'idle' | 'loading' | 'loaded' | 'error'>(
+    () => (getCachedGolzarMartyrsSync().length > 0 ? 'loaded' : 'idle')
+  );
 
-  // بارگذاری پس‌زمینه بانک ۲۸٬۳۶۸ شهید گلزار با تأخیر هوشمند پس از رندر اولیه تا شروع برنامه بدون کوچک‌ترین مکث انجام شود
+  const requestLoadGolzarBank = React.useCallback(async () => {
+    if (getCachedGolzarMartyrsSync().length > 0) {
+      setGolzarLoadState('loaded');
+      return;
+    }
+    setGolzarLoadState('loading');
+    const list = await loadCachedGolzarMartyrs();
+    if (list.length > 0 || getCachedGolzarMartyrsSync().length > 0) {
+      setGolzarLoadState('loaded');
+    } else {
+      setGolzarLoadState('error');
+    }
+  }, []);
+
+  // بارگذاری پس‌زمینه بانک شهدای گلزار و بارگذاری فوری هنگام ورود به داشبورد مدیریتی
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void loadCachedGolzarMartyrs();
+      void requestLoadGolzarBank();
     }, 1200);
     const unsub = subscribeToGolzarMartyrsLoaded(() => {
       setGolzarIndexVersion((v) => v + 1);
+      if (getCachedGolzarMartyrsSync().length > 0) {
+        setGolzarLoadState('loaded');
+      }
     });
     return () => {
       window.clearTimeout(timer);
       unsub();
     };
-  }, []);
+  }, [requestLoadGolzarBank]);
+
+  useEffect(() => {
+    if (activeTab === 'executive_dashboard' && golzarLoadState === 'idle') {
+      void requestLoadGolzarBank();
+    }
+  }, [activeTab, golzarLoadState, requestLoadGolzarBank]);
 
   // Reference Catalog State (All 5 Sheets from فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx)
   const [loadedFileName, setLoadedFileName] = useState<string>(
@@ -343,22 +360,32 @@ export default function App() {
   });
   const [workbookMartyrs, setWorkbookMartyrs] = useState<WorkbookGolzarMartyr[]>([]);
 
+  const [workbookLoadState, setWorkbookLoadState] = useState<'loading' | 'loaded' | 'error'>(
+    'loading'
+  );
+  const [workbookLoadError, setWorkbookLoadError] = useState<string | null>(null);
+
   // Auto-load all 5 sheets of /data/library_books.json on startup
-  useEffect(() => {
-    async function loadFullWorkbookJson() {
-      try {
-        const res = await fetch('./data/library_books.json');
-        if (!res.ok) return;
-        const rawParsed = await res.json();
-        const parsed = Array.isArray(rawParsed)
-          ? rawParsed[0]?.sheets
-            ? rawParsed[0]
-            : rawParsed
-          : rawParsed;
-        if (parsed?.format === 'markaz-asnad-library-workbook-json' && Array.isArray(parsed.sheets)) {
-          const sNames = parsed.sheets.map((s: { name: string }) => s.name);
-          setLoadedFileName(parsed.source_file || 'فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx');
-          setSheetNames(sNames);
+  const loadFullWorkbookJson = React.useCallback(async () => {
+    setWorkbookLoadState('loading');
+    setWorkbookLoadError(null);
+    try {
+      const res = await fetch('./data/library_books.json');
+      if (!res.ok) {
+        setWorkbookLoadError(`خطا در دریافت داده‌های پایه کتابخانه (کد ${res.status}).`);
+        setWorkbookLoadState('error');
+        return;
+      }
+      const rawParsed = await res.json();
+      const parsed = Array.isArray(rawParsed)
+        ? rawParsed[0]?.sheets
+          ? rawParsed[0]
+          : rawParsed
+        : rawParsed;
+      if (parsed?.format === 'markaz-asnad-library-workbook-json' && Array.isArray(parsed.sheets)) {
+        const sNames = parsed.sheets.map((s: { name: string }) => s.name);
+        setLoadedFileName(parsed.source_file || 'فهرست کاری کتابخانه - نسخه 0.1 (1).xlsx');
+        setSheetNames(sNames);
 
           // 1. Parse Sheet «فهرست کتاب‌ها» (980 rows)
           const bookSheet = parsed.sheets.find((s: { name: string }) =>
@@ -548,13 +575,24 @@ export default function App() {
             }
             setWorkbookMartyrs(sRows);
           }
-        }
-      } catch {
-        // fallback
+        setWorkbookLoadState('loaded');
+      } else {
+        setWorkbookLoadError('ساختار فایل داده‌های کتابخانه معتبر نیست.');
+        setWorkbookLoadState('error');
       }
+    } catch (err) {
+      setWorkbookLoadError(
+        err instanceof Error && err.message
+          ? err.message
+          : 'خطا در برقراری ارتباط برای دریافت داده‌های کتابخانه.'
+      );
+      setWorkbookLoadState('error');
     }
-    loadFullWorkbookJson();
   }, []);
+
+  useEffect(() => {
+    void loadFullWorkbookJson();
+  }, [loadFullWorkbookJson]);
 
   // توابع پاک‌سازی خودکار رکوردهای ذخیره‌شده از تداخل نام ناشر (مانند «انتشارات ابراهیم هادی») و حفظ قطعی تأیید کارشناس
   const sanitizeAuditRecordsMap = (
@@ -3672,41 +3710,33 @@ export default function App() {
           </div>
         )}
 
-        {/* EXECUTIVE DASHBOARD (داشبورد مدیریتی مرکز اسناد — ماژول مستقل با ارجاع دوطرفه) */}
+        {/* EXECUTIVE DASHBOARD (داشبورد مدیریتی مرکز اسناد — ماژول مستقل با نمای سه‌کادره و گزارش‌های تفصیلی) */}
         {activeTab === 'executive_dashboard' && executiveDashboardInputs && (
           <ExecutiveDashboardView
             inputs={executiveDashboardInputs}
             viewState={executiveDashboardState}
+            readiness={{
+              isStorageHydrated,
+              workbookLoadState,
+              workbookLoadError,
+              golzarLoadState,
+              hasCachedOperationalData:
+                Object.keys(auditRecords).length > 0 ||
+                pendingReviews.length > 0 ||
+                links.length > INITIAL_BOOK_MARTYR_LINKS.length ||
+                customMartyrs.length > 0,
+              onRetryLoadWorkbook: () => {
+                void loadFullWorkbookJson();
+              },
+              onRetryLoadGolzar: () => {
+                void requestLoadGolzarBank();
+              }
+            }}
             onUpdateViewState={(updater) =>
               setExecutiveDashboardState((prev) =>
                 typeof updater === 'function' ? updater(prev) : { ...prev, ...updater }
               )
             }
-            returnButtonLabel={
-              executiveReturnContext.tab === 'library'
-                ? 'بازگشت به کتابخانه'
-                : executiveReturnContext.tab === 'martyrs'
-                ? 'بازگشت به بخش شهدا'
-                : executiveReturnContext.tab === 'research'
-                ? 'بازگشت به پژوهش'
-                : executiveReturnContext.tab === 'smart_search'
-                ? 'بازگشت به جست‌وجو'
-                : executiveReturnContext.tab === 'management'
-                ? 'بازگشت به مدیریت'
-                : 'بازگشت به خانه'
-            }
-            onReturnPreviousTab={() => {
-              const target =
-                executiveReturnContext.tab &&
-                executiveReturnContext.tab !== 'executive_dashboard'
-                  ? executiveReturnContext
-                  : { tab: 'home' as MainMenuTab, librarySubView: 'catalog' as const, showPilotSubView: false };
-              isPoppingHistoryRef.current = true;
-              setActiveTab(target.tab);
-              setLibrarySubView(target.librarySubView);
-              setShowPilotSubView(target.showPilotSubView);
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
             onOpenOriginalBookRecord={(book: DashboardBookListItem) => {
               setLibrarySubView('catalog');
               setLibraryReturnToDashboardDossier(true);
@@ -3735,7 +3765,7 @@ export default function App() {
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             onRequestLoadGolzarBank={() => {
-              void loadCachedGolzarMartyrs();
+              void requestLoadGolzarBank();
             }}
             onNotify={showNotify}
           />
@@ -3842,13 +3872,12 @@ export default function App() {
                 clearMartyrsCrossTabTarget();
                 setLibraryReturnToDashboardDossier(false);
                 setShowDeviceSyncDrawer(false);
-                if (activeTab !== 'executive_dashboard') {
-                  setExecutiveReturnContext({
-                    tab: activeTab,
-                    librarySubView,
-                    showPilotSubView
-                  });
-                }
+                setExecutiveDashboardState((prev) => ({
+                  ...prev,
+                  subView: 'overview',
+                  dossierStack: [],
+                  scrollTop: 0
+                }));
                 setActiveTab('executive_dashboard');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}

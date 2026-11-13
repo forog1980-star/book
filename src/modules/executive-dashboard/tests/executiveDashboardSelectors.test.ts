@@ -30,6 +30,7 @@ import {
   selectRelationAnalytics,
   selectReviewQueue,
   selectTemporalAudit,
+  selectThreeCardOverview,
   type ExecutiveExportHistoryRecord,
 } from '../index';
 
@@ -852,6 +853,179 @@ test('15 - آداپتور تبدیل بانک سبک‌وزن گلزار بدو�
   assert.equal(mapped[0].id, 'GLZ-LIGHT-1');
   assert.equal(mapped[0].gravePiece, '24');
   assert.equal(mapped[0].operation, 'والفجر');
+});
+
+test('16 - سلکتور نمای سه‌کادره: ایمنی تقسیم بر صفر، جمع ۱۰۰٪ مکمل و واکنش‌پذیری زنده بدون بارگذاری مجدد', () => {
+  // حالت خالی: هیچ خطای تقسیم بر صفر (NaN) وجود ندارد
+  const emptyOverview = selectThreeCardOverview({ catalogRows: [] }, 0);
+  assert.equal(emptyOverview.libraryCard.totalTrackedBooksCount, 0);
+  assert.equal(emptyOverview.libraryCard.completedPercent, 0);
+  assert.equal(emptyOverview.libraryCard.remainingPercent, 0);
+  assert.equal(emptyOverview.martyrsCard.confirmedIdentityPercent, 0);
+  assert.equal(emptyOverview.workAndOutputsCard.reviewQueueCompletionPercent, 0);
+
+  // داده زنده اولیه (فقط در حافظه موقت تست)
+  const catalogRows: ReferenceCatalogRow[] = [
+    makeCatalogRow({ rowIndex: 2, tempBookId: 'BK-0001', titleRaw: 'کتاب یک', reviewStatusRaw: 'بررسی شد' }),
+    makeCatalogRow({ rowIndex: 3, tempBookId: 'BK-0002', titleRaw: 'کتاب دو', reviewStatusRaw: 'بررسی‌نشده' }),
+    makeCatalogRow({ rowIndex: 4, tempBookId: 'BK-0003', titleRaw: 'کتاب سه', reviewStatusRaw: 'بررسی‌نشده' }),
+    makeCatalogRow({ rowIndex: 5, tempBookId: 'BK-0004', titleRaw: 'کتاب چهار', reviewStatusRaw: 'بررسی‌نشده' }),
+  ];
+  const golzarRecords = [
+    {
+      id: 'G-1',
+      firstName: 'محسن',
+      lastName: 'وزوایی',
+      fatherName: 'غلامحسین',
+      gravePiece: '26',
+      graveRow: '4',
+      graveNumber: '15',
+      source: 'golzar' as const,
+    },
+  ];
+  const initialLinks: BookMartyrLinkRecord[] = [
+    makeLink({
+      id: 'RL-1',
+      tempBookId: 'BK-0001',
+      bookTitleRaw: 'کتاب یک',
+      martyrNameRaw: 'شهید محسن وزوایی',
+      gravePieceRaw: '26',
+      graveRowRaw: '4',
+      graveNumberRaw: '15',
+      reviewStatus: 'نیازمند بررسی',
+    }),
+  ];
+  const initialPending: PendingReviewItem[] = [
+    {
+      trackingId: 'PV-0001',
+      mainSheet: 'ارتباط کتاب و شهید',
+      mainRecordId: 'RL-1',
+      nameOrPhrase: 'شهید محسن وزوایی',
+      bookTitle: 'کتاب یک',
+      publisher: 'سوره مهر',
+      issueSubject: 'تطبیق',
+      suggestedAction: 'تأیید',
+      trackingStatus: 'باز',
+    },
+    {
+      trackingId: 'PV-0558',
+      mainSheet: 'فهرست کتاب‌ها',
+      mainRecordId: 'BK-0002',
+      nameOrPhrase: 'کتاب دو',
+      bookTitle: 'کتاب دو',
+      publisher: 'سوره مهر',
+      issueSubject: 'تکرار عنوان',
+      suggestedAction: 'تعیین جلد',
+      trackingStatus: 'باز',
+    },
+  ];
+
+  const before = selectThreeCardOverview(
+    {
+      catalogRows,
+      golzarRecords,
+      links: initialLinks,
+      pendingReviews: initialPending,
+    },
+    1
+  );
+
+  assert.equal(before.libraryCard.totalTrackedBooksCount, 4);
+  assert.equal(before.libraryCard.completedCount, 1);
+  assert.equal(before.libraryCard.openDuplicateTicketCount, 1);
+  assert.equal(before.libraryCard.remainingForReviewCount, 3);
+  assert.equal(before.libraryCard.completedPercent + before.libraryCard.remainingPercent, 100);
+  assert.equal(before.libraryCard.completedPercent, 25);
+  assert.equal(before.martyrsCard.totalLinkedMartyrsCount, 1);
+  assert.equal(before.martyrsCard.confirmedIdentityCount, 1);
+  assert.equal(before.martyrsCard.expertConfirmedRelationsCount, 0);
+  assert.equal(before.martyrsCard.needsReviewRelationsCount, 1);
+  assert.equal(before.workAndOutputsCard.reviewQueueCompletedCount, 0);
+  assert.equal(before.workAndOutputsCard.reviewQueueRemainingCount, 2);
+  assert.equal(before.workAndOutputsCard.exportHistoryCount, 1);
+
+  // تغییر زنده بدون reload: تأیید یک ارتباط، بستن دو تیکت PV، ثبت یک خروجی جدید
+  const after = selectThreeCardOverview(
+    {
+      catalogRows: [
+        ...catalogRows.slice(0, 1),
+        { ...catalogRows[1], reviewStatusRaw: 'بررسی شد' },
+        ...catalogRows.slice(2),
+      ],
+      golzarRecords,
+      links: [{ ...initialLinks[0], reviewStatus: 'تأییدشده کارشناسی' }],
+      pendingReviews: initialPending.map((p) => ({ ...p, trackingStatus: 'بررسی‌شده' })),
+      extractedItems: [
+        {
+          id: 'EX-TEST-1',
+          tempBookId: 'BK-0001',
+          bookTitleRaw: 'کتاب یک',
+          publisherRaw: 'سوره مهر',
+          martyrNameRaw: 'شهید محسن وزوایی',
+          gravePieceRaw: '26',
+          pageReferenceRaw: '10',
+          contentType: 'خاطره',
+          passageTitle: 'نبرد پل کرخه',
+          extractedText: 'متن پژوهش',
+          researcherNote: '',
+          reviewStatus: 'تأییدشده کارشناسی',
+          recordedBy: 'پژوهشگر',
+          reviewedBy: 'کارشناس',
+          sourceFile: 'تست',
+          sourceSheet: 'تست',
+          sourceRow: '2',
+          updatedAt: '۱۴۰۵/۰۸/۲۰',
+        },
+      ],
+    },
+    2
+  );
+
+  assert.equal(after.libraryCard.completedCount, 2);
+  assert.equal(after.libraryCard.openDuplicateTicketCount, 0);
+  assert.equal(after.libraryCard.completedPercent, 50);
+  assert.equal(after.libraryCard.remainingPercent, 50);
+  assert.equal(after.martyrsCard.expertConfirmedRelationsCount, 1);
+  assert.equal(after.martyrsCard.needsReviewRelationsCount, 0);
+  assert.equal(after.workAndOutputsCard.reviewQueueCompletedCount, 2);
+  assert.equal(after.workAndOutputsCard.reviewQueueCompletionPercent, 100);
+  assert.equal(after.workAndOutputsCard.reviewQueueRemainingPercent, 0);
+  assert.equal(after.workAndOutputsCard.activeExtractedOutputsCount, 1);
+  assert.equal(after.workAndOutputsCard.exportHistoryCount, 2);
+});
+
+test('17 - پاک‌سازی کامل صفحه اصلی داشبورد سه‌کادره: نبود اقلام ممنوعه فنی و وجود فقط یک کلید ورود تفصیلی', () => {
+  const overviewSource = fs.readFileSync(
+    path.join(process.cwd(), 'src/modules/executive-dashboard/components/ExecutiveOverviewCards.tsx'),
+    'utf8'
+  );
+  const dashboardSource = fs.readFileSync(
+    path.join(process.cwd(), 'src/modules/executive-dashboard/components/ExecutiveDashboardView.tsx'),
+    'utf8'
+  );
+
+  const bannedInOverview = [
+    '۲۸٬۳۶۸',
+    '28368',
+    '23751',
+    '3506',
+    '1111',
+    'اموات',
+    'گمنام',
+    '836',
+    '۸۳۶',
+    'PV-0',
+    'بازگشت به خانه',
+    'اکسل مدیریتی (۵ شیت)',
+    'خروجی JSON مدیریتی',
+  ];
+  for (const token of bannedInOverview) {
+    assert.equal(overviewSource.includes(token), false, `Forbidden token found in overview: ${token}`);
+  }
+
+  assert.equal(overviewSource.includes('data-testid="open-detailed-reports-btn"'), true);
+  assert.equal(overviewSource.includes('آمار و گزارش‌های تفصیلی'), true);
+  assert.equal(dashboardSource.includes("subView: 'overview'"), true);
 });
 
 console.log(`\nALL_UNIT_TESTS_PASSED (${passed} tests)`);

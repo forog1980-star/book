@@ -20,6 +20,7 @@ import {
   exportExecutiveManagementExcel,
   extractLibraryWorkbookInputsFromJson,
   normalizeGolzarRawRows,
+  selectThreeCardOverview,
 } from '../index';
 
 const XLSX =
@@ -227,10 +228,36 @@ try {
   }
 }
 
-console.log('=== REAL DATA RECONCILIATION REPORT (PHASE 2) ===');
+// ۹. بررسی انطباق نمای سه‌کادره با داده‌های واقعی بدون هیچ عدد Hardcode‌شده
+const threeCard = selectThreeCardOverview(inputs, 0);
+assert.equal(threeCard.libraryCard.totalTrackedBooksCount, 980);
+assert.equal(threeCard.libraryCard.completedCount, 0);
+assert.equal(threeCard.libraryCard.openDuplicateTicketCount, 10);
+assert.equal(threeCard.libraryCard.unreviewedCount, 970);
+assert.equal(threeCard.libraryCard.remainingForReviewCount, 980);
+assert.equal(threeCard.libraryCard.completedPercent, 0);
+assert.equal(threeCard.libraryCard.remainingPercent, 100);
+
+assert.equal(threeCard.martyrsCard.totalLinkedMartyrsCount, 395);
+assert.equal(threeCard.martyrsCard.confirmedIdentityCount, 332);
+assert.equal(threeCard.martyrsCard.needsVerificationCount, 63);
+assert.equal(threeCard.martyrsCard.confirmedIdentityPercent, 84);
+assert.equal(threeCard.martyrsCard.needsVerificationPercent, 16);
+assert.equal(threeCard.martyrsCard.relatedBooksCount, 470);
+assert.equal(threeCard.martyrsCard.expertConfirmedRelationsCount, 0);
+assert.equal(threeCard.martyrsCard.needsReviewRelationsCount, 557);
+
+assert.equal(threeCard.workAndOutputsCard.reviewQueueTotalCount, 567);
+assert.equal(threeCard.workAndOutputsCard.reviewQueueCompletedCount, 0);
+assert.equal(threeCard.workAndOutputsCard.reviewQueueRemainingCount, 567);
+assert.equal(threeCard.workAndOutputsCard.reviewQueueCompletionPercent, 0);
+assert.equal(threeCard.workAndOutputsCard.reviewQueueRemainingPercent, 100);
+
+console.log('=== REAL DATA RECONCILIATION REPORT (THREE-CARD OVERVIEW) ===');
 console.log(
   JSON.stringify(
     {
+      threeCardOverview: threeCard,
       kpiCards: {
         martyrRelatedKpi: summary.martyrRelatedKpi,
         totalBooksKpi: summary.totalBooksKpi,

@@ -554,3 +554,49 @@ export interface ExecutiveExportHistoryRecord {
   status: 'success' | 'failed';
   errorMessage?: string;
 }
+
+export type ExecutiveDashboardSubView = 'overview' | 'detailed_reports';
+
+export interface ExecutiveDashboardReadiness {
+  isStorageHydrated: boolean;
+  workbookLoadState: 'loading' | 'loaded' | 'error';
+  workbookLoadError: string | null;
+  golzarLoadState: 'idle' | 'loading' | 'loaded' | 'error';
+  hasCachedOperationalData: boolean;
+  onRetryLoadWorkbook?: () => void;
+  onRetryLoadGolzar?: () => void;
+}
+
+export interface ThreeCardOverviewResult {
+  libraryCard: {
+    totalTrackedBooksCount: number;
+    completedCount: number;
+    openDuplicateTicketCount: number;
+    unreviewedCount: number;
+    remainingForReviewCount: number;
+    completedPercent: number;
+    remainingPercent: number;
+  };
+  martyrsCard: {
+    totalLinkedMartyrsCount: number;
+    confirmedIdentityCount: number;
+    needsVerificationCount: number;
+    confirmedIdentityPercent: number;
+    needsVerificationPercent: number;
+    relatedBooksCount: number;
+    expertConfirmedRelationsCount: number;
+    needsReviewRelationsCount: number;
+  };
+  workAndOutputsCard: {
+    reviewQueueTotalCount: number;
+    reviewQueueCompletedCount: number;
+    reviewQueueRemainingCount: number;
+    reviewQueueCompletionPercent: number;
+    reviewQueueRemainingPercent: number;
+    activeExtractedOutputsCount: number;
+    expertApprovedOutputsCount: number;
+    pendingExtractedReviewCount: number;
+    exportHistoryCount: number;
+  };
+}
+

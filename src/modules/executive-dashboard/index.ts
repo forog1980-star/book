@@ -10,6 +10,10 @@ export { selectReviewQueue } from './selectors/reviewQueueSelector';
 export { selectTemporalAudit } from './selectors/temporalAuditSelector';
 export { selectExecutiveDashboardSummary } from './selectors/dashboardSummarySelector';
 export {
+  selectThreeCardOverview,
+  selectThreeCardOverviewFromSummary,
+} from './selectors/executiveThreeCardOverviewSelector';
+export {
   buildExecutiveEntityProjection,
   selectDashboardBooksList,
   selectDashboardMartyrsList,
@@ -45,5 +49,7 @@ export {
   type DashboardMartyrFilterKey,
   type DashboardDossierStackEntry,
 } from './components/ExecutiveDashboardView';
+export { ExecutiveOverviewCards } from './components/ExecutiveOverviewCards';
+export { ExecutiveDetailedReportsView } from './components/ExecutiveDetailedReportsView';
 export { BookSummaryDossierModal } from './components/BookSummaryDossierModal';
 export { MartyrSummaryDossierModal } from './components/MartyrSummaryDossierModal';
