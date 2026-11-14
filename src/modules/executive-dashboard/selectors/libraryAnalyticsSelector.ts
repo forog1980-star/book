@@ -6,6 +6,7 @@ import type {
   ReferenceCatalogRow,
 } from '../../../data/markazAsnadData';
 import {
+  classifyPendingReviewStatus,
   compactPersian,
   isPlaceholderOrGroupMartyrPhrase,
   normalizePersian,
@@ -49,13 +50,7 @@ function hasOpenLinkIssueStatus(status: string | undefined): boolean {
 }
 
 function isPendingTicketClosed(trackingStatus: string | undefined): boolean {
-  const st = normalizePersian(trackingStatus || 'باز');
-  return (
-    st === 'بررسی شده' ||
-    st === 'بررسی‌شده' ||
-    st === 'بسته' ||
-    st === 'ردشده با دلیل'
-  );
+  return classifyPendingReviewStatus(trackingStatus) === 'resolved';
 }
 
 /**

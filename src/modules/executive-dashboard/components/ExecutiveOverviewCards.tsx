@@ -652,8 +652,16 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                         className="w-2.5 h-2.5 rounded-full bg-[#C9B49B] shrink-0"
                         aria-hidden="true"
                       />
-                      <span className="truncate group-hover:text-[#332218]">
-                        باقیمانده در صف پیگیری
+                      <span className="min-w-0">
+                        <span className="block truncate group-hover:text-[#332218]">
+                          باقیمانده در صف پیگیری
+                        </span>
+                        {workAndOutputsCard.reviewQueueNeedsSourceCount > 0 && (
+                          <span className="block text-[11px] text-[#78604E] truncate">
+                            شامل {toPersianDigits(workAndOutputsCard.reviewQueueNeedsSourceCount)}{' '}
+                            مورد نیازمند منبع
+                          </span>
+                        )}
                       </span>
                     </span>
                     <span className="font-bold text-[#332218] shrink-0 inline-flex items-center gap-1">
@@ -676,8 +684,19 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                     onClick={() => triggerDrilldown('research_outputs')}
                     className="w-full py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
                   >
-                    <span className="text-[#5C4636] truncate group-hover:text-[#332218]">
-                      خروجی‌های پژوهشی ثبت‌شده
+                    <span className="min-w-0">
+                      <span className="block text-[#5C4636] truncate group-hover:text-[#332218]">
+                        مطالب پژوهشی استخراج‌شده
+                      </span>
+                      {workAndOutputsCard.activeExtractedOutputsCount > 0 && (
+                        <span className="block text-[11px] text-[#78604E] truncate">
+                          خروجی پژوهشی نهایی و مستقل:{' '}
+                          {toPersianDigits(
+                            workAndOutputsCard.finalIndependentResearchOutputsCount
+                          )}{' '}
+                          مورد
+                        </span>
+                      )}
                     </span>
                     <span className="font-bold text-[#332218] shrink-0 inline-flex items-center gap-1">
                       <span>
@@ -696,8 +715,17 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                     onClick={() => triggerDrilldown('management_reports')}
                     className="w-full py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
                   >
-                    <span className="text-[#5C4636] truncate group-hover:text-[#332218]">
-                      گزارش‌های مدیریتی صادرشده
+                    <span className="min-w-0">
+                      <span className="block text-[#5C4636] truncate group-hover:text-[#332218]">
+                        گزارش‌های مدیریتی نهایی و مستقل
+                      </span>
+                      {workAndOutputsCard.rawExportHistoryCount >
+                        workAndOutputsCard.exportHistoryCount && (
+                        <span className="block text-[11px] text-[#78604E] truncate">
+                          از مجموع {toPersianDigits(workAndOutputsCard.rawExportHistoryCount)} نسخه
+                          صادرشده در دستگاه
+                        </span>
+                      )}
                     </span>
                     <span className="font-bold text-[#332218] shrink-0 inline-flex items-center gap-1">
                       <span>

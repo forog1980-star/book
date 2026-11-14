@@ -4,6 +4,7 @@ import type {
   PendingReviewItem,
 } from '../../../data/markazAsnadData';
 import {
+  classifyPendingReviewStatus,
   compactPersian,
   isPlaceholderOrGroupMartyrPhrase,
   normalizePersian,
@@ -169,13 +170,7 @@ export const DRILLDOWN_META_MAP: Record<DashboardDrilldownKey, DrilldownContextM
 };
 
 function isClosedTicketStatus(status: unknown): boolean {
-  const st = normalizePersian(status || 'باز');
-  return (
-    st === 'بررسی شده' ||
-    st === 'بررسی‌شده' ||
-    st === 'بسته' ||
-    st === 'ردشده با دلیل'
-  );
+  return classifyPendingReviewStatus(status) === 'resolved';
 }
 
 /**

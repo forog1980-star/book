@@ -23,8 +23,15 @@ import {
   filterExportHistoryRecordsPure,
   buildExecutiveEntityProjection,
   buildExecutiveDashboardExportV1,
+  buildStatisticalQueryAnswers,
+  classifyPendingReviewStatus,
+  computeUnifiedStatisticsSearch,
   mapLightweightGolzarToRawInputs,
+  pickHigherPriorityPendingStatus,
+  selectActivityLogSummary,
   selectExecutiveDashboardSummary,
+  selectFinalizedManagementReportsSummary,
+  selectFinalizedResearchOutputsSummary,
   selectLibraryAnalytics,
   selectMartyrAnalytics,
   selectRelationAnalytics,
@@ -32,6 +39,7 @@ import {
   selectTemporalAudit,
   selectThreeCardOverview,
   selectThreeCardOverviewFromSummary,
+  selectWorkAndOutputsDetailedAnalytics,
   selectDrilldownData,
   DRILLDOWN_META_MAP,
   type DashboardDrilldownKey,
@@ -1077,20 +1085,29 @@ test('18 - مسیر مستقل آمار و گزارش‌ها، حذف دکمه �
   assert.equal(indexSource.includes('ExecutiveDetailedReportsView'), false);
   assert.equal(indexSource.includes('StatisticsAndReportsRouteView'), true);
 
-  // پوسته تمیز مسیر آمار و گزارش‌ها بدون بازگردانی ۶ تب قدیمی یا اعداد جعلی
+  // پوسته سه‌بخشی مسیر آمار و گزارش‌ها بدون کارت چهارم «ارتباطات» یا اعداد جعلی
   assert.equal(statsRouteSource.includes('data-testid="executive-statistics-route-view"'), true);
   assert.equal(statsRouteSource.includes('data-testid="back-to-dashboard-btn"'), true);
   assert.equal(statsRouteSource.includes('بازگشت به داشبورد'), true);
+  assert.equal(statsRouteSource.includes('data-testid="statistics-shared-tools"'), true);
+  assert.equal(statsRouteSource.includes('data-testid="statistics-unified-search"'), true);
+  assert.equal(statsRouteSource.includes('data-testid="statistics-statistical-queries"'), true);
+  assert.equal(statsRouteSource.includes('data-testid="statistics-section-library"'), true);
+  assert.equal(statsRouteSource.includes('data-testid="statistics-section-martyrs"'), true);
+  assert.equal(statsRouteSource.includes('data-testid="statistics-section-work"'), true);
+  assert.equal(statsRouteSource.includes('statistics-section-relations'), false);
   assert.equal(statsRouteSource.includes('ExecutiveDetailedReportsView'), false);
   assert.equal(statsRouteSource.includes('خروجی JSON مدیریتی'), false);
 
-  // مسیریابی مستقل و طراحی دایره بیرون‌زده طلایی/قهوه‌ای کمرنگ دکمه داشبورد در نوار پایین
+  // مسیریابی مستقل و طراحی دایره بزرگ‌تر بیرون‌زده طلایی/قهوه‌ای روشن با نشان اختصاصی در نوار پایین
   assert.equal(appSource.includes("'executive_statistics'"), true);
   assert.equal(appSource.includes('<StatisticsAndReportsRouteView'), true);
   assert.equal(appSource.includes('ExecutiveDashboardNavIcon'), true);
-  assert.equal(appSource.includes('rounded-full border-2'), true);
-  assert.equal(appSource.includes('border-[#D4A63B] bg-[#EAD2B5]'), true);
-  assert.equal(appSource.includes('-mt-5'), true);
+  assert.equal(appSource.includes('dashboard_nav_emblem'), true);
+  assert.equal(appSource.includes('w-[58px] h-[58px]'), true);
+  assert.equal(appSource.includes('-mt-7'), true);
+  assert.equal(appSource.includes('#D4A63B'), true);
+  assert.equal(appSource.includes('#EAD2B5'), true);
   assert.equal(appSource.includes('grid-cols-6'), true);
 });
 
@@ -1355,6 +1372,276 @@ test('19 - مسیرهای تعاملی ۱۱گانه داشبورد، تطابق 
   assert.equal(appSource.includes('onOpenOriginalBookRecord'), true);
   assert.equal(appSource.includes('onOpenOriginalMartyrRecord'), true);
   assert.equal(appSource.includes("returnTarget: 'executive_dashboard'"), true);
+});
+
+test('20 - آشتی وضعیت‌های صف پیگیری: تفکیک «نیازمند منبع» از «تکمیل‌شده» و پذیرش وضعیت‌های انجام‌شده', () => {
+  assert.equal(classifyPendingReviewStatus('باز'), 'open');
+  assert.equal(classifyPendingReviewStatus('نیازمند منبع'), 'needs_source');
+  assert.equal(classifyPendingReviewStatus('بررسی‌شده'), 'resolved');
+  assert.equal(classifyPendingReviewStatus('تأییدشده کارشناسی'), 'resolved');
+  assert.equal(classifyPendingReviewStatus('تکمیل‌شده'), 'resolved');
+  assert.equal(classifyPendingReviewStatus('انجام‌شده'), 'resolved');
+  assert.equal(classifyPendingReviewStatus('حل‌شده'), 'resolved');
+
+  // جلوگیری از بازنویسی وضعیت پیشرفته‌تر با «نیازمند منبع» هنگام همگام‌سازی
+  assert.equal(pickHigherPriorityPendingStatus('بررسی‌شده', 'نیازمند منبع'), 'بررسی‌شده');
+  assert.equal(pickHigherPriorityPendingStatus('باز', 'نیازمند منبع'), 'نیازمند منبع');
+  assert.equal(pickHigherPriorityPendingStatus('نیازمند منبع', 'تکمیل‌شده'), 'تکمیل‌شده');
+
+  const pendingReviews: PendingReviewItem[] = [
+    {
+      trackingId: 'PV-1',
+      mainSheet: 'فهرست کتاب‌ها',
+      mainRecordId: 'BK-0001',
+      nameOrPhrase: 'کتاب ۱',
+      bookTitle: 'کتاب ۱',
+      publisher: 'سوره مهر',
+      issueSubject: 'تکرار عنوان',
+      suggestedAction: 'تعیین جلد',
+      trackingStatus: 'نیازمند منبع',
+    },
+    {
+      trackingId: 'PV-2',
+      mainSheet: 'ارتباط کتاب و شهید',
+      mainRecordId: 'RL-0001',
+      nameOrPhrase: 'شهید ۱',
+      bookTitle: 'کتاب ۱',
+      publisher: 'سوره مهر',
+      issueSubject: 'تطبیق نام',
+      suggestedAction: 'بررسی',
+      trackingStatus: 'تکمیل‌شده',
+    },
+    {
+      trackingId: 'PV-3',
+      mainSheet: 'ارتباط کتاب و شهید',
+      mainRecordId: 'RL-0002',
+      nameOrPhrase: 'شهید ۲',
+      bookTitle: 'کتاب ۲',
+      publisher: 'سوره مهر',
+      issueSubject: 'تأیید رابطه',
+      suggestedAction: 'بررسی',
+      trackingStatus: 'تأییدشده کارشناسی',
+    },
+  ];
+
+  const rq = selectReviewQueue({ catalogRows: [], pendingReviews });
+  assert.equal(rq.pendingReviews.totalCount, 3);
+  assert.equal(rq.pendingReviews.resolvedCount, 2);
+  assert.equal(rq.pendingReviews.openCount, 1);
+  assert.equal(rq.pendingReviews.needsSourceCount, 1);
+  assert.equal(rq.pendingReviews.openPlainCount, 0);
+});
+
+test('21 - تفکیک موضوعات چندبخشی (جداشده با «؛») بین کتابخانه، شهدا و ارتباطات + استقلال تاریخچه فعالیت', () => {
+  const pendingReviews: PendingReviewItem[] = [
+    {
+      trackingId: 'PV-MULTI-1',
+      mainSheet: 'ارتباط کتاب و شهید',
+      mainRecordId: 'RL-0100',
+      nameOrPhrase: 'شهید الف',
+      bookTitle: 'کتاب مشترک',
+      publisher: 'سوره مهر',
+      issueSubject: 'نیازمند تأیید ارتباط کتاب و شهید؛ تشابه نام شهید با گلزار؛ تکرار عنوان کتاب',
+      suggestedAction: 'بررسی سه‌گانه',
+      trackingStatus: 'باز',
+    },
+  ];
+
+  const auditLogs = [
+    {
+      id: 'LOG-10',
+      timestamp: '۱۴۰۵/۰۸/۲۵ - ۱۱:۰۰',
+      actorName: 'کتابدار',
+      actorRole: 'reviewer' as const,
+      actionType: 'ثبت موجودی فیزیکی' as const,
+      targetId: 'BK-0010',
+      summary: 'ثبت مکان قفسه جدید',
+    },
+    {
+      id: 'LOG-11',
+      timestamp: '۱۴۰۵/۰۸/۲۵ - ۱۱:۱۰',
+      actorName: 'پژوهشگر',
+      actorRole: 'reviewer' as const,
+      actionType: 'ثبت مطلب استخراج‌شده' as const,
+      targetId: 'RL-0100',
+      summary: 'یادداشت پژوهشی ثبت شد بدون بستن تیکت PV',
+    },
+  ];
+
+  const rq = selectReviewQueue({ catalogRows: [], pendingReviews, auditLogs });
+  assert.equal(rq.pendingReviews.totalCount, 1);
+  assert.equal(rq.pendingReviews.resolvedCount, 0);
+  assert.equal(rq.independentWorkTopics.compoundRecordsCount, 1);
+  assert.equal(rq.independentWorkTopics.totalTopicsCount, 3);
+  assert.equal(rq.independentWorkTopics.domainBreakdown.relations.pvTopicsRemaining, 1);
+  assert.equal(rq.independentWorkTopics.domainBreakdown.martyrs.pvTopicsRemaining, 1);
+  assert.equal(rq.independentWorkTopics.domainBreakdown.library.pvTopicsRemaining, 1);
+
+  const act = selectActivityLogSummary(auditLogs);
+  assert.equal(act.totalEntriesCount, 2);
+  assert.equal(act.byActionType.length, 2);
+});
+
+test('22 - تمایز مطالب استخراج‌شده، خروجی‌های پژوهشی نهایی مستقل، گزارش‌های مدیریتی مستقل و جستجوی یکپارچه', () => {
+  const extractedItems = [
+    {
+      id: 'EX-1',
+      tempBookId: 'BK-0001',
+      bookTitleRaw: 'کتاب الف',
+      publisherRaw: 'سوره مهر',
+      martyrNameRaw: 'شهید ابراهیم همت',
+      gravePieceRaw: '27',
+      pageReferenceRaw: '12',
+      contentType: 'خاطره' as const,
+      passageTitle: 'فتح خیبر - نسخه ۱',
+      extractedText: 'متن نسخه اول',
+      researcherNote: '',
+      reviewStatus: 'تأییدشده کارشناسی' as const,
+      recordedBy: 'پژوهشگر',
+      reviewedBy: 'کارشناس',
+      sourceFile: 'فایل',
+      sourceSheet: 'Sheet2',
+      sourceRow: '2',
+      updatedAt: '۱۴۰۵/۰۸/۲۱',
+    },
+    {
+      id: 'EX-2',
+      tempBookId: 'BK-0001',
+      bookTitleRaw: 'کتاب الف',
+      publisherRaw: 'سوره مهر',
+      martyrNameRaw: 'شهید ابراهیم همت',
+      gravePieceRaw: '27',
+      pageReferenceRaw: '12',
+      contentType: 'خاطره' as const,
+      passageTitle: 'فتح خیبر v2',
+      extractedText: 'متن نسخه ویرایش‌شده دوم',
+      researcherNote: '',
+      reviewStatus: 'تأییدشده کارشناسی' as const,
+      recordedBy: 'پژوهشگر',
+      reviewedBy: 'کارشناس',
+      sourceFile: 'فایل',
+      sourceSheet: 'Sheet2',
+      sourceRow: '2',
+      updatedAt: '۱۴۰۵/۰۸/۲۲',
+    },
+    {
+      id: 'EX-3',
+      tempBookId: 'BK-0001',
+      bookTitleRaw: 'کتاب الف',
+      publisherRaw: 'سوره مهر',
+      martyrNameRaw: 'شهید ابراهیم همت',
+      gravePieceRaw: '27',
+      pageReferenceRaw: '15',
+      contentType: 'زندگی‌نامه' as const,
+      passageTitle: 'پیش‌نویس زندگینامه',
+      extractedText: 'متن آزمایشی پیش‌نویس',
+      researcherNote: '',
+      reviewStatus: 'تأییدشده کارشناسی' as const,
+      recordedBy: 'پژوهشگر',
+      reviewedBy: 'کارشناس',
+      sourceFile: 'فایل',
+      sourceSheet: 'Sheet2',
+      sourceRow: '3',
+      updatedAt: '۱۴۰۵/۰۸/۲۲',
+    },
+    {
+      id: 'EX-4',
+      tempBookId: 'BK-0002',
+      bookTitleRaw: 'کتاب ب',
+      publisherRaw: 'سوره مهر',
+      martyrNameRaw: 'شهید باکری',
+      gravePieceRaw: '',
+      pageReferenceRaw: '20',
+      contentType: 'تحلیل و پژوهش' as const,
+      passageTitle: 'یادداشت اولیه',
+      extractedText: 'متن نیاز به بررسی',
+      researcherNote: '',
+      reviewStatus: 'بررسی‌شده در پژوهش اصلی' as const,
+      recordedBy: 'پژوهشگر',
+      reviewedBy: '',
+      sourceFile: 'فایل',
+      sourceSheet: 'Sheet2',
+      sourceRow: '4',
+      updatedAt: '۱۴۰۵/۰۸/۲۲',
+    },
+  ];
+
+  const researchSummary = selectFinalizedResearchOutputsSummary(extractedItems);
+  assert.equal(researchSummary.totalExtractedNonRejectedCount, 4);
+  assert.equal(researchSummary.rawFinalizedRecordsCount, 2); // EX-3 پیش‌نویس کنار گذاشته شد
+  assert.equal(researchSummary.finalIndependentOutputsCount, 1); // EX-1 و EX-2 یک خروجی مستقل
+  assert.equal(researchSummary.duplicateVersionsCollapsedCount, 1);
+
+  const exportHistory: ExecutiveExportHistoryRecord[] = [
+    {
+      exportId: 'E-1',
+      fileName: 'executive-dashboard-1405-08-20-v1.xlsx',
+      fileType: 'excel',
+      exportScope: 'dashboard_management',
+      timestampIso: '2026-11-11T08:00:00Z',
+      timestampDisplay: '۱۴۰۵/۰۸/۲۰',
+      recordCount: 980,
+      appliedFiltersSummary: 'همه',
+      status: 'success',
+    },
+    {
+      exportId: 'E-2',
+      fileName: 'executive-dashboard-1405-08-21-v2.xlsx',
+      fileType: 'excel',
+      exportScope: 'dashboard_management',
+      timestampIso: '2026-11-12T08:00:00Z',
+      timestampDisplay: '۱۴۰۵/۰۸/۲۱',
+      recordCount: 980,
+      appliedFiltersSummary: 'همه',
+      status: 'success',
+    },
+    {
+      exportId: 'E-3',
+      fileName: 'executive-dashboard-draft.xlsx',
+      fileType: 'excel',
+      exportScope: 'dashboard_management',
+      timestampIso: '2026-11-12T09:00:00Z',
+      timestampDisplay: '۱۴۰۵/۰۸/۲۱',
+      recordCount: 980,
+      appliedFiltersSummary: 'پیش‌نویس',
+      status: 'success',
+    },
+    {
+      exportId: 'E-4',
+      fileName: 'executive-dashboard-failed.json',
+      fileType: 'json',
+      exportScope: 'dashboard_management',
+      timestampIso: '2026-11-12T10:00:00Z',
+      timestampDisplay: '۱۴۰۵/۰۸/۲۱',
+      recordCount: 0,
+      appliedFiltersSummary: 'همه',
+      status: 'failed',
+      errorMessage: 'خطا',
+    },
+  ];
+
+  const repSummary = selectFinalizedManagementReportsSummary(exportHistory);
+  assert.equal(repSummary.rawSuccessfulIssuancesCount, 2); // E-3 پیش‌نویس و E-4 ناموفق حذف شدند
+  assert.equal(repSummary.finalIndependentReportsCount, 1); // E-1 و E-2 یک گزارش اکسل مستقل
+  assert.equal(repSummary.duplicateVersionsCollapsedCount, 1);
+  assert.equal(repSummary.draftOrFailedExcludedCount, 2);
+
+  const inputs = {
+    catalogRows: [makeCatalogRow({ rowIndex: 2, tempBookId: 'BK-0001', titleRaw: 'کتاب الف' })],
+    extractedItems,
+    pendingReviews: [],
+    auditLogs: [],
+  };
+  const proj = buildExecutiveEntityProjection(inputs);
+  const workDetailed = selectWorkAndOutputsDetailedAnalytics(inputs, proj.summary, exportHistory);
+  const queries = buildStatisticalQueryAnswers(proj.summary, workDetailed);
+  assert.equal(queries.length, 5);
+  assert.ok(queries.some((q) => q.targetSection === 'work'));
+
+  const searchRes = computeUnifiedStatisticsSearch('کتاب الف', inputs, proj, exportHistory);
+  assert.equal(searchRes.booksMatchesCount, 1);
+  assert.equal(searchRes.researchMatchesCount, 3);
+  assert.ok(searchRes.totalMatchesCount >= 4);
 });
 
 console.log(`\nALL_UNIT_TESTS_PASSED (${passed} tests)`);

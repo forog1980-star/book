@@ -7,6 +7,7 @@ import type {
   ReferenceCatalogRow,
 } from '../../../data/markazAsnadData';
 import {
+  classifyPendingReviewStatus,
   cleanOptionalField,
   compactPersian,
   isPlaceholderOrGroupMartyrPhrase,
@@ -185,15 +186,8 @@ export function buildExecutiveEntityProjection(
     copyCountByBookId.set(cp.bookId, (copyCountByBookId.get(cp.bookId) || 0) + 1);
   }
 
-  const isClosedTicketStatus = (status: unknown): boolean => {
-    const st = normalizePersian(status || 'باز');
-    return (
-      st === 'بررسی شده' ||
-      st === 'بررسی‌شده' ||
-      st === 'بسته' ||
-      st === 'ردشده با دلیل'
-    );
-  };
+  const isClosedTicketStatus = (status: unknown): boolean =>
+    classifyPendingReviewStatus(status) === 'resolved';
 
   const openBookTicketsByBookId = new Map<string, PendingReviewItem[]>();
   for (const pv of pendingReviews) {

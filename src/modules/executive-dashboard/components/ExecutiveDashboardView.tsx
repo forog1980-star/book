@@ -142,8 +142,8 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
   );
 
   const threeCardOverview = useMemo(
-    () => selectThreeCardOverviewFromSummary(summary, exportHistory.length),
-    [summary, exportHistory.length]
+    () => selectThreeCardOverviewFromSummary(summary, exportHistory, inputs.extractedItems),
+    [summary, exportHistory, inputs.extractedItems]
   );
 
   const drilldownSelection = useMemo(

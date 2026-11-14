@@ -248,15 +248,39 @@ export interface RelationAnalyticsResult {
   };
 }
 
+export interface DomainWorkBreakdownItem {
+  domain: 'library' | 'martyrs' | 'relations';
+  label: 'کتابخانه' | 'شهدا' | 'ارتباطات';
+  pvTopicsTotal: number;
+  pvTopicsCompleted: number;
+  pvTopicsRemaining: number;
+  additionalOpenBacklogCount: number;
+  totalActionableRemainingCount: number;
+}
+
 export interface ReviewQueueResult {
   pendingReviews: {
     totalCount: number;
     openCount: number;
+    openPlainCount: number;
+    needsSourceCount: number;
     resolvedCount: number;
     otherStatusCount: number;
+    statusCounts: Record<string, number>;
     openByMainSheet: Record<string, number>;
     resolvedByMainSheet: Record<string, number>;
     openByIssueType: Record<string, number>;
+  };
+  independentWorkTopics: {
+    totalTopicsCount: number;
+    completedTopicsCount: number;
+    remainingTopicsCount: number;
+    compoundRecordsCount: number;
+    domainBreakdown: {
+      library: DomainWorkBreakdownItem;
+      martyrs: DomainWorkBreakdownItem;
+      relations: DomainWorkBreakdownItem;
+    };
   };
   multiMartyrGroups: {
     totalGroupsCount: number;
@@ -592,14 +616,72 @@ export interface ThreeCardOverviewResult {
     reviewQueueTotalCount: number;
     reviewQueueCompletedCount: number;
     reviewQueueRemainingCount: number;
+    reviewQueueNeedsSourceCount: number;
     reviewQueueCompletionPercent: number;
     reviewQueueRemainingPercent: number;
     completedByType: Array<{ label: string; count: number }>;
     activeExtractedOutputsCount: number;
     expertApprovedOutputsCount: number;
+    finalIndependentResearchOutputsCount: number;
     pendingExtractedReviewCount: number;
     exportHistoryCount: number;
+    rawExportHistoryCount: number;
   };
+}
+
+export interface ActivityLogAnalyticsSummary {
+  totalEntriesCount: number;
+  byActionType: Array<{ actionType: string; count: number }>;
+  latestTimestamp: string | null;
+}
+
+export interface FinalizedResearchOutputsSummary {
+  /** کل مطالب استخراج‌شده غیرردشده (شامل پیش‌نویس، نیازمند بررسی، پژوهش اصلی و تأیید کارشناسی) */
+  totalExtractedNonRejectedCount: number;
+  /** خروجی‌های پژوهشی نهایی و مستقل (فقط تأییدشده نهایی/کارشناسی، بدون پیش‌نویس و با تجمیع نسخه‌های تکراری یک محصول) */
+  finalIndependentOutputsCount: number;
+  /** تعداد رکوردهای تأییدشده کارشناسی پیش از حذف نسخه‌های تکراری */
+  rawFinalizedRecordsCount: number;
+  /** نسخه‌های متعدد یک محصول پژوهشی که به‌عنوان خروجی مستقل جدید شمرده نشدند */
+  duplicateVersionsCollapsedCount: number;
+  /** موارد استخراج‌شده که هنوز پیش‌نویس/خام/پژوهش اولیه یا نیازمند بررسی هستند و خروجی نهایی محسوب نمی‌شوند */
+  nonFinalOrDraftExtractedCount: number;
+  breakdownByStatus: {
+    expertApproved: number;
+    baseResearchReviewed: number;
+    needsReview: number;
+    rawOrDraft: number;
+    rejected: number;
+  };
+}
+
+export interface FinalizedManagementReportsSummary {
+  /** گزارش‌های مدیریتی نهایی و مستقل از سابقه واقعی صدور (بدون پیش‌نویس، ناموفق و بدون تکرار نسخه‌ها) */
+  finalIndependentReportsCount: number;
+  /** کل صدورهای موفق ثبت‌شده در سابقه دستگاه پیش از تجمیع نسخه‌های تکراری */
+  rawSuccessfulIssuancesCount: number;
+  /** نسخه‌های متعدد از یک گزارش مشابه که خروجی مستقل جدید شمرده نشدند */
+  duplicateVersionsCollapsedCount: number;
+  /** گزارش‌های پیش‌نویس یا ناموفق که خروجی نهایی محسوب نشدند */
+  draftOrFailedExcludedCount: number;
+  byFileType: {
+    excel: number;
+    json: number;
+  };
+  latestIssuedAtDisplay: string | null;
+}
+
+export interface WorkAndOutputsDetailedAnalytics {
+  reviewQueueTotalCount: number;
+  reviewQueueCompletedCount: number;
+  reviewQueueRemainingCount: number;
+  reviewQueueNeedsSourceCount: number;
+  reviewQueueOpenPlainCount: number;
+  reviewQueueStatusBreakdown: Array<{ status: string; count: number; isCompleted: boolean }>;
+  independentWorkTopics: ReviewQueueResult['independentWorkTopics'];
+  activityLog: ActivityLogAnalyticsSummary;
+  researchOutputs: FinalizedResearchOutputsSummary;
+  managementReports: FinalizedManagementReportsSummary;
 }
 
 export type DashboardDrilldownKey =
@@ -622,5 +704,6 @@ export interface DrilldownContextMeta {
   subtitle: string;
   dataSourceNote: string;
 }
+
 
 

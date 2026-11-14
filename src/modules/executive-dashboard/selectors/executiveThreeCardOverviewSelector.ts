@@ -1,9 +1,14 @@
 import type {
   DashboardSummaryResult,
   ExecutiveDashboardInputs,
+  ExecutiveExportHistoryRecord,
   ThreeCardOverviewResult,
 } from '../types';
 import { selectExecutiveDashboardSummary } from './dashboardSummarySelector';
+import {
+  selectFinalizedManagementReportsSummary,
+  selectFinalizedResearchOutputsSummary,
+} from './detailedStatisticsSelector';
 
 function computeComplementaryPercentages(
   completedPart: number,
@@ -20,11 +25,12 @@ function computeComplementaryPercentages(
 
 /**
  * سلکتور خالص نمای سه‌کادره داشبورد مدیریتی (کتابخانه / شهدا / وضعیت کار و خروجی‌ها)
- * - منبع واحد حقیقت از DashboardSummaryResult (بدون عدد ثابت یا مخلوط‌کردن داده‌های بدون تاریخ با ممیزی زمانی)
+ * - منبع واحد حقیقت از DashboardSummaryResult و سابقه واقعی گزارش‌ها (بدون عدد ثابت)
  */
 export function selectThreeCardOverviewFromSummary(
   summary: DashboardSummaryResult,
-  exportHistoryCount = 0
+  exportHistoryOrCount: number | ExecutiveExportHistoryRecord[] = 0,
+  extractedItems?: ExecutiveDashboardInputs['extractedItems']
 ): ThreeCardOverviewResult {
   // ۱. کارت کتابخانه: افراز بدون هم‌پوشانی گزینه ج روی کل کتاب‌های تحت پایش
   const bookPart = summary.library.reviewBreakdown.managerialStatusPartition;
@@ -38,7 +44,7 @@ export function selectThreeCardOverviewFromSummary(
     totalTrackedBooksCount
   );
 
-  // ۲. کارت شهدا: احراز هویت شخص یکتا روی شهدای مرتبط + قطعیت ارتباطات (بدون افشای تعداد خام ۸۳۶ یا ۲۸٬۳۶۸)
+  // ۲. کارت شهدا: احراز هویت شخص یکتا روی شهدای مرتبط + قطعیت ارتباطات
   const linkedSummary = summary.martyrs.linkedMartyrsSummary;
   const totalLinkedMartyrsCount = linkedSummary.distinctNormalizedLinkedNamesCount;
   const confirmedIdentityCount = linkedSummary.confirmedUniqueLinkedMartyrsCount;
@@ -48,7 +54,7 @@ export function selectThreeCardOverviewFromSummary(
     totalLinkedMartyrsCount
   );
 
-  // ۳. کارت وضعیت کار و خروجی‌ها: صف یکدست پیگیری (بدون ترکیب با مهر زمان نامتجانس) + خروجی‌های پژوهشی و سابقه گزارش
+  // ۳. کارت وضعیت کار و خروجی‌ها: صف یکدست پیگیری + مطالب پژوهشی + گزارش‌های مدیریتی واقعی
   const pv = summary.reviewQueue.pendingReviews;
   const reviewQueueTotalCount = pv.totalCount;
   const reviewQueueCompletedCount = pv.resolvedCount;
@@ -67,10 +73,27 @@ export function selectThreeCardOverviewFromSummary(
       : [];
 
   const exQueue = summary.reviewQueue.extractedItemsQueue;
-  const activeExtractedOutputsCount = Math.max(
-    0,
-    exQueue.totalCount - exQueue.rejectedCount
-  );
+  const researchSummary = extractedItems
+    ? selectFinalizedResearchOutputsSummary(extractedItems)
+    : null;
+  const activeExtractedOutputsCount = researchSummary
+    ? researchSummary.totalExtractedNonRejectedCount
+    : Math.max(0, exQueue.totalCount - exQueue.rejectedCount);
+  const finalIndependentResearchOutputsCount = researchSummary
+    ? researchSummary.finalIndependentOutputsCount
+    : exQueue.expertApprovedCount;
+
+  const numericExportFallback =
+    typeof exportHistoryOrCount === 'number' ? Math.max(0, exportHistoryOrCount) : 0;
+  const reportSummary = Array.isArray(exportHistoryOrCount)
+    ? selectFinalizedManagementReportsSummary(exportHistoryOrCount)
+    : null;
+  const exportHistoryCount = reportSummary
+    ? reportSummary.finalIndependentReportsCount
+    : numericExportFallback;
+  const rawExportHistoryCount = reportSummary
+    ? reportSummary.rawSuccessfulIssuancesCount
+    : numericExportFallback;
 
   return {
     libraryCard: {
@@ -98,23 +121,28 @@ export function selectThreeCardOverviewFromSummary(
       reviewQueueTotalCount,
       reviewQueueCompletedCount,
       reviewQueueRemainingCount,
+      reviewQueueNeedsSourceCount: pv.needsSourceCount,
       reviewQueueCompletionPercent: workPct.primaryPercent,
       reviewQueueRemainingPercent: workPct.remainingPercent,
       completedByType,
       activeExtractedOutputsCount,
       expertApprovedOutputsCount: exQueue.expertApprovedCount,
+      finalIndependentResearchOutputsCount,
       pendingExtractedReviewCount: exQueue.needsReviewCount,
-      exportHistoryCount: Math.max(0, exportHistoryCount),
+      exportHistoryCount,
+      rawExportHistoryCount,
     },
   };
 }
 
 export function selectThreeCardOverview(
   inputs: ExecutiveDashboardInputs,
-  exportHistoryCount = 0
+  exportHistoryOrCount: number | ExecutiveExportHistoryRecord[] = 0
 ): ThreeCardOverviewResult {
   return selectThreeCardOverviewFromSummary(
     selectExecutiveDashboardSummary(inputs),
-    exportHistoryCount
+    exportHistoryOrCount,
+    inputs.extractedItems
   );
 }
+

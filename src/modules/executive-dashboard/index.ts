@@ -49,6 +49,16 @@ export {
   type DrilldownResearchOutputRow,
 } from './selectors/drilldownListsSelector';
 export {
+  selectFinalizedResearchOutputsSummary,
+  selectFinalizedManagementReportsSummary,
+  selectActivityLogSummary,
+  selectWorkAndOutputsDetailedAnalytics,
+  buildStatisticalQueryAnswers,
+  computeUnifiedStatisticsSearch,
+  type StatisticalQueryAnswer,
+  type UnifiedSearchPreview,
+} from './selectors/detailedStatisticsSelector';
+export {
   ExecutiveDashboardView,
   DEFAULT_EXECUTIVE_DASHBOARD_STATE,
   type ExecutiveDashboardViewState,

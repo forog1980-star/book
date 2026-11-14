@@ -14,14 +14,24 @@ import path from 'node:path';
 import * as XLSXNamespace from 'xlsx';
 import * as XLSXStyleNamespace from 'xlsx-js-style';
 import {
+  INITIAL_EXTRACTED_ITEMS,
+} from '../../../data/markazAsnadData';
+import {
+  buildSorehMehrExtractedItems,
+  enrichLinksWithSorehMehrResearch,
+} from '../../../data/soorehMehrResearch';
+import {
   RELATION_CERTAINTY_DISPLAY_LABELS,
   buildExecutiveDashboardExportV1,
   buildExecutiveEntityProjection,
+  buildStatisticalQueryAnswers,
+  computeUnifiedStatisticsSearch,
   exportExecutiveManagementExcel,
   extractLibraryWorkbookInputsFromJson,
   normalizeGolzarRawRows,
   selectDrilldownData,
   selectThreeCardOverview,
+  selectWorkAndOutputsDetailedAnalytics,
   type DashboardDrilldownKey,
 } from '../index';
 
@@ -287,11 +297,86 @@ assert.ok(
   'Expected linked book & martyr entities resolved in real relations drilldown'
 );
 
+// ۱۱. آشتی صف ۵۶۷ تایی، ۵۸۱ موضوع مستقل، ۳۰۹ مطلب استخراج‌شده سوره مهر، ۶/۵۶۷ نیازمند منبع و جداسازی از جداول ۶۱۷/۵۱۰/۷۲۴
+const enrichedRealLinks = enrichLinksWithSorehMehrResearch(links);
+const realExtractedItems = buildSorehMehrExtractedItems(enrichedRealLinks, INITIAL_EXTRACTED_ITEMS);
+assert.equal(realExtractedItems.length, 309);
+
+const realInputsWithResearch = {
+  ...inputs,
+  links: enrichedRealLinks,
+  extractedItems: realExtractedItems,
+  auditLogs: [],
+};
+const realProjWithResearch = buildExecutiveEntityProjection(realInputsWithResearch);
+const realWorkAnalytics = selectWorkAndOutputsDetailedAnalytics(
+  realInputsWithResearch,
+  realProjWithResearch.summary,
+  []
+);
+
+// الف) صف ۵۶۷ تایی در فایل پایه و تفکیک ۵۸۱ موضوع مستقل (۱۴ پرونده دارای «؛»)
+assert.equal(realWorkAnalytics.reviewQueueTotalCount, 567);
+assert.equal(realWorkAnalytics.independentWorkTopics.compoundRecordsCount, 14);
+assert.equal(realWorkAnalytics.independentWorkTopics.totalTopicsCount, 581);
+assert.equal(
+  realWorkAnalytics.independentWorkTopics.domainBreakdown.library.pvTopicsTotal +
+    realWorkAnalytics.independentWorkTopics.domainBreakdown.martyrs.pvTopicsTotal +
+    realWorkAnalytics.independentWorkTopics.domainBreakdown.relations.pvTopicsTotal,
+  581
+);
+
+// ب) راستی‌آزمایی ۶/۵۶۷: ۶ مورد «نیازمند منبع» جزو باقیمانده می‌ماند و ۰ تکمیل‌شده می‌دهد، اما ۶ مورد «بررسی‌شده» ۶ تکمیل‌شده و ۵۶۱ باقیمانده می‌دهد
+const sixNeedsSourcePending = pendingReviews.map((pv, idx) =>
+  idx < 6 ? { ...pv, trackingStatus: 'نیازمند منبع' } : pv
+);
+const ovSixNeedsSource = selectThreeCardOverview(
+  { ...realInputsWithResearch, pendingReviews: sixNeedsSourcePending },
+  []
+);
+assert.equal(ovSixNeedsSource.workAndOutputsCard.reviewQueueCompletedCount, 0);
+assert.equal(ovSixNeedsSource.workAndOutputsCard.reviewQueueRemainingCount, 567);
+assert.equal(ovSixNeedsSource.workAndOutputsCard.reviewQueueNeedsSourceCount, 6);
+
+const sixReviewedPending = pendingReviews.map((pv, idx) =>
+  idx < 6 ? { ...pv, trackingStatus: 'بررسی‌شده' } : pv
+);
+const ovSixReviewed = selectThreeCardOverview(
+  { ...realInputsWithResearch, pendingReviews: sixReviewedPending },
+  []
+);
+assert.equal(ovSixReviewed.workAndOutputsCard.reviewQueueCompletedCount, 6);
+assert.equal(ovSixReviewed.workAndOutputsCard.reviewQueueRemainingCount, 561);
+
+// ج) تمایز ۳۰۹ مطلب استخراج‌شده از ۳ خروجی پژوهشی نهایی مستقل و ۰ گزارش مدیریتی اولیه
+assert.equal(realWorkAnalytics.researchOutputs.totalExtractedNonRejectedCount, 309);
+assert.equal(realWorkAnalytics.researchOutputs.finalIndependentOutputsCount, 3);
+assert.equal(realWorkAnalytics.researchOutputs.nonFinalOrDraftExtractedCount, 306);
+assert.equal(realWorkAnalytics.managementReports.finalIndependentReportsCount, 0);
+assert.equal(realWorkAnalytics.activityLog.totalEntriesCount, 0);
+
+// د) پرسش‌های آماری زنده و جستجوی یکپارچه بدون هیچ عدد ثابت‌شده
+const realStatQueries = buildStatisticalQueryAnswers(realProjWithResearch.summary, realWorkAnalytics);
+assert.equal(realStatQueries.length, 5);
+const realSearchRes = computeUnifiedStatisticsSearch('متوسلیان', realInputsWithResearch, realProjWithResearch, []);
+assert.ok(realSearchRes.totalMatchesCount > 0);
+
 console.log('=== REAL DATA RECONCILIATION REPORT (THREE-CARD OVERVIEW) ===');
 console.log(
   JSON.stringify(
     {
       threeCardOverview: threeCard,
+      workDetailedReconciliation: {
+        reviewQueueTotalCount: realWorkAnalytics.reviewQueueTotalCount,
+        independentTopicsTotalCount: realWorkAnalytics.independentWorkTopics.totalTopicsCount,
+        compoundRecordsCount: realWorkAnalytics.independentWorkTopics.compoundRecordsCount,
+        domainBreakdown: realWorkAnalytics.independentWorkTopics.domainBreakdown,
+        extractedNonRejectedCount: realWorkAnalytics.researchOutputs.totalExtractedNonRejectedCount,
+        finalIndependentResearchOutputsCount:
+          realWorkAnalytics.researchOutputs.finalIndependentOutputsCount,
+        finalIndependentManagementReportsCount:
+          realWorkAnalytics.managementReports.finalIndependentReportsCount,
+      },
       kpiCards: {
         martyrRelatedKpi: summary.martyrRelatedKpi,
         totalBooksKpi: summary.totalBooksKpi,

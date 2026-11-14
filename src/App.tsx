@@ -133,11 +133,14 @@ import {
   DEFAULT_EXECUTIVE_DASHBOARD_STATE,
   DRILLDOWN_META_MAP,
   buildExecutiveDashboardInputs,
+  classifyPendingReviewStatus,
+  pickHigherPriorityPendingStatus,
   type DashboardBookListItem,
   type DashboardDrilldownKey,
   type DashboardMartyrListItem,
   type ExecutiveDashboardViewState
 } from './modules/executive-dashboard';
+import dashboardNavEmblemImg from './assets/images/dashboard_nav_emblem_1794642086699.jpg';
 
 // عنوان و شناسه اختصاصی پایگاه داده در حافظه گوشی و مرورگر: book
 export const BOOK_STORAGE_NAMESPACE = 'book';
@@ -187,26 +190,49 @@ export type MainMenuTab =
   | 'executive_dashboard'
   | 'executive_statistics';
 
-const ExecutiveDashboardNavIcon: React.FC<{ active?: boolean }> = ({ active = false }) => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={active ? 2.2 : 2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className="w-6 h-6 shrink-0"
-    aria-hidden="true"
-  >
-    <path d="M4.2 16a8.5 8.5 0 1 1 15.6 0" />
-    <path d="M12 7.5v1.6" />
-    <path d="M7.2 10.2l1.1 1.1" />
-    <path d="M16.8 10.2l-1.1 1.1" />
-    <path d="M12 15.5l3.6-4.2" />
-    <circle cx="12" cy="15.5" r="1.6" fill="currentColor" stroke="none" />
-    <path d="M7.5 19h9" />
-  </svg>
-);
+const ExecutiveDashboardNavIcon: React.FC<{ active?: boolean }> = ({ active = false }) => {
+  const [imgError, setImgError] = useState(false);
+
+  if (!imgError) {
+    return (
+      <img
+        src={dashboardNavEmblemImg}
+        alt="نشان داشبورد مدیریتی"
+        referrerPolicy="no-referrer"
+        onError={() => setImgError(true)}
+        className={`w-full h-full object-cover rounded-full transition-transform duration-200 select-none ${
+          active ? 'scale-[1.2]' : 'scale-[1.16]'
+        }`}
+      />
+    );
+  }
+
+  return (
+    <svg
+      viewBox="0 0 36 36"
+      fill="none"
+      className="w-8 h-8 sm:w-9 sm:h-9 shrink-0"
+      aria-hidden="true"
+    >
+      <circle cx="18" cy="18" r="15.5" stroke="#B48216" strokeWidth="1.2" opacity="0.55" />
+      <path
+        d="M9.5 23.5c2.7-1.1 5.6-1 8.5.4 2.9-1.4 5.8-1.5 8.5-.4V13.8c-2.7-1.1-5.6-1-8.5.4-2.9-1.4-5.8-1.5-8.5-.4v9.7z"
+        fill="#D4A63B"
+        fillOpacity="0.28"
+        stroke="#8C5E14"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path d="M18 14.2v9.7" stroke="#8C5E14" strokeWidth="1.5" strokeLinecap="round" />
+      <path
+        d="M14.5 11.2v-2.6M18 11.2V7.2M21.5 11.2V8.6"
+        stroke="#B48216"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+};
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<MainMenuTab>('home');
@@ -550,10 +576,10 @@ export default function App() {
                     baseMap.set(loc.trackingId, {
                       ...existing,
                       ...loc,
-                      trackingStatus:
-                        loc.trackingStatus && loc.trackingStatus !== 'باز'
-                          ? loc.trackingStatus
-                          : existing.trackingStatus
+                      trackingStatus: pickHigherPriorityPendingStatus(
+                        existing.trackingStatus,
+                        loc.trackingStatus
+                      )
                     });
                   } else {
                     baseMap.set(loc.trackingId, loc);
@@ -935,10 +961,10 @@ export default function App() {
                 byId.set(inc.trackingId, {
                   ...ex,
                   ...inc,
-                  trackingStatus:
-                    ex.trackingStatus && ex.trackingStatus !== 'باز'
-                      ? ex.trackingStatus
-                      : inc.trackingStatus
+                  trackingStatus: pickHigherPriorityPendingStatus(
+                    ex.trackingStatus,
+                    inc.trackingStatus
+                  )
                 });
               } else {
                 byId.set(inc.trackingId, inc);
@@ -1764,7 +1790,7 @@ export default function App() {
       setPendingReviews((prev) =>
         prev.map((pv) => {
           if (
-            pv.trackingStatus === 'باز' &&
+            classifyPendingReviewStatus(pv.trackingStatus) !== 'resolved' &&
             (pv.mainRecordId === record.tempBookId ||
               (normBookTitle && normalizePersianText(pv.bookTitle) === normBookTitle))
           ) {
@@ -3481,7 +3507,7 @@ export default function App() {
               setPendingReviews((prev) =>
                 prev.map((pv) => {
                   if (
-                    pv.trackingStatus === 'باز' &&
+                    classifyPendingReviewStatus(pv.trackingStatus) !== 'resolved' &&
                     normalizePersianText(pv.nameOrPhrase.replace(/^شهید\s+/, '')) === normM &&
                     normalizePersianText(pv.bookTitle) === normB
                   ) {
@@ -3542,7 +3568,7 @@ export default function App() {
                 const normB = normalizePersianText(targetLink.bookTitleRaw);
                 setPendingReviews((prev) =>
                   prev.map((pv) =>
-                    pv.trackingStatus === 'باز' &&
+                    classifyPendingReviewStatus(pv.trackingStatus) !== 'resolved' &&
                     (pv.mainRecordId === linkId ||
                       (normalizePersianText(pv.nameOrPhrase.replace(/^شهید\s+/, '')) === normM &&
                         normalizePersianText(pv.bookTitle) === normB))
@@ -3602,7 +3628,7 @@ export default function App() {
                 const normB = normalizePersianText(targetLink.bookTitleRaw);
                 setPendingReviews((prev) =>
                   prev.map((pv) =>
-                    pv.trackingStatus === 'باز' &&
+                    classifyPendingReviewStatus(pv.trackingStatus) !== 'resolved' &&
                     (pv.mainRecordId === linkId ||
                       (normalizePersianText(pv.nameOrPhrase.replace(/^شهید\s+/, '')) === normM &&
                         normalizePersianText(pv.bookTitle) === normB))
@@ -3832,9 +3858,25 @@ export default function App() {
           />
         )}
 
-        {/* EXECUTIVE STATISTICS & REPORTS ROUTE (مسیر مستقل آماده توسعه برای آمار و گزارش‌های تفصیلی) */}
+        {/* EXECUTIVE STATISTICS & REPORTS ROUTE (مسیر مستقل سه‌بخشی آمار و گزارش‌های تفصیلی) */}
         {activeTab === 'executive_statistics' && (
           <StatisticsAndReportsRouteView
+            inputs={executiveDashboardInputs}
+            onSelectDrilldown={(key) => {
+              setExecutiveDashboardState((prev) => ({
+                ...prev,
+                subView: 'overview',
+                activeDrilldown: key,
+                drilldownSearch: '',
+                drilldownSubFilter: 'all',
+                drilldownScrollTop: 0
+              }));
+              setActiveTab('executive_dashboard');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onRequestLoadGolzarBank={() => {
+              void requestLoadGolzarBank();
+            }}
             onBackToDashboard={() => {
               if (
                 navHistoryRef.current.length > 0 &&
@@ -3973,19 +4015,28 @@ export default function App() {
             className="min-w-0 h-full flex flex-col items-center justify-end pb-1.5 px-0.5 cursor-pointer group focus:outline-none"
           >
             <span
-              className={`-mt-5 w-11 h-11 sm:w-12 sm:h-12 rounded-full border-2 flex items-center justify-center transition-all shadow-md shrink-0 ${
+              className={`-mt-7 sm:-mt-8 w-[58px] h-[58px] sm:w-16 sm:h-16 rounded-full p-[3px] flex items-center justify-center transition-all shrink-0 bg-gradient-to-br from-[#FDE68A] via-[#D4A63B] to-[#9E6F10] border border-[#D4A63B] shadow-[0_6px_16px_rgba(180,130,22,0.38)] ${
                 (activeTab === 'executive_dashboard' || activeTab === 'executive_statistics') &&
                 !showDeviceSyncDrawer
-                  ? 'border-[#C5931E] bg-[#DFBE95] text-[#4A2613] ring-2 ring-[#F5DF9D]/90 scale-105'
-                  : 'border-[#D4A63B] bg-[#EAD2B5] text-[#5C341E] ring-2 ring-[#FDF8F2] group-hover:bg-[#E2C39E]'
+                  ? 'ring-2 ring-[#FDE68A]/90 scale-105'
+                  : 'ring-2 ring-[#FDF8F2] group-hover:scale-105'
               }`}
             >
-              <ExecutiveDashboardNavIcon
-                active={
+              <span
+                className={`w-full h-full rounded-full overflow-hidden flex items-center justify-center border border-[#F5DF9D]/70 transition-colors ${
                   (activeTab === 'executive_dashboard' || activeTab === 'executive_statistics') &&
                   !showDeviceSyncDrawer
-                }
-              />
+                    ? 'bg-[#E2C198] text-[#4A2613]'
+                    : 'bg-[#EAD2B5] text-[#5C341E] group-hover:bg-[#E2C39E]'
+                }`}
+              >
+                <ExecutiveDashboardNavIcon
+                  active={
+                    (activeTab === 'executive_dashboard' || activeTab === 'executive_statistics') &&
+                    !showDeviceSyncDrawer
+                  }
+                />
+              </span>
             </span>
             <span
               className={`text-[10px] sm:text-xs mt-0.5 truncate max-w-full whitespace-nowrap ${

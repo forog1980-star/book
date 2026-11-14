@@ -342,3 +342,140 @@ export function normalizeGolzarRawRows(
     description: s(row['توضیحات'] ?? row.description),
   }));
 }
+
+export type PendingReviewStatusKind = 'open' | 'needs_source' | 'resolved' | 'other';
+
+export function classifyPendingReviewStatus(status: unknown): PendingReviewStatusKind {
+  const comp = compactPersian(status || 'باز');
+  if (
+    !comp ||
+    comp === 'باز' ||
+    comp === 'درحالپیگیری' ||
+    comp === 'درانتظار' ||
+    comp === 'درانتظاربررسی'
+  ) {
+    return 'open';
+  }
+  if (comp === 'نیازمندمنبع' || comp === 'نیازمندتکمیلمنبع') {
+    return 'needs_source';
+  }
+  if (
+    comp === 'بررسیشده' ||
+    comp === 'بسته' ||
+    comp === 'بستهشده' ||
+    comp === 'ردشدهبادلیل' ||
+    comp === 'ردشده' ||
+    comp === 'تاییدشده' ||
+    comp === 'تاییدشدهکارشناسی' ||
+    comp === 'تکمیلشده' ||
+    comp === 'انجامشده' ||
+    comp === 'حلشده' ||
+    comp === 'رفعشده' ||
+    comp === 'مختومه'
+  ) {
+    return 'resolved';
+  }
+  return 'other';
+}
+
+export function pickHigherPriorityPendingStatus(
+  primary: string | undefined,
+  secondary: string | undefined
+): string {
+  const rank = (val: string | undefined): number => {
+    const kind = classifyPendingReviewStatus(val);
+    if (kind === 'resolved') return 4;
+    if (kind === 'other') return 3;
+    if (kind === 'needs_source') return 2;
+    return 1;
+  };
+  const p = (primary || '').trim();
+  const s = (secondary || '').trim();
+  if (!p) return s || 'باز';
+  if (!s) return p;
+  return rank(s) > rank(p) ? s : p;
+}
+
+/**
+ * تفکیک موضوعات مستقل موجود در یک پرونده پیگیری (مثلاً جداشده با «؛» یا «;»)
+ * به‌طوری که هر موضوع مستقل در یک پرونده به‌عنوان یک مورد کاری مستقل شمارش شود.
+ */
+export function splitCompoundIssueSubjects(issueSubject: unknown): string[] {
+  const raw = String(issueSubject ?? '').trim();
+  if (!raw) return ['پیگیری کارشناسی'];
+  const parts = raw
+    .split(/[؛;\n]+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return parts.length > 0 ? parts : [raw];
+}
+
+export type WorkTopicDomainKey = 'library' | 'martyrs' | 'relations';
+
+/**
+ * دسته‌بندی یک موضوع کاری مستقل بین سه حوزه مصوب: کتابخانه، شهدا، یا ارتباطات.
+ */
+export function classifyWorkTopicDomain(
+  mainSheet: unknown,
+  issueTopic: unknown,
+  mainRecordId?: unknown
+): WorkTopicDomainKey {
+  const topicNorm = normalizePersian(issueTopic);
+  const sheetNorm = normalizePersian(mainSheet);
+  const recId = String(mainRecordId ?? '').trim();
+
+  // ۱. موضوعات مزار، احراز هویت شهید و تطبیق با بانک گلزار -> حوزه شهدا
+  if (
+    topicNorm.includes('مزار') ||
+    topicNorm.includes('گلزار') ||
+    topicNorm.includes('هویت') ||
+    topicNorm.includes('همنامی شهید') ||
+    sheetNorm.includes('گلزار') ||
+    sheetNorm.includes('شهدا') ||
+    /^(MR|SH|GLZ)-/i.test(recId)
+  ) {
+    return 'martyrs';
+  }
+
+  // ۲. موضوعات ردیف‌های شیت کتاب‌ها، تکرار عنوان/ناشر، شابک، قفسه و نسخه -> حوزه کتابخانه
+  if (
+    sheetNorm === 'فهرست کتاب ها' ||
+    sheetNorm.includes('کتابخانه') ||
+    /^BK-/i.test(recId) ||
+    topicNorm.includes('تکرار احتمالی عنوان') ||
+    topicNorm.includes('تکرار عنوان') ||
+    topicNorm.includes('تکرار کتاب') ||
+    topicNorm.includes('قفسه') ||
+    topicNorm.includes('نسخه فیزیکی')
+  ) {
+    return 'library';
+  }
+
+  // ۳. موضوعات ارتباط کتاب و شهید، علامت *، عبارت گروهی و تطبیق کتاب-شهید -> حوزه ارتباطات
+  return 'relations';
+}
+
+export function isDraftLabelOrStatus(textOrStatus: unknown): boolean {
+  const norm = normalizePersian(textOrStatus);
+  return (
+    norm.includes('پیشنویس') ||
+    norm.includes('پیش نویس') ||
+    norm.includes('draft') ||
+    norm.includes('موقت') ||
+    norm.includes('ازمایشی')
+  );
+}
+
+/**
+ * نرمال‌سازی عنوان/نام فایل خروجی با حذف برچسب نسخه/ویرایش/تاریخ تا نسخه‌های متعدد یک گزارش یا محصول پژوهشی یک خروجی مستقل محسوب شوند.
+ */
+export function normalizeVersionedOutputIdentity(input: unknown): string {
+  const raw = toEnglishDigits(input)
+    .replace(/\.(xlsx|xls|json|csv|pdf|docx)$/i, '')
+    .replace(/([_\-\s]+)(v|ver|version|rev|copy|نسخه|ویرایش|بازنگری|مجدد)[_\-\s]*\d*/gi, ' ')
+    .replace(/\(\s*(نسخه|ویرایش|بازنگری|کپی|copy|v)?\s*\d*\s*\)/gi, ' ')
+    .replace(/\d{4}[-_]\d{2}[-_]\d{2}(?:[T\-_]\d{2}[-_:]\d{2}(?:[-_:]\d{2})?)?/g, ' ')
+    .replace(/\d{6,}/g, ' ');
+  return normalizePersian(raw);
+}
+
