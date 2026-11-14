@@ -1,6 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { registerInnerBackStep } from '../../../utils/navigationHistory';
-import { loadExecutiveExportHistory } from '../export/exportHistoryStore';
+import {
+  appendExportHistoryRecordPure,
+  loadExecutiveExportHistory,
+  saveExecutiveExportHistory,
+} from '../export/exportHistoryStore';
+import {
+  finalizeRegistryReportPure,
+  loadFinalizedReportsRegistry,
+  registerNewReportVersionPure,
+  saveFinalizedReportsRegistry,
+} from '../export/finalizedReportsRegistryStore';
 import { exportExecutiveManagementExcel } from '../export/managementExcelAdapter';
 import { downloadExecutiveDashboardJsonV1 } from '../export/managementJsonExport';
 import { selectDrilldownData } from '../selectors/drilldownListsSelector';
@@ -14,6 +24,7 @@ import type {
   ExecutiveDashboardReadiness,
   ExecutiveDashboardSubView,
   ExecutiveExportHistoryRecord,
+  FinalizedReportRegistryRecord,
   RelationCertaintyBucket,
 } from '../types';
 import { DashboardDrilldownListView } from './DashboardDrilldownListView';
@@ -53,6 +64,7 @@ export interface ExecutiveDashboardViewState {
   subView: ExecutiveDashboardSubView;
   activeSection: ExecutiveDashboardSection;
   activeDrilldown: DashboardDrilldownKey | null;
+  drilldownReturnRoute?: 'executive_dashboard' | 'executive_statistics';
   drilldownSearch: string;
   drilldownSubFilter: string;
   drilldownScrollTop: number;
@@ -70,6 +82,7 @@ export const DEFAULT_EXECUTIVE_DASHBOARD_STATE: ExecutiveDashboardViewState = {
   subView: 'overview',
   activeSection: 'overview',
   activeDrilldown: null,
+  drilldownReturnRoute: 'executive_dashboard',
   drilldownSearch: '',
   drilldownSubFilter: 'all',
   drilldownScrollTop: 0,
@@ -93,6 +106,7 @@ interface ExecutiveDashboardViewProps {
       | ((prev: ExecutiveDashboardViewState) => ExecutiveDashboardViewState)
   ) => void;
   onOpenDetailedReports: () => void;
+  onBackToStatisticsRoute?: () => void;
   onOpenOriginalBookRecord: (
     book: DashboardBookListItem,
     sourceDrilldown: DashboardDrilldownKey
@@ -103,6 +117,20 @@ interface ExecutiveDashboardViewProps {
   ) => void;
   onNotify?: (msg: string, type?: 'success' | 'warning') => void;
   onRequestLoadGolzarBank?: () => void;
+}
+
+function nowPersianDateTimeLabel(): string {
+  try {
+    return new Intl.DateTimeFormat('fa-IR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString();
+  }
 }
 
 /**
@@ -117,6 +145,7 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
   readiness,
   onUpdateViewState,
   onOpenDetailedReports,
+  onBackToStatisticsRoute,
   onOpenOriginalBookRecord,
   onOpenOriginalMartyrRecord,
   onNotify,
@@ -127,6 +156,7 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
   const isGolzarLoaded = summary.martyrs.officialBank.hasOfficialBankLoaded;
 
   const [exportHistory, setExportHistory] = useState<ExecutiveExportHistoryRecord[]>([]);
+  const [finalizedRegistry, setFinalizedRegistry] = useState<FinalizedReportRegistryRecord[]>([]);
 
   const effectiveReadiness: ExecutiveDashboardReadiness = useMemo(
     () =>
@@ -142,16 +172,28 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
   );
 
   const threeCardOverview = useMemo(
-    () => selectThreeCardOverviewFromSummary(summary, exportHistory, inputs.extractedItems),
-    [summary, exportHistory, inputs.extractedItems]
+    () =>
+      selectThreeCardOverviewFromSummary(
+        summary,
+        exportHistory,
+        inputs.extractedItems,
+        finalizedRegistry
+      ),
+    [summary, exportHistory, inputs.extractedItems, finalizedRegistry]
   );
 
   const drilldownSelection = useMemo(
     () =>
       viewState.activeDrilldown
-        ? selectDrilldownData(viewState.activeDrilldown, inputs, projection, exportHistory)
+        ? selectDrilldownData(
+            viewState.activeDrilldown,
+            inputs,
+            projection,
+            exportHistory,
+            finalizedRegistry
+          )
         : null,
-    [viewState.activeDrilldown, inputs, projection, exportHistory]
+    [viewState.activeDrilldown, inputs, projection, exportHistory, finalizedRegistry]
   );
 
   useEffect(() => {
@@ -171,22 +213,39 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
       .catch(() => {
         if (mounted) setExportHistory([]);
       });
+    loadFinalizedReportsRegistry()
+      .then((list) => {
+        if (mounted) {
+          setFinalizedRegistry(list);
+        }
+      })
+      .catch(() => {
+        if (mounted) setFinalizedRegistry([]);
+      });
     return () => {
       mounted = false;
     };
   }, [viewState.activeDrilldown]);
 
   const handleBackFromDrilldown = useCallback(() => {
+    const returnToStats =
+      viewState.drilldownReturnRoute === 'executive_statistics' &&
+      Boolean(onBackToStatisticsRoute);
+
     onUpdateViewState({
       activeDrilldown: null,
+      drilldownReturnRoute: 'executive_dashboard',
       drilldownSearch: '',
       drilldownSubFilter: 'all',
       drilldownScrollTop: 0,
     });
-    if (typeof window !== 'undefined') {
+
+    if (returnToStats) {
+      onBackToStatisticsRoute?.();
+    } else if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-  }, [onUpdateViewState]);
+  }, [viewState.drilldownReturnRoute, onBackToStatisticsRoute, onUpdateViewState]);
 
   useEffect(() => {
     if (!viewState.activeDrilldown) return;
@@ -210,6 +269,7 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
         : 0;
     onUpdateViewState({
       activeDrilldown: key,
+      drilldownReturnRoute: 'executive_dashboard',
       drilldownSearch: '',
       drilldownSubFilter: 'all',
       drilldownScrollTop: 0,
@@ -258,6 +318,82 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
     }
   };
 
+  const handleFinalizeRegistryReport = async (reportId: string) => {
+    const tsIso = new Date().toISOString();
+    const tsDisplay = nowPersianDateTimeLabel();
+    const { records, finalizedRecord } = finalizeRegistryReportPure(
+      finalizedRegistry,
+      reportId,
+      tsIso,
+      tsDisplay
+    );
+    await saveFinalizedReportsRegistry(records);
+    setFinalizedRegistry(records);
+    if (finalizedRecord) {
+      onNotify?.(`گزارش ${finalizedRecord.reportId} به وضعیت نهایی و مستقل ارتقا یافت.`, 'success');
+    }
+  };
+
+  const handleExportNewVersionForReport = async (
+    record: FinalizedReportRegistryRecord,
+    fileType: 'excel' | 'json'
+  ) => {
+    const tsIso = new Date().toISOString();
+    const tsDisplay = nowPersianDateTimeLabel();
+    let fileName = '';
+    let recordCount = projection.books.length;
+
+    if (fileType === 'excel') {
+      const res = exportExecutiveManagementExcel(inputs);
+      if (!res.ok) {
+        onNotify?.(res.error || 'تولید نسخه اکسل با خطا مواجه شد.', 'warning');
+        return;
+      }
+      fileName = res.fileName;
+      recordCount = res.totalRowsExported;
+    } else {
+      const res = downloadExecutiveDashboardJsonV1(inputs, { projection });
+      if (!res.ok) {
+        onNotify?.(res.error || 'تولید بسته داده JSON با خطا مواجه شد.', 'warning');
+        return;
+      }
+      fileName = res.fileName;
+    }
+
+    const exportId = `EXP-${Date.now()}`;
+    const nextHistory = appendExportHistoryRecordPure(exportHistory, {
+      exportId,
+      fileName,
+      fileType,
+      exportScope: 'dashboard_management',
+      timestampIso: tsIso,
+      timestampDisplay: tsDisplay,
+      recordCount,
+      appliedFiltersSummary: `نسخه جدید برای ${record.reportId}`,
+      status: 'success',
+    });
+    await saveExecutiveExportHistory(nextHistory);
+    setExportHistory(nextHistory);
+
+    const { records, updatedRecord } = registerNewReportVersionPure(finalizedRegistry, {
+      reportId: record.reportId,
+      fileName,
+      fileType,
+      recordCount,
+      relatedExportId: exportId,
+      timestampIso: tsIso,
+      timestampDisplay: tsDisplay,
+    });
+    await saveFinalizedReportsRegistry(records);
+    setFinalizedRegistry(records);
+    if (updatedRecord) {
+      onNotify?.(
+        `نسخه ${updatedRecord.currentVersion} برای گزارش ${updatedRecord.reportId} صادر شد (تعداد گزارش‌های مستقل ثابت ماند).`,
+        'success'
+      );
+    }
+  };
+
   return (
     <div data-testid="executive-dashboard-view">
       {drilldownSelection ? (
@@ -266,6 +402,11 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
           searchQuery={viewState.drilldownSearch}
           subFilter={viewState.drilldownSubFilter}
           initialScrollTop={viewState.drilldownScrollTop}
+          backLabel={
+            viewState.drilldownReturnRoute === 'executive_statistics'
+              ? 'بازگشت به آمار و گزارش‌های تفصیلی'
+              : 'بازگشت به داشبورد'
+          }
           onChangeSearch={(q) => onUpdateViewState({ drilldownSearch: q, drilldownScrollTop: 0 })}
           onChangeSubFilter={(f) =>
             onUpdateViewState({ drilldownSubFilter: f, drilldownScrollTop: 0 })
@@ -274,6 +415,10 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
           onOpenOriginalBook={handleOpenBook}
           onOpenOriginalMartyr={handleOpenMartyr}
           onRegenerateReport={handleRegenerateReport}
+          onFinalizeRegistryReport={(id) => void handleFinalizeRegistryReport(id)}
+          onExportNewVersionForReport={(rec, ft) =>
+            void handleExportNewVersionForReport(rec, ft)
+          }
         />
       ) : (
         <ExecutiveOverviewCards

@@ -2,19 +2,27 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
   BookOpen,
+  CheckCircle2,
   Download,
+  FilePlus2,
   FileText,
+  History,
   Search,
   UserCheck,
   X,
 } from 'lucide-react';
 import { toPersianDigits } from '../../../data/markazAsnadData';
 import { normalizePersian } from '../normalization';
-import type { DrilldownSelectionResult } from '../selectors/drilldownListsSelector';
+import type {
+  DrilldownActivityLogRow,
+  DrilldownBankMartyrRow,
+  DrilldownSelectionResult,
+} from '../selectors/drilldownListsSelector';
 import type {
   DashboardBookListItem,
   DashboardMartyrListItem,
   ExecutiveExportHistoryRecord,
+  FinalizedReportRegistryRecord,
 } from '../types';
 
 interface DashboardDrilldownListViewProps {
@@ -22,12 +30,18 @@ interface DashboardDrilldownListViewProps {
   searchQuery: string;
   subFilter: string;
   initialScrollTop: number;
+  backLabel?: string;
   onChangeSearch: (q: string) => void;
   onChangeSubFilter: (filter: string) => void;
   onBackToDashboard: () => void;
   onOpenOriginalBook: (book: DashboardBookListItem) => void;
   onOpenOriginalMartyr: (martyr: DashboardMartyrListItem) => void;
   onRegenerateReport?: (record: ExecutiveExportHistoryRecord) => void;
+  onFinalizeRegistryReport?: (reportId: string) => void;
+  onExportNewVersionForReport?: (
+    record: FinalizedReportRegistryRecord,
+    fileType: 'excel' | 'json'
+  ) => void;
 }
 
 const PAGE_STEP = 60;
@@ -39,12 +53,15 @@ export const DashboardDrilldownListView: React.FC<
   searchQuery,
   subFilter,
   initialScrollTop,
+  backLabel = 'بازگشت به داشبورد',
   onChangeSearch,
   onChangeSubFilter,
   onBackToDashboard,
   onOpenOriginalBook,
   onOpenOriginalMartyr,
   onRegenerateReport,
+  onFinalizeRegistryReport,
+  onExportNewVersionForReport,
 }) => {
   const [visibleLimit, setVisibleLimit] = useState<number>(PAGE_STEP);
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
@@ -71,15 +88,25 @@ export const DashboardDrilldownListView: React.FC<
     if (key === 'library_remaining') {
       return [
         { id: 'all', label: 'همه باقی‌مانده‌ها' },
-        { id: 'open_duplicate_ticket', label: 'دارای تیکت باز / نیازمند بررسی' },
-        { id: 'unreviewed', label: 'بررسی‌نشده' },
+        { id: 'in_progress', label: 'در حال بررسی' },
+        { id: 'not_started', label: 'شروع‌نشده' },
+        { id: 'open_duplicate_ticket', label: 'دارای تیکت باز تکرار عنوان' },
       ];
     }
-    if (key === 'work_remaining' || key === 'work_completed') {
+    if (key === 'work_remaining' || key === 'work_completed' || key === 'work_all') {
       return [
         { id: 'all', label: 'همه موارد' },
         { id: 'books_sheet', label: 'فهرست کتاب‌ها' },
         { id: 'links_sheet', label: 'ارتباط کتاب و شهید' },
+      ];
+    }
+    if (key === 'activity_logs') {
+      return [
+        { id: 'all', label: 'همه حوزه‌ها' },
+        { id: 'library', label: 'کتابخانه' },
+        { id: 'martyrs_relations', label: 'شهدا و ارتباطات' },
+        { id: 'work_outputs', label: 'صف و خروجی‌ها' },
+        { id: 'other', label: 'سایر / پشتیبان' },
       ];
     }
     if (key === 'research_outputs') {
@@ -89,7 +116,7 @@ export const DashboardDrilldownListView: React.FC<
         { id: 'needs_review', label: 'نیازمند بررسی' },
       ];
     }
-    if (key === 'management_reports') {
+    if (selection.kind === 'management_reports') {
       return [
         { id: 'all', label: 'همه فایل‌ها' },
         { id: 'excel', label: 'اکسل' },
@@ -97,17 +124,20 @@ export const DashboardDrilldownListView: React.FC<
       ];
     }
     return [];
-  }, [selection.meta.key]);
+  }, [selection.meta.key, selection.kind]);
 
   const filteredItems = useMemo(() => {
     if (selection.kind === 'books') {
       return selection.items.filter((b) => {
-        if (
-          selection.meta.key === 'library_remaining' &&
-          subFilter !== 'all' &&
-          b.managerialStatus !== subFilter
-        ) {
-          return false;
+        if (selection.meta.key === 'library_remaining' && subFilter !== 'all') {
+          if (subFilter === 'in_progress' && b.lifecycleStage !== 'in_progress') return false;
+          if (subFilter === 'not_started' && b.lifecycleStage !== 'not_started') return false;
+          if (
+            subFilter === 'open_duplicate_ticket' &&
+            b.managerialStatus !== 'open_duplicate_ticket'
+          ) {
+            return false;
+          }
         }
         if (!normQuery) return true;
         const hay = normalizePersian(
@@ -124,6 +154,16 @@ export const DashboardDrilldownListView: React.FC<
           `${m.displayCode} ${m.fullName} ${m.fatherName} ${m.graveAddress} ${m.linkedBooks
             .map((lb) => `${lb.bookTitle} ${lb.tempBookId}`)
             .join(' ')}`
+        );
+        return hay.includes(normQuery);
+      });
+    }
+
+    if (selection.kind === 'bank_martyrs') {
+      return selection.items.filter((m) => {
+        if (!normQuery) return true;
+        const hay = normalizePersian(
+          `${m.id} ${m.fullName} ${m.fatherName} ${m.graveAddress} ${m.sourceLabel}`
         );
         return hay.includes(normQuery);
       });
@@ -155,6 +195,17 @@ export const DashboardDrilldownListView: React.FC<
       });
     }
 
+    if (selection.kind === 'activity_logs') {
+      return selection.items.filter((row) => {
+        if (subFilter !== 'all' && row.domain !== subFilter) return false;
+        if (!normQuery) return true;
+        const hay = normalizePersian(
+          `${row.entry.id} ${row.entry.actionType} ${row.domainLabel} ${row.entry.targetId} ${row.entry.actorName} ${row.entry.summary} ${row.entry.timestamp}`
+        );
+        return hay.includes(normQuery);
+      });
+    }
+
     if (selection.kind === 'research_outputs') {
       return selection.items.filter(({ item }) => {
         const revNorm = normalizePersian(item.reviewStatus);
@@ -163,6 +214,18 @@ export const DashboardDrilldownListView: React.FC<
         if (!normQuery) return true;
         const hay = normalizePersian(
           `${item.id} ${item.tempBookId} ${item.bookTitleRaw} ${item.martyrNameRaw} ${item.passageTitle} ${item.contentType} ${item.pageReferenceRaw} ${item.extractedText}`
+        );
+        return hay.includes(normQuery);
+      });
+    }
+
+    if (selection.kind === 'finalized_reports') {
+      return selection.items.filter((rep) => {
+        if (!normQuery) return true;
+        const hay = normalizePersian(
+          `${rep.reportId} ${rep.title} ${rep.appliedFiltersSummary} ${rep.versions
+            .map((v) => v.fileName)
+            .join(' ')}`
         );
         return hay.includes(normQuery);
       });
@@ -188,12 +251,12 @@ export const DashboardDrilldownListView: React.FC<
       data-drilldown-key={selection.meta.key}
       className="max-w-6xl mx-auto px-3 sm:px-6 pt-3 pb-10 space-y-5 text-[#332218]"
     >
-      {/* Header با مشخص‌کردن مسیر ورود از کدام کادر داشبورد و دکمه بازگشت */}
+      {/* Header */}
       <header className="bg-white border border-[#E5D7C6] rounded-2xl p-4 sm:p-5 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div className="space-y-1.5 min-w-0">
             <div className="text-xs text-[#78604E]">
-              داشبورد مدیریتی ← کادر {selection.meta.sourceCardLabel}
+              داشبورد مدیریتی ← بخش {selection.meta.sourceCardLabel}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg sm:text-xl font-bold text-[#332218]">
@@ -218,7 +281,7 @@ export const DashboardDrilldownListView: React.FC<
             className="w-full sm:w-auto min-h-[44px] px-4 py-2 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs sm:text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer transition-colors shrink-0"
           >
             <ArrowRight className="w-4 h-4 shrink-0" />
-            <span>بازگشت به داشبورد</span>
+            <span>{backLabel}</span>
           </button>
         </div>
 
@@ -227,7 +290,7 @@ export const DashboardDrilldownListView: React.FC<
         </div>
       </header>
 
-      {/* جست‌وجو و فیلترهای متناسب (فقط وقتی داده برای فیلتر وجود دارد) */}
+      {/* جست‌وجو و فیلترهای فرعی */}
       {totalCount > 0 && (
         <div className="bg-white border border-[#E5D7C6] rounded-2xl p-3.5 sm:p-4 space-y-3">
           <div className="relative">
@@ -290,7 +353,7 @@ export const DashboardDrilldownListView: React.FC<
         </div>
       )}
 
-      {/* حالت نبود داده واقعی */}
+      {/* حالت نبود داده */}
       {totalCount === 0 && (
         <div
           data-testid="drilldown-empty-unavailable"
@@ -346,20 +409,21 @@ export const DashboardDrilldownListView: React.FC<
                   </span>
                   <span
                     className={`text-[11px] font-bold px-2 py-0.5 rounded-md border ${
-                      book.managerialStatus === 'completed_without_ticket'
+                      book.isStrictCompleted
                         ? 'bg-[#EDF6F0] border-[#BBDCC6] text-[#2E6F40]'
-                        : book.managerialStatus === 'open_duplicate_ticket'
+                        : book.lifecycleStage === 'in_progress'
                         ? 'bg-[#FDF4E7] border-[#E9CA9F] text-[#8A4B16]'
                         : 'bg-[#FAF5EE] border-[#E5D7C6] text-[#5C4636]'
                     }`}
                   >
-                    {book.managerialStatusLabel}
+                    {book.isStrictCompleted
+                      ? 'تکمیل‌شده کامل'
+                      : book.lifecycleStage === 'in_progress'
+                      ? 'در حال بررسی'
+                      : 'شروع‌نشده'}
                   </span>
                   {book.openTicketIds.length > 0 && (
-                    <span
-                      className="font-mono text-[11px] font-bold text-[#8A4B16]"
-                      dir="ltr"
-                    >
+                    <span className="font-mono text-[11px] font-bold text-[#8A4B16]" dir="ltr">
                       {book.openTicketIds.join(', ')}
                     </span>
                   )}
@@ -434,9 +498,7 @@ export const DashboardDrilldownListView: React.FC<
 
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#5C4636]">
                   {martyr.fatherName && <span>فرزند: {martyr.fatherName}</span>}
-                  <span>
-                    مزار: {martyr.graveAddress || 'فاقد مختصات دقیق مزار'}
-                  </span>
+                  <span>مزار: {martyr.graveAddress || 'فاقد مختصات دقیق مزار'}</span>
                   <span className="tabular-nums">
                     مرتبط با {toPersianDigits(martyr.linkedBooksCount)} کتاب
                   </span>
@@ -444,7 +506,7 @@ export const DashboardDrilldownListView: React.FC<
 
                 {martyr.homonymCountInBank > 1 && (
                   <p className="text-[11px] text-[#8A4B16]">
-                    در بانک گلزار {toPersianDigits(martyr.homonymCountInBank)} رکورد هم‌نام وجود دارد؛ انتخاب قطعی در پرونده شهید انجام می‌شود.
+                    در بانک گلزار {toPersianDigits(martyr.homonymCountInBank)} رکورد هم‌نام وجود دارد؛ تفکیک قطعی در پرونده شهید انجام می‌شود.
                   </p>
                 )}
 
@@ -469,6 +531,46 @@ export const DashboardDrilldownListView: React.FC<
                 <UserCheck className="w-4 h-4 shrink-0" />
                 <span>مشاهده پرونده شهید</span>
               </button>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {/* فهرست ۲-ب: شناسه‌های بانک رسمی و دستی */}
+      {selection.kind === 'bank_martyrs' && filteredCount > 0 && (
+        <div data-testid="drilldown-list-bank-martyrs" className="space-y-3">
+          {(visibleSlice as DrilldownBankMartyrRow[]).map((row) => (
+            <article
+              key={row.id}
+              className="bg-white border border-[#E5D7C6] rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+            >
+              <div className="space-y-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className="font-mono text-xs font-bold bg-[#FAF5EE] border border-[#E5D7C6] text-[#6B3E26] px-2 py-0.5 rounded-md"
+                    dir="ltr"
+                  >
+                    {row.id}
+                  </span>
+                  <span className="text-[11px] text-[#5C4636]">{row.sourceLabel}</span>
+                </div>
+                <h3 className="text-sm sm:text-base font-bold text-[#332218]">
+                  {row.fullName}
+                </h3>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#5C4636]">
+                  <span>فرزند: {row.fatherName}</span>
+                  <span>مزار: {row.graveAddress}</span>
+                </div>
+              </div>
+              <span
+                className={`text-xs font-bold px-2.5 py-1 rounded-lg border shrink-0 ${
+                  row.isLinkedToBook
+                    ? 'bg-[#EDF6F0] border-[#BBDCC6] text-[#2E6F40]'
+                    : 'bg-[#FAF5EE] border-[#E5D7C6] text-[#5C4636]'
+                }`}
+              >
+                {row.isLinkedToBook ? 'دارای ارتباط با کتاب' : 'بدون ارتباط ثبت‌شده با کتاب'}
+              </span>
             </article>
           ))}
         </div>
@@ -529,9 +631,7 @@ export const DashboardDrilldownListView: React.FC<
                     </div>
                     <div className="text-[#5C4636]">
                       {relation.graveAddress || 'فاقد مختصات مزار ثبت‌شده'}
-                      {relation.pageReferenceRaw
-                        ? ` · صفحه: ${relation.pageReferenceRaw}`
-                        : ''}
+                      {relation.pageReferenceRaw ? ` · صفحه: ${relation.pageReferenceRaw}` : ''}
                     </div>
                   </div>
                 </div>
@@ -577,7 +677,7 @@ export const DashboardDrilldownListView: React.FC<
         </div>
       )}
 
-      {/* فهرست ۴: فعالیت‌های انجام‌شده یا باقیمانده صف پیگیری */}
+      {/* فهرست ۴: صف پیگیری */}
       {selection.kind === 'work' && filteredCount > 0 && (
         <div data-testid="drilldown-list-work" className="space-y-3">
           {(visibleSlice as Extract<DrilldownSelectionResult, { kind: 'work' }>['items']).map(
@@ -667,7 +767,36 @@ export const DashboardDrilldownListView: React.FC<
         </div>
       )}
 
-      {/* فهرست ۵: خروجی‌های پژوهشی ثبت‌شده */}
+      {/* فهرست ۴-ب: تاریخچه فعالیت‌های سامانه */}
+      {selection.kind === 'activity_logs' && filteredCount > 0 && (
+        <div data-testid="drilldown-list-activity-logs" className="space-y-3">
+          {(visibleSlice as DrilldownActivityLogRow[]).map(({ entry, domainLabel }) => (
+            <article
+              key={entry.id}
+              data-testid={`drilldown-activity-item-${entry.id}`}
+              className="bg-white border border-[#E5D7C6] rounded-2xl p-4 space-y-2"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-xs font-bold bg-[#FAF5EE] border border-[#E5D7C6] text-[#6B3E26] px-2 py-0.5 rounded-md">
+                    {entry.id}
+                  </span>
+                  <span className="text-xs font-bold text-[#332218]">{entry.actionType}</span>
+                  <span className="text-[11px] text-[#78604E]">حوزه: {domainLabel}</span>
+                </div>
+                <span className="text-xs text-[#78604E] tabular-nums">{entry.timestamp}</span>
+              </div>
+              <p className="text-xs sm:text-sm text-[#332218]">{entry.summary}</p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#78604E]">
+                <span>شناسه هدف: {entry.targetId}</span>
+                <span>ثبت‌کننده: {entry.actorName}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {/* فهرست ۵: خروجی‌های پژوهشی */}
       {selection.kind === 'research_outputs' && filteredCount > 0 && (
         <div data-testid="drilldown-list-research" className="space-y-3">
           {(
@@ -753,7 +882,125 @@ export const DashboardDrilldownListView: React.FC<
         </div>
       )}
 
-      {/* فهرست ۶: گزارش‌های مدیریتی صادرشده */}
+      {/* فهرست ۶-الف: گزارش‌های مدیریتی از دفتر کل مستقل محلی */}
+      {selection.kind === 'finalized_reports' && filteredCount > 0 && (
+        <div data-testid="drilldown-list-finalized-reports" className="space-y-3">
+          {(visibleSlice as FinalizedReportRegistryRecord[]).map((rep) => {
+            const isExpanded = expandedReportId === rep.reportId;
+            return (
+              <article
+                key={rep.reportId}
+                data-testid={`drilldown-finalized-report-${rep.reportId}`}
+                className="bg-white border border-[#E5D7C6] rounded-2xl p-4 space-y-3"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-md border bg-[#FAF5EE] border-[#E5D7C6] text-[#6B3E26]">
+                        {rep.reportId}
+                      </span>
+                      <span
+                        className={`text-[11px] font-bold px-2 py-0.5 rounded-md border ${
+                          rep.lifecycleStatus === 'final'
+                            ? 'bg-[#EDF6F0] border-[#BBDCC6] text-[#2E6F40]'
+                            : 'bg-[#FDF4E7] border-[#E9CA9F] text-[#8A4B16]'
+                        }`}
+                      >
+                        {rep.lifecycleStatus === 'final' ? 'نهایی و مستقل' : 'پیش‌نویس'}
+                      </span>
+                      <span className="text-xs text-[#78604E] tabular-nums">
+                        نسخه {toPersianDigits(rep.currentVersion)} ·{' '}
+                        {toPersianDigits(rep.versions.length)} فایل ثبت‌شده
+                      </span>
+                    </div>
+                    <h3 className="text-sm sm:text-base font-bold text-[#332218]">
+                      {rep.title}
+                    </h3>
+                    <div className="text-xs text-[#5C4636] tabular-nums">
+                      دامنه: {rep.appliedFiltersSummary} · آخرین بروزرسانی: {rep.updatedAtDisplay}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedReportId(isExpanded ? null : rep.reportId)
+                      }
+                      className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[#FAF5EE] hover:bg-[#F3E4D2] text-[#6B3E26] border border-[#DFC9AE] text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <History className="w-4 h-4 shrink-0" />
+                      <span>{isExpanded ? 'بستن نسخه‌ها' : 'سوابق نسخه'}</span>
+                    </button>
+
+                    {rep.lifecycleStatus === 'draft' && onFinalizeRegistryReport && (
+                      <button
+                        type="button"
+                        onClick={() => onFinalizeRegistryReport(rep.reportId)}
+                        className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235631] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        <span>نهایی‌سازی گزارش</span>
+                      </button>
+                    )}
+
+                    {onExportNewVersionForReport && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onExportNewVersionForReport(rep, 'excel')}
+                          className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <FilePlus2 className="w-4 h-4 shrink-0" />
+                          <span>نسخه جدید اکسل</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onExportNewVersionForReport(rep, 'json')}
+                          className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[#FAF5EE] hover:bg-[#F3E4D2] text-[#6B3E26] border border-[#DFC9AE] text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Download className="w-4 h-4 shrink-0" />
+                          <span>نسخه جدید JSON</span>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div className="bg-[#FAF5EE] border border-[#EFE4D6] rounded-xl p-3 text-xs text-[#5C4636] space-y-2 tabular-nums">
+                    <div className="font-bold text-[#332218]">
+                      نسخه‌های تولیدشده روی شناسه {rep.reportId} (بدون افزایش شمارش مستقل):
+                    </div>
+                    {rep.versions.length === 0 ? (
+                      <div className="text-[#78604E]">هنوز فایلی برای این گزارش دانلود نشده است.</div>
+                    ) : (
+                      <div className="divide-y divide-[#E5D7C6]">
+                        {rep.versions.map((ver) => (
+                          <div
+                            key={`${rep.reportId}-v${ver.versionNumber}`}
+                            className="py-1.5 flex flex-wrap items-center justify-between gap-2"
+                          >
+                            <span>
+                              نسخه {toPersianDigits(ver.versionNumber)} ({ver.fileType.toUpperCase()}) ·{' '}
+                              <span className="font-mono">{ver.fileName}</span>
+                            </span>
+                            <span className="text-[#78604E]">
+                              {toPersianDigits(ver.recordCount)} رکورد · {ver.exportedAtDisplay}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      {/* فهرست ۶-ب: گزارش‌های مدیریتی صادرشده (سابقه دانلود فنی دستگاه) */}
       {selection.kind === 'management_reports' && filteredCount > 0 && (
         <div data-testid="drilldown-list-reports" className="space-y-3">
           {(visibleSlice as ExecutiveExportHistoryRecord[]).map((rec) => {
@@ -828,9 +1075,6 @@ export const DashboardDrilldownListView: React.FC<
                     {rec.errorMessage && (
                       <div className="text-[#8A2C2C]">خطا: {rec.errorMessage}</div>
                     )}
-                    <div className="text-[11px] text-[#78604E]">
-                      توجه فنی: در مرورگر صرفاً سابقه صدور فایل‌ها نگهداری می‌شود و با دکمه «تولید و دریافت مجدد فایل»، خروجی زنده متناسب مجدداً دانلود می‌گردد.
-                    </div>
                   </div>
                 )}
               </article>
@@ -839,7 +1083,7 @@ export const DashboardDrilldownListView: React.FC<
         </div>
       )}
 
-      {/* دکمه نمایش بیشتر برای جلوگیری از کندی موبایل */}
+      {/* دکمه نمایش بیشتر */}
       {filteredCount > visibleLimit && (
         <div className="flex justify-center pt-2">
           <button

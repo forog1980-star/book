@@ -2,6 +2,7 @@ import type {
   DashboardSummaryResult,
   ExecutiveDashboardInputs,
   ExecutiveExportHistoryRecord,
+  FinalizedReportRegistryRecord,
   ThreeCardOverviewResult,
 } from '../types';
 import { selectExecutiveDashboardSummary } from './dashboardSummarySelector';
@@ -25,26 +26,28 @@ function computeComplementaryPercentages(
 
 /**
  * سلکتور خالص نمای سه‌کادره داشبورد مدیریتی (کتابخانه / شهدا / وضعیت کار و خروجی‌ها)
- * - منبع واحد حقیقت از DashboardSummaryResult و سابقه واقعی گزارش‌ها (بدون عدد ثابت)
+ * - منبع واحد حقیقت از DashboardSummaryResult و دفتر کل محلی گزارش‌ها (بدون عدد ثابت)
+ * - درصد کتابخانه: معیار سخت‌گیرانه تکمیل کامل در برابر در حال بررسی/شروع‌نشده
+ * - درصد شهدا: احراز هویت شخص یکتا روی شهدای مرتبط + تفکیک قطعی منبع از تأیید کارشناسی صریح
+ * - درصد وضعیت کار: محاسبه‌شده بر پایه تک‌تک موضوعات کاری مستقل صف پیگیری (مستقل از لاگ و خروجی‌ها)
  */
 export function selectThreeCardOverviewFromSummary(
   summary: DashboardSummaryResult,
   exportHistoryOrCount: number | ExecutiveExportHistoryRecord[] = 0,
-  extractedItems?: ExecutiveDashboardInputs['extractedItems']
+  extractedItems?: ExecutiveDashboardInputs['extractedItems'],
+  finalizedRegistry?: FinalizedReportRegistryRecord[]
 ): ThreeCardOverviewResult {
-  // ۱. کارت کتابخانه: افراز بدون هم‌پوشانی گزینه ج روی کل کتاب‌های تحت پایش
-  const bookPart = summary.library.reviewBreakdown.managerialStatusPartition;
-  const totalTrackedBooksCount = bookPart.totalTrackedBooksCount;
-  const completedBooksCount = bookPart.completedWithoutOpenTicketCount;
-  const openDuplicateTicketCount = bookPart.openBookTicketCount;
-  const unreviewedBooksCount = bookPart.unreviewedCount;
-  const remainingForReviewCount = openDuplicateTicketCount + unreviewedBooksCount;
-  const bookPct = computeComplementaryPercentages(
-    completedBooksCount,
-    totalTrackedBooksCount
-  );
+  // ۱. کارت کتابخانه: معیار سخت‌گیرانه تکمیل واقعی
+  const libPart = summary.library.reviewBreakdown.managerialStatusPartition;
+  const libDet = summary.library.detailedBreakdown;
+  const totalTrackedBooksCount = libDet.totalTrackedBooksCount;
+  const completedCount = libDet.completedCount;
+  const inProgressCount = libDet.inProgressCount;
+  const notStartedCount = libDet.notStartedCount;
+  const remainingForReviewCount = inProgressCount + notStartedCount;
+  const bookPct = computeComplementaryPercentages(completedCount, totalTrackedBooksCount);
 
-  // ۲. کارت شهدا: احراز هویت شخص یکتا روی شهدای مرتبط + قطعیت ارتباطات
+  // ۲. کارت شهدا: احراز هویت شخص یکتا روی شهدای مرتبط + تفکیک منبع از تأیید کارشناسی
   const linkedSummary = summary.martyrs.linkedMartyrsSummary;
   const totalLinkedMartyrsCount = linkedSummary.distinctNormalizedLinkedNamesCount;
   const confirmedIdentityCount = linkedSummary.confirmedUniqueLinkedMartyrsCount;
@@ -53,19 +56,18 @@ export function selectThreeCardOverviewFromSummary(
     confirmedIdentityCount,
     totalLinkedMartyrsCount
   );
+  const srcExp = summary.relations.sourceAndExpertBreakdown;
 
-  // ۳. کارت وضعیت کار و خروجی‌ها: صف یکدست پیگیری + مطالب پژوهشی + گزارش‌های مدیریتی واقعی
+  // ۳. کارت وضعیت کار و خروجی‌ها: پیشرفت بر پایه موضوعات کاری مستقل صف پیگیری
   const pv = summary.reviewQueue.pendingReviews;
-  const reviewQueueTotalCount = pv.totalCount;
-  const reviewQueueCompletedCount = pv.resolvedCount;
-  const reviewQueueRemainingCount = pv.openCount + pv.otherStatusCount;
+  const topics = summary.reviewQueue.independentWorkTopics;
   const workPct = computeComplementaryPercentages(
-    reviewQueueCompletedCount,
-    reviewQueueTotalCount
+    topics.completedTopicsCount,
+    topics.totalTopicsCount
   );
 
   const completedByType =
-    reviewQueueCompletedCount > 0
+    pv.resolvedCount > 0
       ? Object.entries(pv.resolvedByMainSheet || {})
           .filter(([, count]) => count > 0)
           .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'fa'))
@@ -85,22 +87,31 @@ export function selectThreeCardOverviewFromSummary(
 
   const numericExportFallback =
     typeof exportHistoryOrCount === 'number' ? Math.max(0, exportHistoryOrCount) : 0;
-  const reportSummary = Array.isArray(exportHistoryOrCount)
-    ? selectFinalizedManagementReportsSummary(exportHistoryOrCount)
-    : null;
+  const exportArr = Array.isArray(exportHistoryOrCount) ? exportHistoryOrCount : [];
+  const reportSummary =
+    Array.isArray(exportHistoryOrCount) || finalizedRegistry !== undefined
+      ? selectFinalizedManagementReportsSummary(exportArr, finalizedRegistry)
+      : null;
+
   const exportHistoryCount = reportSummary
     ? reportSummary.finalIndependentReportsCount
     : numericExportFallback;
   const rawExportHistoryCount = reportSummary
     ? reportSummary.rawSuccessfulIssuancesCount
     : numericExportFallback;
+  const draftReportsExcludedCount = reportSummary
+    ? reportSummary.draftOrFailedExcludedCount
+    : 0;
 
   return {
     libraryCard: {
       totalTrackedBooksCount,
-      completedCount: completedBooksCount,
-      openDuplicateTicketCount,
-      unreviewedCount: unreviewedBooksCount,
+      completedCount,
+      inProgressCount,
+      notStartedCount,
+      workedOrRegisteredCount: libDet.workedOrRegisteredCount,
+      openDuplicateTicketCount: libPart.openBookTicketCount,
+      unreviewedCount: libPart.unreviewedCount,
       remainingForReviewCount,
       completedPercent: bookPct.primaryPercent,
       remainingPercent: bookPct.remainingPercent,
@@ -112,16 +123,20 @@ export function selectThreeCardOverviewFromSummary(
       confirmedIdentityPercent: identityPct.primaryPercent,
       needsVerificationPercent: identityPct.remainingPercent,
       relatedBooksCount: summary.relations.booksWithLinksBreakdown.totalBooksWithActiveLinks,
-      expertConfirmedRelationsCount:
-        summary.relations.certaintyByDistinctPairs.confirmedByExpert,
-      needsReviewRelationsCount:
-        summary.relations.certaintyByDistinctPairs.needsReview,
+      totalActiveDistinctRelationsCount: srcExp.totalActiveDistinctPairsCount,
+      definiteSourceRelationsCount: srcExp.definiteBySourceLabelDistinctCount,
+      probableRelationsCount: srcExp.probableDistinctCount,
+      expertConfirmedRelationsCount: srcExp.explicitExpertConfirmedDistinctCount,
+      needsReviewRelationsCount: srcExp.needsReviewDistinctCount,
     },
     workAndOutputsCard: {
-      reviewQueueTotalCount,
-      reviewQueueCompletedCount,
-      reviewQueueRemainingCount,
+      reviewQueueTotalCount: pv.totalCount,
+      reviewQueueCompletedCount: pv.resolvedCount,
+      reviewQueueRemainingCount: pv.openCount + pv.otherStatusCount,
       reviewQueueNeedsSourceCount: pv.needsSourceCount,
+      independentTopicsTotalCount: topics.totalTopicsCount,
+      independentTopicsCompletedCount: topics.completedTopicsCount,
+      independentTopicsRemainingCount: topics.remainingTopicsCount,
       reviewQueueCompletionPercent: workPct.primaryPercent,
       reviewQueueRemainingPercent: workPct.remainingPercent,
       completedByType,
@@ -131,18 +146,20 @@ export function selectThreeCardOverviewFromSummary(
       pendingExtractedReviewCount: exQueue.needsReviewCount,
       exportHistoryCount,
       rawExportHistoryCount,
+      draftReportsExcludedCount,
     },
   };
 }
 
 export function selectThreeCardOverview(
   inputs: ExecutiveDashboardInputs,
-  exportHistoryOrCount: number | ExecutiveExportHistoryRecord[] = 0
+  exportHistoryOrCount: number | ExecutiveExportHistoryRecord[] = 0,
+  finalizedRegistry?: FinalizedReportRegistryRecord[]
 ): ThreeCardOverviewResult {
   return selectThreeCardOverviewFromSummary(
     selectExecutiveDashboardSummary(inputs),
     exportHistoryOrCount,
-    inputs.extractedItems
+    inputs.extractedItems,
+    finalizedRegistry
   );
 }
-

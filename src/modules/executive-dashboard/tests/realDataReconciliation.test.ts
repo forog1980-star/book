@@ -266,7 +266,7 @@ assert.equal(threeCard.workAndOutputsCard.reviewQueueCompletionPercent, 0);
 assert.equal(threeCard.workAndOutputsCard.reviewQueueRemainingPercent, 100);
 
 // ۱۰. بررسی تطبیق ۱ به ۱ تمام ۱۱ مسیر جزئیات با اعداد زنده واقعی مخزن
-const expectedCountsByKey: Record<DashboardDrilldownKey, number> = {
+const expectedCountsByKey: Partial<Record<DashboardDrilldownKey, number>> = {
   library_all: 980,
   library_completed: 0,
   library_remaining: 980,
@@ -357,7 +357,7 @@ assert.equal(realWorkAnalytics.activityLog.totalEntriesCount, 0);
 
 // د) پرسش‌های آماری زنده و جستجوی یکپارچه بدون هیچ عدد ثابت‌شده
 const realStatQueries = buildStatisticalQueryAnswers(realProjWithResearch.summary, realWorkAnalytics);
-assert.equal(realStatQueries.length, 5);
+assert.equal(realStatQueries.length, 7);
 const realSearchRes = computeUnifiedStatisticsSearch('متوسلیان', realInputsWithResearch, realProjWithResearch, []);
 assert.ok(realSearchRes.totalMatchesCount > 0);
 

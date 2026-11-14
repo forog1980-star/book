@@ -11,6 +11,7 @@ import type {
   RelationAnalyticsResult,
   RelationCertaintyBucket,
   RelationKindValue,
+  RelationSourceAndExpertBreakdown,
 } from '../types';
 
 function emptyCertaintyCounts(): Record<RelationCertaintyBucket, number> {
@@ -111,6 +112,99 @@ export function classifySingleLinkCertainty(
   return 'undetermined';
 }
 
+export type RelationSourceOrExpertKey =
+  | 'explicitExpertConfirmed'
+  | 'definiteBySourceLabel'
+  | 'probable'
+  | 'needsReview'
+  | 'undetermined'
+  | 'rejected';
+
+const SOURCE_EXPERT_PRIORITY: Record<RelationSourceOrExpertKey, number> = {
+  explicitExpertConfirmed: 6,
+  definiteBySourceLabel: 5,
+  probable: 4,
+  needsReview: 3,
+  undetermined: 2,
+  rejected: 1,
+};
+
+/**
+ * تفکیک اکید «قطعی طبق برچسب منبع» از «تأیید کارشناسی صریح»:
+ * - اگر رکورد فقط برچسب «قطعی» از اکسل/منبع یا مختصات کامل پژوهش پایه داشته باشد، در definiteBySourceLabel قرار می‌گیرد.
+ * - فقط وقتی در explicitExpertConfirmed قرار می‌گیرد که تأیید کارشناسی صریح داشته باشد.
+ */
+export function classifySingleLinkSourceAndExpertBucket(
+  lnk: BookMartyrLinkRecord,
+  matchingAudit?: FieldAuditRecord
+): RelationSourceOrExpertKey {
+  const st = normalizePersian(lnk.reviewStatus);
+  const note = normalizePersian(lnk.reviewerNote);
+  const martyrNorm = stripMartyrHonorifics(lnk.martyrNameRaw);
+
+  if (st.includes('رد')) {
+    return 'rejected';
+  }
+  if (
+    martyrNorm &&
+    matchingAudit?.excludedMartyrs?.some((ex) => stripMartyrHonorifics(ex) === martyrNorm)
+  ) {
+    return 'rejected';
+  }
+
+  const isPlaceholderOrGroup = isPlaceholderOrGroupMartyrPhrase(
+    lnk.martyrNameRaw,
+    lnk.isGroupPhrase
+  );
+  if (isPlaceholderOrGroup) {
+    return 'needsReview';
+  }
+
+  const isExplicitlyExpertLink =
+    st === 'تاییدشده کارشناسی' ||
+    st === 'تایید کارشناس' ||
+    st === 'تاییدشده و افزودهشده به پرونده' ||
+    st === 'تاییدشده و افزوده شده به پرونده';
+
+  const hasExplicitLinkNeedsReview =
+    st.includes('نیازمند') ||
+    st.includes('تکمیل') ||
+    st.includes('تفکیک') ||
+    st.includes('تعارض') ||
+    st.includes('در صف');
+
+  if (isExplicitlyExpertLink || (matchingAudit?.expertApproved === true && !hasExplicitLinkNeedsReview)) {
+    return 'explicitExpertConfirmed';
+  }
+
+  if (hasExplicitLinkNeedsReview) {
+    return 'needsReview';
+  }
+
+  if (
+    st === 'قطعی' ||
+    st === 'قطعی طبق منبع' ||
+    st === 'تطبیق قطعی' ||
+    st === 'بررسی شده در پژوهش اصلی' ||
+    st === 'بررسی‌شده در پژوهش اصلی' ||
+    hasCompleteGraveInfo(lnk)
+  ) {
+    return 'definiteBySourceLabel';
+  }
+
+  if (
+    st === 'احتمالی' ||
+    st.includes('احتمالی') ||
+    st.includes('تطبیق کتاب') ||
+    note.includes('کاندید') ||
+    cleanOptionalField(lnk.gravePieceRaw).includes('تهرانی')
+  ) {
+    return 'probable';
+  }
+
+  return 'undetermined';
+}
+
 function resolveLinkBookKey(
   lnk: BookMartyrLinkRecord,
   catalogIdSet: Set<string>
@@ -165,10 +259,19 @@ export function selectRelationAnalytics(
   }
 
   const certaintyByRawRows = emptyCertaintyCounts();
+  const sourceExpertRaw: Record<RelationSourceOrExpertKey, number> = {
+    explicitExpertConfirmed: 0,
+    definiteBySourceLabel: 0,
+    probable: 0,
+    needsReview: 0,
+    undetermined: 0,
+    rejected: 0,
+  };
   const distinctPairs = new Map<
     string,
     {
       bucket: RelationCertaintyBucket;
+      sourceExpertKey: RelationSourceOrExpertKey;
       bookKey: string;
       isPlaceholderOrGroup: boolean;
     }
@@ -200,6 +303,9 @@ export function selectRelationAnalytics(
     const bucket = classifySingleLinkCertainty(lnk, matchedAudit);
     certaintyByRawRows[bucket] += 1;
 
+    const sourceExpertKey = classifySingleLinkSourceAndExpertBucket(lnk, matchedAudit);
+    sourceExpertRaw[sourceExpertKey] += 1;
+
     const rKind = classifyRelationKindStrict(lnk);
     relationKindBreakdown[rKind] += 1;
 
@@ -216,9 +322,20 @@ export function selectRelationAnalytics(
     if (!existingPair || PRIORITY_ORDER[bucket] > PRIORITY_ORDER[existingPair.bucket]) {
       distinctPairs.set(pairKey, {
         bucket,
+        sourceExpertKey:
+          !existingPair ||
+          SOURCE_EXPERT_PRIORITY[sourceExpertKey] >
+            SOURCE_EXPERT_PRIORITY[existingPair.sourceExpertKey]
+            ? sourceExpertKey
+            : existingPair.sourceExpertKey,
         bookKey,
         isPlaceholderOrGroup,
       });
+    } else if (
+      SOURCE_EXPERT_PRIORITY[sourceExpertKey] >
+      SOURCE_EXPERT_PRIORITY[existingPair.sourceExpertKey]
+    ) {
+      existingPair.sourceExpertKey = sourceExpertKey;
     }
 
     if (bucket !== 'rejected') {
@@ -244,9 +361,34 @@ export function selectRelationAnalytics(
   }
 
   const certaintyByDistinctPairs = emptyCertaintyCounts();
+  const sourceExpertDistinct: Record<RelationSourceOrExpertKey, number> = {
+    explicitExpertConfirmed: 0,
+    definiteBySourceLabel: 0,
+    probable: 0,
+    needsReview: 0,
+    undetermined: 0,
+    rejected: 0,
+  };
   for (const pair of distinctPairs.values()) {
     certaintyByDistinctPairs[pair.bucket] += 1;
+    sourceExpertDistinct[pair.sourceExpertKey] += 1;
   }
+
+  const sourceAndExpertBreakdown: RelationSourceAndExpertBreakdown = {
+    totalActiveDistinctPairsCount: distinctPairs.size - sourceExpertDistinct.rejected,
+    definiteBySourceLabelDistinctCount: sourceExpertDistinct.definiteBySourceLabel,
+    definiteBySourceLabelRawCount: sourceExpertRaw.definiteBySourceLabel,
+    probableDistinctCount: sourceExpertDistinct.probable,
+    probableRawCount: sourceExpertRaw.probable,
+    needsReviewDistinctCount: sourceExpertDistinct.needsReview,
+    needsReviewRawCount: sourceExpertRaw.needsReview,
+    explicitExpertConfirmedDistinctCount: sourceExpertDistinct.explicitExpertConfirmed,
+    explicitExpertConfirmedRawCount: sourceExpertRaw.explicitExpertConfirmed,
+    undeterminedDistinctCount: sourceExpertDistinct.undetermined,
+    undeterminedRawCount: sourceExpertRaw.undetermined,
+    rejectedArchiveDistinctCount: sourceExpertDistinct.rejected,
+    rejectedArchiveRawCount: sourceExpertRaw.rejected,
+  };
 
   let totalBooksWithActiveLinks = 0;
   let booksWithNamedMartyrLinks = 0;
@@ -283,6 +425,7 @@ export function selectRelationAnalytics(
     duplicatePairRowsCount: Math.max(0, links.length - distinctPairs.size),
     certaintyByRawRows,
     certaintyByDistinctPairs,
+    sourceAndExpertBreakdown,
     rejectedArchiveSuggestionsCount: rejectedSuggestionsArchive.length + rejectedInSmartQueue,
     excludedAuditMartyrCount,
     relationKindBreakdown,

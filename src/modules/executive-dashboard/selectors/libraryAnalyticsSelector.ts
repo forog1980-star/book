@@ -8,6 +8,7 @@ import type {
 import {
   classifyPendingReviewStatus,
   compactPersian,
+  isNoMartyrFoundConfirmationText,
   isPlaceholderOrGroupMartyrPhrase,
   normalizePersian,
   resolveCatalogRowKey,
@@ -17,14 +18,116 @@ import {
 import type {
   ExecutiveDashboardInputs,
   LibraryAnalyticsResult,
+  LibraryDetailedBreakdown,
   SimilarTitleGroup,
 } from '../types';
+import { classifySingleLinkCertainty } from './relationAnalyticsSelector';
 
-function isAuditRecordCompletedForBookReview(audit: FieldAuditRecord | undefined): boolean {
-  if (!audit) return false;
-  if (audit.expertApproved === true) return true;
-  if (audit.needsReview === true) return false;
-  return audit.physical === 'verified' || audit.physical === 'not_found';
+export interface EvaluatedBookStatusFlags {
+  hasAuditRecord: boolean;
+  isCatalogMarkedReviewed: boolean;
+  isWorkedOrRegistered: boolean;
+  isShelfVerifiedPresent: boolean;
+  isExpertApproved: boolean;
+  hasRegisteredMartyrLink: boolean;
+  martyrLinkReviewResolved: boolean;
+  isStrictCompleted: boolean;
+  lifecycleStage: 'completed' | 'in_progress' | 'not_started';
+  hasOpenDirectBookTicket: boolean;
+}
+
+export function evaluateBookCompletionAndActivityFlags(params: {
+  row?: ReferenceCatalogRow;
+  audit?: FieldAuditRecord;
+  registeredCopiesCount: number;
+  verifiedPresentCopyExists: boolean;
+  bookActiveLinks: BookMartyrLinkRecord[];
+  activeAuditMartyrCount: number;
+  hasOpenDirectBookTicket: boolean;
+  hasOpenAnyPendingTicket: boolean;
+  hasOpenLinkIssue: boolean;
+}): EvaluatedBookStatusFlags {
+  const {
+    row,
+    audit,
+    registeredCopiesCount,
+    verifiedPresentCopyExists,
+    bookActiveLinks,
+    activeAuditMartyrCount,
+    hasOpenDirectBookTicket,
+    hasOpenAnyPendingTicket,
+    hasOpenLinkIssue,
+  } = params;
+
+  const hasAuditRecord = Boolean(audit);
+  const isCatalogMarkedReviewed = row ? isCatalogRawStatusReviewed(row.reviewStatusRaw) : false;
+  const isWorkedOrRegistered =
+    hasAuditRecord || isCatalogMarkedReviewed || registeredCopiesCount > 0;
+  const isShelfVerifiedPresent = audit
+    ? audit.physical === 'verified' && audit.copyStatus !== 'pending_review'
+    : verifiedPresentCopyExists;
+  const isExpertApproved = Boolean(audit?.expertApproved);
+
+  const hasRegisteredMartyrLink = bookActiveLinks.length > 0 || activeAuditMartyrCount > 0;
+
+  let martyrLinkReviewResolved = false;
+  if (hasRegisteredMartyrLink) {
+    const allLinksExpertConfirmed =
+      bookActiveLinks.length > 0
+        ? bookActiveLinks.every(
+            (lnk) => classifySingleLinkCertainty(lnk, audit) === 'confirmedByExpert'
+          )
+        : false;
+    const onlyAuditMartyrsConfirmed =
+      bookActiveLinks.length === 0 && activeAuditMartyrCount > 0 && isExpertApproved;
+    martyrLinkReviewResolved =
+      allLinksExpertConfirmed ||
+      onlyAuditMartyrsConfirmed ||
+      (isExpertApproved && !hasOpenLinkIssue && !hasOpenAnyPendingTicket);
+  } else {
+    martyrLinkReviewResolved =
+      isExpertApproved ||
+      isNoMartyrFoundConfirmationText(audit?.notes || row?.noteRaw) ||
+      Boolean(audit?.excludedMartyrs && audit.excludedMartyrs.length > 0) ||
+      (!hasAuditRecord && isCatalogMarkedReviewed);
+  }
+
+  const titlePresent = Boolean((audit?.title || row?.titleRaw || '').trim());
+  const physicalAndInfoResolved = audit
+    ? titlePresent &&
+      !audit.needsReview &&
+      audit.copyStatus !== 'pending_review' &&
+      (audit.physical === 'verified' || audit.physical === 'not_found')
+    : isCatalogMarkedReviewed;
+
+  const hasAnyOpenTicketOrIssue =
+    hasOpenDirectBookTicket || hasOpenAnyPendingTicket || hasOpenLinkIssue;
+
+  const isStrictCompleted =
+    physicalAndInfoResolved && martyrLinkReviewResolved && !hasAnyOpenTicketOrIssue;
+
+  const isInFieldReview =
+    !isStrictCompleted &&
+    Boolean(audit && (audit.physical === 'review' || audit.needsReview === true));
+
+  const lifecycleStage: 'completed' | 'in_progress' | 'not_started' = isStrictCompleted
+    ? 'completed'
+    : hasOpenDirectBookTicket || isInFieldReview || isWorkedOrRegistered
+    ? 'in_progress'
+    : 'not_started';
+
+  return {
+    hasAuditRecord,
+    isCatalogMarkedReviewed,
+    isWorkedOrRegistered,
+    isShelfVerifiedPresent,
+    isExpertApproved,
+    hasRegisteredMartyrLink,
+    martyrLinkReviewResolved,
+    isStrictCompleted,
+    lifecycleStage,
+    hasOpenDirectBookTicket,
+  };
 }
 
 function isCatalogRawStatusReviewed(rawStatus: string | undefined): boolean {
@@ -197,8 +300,21 @@ export function selectLibraryAnalytics(
     }
   }
 
+  // نگاشت نسخه‌های فیزیکی بر اساس bookId
+  const copyStatsByBookId = new Map<string, { count: number; hasVerifiedPresent: boolean }>();
+  for (const cp of bookCopies) {
+    const bid = (cp.bookId || '').trim();
+    if (!bid) continue;
+    const prev = copyStatsByBookId.get(bid) || { count: 0, hasVerifiedPresent: false };
+    prev.count += 1;
+    if (cp.copyStatus === 'verified_present') prev.hasVerifiedPresent = true;
+    copyStatsByBookId.set(bid, prev);
+  }
+
   // نگاشت پیوندهای شهید و پیگیری‌های باز به هر کتاب
   const bookActiveMartyrsMap = new Map<string, Set<string>>();
+  const bookActiveLinksMap = new Map<string, BookMartyrLinkRecord[]>();
+  const bookHasAnyActiveLink = new Set<string>();
   const bookHasOpenLinkIssue = new Set<string>();
 
   for (const lnk of links) {
@@ -223,6 +339,10 @@ export function selectLibraryAnalytics(
     }
 
     if (!bookKey) continue;
+    bookHasAnyActiveLink.add(bookKey);
+    const activeList = bookActiveLinksMap.get(bookKey) || [];
+    activeList.push(lnk);
+    bookActiveLinksMap.set(bookKey, activeList);
 
     if (hasOpenLinkIssueStatus(lnk.reviewStatus)) {
       bookHasOpenLinkIssue.add(bookKey);
@@ -296,15 +416,25 @@ export function selectLibraryAnalytics(
   let managerialOpenBookTicket = 0;
   let managerialUnreviewed = 0;
 
+  // ۱۲ شاخص تفصیلی کتابخانه بر اساس معیار اکید تکمیل
+  let strictCompletedCount = 0;
+  let strictInProgressCount = 0;
+  let strictNotStartedCount = 0;
+  let workedOrRegisteredCount = 0;
+  let shelfVerifiedPresentCount = 0;
+  let expertApprovedBooksCount = 0;
+  let awaitingExpertApprovalCount = 0;
+  let openDuplicateTitleTicketsCount = 0;
+  let hasRegisteredMartyrLinkCount = 0;
+  let lacksRegisteredMartyrLinkCount = 0;
+
+  let strictReviewedWithoutMartyrLinkCount = 0;
+
   for (const item of trackedKeys) {
     const { key, row, audit } = item;
-    const isCompletedAudit = isAuditRecordCompletedForBookReview(audit);
-    const isCatalogMarkedReviewed = row ? isCatalogRawStatusReviewed(row.reviewStatusRaw) : false;
-
-    const isBookReviewed = isCompletedAudit || (!audit && isCatalogMarkedReviewed);
-    const isInFieldReview =
-      !isBookReviewed &&
-      Boolean(audit && (audit.physical === 'review' || audit.needsReview === true));
+    const tid = (audit?.tempBookId || row?.tempBookId || '').trim();
+    const copyStat = tid ? copyStatsByBookId.get(tid) : undefined;
+    const bookLinks = bookActiveLinksMap.get(key) || [];
 
     const excludedSet = new Set(
       (audit?.excludedMartyrs || []).map((m) => stripMartyrHonorifics(m)).filter(Boolean)
@@ -319,10 +449,55 @@ export function selectLibraryAnalytics(
     for (const ex of excludedSet) {
       linkNames.delete(ex);
     }
-    const hasActiveMartyrLink = linkNames.size > 0;
 
-    if (isBookReviewed) {
-      if (hasActiveMartyrLink) {
+    const flags = evaluateBookCompletionAndActivityFlags({
+      row,
+      audit,
+      registeredCopiesCount: copyStat?.count || 0,
+      verifiedPresentCopyExists: Boolean(copyStat?.hasVerifiedPresent),
+      bookActiveLinks: bookLinks,
+      activeAuditMartyrCount: linkNames.size,
+      hasOpenDirectBookTicket: bookHasOpenDirectTicket.has(key),
+      hasOpenAnyPendingTicket: bookHasOpenAnyPendingItem.has(key),
+      hasOpenLinkIssue: bookHasOpenLinkIssue.has(key),
+    });
+
+    const hasActiveLinkOnBook = flags.hasRegisteredMartyrLink;
+    if (hasActiveLinkOnBook) hasRegisteredMartyrLinkCount += 1;
+    else lacksRegisteredMartyrLinkCount += 1;
+
+    if (flags.isWorkedOrRegistered) workedOrRegisteredCount += 1;
+    if (flags.isShelfVerifiedPresent) shelfVerifiedPresentCount += 1;
+    if (flags.isExpertApproved) expertApprovedBooksCount += 1;
+    if (
+      flags.isWorkedOrRegistered &&
+      !flags.isExpertApproved &&
+      audit?.physical !== 'not_found'
+    ) {
+      awaitingExpertApprovalCount += 1;
+    }
+    if (flags.hasOpenDirectBookTicket) openDuplicateTitleTicketsCount += 1;
+
+    if (flags.isStrictCompleted) {
+      strictCompletedCount += 1;
+      if (!hasActiveLinkOnBook) {
+        strictReviewedWithoutMartyrLinkCount += 1;
+      }
+    } else if (flags.lifecycleStage === 'in_progress') {
+      strictInProgressCount += 1;
+    } else {
+      strictNotStartedCount += 1;
+    }
+
+    // افراز فاز اول برای ردیابی بررسی میدانی / کاتالوگ (حفظ هم‌پوشانی صریح در reviewBreakdown)
+    const isNeedsFieldReview = Boolean(
+      audit && (audit.physical === 'review' || audit.needsReview === true)
+    );
+    const isPhase1Reviewed =
+      (Boolean(audit) && audit!.physical === 'verified' && !audit!.needsReview) ||
+      (!audit && flags.isCatalogMarkedReviewed);
+    if (isPhase1Reviewed) {
+      if (hasActiveLinkOnBook) {
         reviewedWithMartyrLinkCount += 1;
       } else {
         reviewedWithoutMartyrLinkCount += 1;
@@ -330,22 +505,16 @@ export function selectLibraryAnalytics(
       if (bookHasOpenLinkIssue.has(key) || bookHasOpenAnyPendingItem.has(key)) {
         reviewedBooksWithOpenRelationQueueCount += 1;
       }
-    } else if (isInFieldReview) {
+    } else if (isNeedsFieldReview) {
       inFieldReviewCount += 1;
     } else {
       untouchedUnreviewedCount += 1;
     }
 
     // افراز سه وضعیت مستقل بدون هم‌پوشانی (گزینه ج) در لایه مدیریتی:
-    // ۱. اگر کتاب تیکت باز کتاب در صف PV (مانند PV-0558..PV-0567) داشته باشد یا در بررسی میدانی «نیازمند بررسی» باشد -> گروه «دارای تیکت باز تکرار عنوان / نیازمند بررسی»
-    // ۲. در غیر این صورت، اگر بررسی میدانی کتاب تکمیل شده یا وضعیت پایه «بررسی شد» بدون هیچ تیکت باز باشد -> «تکمیل‌شده بدون تیکت باز»
-    // ۳. در غیر این صورت -> «بررسی‌نشده»
-    const hasOpenDirectBookTicket = bookHasOpenDirectTicket.has(key);
-    const isNeedsFieldReview = Boolean(audit && (audit.physical === 'review' || audit.needsReview === true));
-
-    if (hasOpenDirectBookTicket || isNeedsFieldReview) {
+    if (flags.hasOpenDirectBookTicket || isNeedsFieldReview) {
       managerialOpenBookTicket += 1;
-    } else if (isCompletedAudit || (!audit && isCatalogMarkedReviewed)) {
+    } else if (flags.isStrictCompleted) {
       managerialCompletedClean += 1;
     } else {
       managerialUnreviewed += 1;
@@ -357,6 +526,22 @@ export function selectLibraryAnalytics(
   const remainingForReviewCount = inFieldReviewCount + untouchedUnreviewedCount;
   const eligibleForReviewCount =
     remainingForReviewCount + reviewedBooksWithOpenRelationQueueCount;
+
+  const detailedBreakdown: LibraryDetailedBreakdown = {
+    totalTrackedBooksCount,
+    completedCount: strictCompletedCount,
+    inProgressCount: strictInProgressCount,
+    notStartedCount: strictNotStartedCount,
+    workedOrRegisteredCount,
+    unworkedCount: Math.max(0, totalTrackedBooksCount - workedOrRegisteredCount),
+    shelfVerifiedPresentCount,
+    expertApprovedCount: expertApprovedBooksCount,
+    awaitingExpertApprovalCount,
+    openDuplicateTitleTicketsCount,
+    hasRegisteredMartyrLinkCount,
+    lacksRegisteredMartyrLinkCount,
+    reviewedWithoutMartyrLinkCount: strictReviewedWithoutMartyrLinkCount,
+  };
 
   return {
     catalogRowsCount: catalogRows.length,
@@ -389,6 +574,7 @@ export function selectLibraryAnalytics(
         openBookTicketIds: Array.from(new Set(openBookTicketIds)).sort(),
       },
     },
+    detailedBreakdown,
     fieldAuditSummary: {
       totalAuditRecords: Object.keys(auditRecords).length,
       verified: verifiedAuditCount,

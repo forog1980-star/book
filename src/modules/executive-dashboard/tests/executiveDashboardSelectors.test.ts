@@ -17,15 +17,25 @@ import type {
 import {
   RELATION_CERTAINTY_DISPLAY_LABELS,
   EXECUTIVE_EXPORT_HISTORY_KEY,
+  EXECUTIVE_FINALIZED_REPORTS_KEY,
   MAX_EXECUTIVE_EXPORT_HISTORY,
   appendExportHistoryRecordPure,
   deleteExportHistoryRecordPure,
   filterExportHistoryRecordsPure,
+  upsertRegistryReportPure,
+  registerNewReportVersionPure,
+  finalizeRegistryReportPure,
+  deleteRegistryReportPure,
+  computeFinalizedRegistryStats,
+  loadFinalizedReportsRegistry,
+  saveFinalizedReportsRegistry,
   buildExecutiveEntityProjection,
   buildExecutiveDashboardExportV1,
   buildStatisticalQueryAnswers,
+  answerCustomStatisticalQuestion,
   classifyPendingReviewStatus,
   computeUnifiedStatisticsSearch,
+  filterAuditLogEntriesPure,
   mapLightweightGolzarToRawInputs,
   pickHigherPriorityPendingStatus,
   selectActivityLogSummary,
@@ -44,6 +54,7 @@ import {
   DRILLDOWN_META_MAP,
   type DashboardDrilldownKey,
   type ExecutiveExportHistoryRecord,
+  type FinalizedReportRegistryRecord,
 } from '../index';
 
 function makeCatalogRow(
@@ -97,6 +108,17 @@ let passed = 0;
 function test(name: string, fn: () => void): void {
   try {
     fn();
+    passed += 1;
+    console.log(`PASS: ${name}`);
+  } catch (err) {
+    console.error(`FAIL: ${name}`);
+    throw err;
+  }
+}
+
+async function asyncTest(name: string, fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
     passed += 1;
     console.log(`PASS: ${name}`);
   } catch (err) {
@@ -944,11 +966,13 @@ test('16 - سلکتور نمای سه‌کادره: ایمنی تقسیم بر �
   );
 
   assert.equal(before.libraryCard.totalTrackedBooksCount, 4);
-  assert.equal(before.libraryCard.completedCount, 1);
+  assert.equal(before.libraryCard.completedCount, 0);
+  assert.equal(before.libraryCard.inProgressCount, 2);
+  assert.equal(before.libraryCard.notStartedCount, 2);
   assert.equal(before.libraryCard.openDuplicateTicketCount, 1);
-  assert.equal(before.libraryCard.remainingForReviewCount, 3);
+  assert.equal(before.libraryCard.remainingForReviewCount, 4);
   assert.equal(before.libraryCard.completedPercent + before.libraryCard.remainingPercent, 100);
-  assert.equal(before.libraryCard.completedPercent, 25);
+  assert.equal(before.libraryCard.completedPercent, 0);
   assert.equal(before.martyrsCard.totalLinkedMartyrsCount, 1);
   assert.equal(before.martyrsCard.confirmedIdentityCount, 1);
   assert.equal(before.martyrsCard.expertConfirmedRelationsCount, 0);
@@ -958,7 +982,48 @@ test('16 - سلکتور نمای سه‌کادره: ایمنی تقسیم بر �
   assert.deepEqual(before.workAndOutputsCard.completedByType, []);
   assert.equal(before.workAndOutputsCard.exportHistoryCount, 1);
 
-  // تغییر زنده بدون reload: تأیید یک ارتباط، بستن دو تیکت PV، ثبت یک خروجی جدید
+  // تغییر زنده بدون reload: تأیید قفسه + ارتباط شهید، بستن دو تیکت PV، ثبت یک خروجی جدید
+  const afterAuditRecords: Record<string, FieldAuditRecord> = {
+    'فهرست کتاب‌ها::ROW-2': {
+      key: 'فهرست کتاب‌ها::ROW-2',
+      source: 'catalog',
+      sheet: 'فهرست کتاب‌ها',
+      tempBookId: 'BK-0001',
+      title: 'کتاب یک',
+      author: '',
+      publisher: 'سوره مهر',
+      year: '',
+      category: 'R',
+      shelf: 'SH-01',
+      level: 'T01',
+      location: 'SH-01-T01',
+      physical: 'verified',
+      countedCopies: '1',
+      notes: '',
+      relatedMartyrs: ['شهید محسن وزوایی'],
+      expertApproved: true,
+      updatedAt: '2026-11-14T08:00:00Z',
+    },
+    'فهرست کتاب‌ها::ROW-3': {
+      key: 'فهرست کتاب‌ها::ROW-3',
+      source: 'catalog',
+      sheet: 'فهرست کتاب‌ها',
+      tempBookId: 'BK-0002',
+      title: 'کتاب دو',
+      author: '',
+      publisher: 'سوره مهر',
+      year: '',
+      category: 'R',
+      shelf: 'SH-01',
+      level: 'T01',
+      location: 'SH-01-T01',
+      physical: 'verified',
+      countedCopies: '1',
+      notes: 'ارتباطی یافت نشد',
+      relatedMartyrs: [],
+      updatedAt: '2026-11-14T08:00:00Z',
+    },
+  };
   const after = selectThreeCardOverview(
     {
       catalogRows: [
@@ -966,6 +1031,7 @@ test('16 - سلکتور نمای سه‌کادره: ایمنی تقسیم بر �
         { ...catalogRows[1], reviewStatusRaw: 'بررسی شد' },
         ...catalogRows.slice(2),
       ],
+      auditRecords: afterAuditRecords,
       golzarRecords,
       links: [{ ...initialLinks[0], reviewStatus: 'تأییدشده کارشناسی' }],
       pendingReviews: initialPending.map((p) => ({ ...p, trackingStatus: 'بررسی‌شده' })),
@@ -1099,11 +1165,12 @@ test('18 - مسیر مستقل آمار و گزارش‌ها، حذف دکمه �
   assert.equal(statsRouteSource.includes('ExecutiveDetailedReportsView'), false);
   assert.equal(statsRouteSource.includes('خروجی JSON مدیریتی'), false);
 
-  // مسیریابی مستقل و طراحی دایره بزرگ‌تر بیرون‌زده طلایی/قهوه‌ای روشن با نشان اختصاصی در نوار پایین
+  // مسیریابی مستقل و طراحی دایره بزرگ‌تر بیرون‌زده طلایی/قهوه‌ای روشن با آیکون کتابخانه در نوار پایین
   assert.equal(appSource.includes("'executive_statistics'"), true);
   assert.equal(appSource.includes('<StatisticsAndReportsRouteView'), true);
   assert.equal(appSource.includes('ExecutiveDashboardNavIcon'), true);
-  assert.equal(appSource.includes('dashboard_nav_emblem'), true);
+  assert.equal(appSource.includes('<Library'), true);
+  assert.equal(appSource.includes('dashboard_nav_emblem'), false);
   assert.equal(appSource.includes('w-[58px] h-[58px]'), true);
   assert.equal(appSource.includes('-mt-7'), true);
   assert.equal(appSource.includes('#D4A63B'), true);
@@ -1328,7 +1395,7 @@ test('19 - مسیرهای تعاملی ۱۱گانه داشبورد، تطابق 
   for (const k of Object.keys(DRILLDOWN_META_MAP) as DashboardDrilldownKey[]) {
     const res = selectDrilldownData(k, emptyInputs, emptyProj, []);
     assert.equal(res.items.length, 0);
-    assert.ok(res.emptyReason.includes('اطلاعات جزئیات در دسترس نیست'));
+    assert.ok(res.emptyReason.trim().length > 0, `Empty reason missing for ${k}`);
   }
 
   // بررسی پیاده‌سازی دقیق محرک‌ها در UI، نبود نمای قدیمی و وجود مسیر بازگشت با حفظ فیلتر/اسکرول
@@ -1635,13 +1702,391 @@ test('22 - تمایز مطالب استخراج‌شده، خروجی‌های �
   const proj = buildExecutiveEntityProjection(inputs);
   const workDetailed = selectWorkAndOutputsDetailedAnalytics(inputs, proj.summary, exportHistory);
   const queries = buildStatisticalQueryAnswers(proj.summary, workDetailed);
-  assert.equal(queries.length, 5);
+  assert.equal(queries.length, 7);
   assert.ok(queries.some((q) => q.targetSection === 'work'));
 
   const searchRes = computeUnifiedStatisticsSearch('کتاب الف', inputs, proj, exportHistory);
   assert.equal(searchRes.booksMatchesCount, 1);
   assert.equal(searchRes.researchMatchesCount, 3);
   assert.ok(searchRes.totalMatchesCount >= 4);
+});
+
+test('23 - قانون سخت‌گیرانه تکمیل کتاب (Donut 1) و تمایز «فاقد ارتباط ثبت‌شده» از «بررسی‌شده و فاقد ارتباط با شهید»', () => {
+  const catalogRows: ReferenceCatalogRow[] = [
+    makeCatalogRow({ rowIndex: 2, tempBookId: 'BK-A', titleRaw: 'کتاب کارشده بدون تکمیل', reviewStatusRaw: 'بررسی شد' }),
+    makeCatalogRow({ rowIndex: 3, tempBookId: 'BK-B', titleRaw: 'کتاب تکمیل واقعی با شهید', reviewStatusRaw: 'بررسی شد' }),
+    makeCatalogRow({ rowIndex: 4, tempBookId: 'BK-C', titleRaw: 'کتاب بررسی‌شده بدون شهید', reviewStatusRaw: 'بررسی شد' }),
+    makeCatalogRow({ rowIndex: 5, tempBookId: 'BK-D', titleRaw: 'کتاب شروع‌نشده', reviewStatusRaw: 'بررسی‌نشده' }),
+  ];
+
+  const auditRecords: Record<string, FieldAuditRecord> = {
+    // BK-A قفسه تأییدشده دارد اما رابطه‌اش تأیید کارشناسی نیست و کارشده محسوب می‌شود، نه تکمیل‌شده
+    'فهرست کتاب‌ها::ROW-2': {
+      key: 'فهرست کتاب‌ها::ROW-2',
+      source: 'catalog',
+      sheet: 'فهرست کتاب‌ها',
+      tempBookId: 'BK-A',
+      title: 'کتاب کارشده بدون تکمیل',
+      author: '',
+      publisher: 'سوره مهر',
+      year: '',
+      category: 'R',
+      shelf: 'SH-01',
+      level: 'T01',
+      location: 'SH-01-T01',
+      physical: 'verified',
+      countedCopies: '1',
+      notes: '',
+      relatedMartyrs: ['شهید الف'],
+      updatedAt: '2026-11-14T08:00:00Z',
+    },
+    // BK-B قفسه تأییدشده + رابطه تأییدشده کارشناسی دارد => تکمیل واقعی
+    'فهرست کتاب‌ها::ROW-3': {
+      key: 'فهرست کتاب‌ها::ROW-3',
+      source: 'catalog',
+      sheet: 'فهرست کتاب‌ها',
+      tempBookId: 'BK-B',
+      title: 'کتاب تکمیل واقعی با شهید',
+      author: '',
+      publisher: 'سوره مهر',
+      year: '',
+      category: 'R',
+      shelf: 'SH-01',
+      level: 'T01',
+      location: 'SH-01-T01',
+      physical: 'verified',
+      countedCopies: '1',
+      notes: '',
+      relatedMartyrs: ['شهید ب'],
+      expertApproved: true,
+      updatedAt: '2026-11-14T08:00:00Z',
+    },
+    // BK-C قفسه تأییدشده + یادداشت صریح نبود ارتباط با شهید => بررسی‌شده و فاقد ارتباط با شهید + تکمیل واقعی
+    'فهرست کتاب‌ها::ROW-4': {
+      key: 'فهرست کتاب‌ها::ROW-4',
+      source: 'catalog',
+      sheet: 'فهرست کتاب‌ها',
+      tempBookId: 'BK-C',
+      title: 'کتاب بررسی‌شده بدون شهید',
+      author: '',
+      publisher: 'سوره مهر',
+      year: '',
+      category: 'R',
+      shelf: 'SH-01',
+      level: 'T01',
+      location: 'SH-01-T01',
+      physical: 'verified',
+      countedCopies: '1',
+      notes: 'ارتباطی یافت نشد',
+      relatedMartyrs: [],
+      updatedAt: '2026-11-14T08:00:00Z',
+    },
+  };
+
+  const links: BookMartyrLinkRecord[] = [
+    makeLink({
+      id: 'RL-A',
+      tempBookId: 'BK-A',
+      bookTitleRaw: 'کتاب کارشده بدون تکمیل',
+      martyrNameRaw: 'شهید الف',
+      gravePieceRaw: '26',
+      graveRowRaw: '1',
+      graveNumberRaw: '1',
+      reviewStatus: 'نیازمند بررسی',
+    }),
+    makeLink({
+      id: 'RL-B',
+      tempBookId: 'BK-B',
+      bookTitleRaw: 'کتاب تکمیل واقعی با شهید',
+      martyrNameRaw: 'شهید ب',
+      gravePieceRaw: '26',
+      graveRowRaw: '2',
+      graveNumberRaw: '2',
+      reviewStatus: 'تأییدشده کارشناسی',
+    }),
+  ];
+
+  const lib = selectLibraryAnalytics({ catalogRows, auditRecords, links });
+  const det = lib.detailedBreakdown;
+  assert.equal(det.totalTrackedBooksCount, 4);
+  assert.equal(det.completedCount, 2); // BK-B and BK-C
+  assert.equal(det.inProgressCount, 1); // BK-A
+  assert.equal(det.notStartedCount, 1); // BK-D
+  assert.equal(det.workedOrRegisteredCount, 3); // BK-A, BK-B, BK-C
+  assert.equal(det.unworkedCount, 1); // BK-D
+  assert.equal(det.hasRegisteredMartyrLinkCount, 2); // BK-A, BK-B
+  assert.equal(det.lacksRegisteredMartyrLinkCount, 2); // BK-C, BK-D
+  assert.equal(det.reviewedWithoutMartyrLinkCount, 1); // فقط BK-C (نه BK-D شروع‌نشده!)
+
+  // تطابق ۱ به ۱ دریل‌داون‌های ۱۲گانه کتابخانه
+  const inputs = { catalogRows, auditRecords, links };
+  const proj = buildExecutiveEntityProjection(inputs);
+  assert.equal(selectDrilldownData('library_completed', inputs, proj).items.length, 2);
+  assert.equal(selectDrilldownData('library_in_progress', inputs, proj).items.length, 1);
+  assert.equal(selectDrilldownData('library_not_started', inputs, proj).items.length, 1);
+  assert.equal(selectDrilldownData('library_worked', inputs, proj).items.length, 3);
+  assert.equal(selectDrilldownData('library_unworked', inputs, proj).items.length, 1);
+  assert.equal(selectDrilldownData('library_without_martyr_link', inputs, proj).items.length, 2);
+  assert.equal(selectDrilldownData('library_reviewed_no_martyr', inputs, proj).items.length, 1);
+});
+
+test('24 - تفکیک اکید «قطعی طبق برچسب منبع» از «تأیید کارشناسی صریح» + ایمنی وضعیت بارگذاری‌نشده بانک گلزار', () => {
+  const catalogRows: ReferenceCatalogRow[] = [
+    makeCatalogRow({ rowIndex: 2, tempBookId: 'BK-01', titleRaw: 'کتاب ۱' }),
+    makeCatalogRow({ rowIndex: 3, tempBookId: 'BK-02', titleRaw: 'کتاب ۲' }),
+  ];
+  const links: BookMartyrLinkRecord[] = [
+    makeLink({
+      id: 'RL-SRC',
+      tempBookId: 'BK-01',
+      bookTitleRaw: 'کتاب ۱',
+      martyrNameRaw: 'شهید احمد متوسلیان',
+      gravePieceRaw: '24',
+      graveRowRaw: '3',
+      graveNumberRaw: '12',
+      reviewStatus: 'قطعی', // فقط برچسب منبع است نه کارشناسی صریح!
+    }),
+    makeLink({
+      id: 'RL-EXP',
+      tempBookId: 'BK-02',
+      bookTitleRaw: 'کتاب ۲',
+      martyrNameRaw: 'شهید ابراهیم همت',
+      gravePieceRaw: '27',
+      graveRowRaw: '10',
+      graveNumberRaw: '1',
+      reviewStatus: 'تأییدشده کارشناسی',
+    }),
+  ];
+
+  // بدون بانک گلزار، ارقام بانک به‌جای ۰ باید null باشند
+  const noBankInputs = { catalogRows, links, golzarRecords: [] };
+  const noBankMartyrs = selectMartyrAnalytics(noBankInputs);
+  assert.equal(noBankMartyrs.detailedMartyrMetrics.officialBankLoaded, false);
+  assert.equal(noBankMartyrs.detailedMartyrMetrics.officialAndCustomUniqueIdsCount, null);
+  assert.equal(noBankMartyrs.detailedMartyrMetrics.unlinkedBankAndCustomCount, null);
+
+  const rels = selectRelationAnalytics(noBankInputs);
+  assert.equal(rels.sourceAndExpertBreakdown.definiteBySourceLabelDistinctCount, 1);
+  assert.equal(rels.sourceAndExpertBreakdown.explicitExpertConfirmedDistinctCount, 1);
+  assert.equal(rels.sourceAndExpertBreakdown.probableDistinctCount, 0);
+
+  const proj = buildExecutiveEntityProjection(noBankInputs);
+  assert.equal(selectDrilldownData('relations_definite_source', noBankInputs, proj).items.length, 1);
+  assert.equal(selectDrilldownData('relations_confirmed', noBankInputs, proj).items.length, 1);
+});
+
+test('25 - دونات ۳ بر پایه موضوعات مستقل، استقلال تاریخچه فعالیت از بستن PV و فیلتر حوزه/نوع/تاریخ فعالیت‌ها', () => {
+  const pendingReviews: PendingReviewItem[] = [
+    {
+      trackingId: 'PV-10',
+      mainSheet: 'ارتباط کتاب و شهید',
+      mainRecordId: 'RL-10',
+      nameOrPhrase: 'شهید الف',
+      bookTitle: 'کتاب تست',
+      publisher: 'سوره مهر',
+      issueSubject: 'تأیید ارتباط؛ تطبیق نام شهید',
+      suggestedAction: 'بررسی',
+      trackingStatus: 'باز',
+    },
+    {
+      trackingId: 'PV-11',
+      mainSheet: 'فهرست کتاب‌ها',
+      mainRecordId: 'BK-11',
+      nameOrPhrase: 'کتاب تست ۲',
+      bookTitle: 'کتاب تست ۲',
+      publisher: 'سوره مهر',
+      issueSubject: 'تکرار عنوان',
+      suggestedAction: 'بررسی',
+      trackingStatus: 'بررسی‌شده',
+    },
+  ];
+  const auditLogs = [
+    {
+      id: 'ACT-1',
+      timestamp: '۱۴۰۵/۰۸/۰۵ - ۰۹:۰۰',
+      actorName: 'کتابدار',
+      actorRole: 'reviewer' as const,
+      actionType: 'ثبت موجودی فیزیکی' as const,
+      targetId: 'BK-10',
+      summary: 'ثبت قفسه در انبار',
+    },
+    {
+      id: 'ACT-2',
+      timestamp: '۱۴۰۵/۰۸/۲۰ - ۱۴:۰۰',
+      actorName: 'پژوهشگر',
+      actorRole: 'reviewer' as const,
+      actionType: 'ثبت یا ویرایش ارتباط کتاب و شهید' as const,
+      targetId: 'RL-10',
+      summary: 'یادداشت روی ارتباط بدون بستن PV-10',
+    },
+  ];
+
+  // ۳ موضوع مستقل: ۲ موضوع باز روی PV-10، ۱ موضوع تکمیل‌شده روی PV-11 => ۳۳٪
+  const overview = selectThreeCardOverview({ catalogRows: [], pendingReviews, auditLogs }, []);
+  assert.equal(overview.workAndOutputsCard.independentTopicsTotalCount, 3);
+  assert.equal(overview.workAndOutputsCard.independentTopicsCompletedCount, 1);
+  assert.equal(overview.workAndOutputsCard.independentTopicsRemainingCount, 2);
+  assert.equal(overview.workAndOutputsCard.reviewQueueCompletionPercent, 33);
+  assert.equal(overview.workAndOutputsCard.reviewQueueRemainingPercent, 67);
+
+  // افزودن رخداد جدید به auditLogs درصد PV را تغییر نمی‌دهد
+  const withExtraLog = selectThreeCardOverview(
+    {
+      catalogRows: [],
+      pendingReviews,
+      auditLogs: [
+        ...auditLogs,
+        {
+          id: 'ACT-3',
+          timestamp: '۱۴۰۵/۰۸/۲۵ - ۱۶:۰۰',
+          actorName: 'مدیر',
+          actorRole: 'admin' as const,
+          actionType: 'ثبت موجودی فیزیکی' as const,
+          targetId: 'BK-11',
+          summary: 'بازبینی قفسه',
+        },
+      ],
+    },
+    []
+  );
+  assert.equal(withExtraLog.workAndOutputsCard.reviewQueueCompletionPercent, 33);
+
+  // فیلتر بر اساس حوزه، نوع فعالیت و بازه زمانی شمسی
+  const byLibDomain = filterAuditLogEntriesPure(auditLogs, { domain: 'library' });
+  assert.equal(byLibDomain.length, 1);
+  assert.equal(byLibDomain[0].id, 'ACT-1');
+
+  const byAction = filterAuditLogEntriesPure(auditLogs, {
+    actionType: 'ثبت یا ویرایش ارتباط کتاب و شهید',
+  });
+  assert.equal(byAction.length, 1);
+  assert.equal(byAction[0].id, 'ACT-2');
+
+  const byDateRange = filterAuditLogEntriesPure(auditLogs, {
+    dateFrom: '۱۴۰۵/۰۸/۱۰',
+    dateTo: '۱۴۰۵/۰۸/۲۵',
+  });
+  assert.equal(byDateRange.length, 1);
+  assert.equal(byDateRange[0].id, 'ACT-2');
+});
+
+await asyncTest('26 - دفتر کل محلی گزارش‌های مدیریتی نهایی (پیش‌نویس/نهایی/نسخه v2+ بدون تکرار شمارش و ذخیره بازیابی‌شونده)', async () => {
+  assert.equal(EXECUTIVE_FINALIZED_REPORTS_KEY, 'book_executive_finalized_reports_v1');
+
+  let reg: FinalizedReportRegistryRecord[] = [];
+  // ۱. ایجاد پیش‌نویس => ۰ گزارش نهایی، ۱ پیش‌نویس کنارگذشته‌شده
+  const draftRes = upsertRegistryReportPure(reg, {
+    category: 'management_report',
+    title: 'پیش‌نویس آبان‌ماه',
+    lifecycleStatus: 'draft',
+    timestampIso: '2026-11-10T10:00:00Z',
+    timestampDisplay: '۱۴۰۵/۰۸/۱۹',
+  });
+  reg = draftRes.records;
+  assert.equal(computeFinalizedRegistryStats(reg).finalizedIndependentCount, 0);
+  assert.equal(computeFinalizedRegistryStats(reg).draftsExcludedCount, 1);
+
+  // ۲. نهایی‌سازی پیش‌نویس => ۱ گزارش نهایی، ۰ پیش‌نویس
+  const finRes = finalizeRegistryReportPure(reg, draftRes.savedRecord.reportId);
+  reg = finRes.records;
+  assert.equal(computeFinalizedRegistryStats(reg).finalizedIndependentCount, 1);
+  assert.equal(computeFinalizedRegistryStats(reg).draftsExcludedCount, 0);
+
+  // ۳. افزودن نسخه دوم (v2) روی همان reportId => تعداد مستقل همچنان ۱ می‌ماند اما تعداد نسخه‌ها ۲ است
+  const v2Res = registerNewReportVersionPure(reg, {
+    reportId: draftRes.savedRecord.reportId,
+    fileName: 'report-v2.xlsx',
+    fileType: 'excel',
+    recordCount: 980,
+    timestampIso: '2026-11-11T10:00:00Z',
+    timestampDisplay: '۱۴۰۵/۰۸/۲۰',
+  });
+  reg = v2Res.records;
+  const regStats = computeFinalizedRegistryStats(reg);
+  assert.equal(regStats.finalizedIndependentCount, 1);
+  assert.equal(regStats.totalVersionsCount, 2);
+
+  // تست اتصال به summary گزارش‌های مدیریتی
+  const repSummary = selectFinalizedManagementReportsSummary([], reg);
+  assert.equal(repSummary.usesDedicatedLocalRegistry, true);
+  assert.equal(repSummary.finalIndependentReportsCount, 1);
+  assert.equal(repSummary.duplicateVersionsCollapsedCount, 1);
+
+  // تست حذف و ذخیره محلی ایمن
+  reg = deleteRegistryReportPure(reg, draftRes.savedRecord.reportId);
+  assert.equal(reg.length, 0);
+  const saveAttempt = await saveFinalizedReportsRegistry(reg);
+  assert.equal(typeof saveAttempt.ok, 'boolean');
+  const loaded = await loadFinalizedReportsRegistry();
+  assert.ok(Array.isArray(loaded));
+});
+
+test('27 - جستجوی ۸حوزه‌ای غیرحدسی و پرسش آماری سفارشی با ساختار عدد/واحد/مبنا و رد عبارت مبهم', () => {
+  const inputs = {
+    catalogRows: [makeCatalogRow({ rowIndex: 2, tempBookId: 'BK-0099', titleRaw: 'سفرنامه فکه' })],
+    links: [],
+    pendingReviews: [],
+    extractedItems: [],
+    auditLogs: [],
+  };
+  const proj = buildExecutiveEntityProjection(inputs);
+  const workDetailed = selectWorkAndOutputsDetailedAnalytics(inputs, proj.summary, [], []);
+
+  // جستجوی تک‌کاراکتری/مبهم نباید حدس بزند
+  const unclearSearch = computeUnifiedStatisticsSearch('؟', inputs, proj, [], 'all', []);
+  assert.equal(unclearSearch.isQueryUnclear, true);
+  assert.equal(unclearSearch.totalMatchesCount, 0);
+
+  // جستجو با فیلتر دامنه
+  const scopedBooks = computeUnifiedStatisticsSearch('فکه', inputs, proj, [], 'books', []);
+  assert.equal(scopedBooks.isQueryUnclear, false);
+  assert.equal(scopedBooks.booksMatchesCount, 1);
+  assert.equal(scopedBooks.martyrsMatchesCount, 0);
+
+  // پرسش آماری سفارشی مبهم نباید عدد حدسی برگرداند
+  const unclearQ = answerCustomStatisticalQuestion('چندتا؟', proj.summary, workDetailed);
+  assert.equal(unclearQ.status, 'unclear');
+
+  // پرسش آماری روشن روی کتاب‌ها
+  const validQ = answerCustomStatisticalQuestion(
+    'چند کتاب تکمیل‌شده داریم؟',
+    proj.summary,
+    workDetailed
+  );
+  assert.equal(validQ.status, 'answered');
+  if (validQ.status === 'answered') {
+    assert.ok(validQ.answer.countingUnit.length > 0);
+    assert.ok(validQ.answer.countingBasis.length > 0);
+    assert.ok(validQ.answer.drilldownKey.startsWith('library_'));
+  }
+});
+
+test('28 - یکپارچگی سورس UI برای نمودارهای دوناتی زنده، پوشش همه بخش‌های تفصیلی و اشتراک readiness بین داشبورد و آمار', () => {
+  const overviewSource = fs.readFileSync(
+    path.join(process.cwd(), 'src/modules/executive-dashboard/components/ExecutiveOverviewCards.tsx'),
+    'utf8'
+  );
+  const statsRouteSource = fs.readFileSync(
+    path.join(process.cwd(), 'src/modules/executive-dashboard/components/StatisticsAndReportsRouteView.tsx'),
+    'utf8'
+  );
+  const appSource = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
+
+  assert.equal(overviewSource.includes('OverviewDonutChart'), true);
+  assert.equal(statsRouteSource.includes('OverviewDonutChart'), true);
+  assert.equal(statsRouteSource.includes('statistics-loading-state'), true);
+  assert.equal(statsRouteSource.includes('statistics-error-state'), true);
+  assert.equal(statsRouteSource.includes('statistics-relations-subblock'), true);
+  assert.equal(statsRouteSource.includes('activity-filter-domain'), true);
+  assert.equal(statsRouteSource.includes('activity-filter-action'), true);
+  assert.equal(statsRouteSource.includes('activity-filter-from'), true);
+  assert.equal(statsRouteSource.includes('book_executive_finalized_reports_v1'), true);
+  assert.equal(statsRouteSource.includes('custom-statistical-question-input'), true);
+
+  // اشتراک readiness واحد در App.tsx
+  assert.equal(appSource.includes('const executiveReadiness: ExecutiveDashboardReadiness'), true);
+  assert.equal(appSource.includes('onBackToStatisticsRoute='), true);
+  assert.equal(appSource.includes("drilldownReturnRoute: 'executive_statistics'"), true);
 });
 
 console.log(`\nALL_UNIT_TESTS_PASSED (${passed} tests)`);

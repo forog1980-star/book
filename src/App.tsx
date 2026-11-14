@@ -27,7 +27,8 @@ import {
   ArrowRight,
   SlidersHorizontal,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Library
 } from 'lucide-react';
 import {
   AuditLogEntry,
@@ -138,9 +139,9 @@ import {
   type DashboardBookListItem,
   type DashboardDrilldownKey,
   type DashboardMartyrListItem,
+  type ExecutiveDashboardReadiness,
   type ExecutiveDashboardViewState
 } from './modules/executive-dashboard';
-import dashboardNavEmblemImg from './assets/images/dashboard_nav_emblem_1794642086699.jpg';
 
 // عنوان و شناسه اختصاصی پایگاه داده در حافظه گوشی و مرورگر: book
 export const BOOK_STORAGE_NAMESPACE = 'book';
@@ -191,46 +192,12 @@ export type MainMenuTab =
   | 'executive_statistics';
 
 const ExecutiveDashboardNavIcon: React.FC<{ active?: boolean }> = ({ active = false }) => {
-  const [imgError, setImgError] = useState(false);
-
-  if (!imgError) {
-    return (
-      <img
-        src={dashboardNavEmblemImg}
-        alt="نشان داشبورد مدیریتی"
-        referrerPolicy="no-referrer"
-        onError={() => setImgError(true)}
-        className={`w-full h-full object-cover rounded-full transition-transform duration-200 select-none ${
-          active ? 'scale-[1.2]' : 'scale-[1.16]'
-        }`}
-      />
-    );
-  }
-
   return (
-    <svg
-      viewBox="0 0 36 36"
-      fill="none"
-      className="w-8 h-8 sm:w-9 sm:h-9 shrink-0"
+    <Library
+      className="w-6 h-6 sm:w-7 sm:h-7 shrink-0 transition-transform duration-200"
+      strokeWidth={active ? 2.2 : 1.9}
       aria-hidden="true"
-    >
-      <circle cx="18" cy="18" r="15.5" stroke="#B48216" strokeWidth="1.2" opacity="0.55" />
-      <path
-        d="M9.5 23.5c2.7-1.1 5.6-1 8.5.4 2.9-1.4 5.8-1.5 8.5-.4V13.8c-2.7-1.1-5.6-1-8.5.4-2.9-1.4-5.8-1.5-8.5-.4v9.7z"
-        fill="#D4A63B"
-        fillOpacity="0.28"
-        stroke="#8C5E14"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-      <path d="M18 14.2v9.7" stroke="#8C5E14" strokeWidth="1.5" strokeLinecap="round" />
-      <path
-        d="M14.5 11.2v-2.6M18 11.2V7.2M21.5 11.2V8.6"
-        stroke="#B48216"
-        strokeWidth="2.1"
-        strokeLinecap="round"
-      />
-    </svg>
+    />
   );
 };
 
@@ -1337,6 +1304,24 @@ export default function App() {
       auditLog
     ]
   );
+
+  const executiveReadiness: ExecutiveDashboardReadiness = {
+    isStorageHydrated,
+    workbookLoadState,
+    workbookLoadError,
+    golzarLoadState,
+    hasCachedOperationalData:
+      Object.keys(auditRecords).length > 0 ||
+      pendingReviews.length > 0 ||
+      links.length > INITIAL_BOOK_MARTYR_LINKS.length ||
+      customMartyrs.length > 0,
+    onRetryLoadWorkbook: () => {
+      void loadFullWorkbookJson();
+    },
+    onRetryLoadGolzar: () => {
+      void requestLoadGolzarBank();
+    }
+  };
 
   const handleQuickExcelExport = () => {
     openStandardExcelExportModal({
@@ -3781,29 +3766,18 @@ export default function App() {
           <ExecutiveDashboardView
             inputs={executiveDashboardInputs}
             viewState={executiveDashboardState}
-            readiness={{
-              isStorageHydrated,
-              workbookLoadState,
-              workbookLoadError,
-              golzarLoadState,
-              hasCachedOperationalData:
-                Object.keys(auditRecords).length > 0 ||
-                pendingReviews.length > 0 ||
-                links.length > INITIAL_BOOK_MARTYR_LINKS.length ||
-                customMartyrs.length > 0,
-              onRetryLoadWorkbook: () => {
-                void loadFullWorkbookJson();
-              },
-              onRetryLoadGolzar: () => {
-                void requestLoadGolzarBank();
-              }
-            }}
+            readiness={executiveReadiness}
             onUpdateViewState={(updater) =>
               setExecutiveDashboardState((prev) =>
                 typeof updater === 'function' ? updater(prev) : { ...prev, ...updater }
               )
             }
             onOpenDetailedReports={() => {
+              setShowDeviceSyncDrawer(false);
+              setActiveTab('executive_statistics');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onBackToStatisticsRoute={() => {
               setShowDeviceSyncDrawer(false);
               setActiveTab('executive_statistics');
               window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -3862,11 +3836,13 @@ export default function App() {
         {activeTab === 'executive_statistics' && (
           <StatisticsAndReportsRouteView
             inputs={executiveDashboardInputs}
+            readiness={executiveReadiness}
             onSelectDrilldown={(key) => {
               setExecutiveDashboardState((prev) => ({
                 ...prev,
                 subView: 'overview',
                 activeDrilldown: key,
+                drilldownReturnRoute: 'executive_statistics',
                 drilldownSearch: '',
                 drilldownSubFilter: 'all',
                 drilldownScrollTop: 0
@@ -3877,6 +3853,7 @@ export default function App() {
             onRequestLoadGolzarBank={() => {
               void requestLoadGolzarBank();
             }}
+            onNotify={showNotify}
             onBackToDashboard={() => {
               if (
                 navHistoryRef.current.length > 0 &&
@@ -4003,6 +3980,7 @@ export default function App() {
                 ...prev,
                 subView: 'overview',
                 activeDrilldown: null,
+                drilldownReturnRoute: 'executive_dashboard',
                 drilldownSearch: '',
                 drilldownSubFilter: 'all',
                 drilldownScrollTop: 0,

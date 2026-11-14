@@ -31,6 +31,7 @@ import {
   type TehranValidityStatus,
 } from '../types';
 import { selectExecutiveDashboardSummary } from './dashboardSummarySelector';
+import { evaluateBookCompletionAndActivityFlags } from './libraryAnalyticsSelector';
 import { classifySingleLinkCertainty } from './relationAnalyticsSelector';
 
 const MANAGERIAL_STATUS_LABELS: Record<ManagerialBookStatusCode, string> = {
@@ -180,10 +181,13 @@ export function buildExecutiveEntityProjection(
   }
 
   // ۲. نمایه‌سازی نسخه فیزیکی (CP) و تیکت‌های باز کتاب (PV)
-  const copyCountByBookId = new Map<string, number>();
+  const copyStatsByBookId = new Map<string, { count: number; hasVerifiedPresent: boolean }>();
   for (const cp of bookCopies) {
     if (!cp.bookId) continue;
-    copyCountByBookId.set(cp.bookId, (copyCountByBookId.get(cp.bookId) || 0) + 1);
+    const prev = copyStatsByBookId.get(cp.bookId) || { count: 0, hasVerifiedPresent: false };
+    prev.count += 1;
+    if (cp.copyStatus === 'verified_present') prev.hasVerifiedPresent = true;
+    copyStatsByBookId.set(cp.bookId, prev);
   }
 
   const isClosedTicketStatus = (status: unknown): boolean =>
@@ -207,6 +211,7 @@ export function buildExecutiveEntityProjection(
   const bookByKey = new Map<string, DashboardBookListItem>();
   const bookByTempId = new Map<string, DashboardBookListItem>();
   const bookByCompactTitle = new Map<string, DashboardBookListItem>();
+  const rawCatalogRowByBookKey = new Map<string, ReferenceCatalogRow>();
 
   const catalogRowKeySet = new Set<string>();
   const catalogTempIdSet = new Set<string>();
@@ -214,6 +219,7 @@ export function buildExecutiveEntityProjection(
   for (const row of catalogRows) {
     const rKey = resolveCatalogRowKey(row);
     catalogRowKeySet.add(rKey);
+    rawCatalogRowByBookKey.set(rKey, row);
     const tid = (row.tempBookId || '').trim();
     if (tid) catalogTempIdSet.add(tid);
 
@@ -226,19 +232,9 @@ export function buildExecutiveEntityProjection(
       rawRev === 'تاییدشده' ||
       rawRev === 'تایید شده';
     const isFieldReview = Boolean(aud && (aud.physical === 'review' || aud.needsReview));
-    const isReviewedBaseline =
-      Boolean(
-        aud &&
-          !aud.needsReview &&
-          (aud.expertApproved || aud.physical === 'verified' || aud.physical === 'not_found')
-      ) || (!aud && isCatalogMarkedReviewed);
 
-    let managerialStatus: ManagerialBookStatusCode = 'unreviewed';
-    if (openTickets.length > 0 || isFieldReview) {
-      managerialStatus = 'open_duplicate_ticket';
-    } else if (isReviewedBaseline) {
-      managerialStatus = 'completed_without_ticket';
-    }
+    const managerialStatus: ManagerialBookStatusCode =
+      openTickets.length > 0 || isFieldReview ? 'open_duplicate_ticket' : 'unreviewed';
 
     const title = (aud?.title || row.titleRaw || '').trim() || 'بدون عنوان';
     const publisher = (aud?.publisher || row.publisherRaw || '').trim();
@@ -246,6 +242,7 @@ export function buildExecutiveEntityProjection(
     const shelf = (aud?.shelf || '').trim();
     const level = (aud?.level || '').trim();
     const locationDisplay = (aud?.location || row.locationRaw || '').trim();
+    const copyStat = tid ? copyStatsByBookId.get(tid) : undefined;
 
     const item: DashboardBookListItem = {
       bookKey: rKey,
@@ -264,8 +261,18 @@ export function buildExecutiveEntityProjection(
       fipa: (aud?.fipa || row.fipaRaw || '').trim(),
       registrationNo: (aud?.registrationNo || row.registrationNoRaw || '').trim(),
       countedCopiesRaw: (aud?.countedCopies || row.countedCopiesRaw || '').trim(),
-      physicalCopiesCount: tid ? copyCountByBookId.get(tid) || 0 : 0,
+      physicalCopiesCount: copyStat?.count || 0,
       physicalStatusRaw: aud?.physical || 'unchecked',
+      hasAuditRecord: Boolean(aud),
+      isCatalogMarkedReviewed,
+      isWorkedOrRegistered: Boolean(aud) || isCatalogMarkedReviewed || (copyStat?.count || 0) > 0,
+      isShelfVerifiedPresent: aud
+        ? aud.physical === 'verified' && aud.copyStatus !== 'pending_review'
+        : Boolean(copyStat?.hasVerifiedPresent),
+      isExpertApproved: Boolean(aud?.expertApproved),
+      isStrictCompleted: false,
+      lifecycleStage: 'not_started',
+      martyrLinkReviewResolved: false,
       managerialStatus,
       managerialStatusLabel: MANAGERIAL_STATUS_LABELS[managerialStatus],
       openTicketIds: openTickets.map((t) => t.trackingId),
@@ -295,11 +302,8 @@ export function buildExecutiveEntityProjection(
     const openTickets = tid ? openBookTicketsByBookId.get(tid) || [] : [];
     const isFieldReview = Boolean(aud.physical === 'review' || aud.needsReview);
     const managerialStatus: ManagerialBookStatusCode =
-      openTickets.length > 0 || isFieldReview
-        ? 'open_duplicate_ticket'
-        : aud.expertApproved || aud.physical === 'verified' || aud.physical === 'not_found'
-        ? 'completed_without_ticket'
-        : 'unreviewed';
+      openTickets.length > 0 || isFieldReview ? 'open_duplicate_ticket' : 'unreviewed';
+    const copyStat = tid ? copyStatsByBookId.get(tid) : undefined;
 
     const item: DashboardBookListItem = {
       bookKey: k,
@@ -318,8 +322,16 @@ export function buildExecutiveEntityProjection(
       fipa: (aud.fipa || '').trim(),
       registrationNo: (aud.registrationNo || '').trim(),
       countedCopiesRaw: (aud.countedCopies || '').trim(),
-      physicalCopiesCount: tid ? copyCountByBookId.get(tid) || 0 : 0,
+      physicalCopiesCount: copyStat?.count || 0,
       physicalStatusRaw: aud.physical,
+      hasAuditRecord: true,
+      isCatalogMarkedReviewed: false,
+      isWorkedOrRegistered: true,
+      isShelfVerifiedPresent: aud.physical === 'verified' && aud.copyStatus !== 'pending_review',
+      isExpertApproved: Boolean(aud.expertApproved),
+      isStrictCompleted: false,
+      lifecycleStage: 'in_progress',
+      martyrLinkReviewResolved: false,
       managerialStatus,
       managerialStatusLabel: MANAGERIAL_STATUS_LABELS[managerialStatus],
       openTicketIds: openTickets.map((t) => t.trackingId),
@@ -821,7 +833,107 @@ export function buildExecutiveEntityProjection(
     };
   });
 
-  const books = Array.from(bookByKey.values());
+  // ارزیابی نهایی معیار اکید تکمیل روی تمام کتاب‌ها (هماهنگ ۱:۱ با selectLibraryAnalytics)
+  const activeLinksByBookKey = new Map<string, BookMartyrLinkRecord[]>();
+  const openLinkIssueBookKeys = new Set<string>();
+  const linkIdToMatchedBookKey = new Map<string, string>();
+  for (const lnk of links) {
+    if (isRejectedLinkStatus(lnk.reviewStatus)) continue;
+    const tid = (lnk.tempBookId || '').trim();
+    const matchedBook =
+      (tid ? bookByTempId.get(tid) : undefined) ||
+      bookByCompactTitle.get(compactPersian(lnk.bookTitleRaw));
+    if (!matchedBook) continue;
+    if (lnk.id) linkIdToMatchedBookKey.set(lnk.id.trim(), matchedBook.bookKey);
+    const list = activeLinksByBookKey.get(matchedBook.bookKey) || [];
+    list.push(lnk);
+    activeLinksByBookKey.set(matchedBook.bookKey, list);
+    const st = normalizePersian(lnk.reviewStatus);
+    if (
+      st &&
+      !st.includes('رد') &&
+      !st.includes('تاییدشده کارشناسی') &&
+      (st.includes('نیازمند') ||
+        st.includes('تکمیل') ||
+        st.includes('تفکیک') ||
+        st.includes('در صف') ||
+        st.includes('تعارض'))
+    ) {
+      openLinkIssueBookKeys.add(matchedBook.bookKey);
+    }
+  }
+
+  const openAnyPendingBookKeys = new Set<string>();
+  for (const pv of pendingReviews) {
+    if (isClosedTicketStatus(pv.trackingStatus)) continue;
+    const recId = (pv.mainRecordId || '').trim();
+    if (!recId) continue;
+    const directBook = bookByTempId.get(recId);
+    if (directBook) {
+      openAnyPendingBookKeys.add(directBook.bookKey);
+    } else if (linkIdToMatchedBookKey.has(recId)) {
+      openAnyPendingBookKeys.add(linkIdToMatchedBookKey.get(recId)!);
+    }
+  }
+
+  const books = Array.from(bookByKey.values()).map((book) => {
+    const rawRow = rawCatalogRowByBookKey.get(book.bookKey);
+    const aud = auditRecords[book.bookKey] || (book.tempBookId ? auditByBookId.get(book.tempBookId) : undefined);
+    const copyStat = book.tempBookId ? copyStatsByBookId.get(book.tempBookId) : undefined;
+    const bLinks = activeLinksByBookKey.get(book.bookKey) || [];
+    const excludedSet = new Set(
+      (aud?.excludedMartyrs || []).map((m) => stripMartyrHonorifics(m)).filter(Boolean)
+    );
+    const activeNames = new Set<string>();
+    for (const lnk of bLinks) {
+      if (!isPlaceholderOrGroupMartyrPhrase(lnk.martyrNameRaw, lnk.isGroupPhrase)) {
+        const nn = stripMartyrHonorifics(lnk.martyrNameRaw);
+        if (nn) activeNames.add(nn);
+      }
+    }
+    for (const rm of aud?.relatedMartyrs || []) {
+      if (!isPlaceholderOrGroupMartyrPhrase(rm, false)) {
+        const nn = stripMartyrHonorifics(rm);
+        if (nn) activeNames.add(nn);
+      }
+    }
+    for (const ex of excludedSet) activeNames.delete(ex);
+
+    const flags = evaluateBookCompletionAndActivityFlags({
+      row: rawRow,
+      audit: aud,
+      registeredCopiesCount: copyStat?.count || 0,
+      verifiedPresentCopyExists: Boolean(copyStat?.hasVerifiedPresent),
+      bookActiveLinks: bLinks,
+      activeAuditMartyrCount: activeNames.size,
+      hasOpenDirectBookTicket: book.openTicketIds.length > 0,
+      hasOpenAnyPendingTicket: openAnyPendingBookKeys.has(book.bookKey),
+      hasOpenLinkIssue: openLinkIssueBookKeys.has(book.bookKey),
+    });
+
+    const isFieldReview = Boolean(aud && (aud.physical === 'review' || aud.needsReview === true));
+    const managerialStatus: ManagerialBookStatusCode =
+      flags.hasOpenDirectBookTicket || isFieldReview
+        ? 'open_duplicate_ticket'
+        : flags.isStrictCompleted
+        ? 'completed_without_ticket'
+        : 'unreviewed';
+
+    return {
+      ...book,
+      hasAuditRecord: flags.hasAuditRecord,
+      isCatalogMarkedReviewed: flags.isCatalogMarkedReviewed,
+      isWorkedOrRegistered: flags.isWorkedOrRegistered,
+      isShelfVerifiedPresent: flags.isShelfVerifiedPresent,
+      isExpertApproved: flags.isExpertApproved,
+      isStrictCompleted: flags.isStrictCompleted,
+      lifecycleStage: flags.lifecycleStage,
+      martyrLinkReviewResolved: flags.martyrLinkReviewResolved,
+      managerialStatus,
+      managerialStatusLabel: MANAGERIAL_STATUS_LABELS[managerialStatus],
+    };
+  });
+
   return { summary, books, martyrs, relations };
 }
 

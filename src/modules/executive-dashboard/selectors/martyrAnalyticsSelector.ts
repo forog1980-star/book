@@ -42,6 +42,53 @@ function hasCompleteNumericGrave(piece: unknown, row: unknown, number: unknown):
   return Boolean(p && r && n && /\d/.test(p));
 }
 
+export function evaluateStrictTehranStatus(params: {
+  gravePiece?: string;
+  graveRow?: string;
+  graveNumber?: string;
+  noteText?: string;
+  golzarMatchCount: number;
+  golzarHasExactGrave: boolean;
+  customMartyr?: CustomMartyrRecord;
+}): { status: 'tehran' | 'non_tehran' | 'unknown'; note: string } {
+  const combined = normalizePersian(
+    `${params.gravePiece || ''} ${params.noteText || ''} ${params.customMartyr?.graveVerificationStatus || ''} ${params.customMartyr?.graveSource || ''}`
+  );
+  if (
+    combined.includes('غیرتهرانی') ||
+    combined.includes('غیر تهرانی') ||
+    combined.includes('خارج از تهران') ||
+    combined.includes('یادبود')
+  ) {
+    return {
+      status: 'non_tehran',
+      note: 'ثبت‌شده به‌عنوان غیرتهرانی / یادبود در اطلاعات مزار یا یادداشت',
+    };
+  }
+  if (params.golzarHasExactGrave) {
+    return {
+      status: 'tehran',
+      note: 'احراز قطعی با مختصات مزار در بانک ۲۸٬۳۶۸ شهید گلزار تهران',
+    };
+  }
+  if (hasCompleteNumericGrave(params.gravePiece, params.graveRow, params.graveNumber)) {
+    return {
+      status: 'tehran',
+      note: 'دارای نشانی کامل قطعه، ردیف و شماره مزار گلزار تهران',
+    };
+  }
+  if (params.golzarMatchCount === 1) {
+    return {
+      status: 'tehran',
+      note: 'تطبیق یکتا با بانک ۲۸٬۳۶۸ شهید گلزار شهدای تهران',
+    };
+  }
+  return {
+    status: 'unknown',
+    note: 'وضعیت تهران/غیرتهرانی بدون مختصات قطعی مزار هنوز تعیین‌تکلیف نشده است',
+  };
+}
+
 function evaluateCustomMartyrsAgainstBank(
   customMartyrs: CustomMartyrRecord[],
   golzarById: Map<string, GolzarRawMartyrInput>,
@@ -326,6 +373,11 @@ export function selectMartyrAnalytics(
       bookIds: Set<string>;
       hasConfirmedOccurrence: boolean;
       hasAmbiguousOccurrence: boolean;
+      hasExpertConfirmed: boolean;
+      samplePiece: string;
+      sampleRow: string;
+      sampleNumber: string;
+      notesCombined: string[];
       resolvedPersonKeys: Set<string>;
     }
   >();
@@ -355,6 +407,11 @@ export function selectMartyrAnalytics(
       bookIds: new Set<string>(),
       hasConfirmedOccurrence: false,
       hasAmbiguousOccurrence: false,
+      hasExpertConfirmed: false,
+      samplePiece: '',
+      sampleRow: '',
+      sampleNumber: '',
+      notesCombined: [],
       resolvedPersonKeys: new Set<string>(),
     };
 
@@ -367,6 +424,16 @@ export function selectMartyrAnalytics(
       stNorm === 'تایید کارشناس' ||
       stNorm === 'تاییدشده و افزودهشده به پرونده' ||
       stNorm === 'تاییدشده و افزوده شده به پرونده';
+    if (isExpertLink) {
+      bucket.hasExpertConfirmed = true;
+    }
+    if (!bucket.samplePiece && cleanOptionalField(lnk.gravePieceRaw)) {
+      bucket.samplePiece = cleanOptionalField(lnk.gravePieceRaw);
+      bucket.sampleRow = cleanOptionalField(lnk.graveRowRaw);
+      bucket.sampleNumber = cleanOptionalField(lnk.graveNumberRaw);
+    }
+    if (lnk.reviewerNote) bucket.notesCombined.push(lnk.reviewerNote);
+    if (lnk.reviewStatus) bucket.notesCombined.push(lnk.reviewStatus);
 
     const graveSig = buildGraveSignature(lnk.gravePieceRaw, lnk.graveRowRaw, lnk.graveNumberRaw);
     const graveReadable = formatGraveReadable(
@@ -440,6 +507,11 @@ export function selectMartyrAnalytics(
           bookIds: new Set<string>(aud.tempBookId ? [aud.tempBookId] : []),
           hasConfirmedOccurrence: isAudConfirmed,
           hasAmbiguousOccurrence: !isAudConfirmed,
+          hasExpertConfirmed: isAudConfirmed,
+          samplePiece: '',
+          sampleRow: '',
+          sampleNumber: '',
+          notesCombined: aud.notes ? [aud.notes] : [],
           resolvedPersonKeys: new Set<string>(isAudConfirmed ? [`PERSON::${normName}`] : []),
         };
         linkedNameGroups.set(normName, bucket);
@@ -452,8 +524,53 @@ export function selectMartyrAnalytics(
   const homonymAmbiguityNames: string[] = [];
   const discrepancyWarnings: MartyrDiscrepancyWarning[] = [];
 
+  let tehranLinkedCount = 0;
+  let nonTehranLinkedCount = 0;
+  let unknownTehranLinkedCount = 0;
+  let unreviewedLinkedCount = 0;
+  let homonymSuspectsCount = 0;
+  let singleBookLinkedCount = 0;
+  let multiBookLinkedCount = 0;
+  const linkedBankProfileKeys = new Set<string>();
+
+  const buildRowProfileKey = (rec: GolzarRawMartyrInput): string => {
+    const fullName = stripMartyrHonorifics(`${rec.firstName || ''} ${rec.lastName || ''}`);
+    const father = normalizePersian(rec.fatherName);
+    const graveSig = buildGraveSignature(rec.gravePiece, rec.graveRow, rec.graveNumber);
+    if (graveSig) return `${fullName}::${father}::${graveSig}`;
+    if (rec.id) return `ID::${rec.id}`;
+    return `ROW::${rec.source || 'golzar'}::${rec.sourceRow ?? ''}::${fullName}::${father}`;
+  };
+
   for (const [normName, bucket] of linkedNameGroups.entries()) {
     const bankMatch = bankNameOccurrences.get(normName);
+    const bankRows = golzarRowsByNormName.get(normName) || [];
+    const matchingCustom = customByNormalizedName.get(normName) || [];
+    const singleCustom = matchingCustom.length === 1 ? matchingCustom[0] : undefined;
+    const cMatch = singleCustom ? customMatchById.get(singleCustom.martyrId) : undefined;
+
+    let matchedGolzar: GolzarRawMartyrInput | undefined;
+    if (cMatch?.matchCertainty === 'definite' && cMatch.matchedGolzarId) {
+      matchedGolzar = golzarById.get(cMatch.matchedGolzarId);
+    } else if (bucket.graveSignatures.size > 0 && bankRows.length > 0) {
+      const exactRows = bankRows.filter((r) =>
+        bucket.graveSignatures.has(buildGraveSignature(r.gravePiece, r.graveRow, r.graveNumber))
+      );
+      if (exactRows.length === 1) matchedGolzar = exactRows[0];
+    } else if (bankRows.length === 1) {
+      matchedGolzar = bankRows[0];
+    }
+
+    if (matchedGolzar) {
+      linkedBankProfileKeys.add(buildRowProfileKey(matchedGolzar));
+    }
+    for (const sig of bucket.graveSignatures) {
+      for (const r of bankRows) {
+        if (buildGraveSignature(r.gravePiece, r.graveRow, r.graveNumber) === sig) {
+          linkedBankProfileKeys.add(buildRowProfileKey(r));
+        }
+      }
+    }
 
     // ثبت هشدار کارشناسی در صورت اختلاف مختصات مزار در چند کتاب (بدون حذف خودکار مختصات)
     if (bucket.graveSignatures.size > 1) {
@@ -471,9 +588,6 @@ export function selectMartyrAnalytics(
       });
     }
 
-    // افراز اکید و بدون هم‌پوشانی بین احرازشده و نیازمند احراز:
-    // یک نام مرتبط تنها زمانی در «احرازشده» می‌ماند که حداقل یک هویت احرازشده داشته باشد و ردیف مبهمِ حل‌نشده نداشته باشد؛
-    // در صورت وجود ردیف مبهم هم‌زمان، در صف «نیازمند احراز» نگه داشته می‌شود تا مجموع دقیق برابر distinctNormalizedLinkedNamesCount (395) بماند.
     const isCleanConfirmed =
       bucket.hasConfirmedOccurrence &&
       bucket.resolvedPersonKeys.size > 0 &&
@@ -492,8 +606,6 @@ export function selectMartyrAnalytics(
     }
 
     if (isCleanConfirmed) {
-      // بر پایه شخص یکتا (اگر بیش از ۱ پدر مجزا در بانک با مزار مجزا احراز شده باشند، به تعداد اشخاص احرازشده؛
-      // وگرنه برای یک شخص واحد حتی با اختلاف تایپی مختصات مزار، عدد ۱)
       confirmedUniqueLinkedMartyrsCount += Math.max(1, bucket.resolvedPersonKeys.size);
     } else {
       ambiguousOrUnverifiedLinkedNamesCount += 1;
@@ -501,6 +613,39 @@ export function selectMartyrAnalytics(
         homonymAmbiguityNames.push(normName);
       }
     }
+
+    // آمارهای تفصیلی بخش ۲
+    if (bucket.bookIds.size > 1) {
+      multiBookLinkedCount += 1;
+    } else {
+      singleBookLinkedCount += 1;
+    }
+
+    if ((bankMatch && bankMatch.count > 1) || bucket.graveSignatures.size > 1) {
+      homonymSuspectsCount += 1;
+    }
+
+    const isCustomExpertVerified = matchingCustom.some(
+      (cm) => normalizePersian(cm.identityVerificationStatus) === 'تاییدشده'
+    );
+    if (!bucket.hasExpertConfirmed && !isCustomExpertVerified) {
+      unreviewedLinkedCount += 1;
+    }
+
+    const tehEval = evaluateStrictTehranStatus({
+      gravePiece: bucket.samplePiece || cleanOptionalField(matchedGolzar?.gravePiece) || cleanOptionalField(singleCustom?.gravePiece),
+      graveRow: bucket.sampleRow || cleanOptionalField(matchedGolzar?.graveRow) || cleanOptionalField(singleCustom?.graveRow),
+      graveNumber: bucket.sampleNumber || cleanOptionalField(matchedGolzar?.graveNumber) || cleanOptionalField(singleCustom?.graveNumber),
+      noteText: bucket.notesCombined.join(' '),
+      golzarMatchCount: bankRows.length,
+      golzarHasExactGrave: Boolean(
+        matchedGolzar && matchedGolzar.source !== 'outside_golzar_martyrs'
+      ),
+      customMartyr: singleCustom,
+    });
+    if (tehEval.status === 'tehran') tehranLinkedCount += 1;
+    else if (tehEval.status === 'non_tehran') nonTehranLinkedCount += 1;
+    else unknownTehranLinkedCount += 1;
   }
 
   for (const cmMatch of customMatches) {
@@ -517,9 +662,35 @@ export function selectMartyrAnalytics(
     }
   }
 
+  const officialBankLoaded = golzarRecords.length > 0;
+  let unlinkedCustomOnlyCount = 0;
+  let unlinkedUnmatchedCustomCount = 0;
+  let unmatchedCustomCount = 0;
+  for (const cm of customMartyrs) {
+    const names = [cm.fullName, `${cm.firstName} ${cm.lastName}`, ...(cm.alternativeNames || [])]
+      .map((n) => stripMartyrHonorifics(n))
+      .filter(Boolean);
+    const hasLink = names.some((n) => linkedNameGroups.has(n));
+    const cMatch = customMatchById.get(cm.martyrId);
+    const isDefiniteBankMatch = cMatch?.matchCertainty === 'definite';
+    if (!isDefiniteBankMatch) unmatchedCustomCount += 1;
+    if (!hasLink) {
+      unlinkedCustomOnlyCount += 1;
+      if (!isDefiniteBankMatch) unlinkedUnmatchedCustomCount += 1;
+    }
+  }
+
+  const officialAndCustomUniqueIdsCount = officialBankLoaded
+    ? disambiguatedBankProfileKeys.size + unmatchedCustomCount
+    : null;
+  const unlinkedBankAndCustomCount = officialBankLoaded
+    ? Math.max(0, disambiguatedBankProfileKeys.size - linkedBankProfileKeys.size) +
+      unlinkedUnmatchedCustomCount
+    : null;
+
   return {
     officialBank: {
-      hasOfficialBankLoaded: golzarRecords.length > 0,
+      hasOfficialBankLoaded: officialBankLoaded,
       totalRows: golzarRecords.length,
       golzarMainSheetRows,
       outsideGolzarSheetRows,
@@ -548,6 +719,22 @@ export function selectMartyrAnalytics(
       placeholderOrGroupLinkRowsCount,
       homonymAmbiguityNames,
       discrepancyWarnings,
+    },
+    detailedMartyrMetrics: {
+      officialBankLoaded,
+      officialAndCustomUniqueIdsCount,
+      linkedMartyrsCount: linkedNameGroups.size,
+      confirmedIdentityCount: confirmedUniqueLinkedMartyrsCount,
+      needsIdentityVerificationCount: ambiguousOrUnverifiedLinkedNamesCount,
+      unlinkedBankAndCustomCount,
+      unlinkedCustomOnlyCount,
+      tehranLinkedCount,
+      nonTehranLinkedCount,
+      unknownTehranLinkedCount,
+      unreviewedLinkedCount,
+      homonymSuspectsCount,
+      singleBookLinkedCount,
+      multiBookLinkedCount,
     },
   };
 }

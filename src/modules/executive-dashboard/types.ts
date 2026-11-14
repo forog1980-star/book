@@ -102,6 +102,22 @@ export interface BookReviewStatusBreakdown {
   managerialStatusPartition: BookManagerialStatusPartition;
 }
 
+export interface LibraryDetailedBreakdown {
+  totalTrackedBooksCount: number;
+  completedCount: number;
+  inProgressCount: number;
+  notStartedCount: number;
+  workedOrRegisteredCount: number;
+  unworkedCount: number;
+  shelfVerifiedPresentCount: number;
+  expertApprovedCount: number;
+  awaitingExpertApprovalCount: number;
+  openDuplicateTitleTicketsCount: number;
+  hasRegisteredMartyrLinkCount: number;
+  lacksRegisteredMartyrLinkCount: number;
+  reviewedWithoutMartyrLinkCount: number;
+}
+
 export interface LibraryAnalyticsResult {
   catalogRowsCount: number;
   distinctCatalogBookIdsCount: number;
@@ -121,6 +137,7 @@ export interface LibraryAnalyticsResult {
   reportedCountedCopiesSum: number;
   booksWithCountedCopiesNumberCount: number;
   reviewBreakdown: BookReviewStatusBreakdown;
+  detailedBreakdown: LibraryDetailedBreakdown;
   fieldAuditSummary: {
     totalAuditRecords: number;
     verified: number;
@@ -207,6 +224,22 @@ export interface MartyrAnalyticsResult {
     /** هشدارهای کارشناسی اختلاف مختصات یا هم‌نامی (مانند صیاد شیرازی و علی خرمدل) بدون حذف خودکار داده */
     discrepancyWarnings: MartyrDiscrepancyWarning[];
   };
+  detailedMartyrMetrics: {
+    officialBankLoaded: boolean;
+    officialAndCustomUniqueIdsCount: number | null;
+    linkedMartyrsCount: number;
+    confirmedIdentityCount: number;
+    needsIdentityVerificationCount: number;
+    unlinkedBankAndCustomCount: number | null;
+    unlinkedCustomOnlyCount: number;
+    tehranLinkedCount: number;
+    nonTehranLinkedCount: number;
+    unknownTehranLinkedCount: number;
+    unreviewedLinkedCount: number;
+    homonymSuspectsCount: number;
+    singleBookLinkedCount: number;
+    multiBookLinkedCount: number;
+  };
 }
 
 export type RelationCertaintyBucket =
@@ -229,12 +262,29 @@ export type RelationKindValue =
   | 'دارای بخش یا اشاره به شهید'
   | 'نامشخص';
 
+export interface RelationSourceAndExpertBreakdown {
+  totalActiveDistinctPairsCount: number;
+  definiteBySourceLabelDistinctCount: number;
+  definiteBySourceLabelRawCount: number;
+  probableDistinctCount: number;
+  probableRawCount: number;
+  needsReviewDistinctCount: number;
+  needsReviewRawCount: number;
+  explicitExpertConfirmedDistinctCount: number;
+  explicitExpertConfirmedRawCount: number;
+  undeterminedDistinctCount: number;
+  undeterminedRawCount: number;
+  rejectedArchiveDistinctCount: number;
+  rejectedArchiveRawCount: number;
+}
+
 export interface RelationAnalyticsResult {
   totalRawLinkRows: number;
   distinctBookTargetPairsCount: number;
   duplicatePairRowsCount: number;
   certaintyByRawRows: Record<RelationCertaintyBucket, number>;
   certaintyByDistinctPairs: Record<RelationCertaintyBucket, number>;
+  sourceAndExpertBreakdown: RelationSourceAndExpertBreakdown;
   rejectedArchiveSuggestionsCount: number;
   excludedAuditMartyrCount: number;
   relationKindBreakdown: Record<RelationKindValue, number>;
@@ -443,6 +493,14 @@ export interface DashboardBookListItem {
   countedCopiesRaw: string;
   physicalCopiesCount: number;
   physicalStatusRaw: string;
+  hasAuditRecord: boolean;
+  isCatalogMarkedReviewed: boolean;
+  isWorkedOrRegistered: boolean;
+  isShelfVerifiedPresent: boolean;
+  isExpertApproved: boolean;
+  isStrictCompleted: boolean;
+  lifecycleStage: 'completed' | 'in_progress' | 'not_started';
+  martyrLinkReviewResolved: boolean;
   managerialStatus: ManagerialBookStatusCode;
   managerialStatusLabel: string;
   openTicketIds: string[];
@@ -567,6 +625,37 @@ export interface ExecutiveDashboardExportV1 {
   pendingReviews: PendingReviewItem[];
 }
 
+export type FinalizedReportCategory = 'management_report' | 'research_output';
+export type FinalizedOutputLifecycleStatus = 'draft' | 'final';
+
+export interface FinalizedReportVersionEntry {
+  versionNumber: number;
+  exportedAtIso: string;
+  exportedAtDisplay: string;
+  fileName: string;
+  fileType: 'excel' | 'json';
+  recordCount: number;
+  relatedExportId?: string;
+}
+
+export interface FinalizedReportRegistryRecord {
+  reportId: string;
+  category: FinalizedReportCategory;
+  title: string;
+  lifecycleStatus: FinalizedOutputLifecycleStatus;
+  scope: 'dashboard_management' | 'filtered_books' | 'filtered_martyrs' | 'research_dossier';
+  appliedFiltersSummary: string;
+  currentVersion: number;
+  createdAtIso: string;
+  createdAtDisplay: string;
+  finalizedAtIso?: string;
+  finalizedAtDisplay?: string;
+  updatedAtIso: string;
+  updatedAtDisplay: string;
+  notes?: string;
+  versions: FinalizedReportVersionEntry[];
+}
+
 export interface ExecutiveExportHistoryRecord {
   exportId: string;
   fileName: string;
@@ -596,6 +685,9 @@ export interface ThreeCardOverviewResult {
   libraryCard: {
     totalTrackedBooksCount: number;
     completedCount: number;
+    inProgressCount: number;
+    notStartedCount: number;
+    workedOrRegisteredCount: number;
     openDuplicateTicketCount: number;
     unreviewedCount: number;
     remainingForReviewCount: number;
@@ -609,6 +701,9 @@ export interface ThreeCardOverviewResult {
     confirmedIdentityPercent: number;
     needsVerificationPercent: number;
     relatedBooksCount: number;
+    totalActiveDistinctRelationsCount: number;
+    definiteSourceRelationsCount: number;
+    probableRelationsCount: number;
     expertConfirmedRelationsCount: number;
     needsReviewRelationsCount: number;
   };
@@ -617,6 +712,9 @@ export interface ThreeCardOverviewResult {
     reviewQueueCompletedCount: number;
     reviewQueueRemainingCount: number;
     reviewQueueNeedsSourceCount: number;
+    independentTopicsTotalCount: number;
+    independentTopicsCompletedCount: number;
+    independentTopicsRemainingCount: number;
     reviewQueueCompletionPercent: number;
     reviewQueueRemainingPercent: number;
     completedByType: Array<{ label: string; count: number }>;
@@ -626,18 +724,26 @@ export interface ThreeCardOverviewResult {
     pendingExtractedReviewCount: number;
     exportHistoryCount: number;
     rawExportHistoryCount: number;
+    draftReportsExcludedCount: number;
   };
 }
+
+export type ActivityDomainKey = 'library' | 'martyrs_relations' | 'work_outputs' | 'other';
 
 export interface ActivityLogAnalyticsSummary {
   totalEntriesCount: number;
   byActionType: Array<{ actionType: string; count: number }>;
+  byDomain: Array<{ domain: ActivityDomainKey; label: string; count: number }>;
   latestTimestamp: string | null;
 }
 
 export interface FinalizedResearchOutputsSummary {
   /** کل مطالب استخراج‌شده غیرردشده (شامل پیش‌نویس، نیازمند بررسی، پژوهش اصلی و تأیید کارشناسی) */
   totalExtractedNonRejectedCount: number;
+  /** کل رکوردهای ثبت‌شده در بخش استخراج پژوهشی با احتساب موارد ردشده */
+  totalAllRecordsIncludingRejectedCount: number;
+  /** موارد بررسی‌شده پژوهشی (بررسی‌شده در پژوهش اصلی + تأییدشده کارشناسی) */
+  totalReviewedResearchCount: number;
   /** خروجی‌های پژوهشی نهایی و مستقل (فقط تأییدشده نهایی/کارشناسی، بدون پیش‌نویس و با تجمیع نسخه‌های تکراری یک محصول) */
   finalIndependentOutputsCount: number;
   /** تعداد رکوردهای تأییدشده کارشناسی پیش از حذف نسخه‌های تکراری */
@@ -646,6 +752,8 @@ export interface FinalizedResearchOutputsSummary {
   duplicateVersionsCollapsedCount: number;
   /** موارد استخراج‌شده که هنوز پیش‌نویس/خام/پژوهش اولیه یا نیازمند بررسی هستند و خروجی نهایی محسوب نمی‌شوند */
   nonFinalOrDraftExtractedCount: number;
+  /** پیش‌نویس‌ها و موارد ناتمام */
+  draftsAndIncompleteCount: number;
   breakdownByStatus: {
     expertApproved: number;
     baseResearchReviewed: number;
@@ -656,14 +764,22 @@ export interface FinalizedResearchOutputsSummary {
 }
 
 export interface FinalizedManagementReportsSummary {
-  /** گزارش‌های مدیریتی نهایی و مستقل از سابقه واقعی صدور (بدون پیش‌نویس، ناموفق و بدون تکرار نسخه‌ها) */
+  /** گزارش‌های مدیریتی نهایی و مستقل (از دفتر کل محلی گزارش‌های نهایی و یا تجمیع نسخه‌های معتبر) */
   finalIndependentReportsCount: number;
-  /** کل صدورهای موفق ثبت‌شده در سابقه دستگاه پیش از تجمیع نسخه‌های تکراری */
+  /** کل صدورهای موفق یا نسخه‌های ثبت‌شده پیش از تجمیع */
   rawSuccessfulIssuancesCount: number;
   /** نسخه‌های متعدد از یک گزارش مشابه که خروجی مستقل جدید شمرده نشدند */
   duplicateVersionsCollapsedCount: number;
   /** گزارش‌های پیش‌نویس یا ناموفق که خروجی نهایی محسوب نشدند */
   draftOrFailedExcludedCount: number;
+  /** آیا داده از دفتر کل مستقل book_executive_finalized_reports_v1 آمده است */
+  usesDedicatedLocalRegistry: boolean;
+  /** تعداد گزارش‌های نهایی ثبت‌شده در دفتر کل محلی */
+  registryFinalizedCount: number;
+  /** تعداد پیش‌نویس‌های ثبت‌شده در دفتر کل محلی */
+  registryDraftsCount: number;
+  /** مجموع کل نسخه‌های نگهداری‌شده در دفتر کل محلی */
+  registryTotalVersionsCount: number;
   byFileType: {
     excel: number;
     json: number;
@@ -677,6 +793,8 @@ export interface WorkAndOutputsDetailedAnalytics {
   reviewQueueRemainingCount: number;
   reviewQueueNeedsSourceCount: number;
   reviewQueueOpenPlainCount: number;
+  reviewQueueClosedOrRejectedWithReasonCount: number;
+  reviewQueueCompletionPercent: number;
   reviewQueueStatusBreakdown: Array<{ status: string; count: number; isCompleted: boolean }>;
   independentWorkTopics: ReviewQueueResult['independentWorkTopics'];
   activityLog: ActivityLogAnalyticsSummary;
@@ -684,18 +802,66 @@ export interface WorkAndOutputsDetailedAnalytics {
   managementReports: FinalizedManagementReportsSummary;
 }
 
+export type UnifiedSearchDomainScope =
+  | 'all'
+  | 'books'
+  | 'martyrs'
+  | 'relations'
+  | 'work'
+  | 'activity'
+  | 'research'
+  | 'reports';
+
 export type DashboardDrilldownKey =
   | 'library_all'
   | 'library_completed'
   | 'library_remaining'
+  | 'library_in_progress'
+  | 'library_not_started'
+  | 'library_worked'
+  | 'library_unworked'
+  | 'library_shelf_verified'
+  | 'library_expert_approved'
+  | 'library_awaiting_expert'
+  | 'library_open_duplicate_ticket'
+  | 'library_with_martyr_link'
+  | 'library_without_martyr_link'
+  | 'library_reviewed_no_martyr'
+  | 'martyrs_linked_all'
   | 'martyrs_confirmed'
   | 'martyrs_needs_verification'
+  | 'martyrs_official_unique_all'
+  | 'martyrs_unlinked_bank'
+  | 'martyrs_tehran'
+  | 'martyrs_non_tehran'
+  | 'martyrs_unreviewed'
+  | 'martyrs_homonym_suspects'
+  | 'martyrs_single_book'
+  | 'martyrs_multi_book'
+  | 'relations_active_all'
+  | 'relations_definite_source'
+  | 'relations_probable'
   | 'relations_confirmed'
   | 'relations_needs_review'
+  | 'relations_rejected_archive'
+  | 'work_all'
   | 'work_completed'
   | 'work_remaining'
+  | 'work_in_progress'
+  | 'work_needs_source'
+  | 'work_closed_rejected'
+  | 'work_domain_library'
+  | 'work_domain_martyrs'
+  | 'work_domain_relations'
+  | 'activity_logs'
   | 'research_outputs'
-  | 'management_reports';
+  | 'research_reviewed'
+  | 'research_expert_approved'
+  | 'research_final_independent'
+  | 'research_drafts_incomplete'
+  | 'research_rejected'
+  | 'management_reports'
+  | 'management_reports_drafts';
 
 export interface DrilldownContextMeta {
   key: DashboardDrilldownKey;
@@ -704,6 +870,7 @@ export interface DrilldownContextMeta {
   subtitle: string;
   dataSourceNote: string;
 }
+
 
 
 

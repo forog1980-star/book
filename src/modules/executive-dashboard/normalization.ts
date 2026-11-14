@@ -1,9 +1,10 @@
 import type {
+  AuditLogEntry,
   BookMartyrLinkRecord,
   PendingReviewItem,
   ReferenceCatalogRow,
 } from '../../data/markazAsnadData';
-import type { GolzarRawMartyrInput, MartyrTaxonomicType } from './types';
+import type { ActivityDomainKey, GolzarRawMartyrInput, MartyrTaxonomicType } from './types';
 
 const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
 const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩';
@@ -479,3 +480,132 @@ export function normalizeVersionedOutputIdentity(input: unknown): string {
   return normalizePersian(raw);
 }
 
+/**
+ * تشخیص تایید صریح «ارتباطی یافت نشد» یا «فاقد ارتباط با شهید» در یادداشت‌های کارشناسی کتاب
+ */
+export function isNoMartyrFoundConfirmationText(input: unknown): boolean {
+  const norm = normalizePersian(input);
+  if (!norm) return false;
+  return (
+    norm.includes('ارتباطی یافت نشد') ||
+    norm.includes('شهیدی یافت نشد') ||
+    norm.includes('فاقد ارتباط با شهید') ||
+    norm.includes('بدون ارتباط با شهید') ||
+    norm.includes('فاقد شهید مرتبط') ||
+    norm.includes('شهیدی ندارد')
+  );
+}
+
+export const ACTIVITY_DOMAIN_LABELS: Record<ActivityDomainKey, string> = {
+  library: 'کتابخانه',
+  martyrs_relations: 'شهدا و ارتباطات',
+  work_outputs: 'صف و خروجی‌ها',
+  other: 'سایر / پشتیبان',
+};
+
+export function classifyAuditLogDomain(entry: Pick<AuditLogEntry, 'actionType' | 'targetId' | 'summary'>): {
+  domain: ActivityDomainKey;
+  label: string;
+} {
+  const act = normalizePersian(entry.actionType);
+  const tid = String(entry.targetId || '').trim().toUpperCase();
+  const sum = normalizePersian(entry.summary);
+
+  let domain: ActivityDomainKey = 'other';
+
+  if (
+    act.includes('ارتباط') ||
+    act.includes('شهید') ||
+    /^(RL|MR|GLZ|SS)-/.test(tid)
+  ) {
+    domain = 'martyrs_relations';
+  } else if (
+    act.includes('موجودی') ||
+    act.includes('کتاب') ||
+    act.includes('قفسه') ||
+    /^(BK|CP|OUT)-/.test(tid)
+  ) {
+    domain = 'library';
+  } else if (
+    act.includes('پیگیری') ||
+    act.includes('استخراج') ||
+    act.includes('خروجی') ||
+    act.includes('گزارش') ||
+    /^(PV|EX|REP|EXP)-/.test(tid) ||
+    sum.includes('گزارش مدیریتی')
+  ) {
+    domain = 'work_outputs';
+  }
+
+  return { domain, label: ACTIVITY_DOMAIN_LABELS[domain] };
+}
+
+function jalaliToGregorianYmd(jyRaw: number, jm: number, jd: number): string {
+  let jy = jyRaw - 979;
+  let jmZero = jm - 1;
+  let jdZero = jd - 1;
+
+  let jDayNo =
+    365 * jy + Math.floor(jy / 33) * 8 + Math.floor(((jy % 33) + 3) / 4);
+  for (let i = 0; i < jmZero; ++i) {
+    jDayNo += i < 6 ? 31 : 30;
+  }
+  jDayNo += jdZero;
+
+  let gDayNo = jDayNo + 79;
+  let gy = 1600 + 400 * Math.floor(gDayNo / 146097);
+  gDayNo %= 146097;
+
+  let leap = true;
+  if (gDayNo >= 36525) {
+    gDayNo -= 1;
+    gy += 100 * Math.floor(gDayNo / 36524);
+    gDayNo %= 36524;
+    if (gDayNo >= 365) {
+      gDayNo += 1;
+    } else {
+      leap = false;
+    }
+  }
+
+  gy += 4 * Math.floor(gDayNo / 1461);
+  gDayNo %= 1461;
+
+  if (gDayNo >= 366) {
+    leap = false;
+    gDayNo -= 1;
+    gy += Math.floor(gDayNo / 365);
+    gDayNo %= 365;
+  }
+
+  const gDaysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  let gm = 0;
+  for (; gm < 12 && gDayNo >= gDaysInMonth[gm]; gm += 1) {
+    gDayNo -= gDaysInMonth[gm];
+  }
+  const gd = gDayNo + 1;
+
+  return `${gy}-${String(gm + 1).padStart(2, '0')}-${String(gd).padStart(2, '0')}`;
+}
+
+/**
+ * تبدیل تاریخ جلالی یا میلادی ثبت‌شده در تاریخچه فعالیت به فرمت قابل مقایسه YYYY-MM-DD میلادی
+ */
+export function parseAuditLogComparableDate(timestampRaw: unknown): string | null {
+  const txt = toEnglishDigits(timestampRaw).trim();
+  if (!txt) return null;
+  const match = txt.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  if (year >= 1350 && year <= 1450) {
+    return jalaliToGregorianYmd(year, month, day);
+  }
+  if (year >= 1990 && year <= 2100) {
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  return null;
+}

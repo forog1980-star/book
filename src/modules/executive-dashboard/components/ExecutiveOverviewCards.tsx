@@ -6,77 +6,7 @@ import type {
   ExecutiveDashboardReadiness,
   ThreeCardOverviewResult,
 } from '../types';
-
-interface OverviewDonutProps {
-  primaryPercent: number;
-  primaryColor: string;
-  trackColor?: string;
-  centerValueText: string;
-  centerLabel: string;
-  ariaLabel: string;
-}
-
-const OverviewDonutChart: React.FC<OverviewDonutProps> = ({
-  primaryPercent,
-  primaryColor,
-  trackColor = '#E8DCCE',
-  centerValueText,
-  centerLabel,
-  ariaLabel,
-}) => {
-  const size = 88;
-  const strokeWidth = 8;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const clamped = Math.max(0, Math.min(100, primaryPercent));
-  const strokeDashoffset = circumference - (clamped / 100) * circumference;
-
-  return (
-    <div
-      className="relative shrink-0 flex items-center justify-center"
-      style={{ width: size, height: size }}
-      role="img"
-      aria-label={ariaLabel}
-    >
-      <svg
-        width={size}
-        height={size}
-        viewBox={`0 0 ${size} ${size}`}
-        className="-rotate-90 block"
-      >
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke={trackColor}
-          strokeWidth={strokeWidth}
-        />
-        {clamped > 0 && (
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke={primaryColor}
-            strokeWidth={strokeWidth}
-            strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
-            strokeLinecap="round"
-          />
-        )}
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
-        <span className="text-base font-bold text-[#332218] tabular-nums leading-none">
-          {centerValueText}٪
-        </span>
-        <span className="text-[10px] text-[#78604E] mt-1 leading-none">
-          {centerLabel}
-        </span>
-      </div>
-    </div>
-  );
-};
+import { OverviewDonutChart } from './OverviewDonutChart';
 
 interface ExecutiveOverviewCardsProps {
   overview: ThreeCardOverviewResult;
@@ -102,6 +32,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
 
   const isLibraryEmpty = libraryCard.totalTrackedBooksCount === 0;
   const hasRelationCounts =
+    martyrsCard.totalActiveDistinctRelationsCount > 0 ||
     martyrsCard.expertConfirmedRelationsCount > 0 ||
     martyrsCard.needsReviewRelationsCount > 0;
   const isMartyrsEmpty =
@@ -120,7 +51,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
       data-testid="executive-overview-screen"
       className="max-w-6xl mx-auto px-3 sm:px-6 pt-3 pb-10 space-y-6 text-[#332218]"
     >
-      {/* Clean Calm Title Header — No Navigation/Export Clutter */}
+      {/* عنوان آرام صفحه سه‌کادره */}
       <header className="space-y-1 pt-1">
         <div className="text-xs text-[#78604E]">مرکز اسناد و کتابخانه</div>
         <h2 className="text-xl sm:text-2xl font-bold text-[#332218]">
@@ -128,7 +59,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
         </h2>
       </header>
 
-      {/* Initial Loading State */}
+      {/* وضعیت بارگذاری اولیه (بدون نمایش عدد ۰ جعلی) */}
       {isInitialLoading && (
         <div
           data-testid="executive-overview-loading"
@@ -148,7 +79,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                     <div className="h-9 w-24 bg-[#EFE4D6] rounded" />
                     <div className="h-3.5 w-32 bg-[#F5ECE0] rounded" />
                   </div>
-                  <div className="w-[88px] h-[88px] rounded-full border-8 border-[#EFE4D6] shrink-0" />
+                  <div className="w-[92px] h-[92px] rounded-full border-8 border-[#EFE4D6] shrink-0" />
                 </div>
                 <div className="space-y-3 pt-2 border-t border-[#F2E9DE]">
                   <div className="h-4 w-full bg-[#F5ECE0] rounded" />
@@ -163,7 +94,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
         </div>
       )}
 
-      {/* Workbook Fetch Failure — Never Present Sample Fallback Numbers as Live Data */}
+      {/* وضعیت خطای بارگذاری مخزن پایه */}
       {!isInitialLoading && isWorkbookError && (
         <div
           data-testid="executive-overview-error"
@@ -180,7 +111,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
             </p>
             {readiness.hasCachedOperationalData && (
               <p className="text-xs text-[#78604E] leading-relaxed">
-                توجه: داده‌های ثبت‌شده قبلی در حافظه محلی دستگاه محفوظ است، اما نمای زنده نیازمند اتصال یا بارگذاری کامل داده‌های پایه است.
+                توجه: داده‌های ثبت‌شده قبلی در حافظه محلی دستگاه محفوظ است، اما نمای زنده نیازمند بارگذاری کامل داده‌های پایه است.
               </p>
             )}
           </div>
@@ -201,7 +132,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
         </div>
       )}
 
-      {/* Ready State: Strictly 3 Equal-Height Visual Cards + Interactive Drill-Down Triggers + 1 Action Button Below */}
+      {/* نمای قطعی سه‌کادره: ۱. کتابخانه ۲. شهدا ۳. وضعیت کار و خروجی‌ها */}
       {!isInitialLoading && !isWorkbookError && (
         <>
           <div
@@ -222,7 +153,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                   >
                     کتابخانه
                   </h3>
-                  <span className="text-xs text-[#78604E]">وضعیت بررسی کتاب‌ها</span>
+                  <span className="text-xs text-[#78604E]">وضعیت تکمیل کتاب‌ها</span>
                 </div>
 
                 {isLibraryEmpty ? (
@@ -254,18 +185,70 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                     </button>
 
                     <OverviewDonutChart
-                      primaryPercent={libraryCard.completedPercent}
-                      primaryColor="#2E6F40"
-                      centerValueText={toPersianDigits(libraryCard.completedPercent)}
+                      size={96}
+                      strokeWidth={10}
+                      totalCount={libraryCard.totalTrackedBooksCount}
+                      centerPercent={libraryCard.completedPercent}
                       centerLabel="تکمیل‌شده"
-                      ariaLabel={`پیشرفت بررسی کتاب‌ها ${toPersianDigits(libraryCard.completedPercent)} درصد`}
+                      centerSubValue={`${toPersianDigits(libraryCard.completedCount)} از ${toPersianDigits(
+                        libraryCard.totalTrackedBooksCount
+                      )}`}
+                      ariaLabel={`پیشرفت تکمیل کتاب‌ها ${toPersianDigits(libraryCard.completedPercent)} درصد`}
+                      segments={[
+                        {
+                          id: 'lib_completed',
+                          label: 'تکمیل‌شده کامل',
+                          count: libraryCard.completedCount,
+                          percent: libraryCard.completedPercent,
+                          color: '#2E6F40',
+                          testId: 'library_completed',
+                          onClick: () => triggerDrilldown('library_completed'),
+                        },
+                        {
+                          id: 'lib_in_progress',
+                          label: 'در حال بررسی',
+                          count: libraryCard.inProgressCount,
+                          percent:
+                            libraryCard.totalTrackedBooksCount > 0
+                              ? Math.round(
+                                  (libraryCard.inProgressCount /
+                                    libraryCard.totalTrackedBooksCount) *
+                                    100
+                                )
+                              : 0,
+                          color: '#C87A3B',
+                          testId: 'library_in_progress',
+                          onClick: () => triggerDrilldown('library_in_progress'),
+                        },
+                        {
+                          id: 'lib_not_started',
+                          label: 'شروع‌نشده',
+                          count: libraryCard.notStartedCount,
+                          percent:
+                            libraryCard.totalTrackedBooksCount > 0
+                              ? Math.max(
+                                  0,
+                                  100 -
+                                    libraryCard.completedPercent -
+                                    Math.round(
+                                      (libraryCard.inProgressCount /
+                                        libraryCard.totalTrackedBooksCount) *
+                                        100
+                                    )
+                                )
+                              : 0,
+                          color: '#C9B49B',
+                          testId: 'library_not_started',
+                          onClick: () => triggerDrilldown('library_not_started'),
+                        },
+                      ]}
                     />
                   </div>
                 )}
               </div>
 
               {!isLibraryEmpty && (
-                <div className="space-y-2.5">
+                <div className="space-y-2">
                   <div className="divide-y divide-[#EFE4D6] border-t border-[#EFE4D6] text-xs sm:text-sm tabular-nums">
                     <button
                       type="button"
@@ -279,7 +262,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                           aria-hidden="true"
                         />
                         <span className="truncate group-hover:text-[#332218]">
-                          بررسی‌شده و تکمیل‌شده
+                          تکمیل‌شده کامل
                         </span>
                       </span>
                       <span className="font-bold text-[#332218] shrink-0 inline-flex items-center gap-1">
@@ -308,7 +291,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                           aria-hidden="true"
                         />
                         <span className="truncate group-hover:text-[#332218]">
-                          باقیمانده برای بررسی
+                          در حال بررسی / شروع‌نشده
                         </span>
                       </span>
                       <span className="font-bold text-[#332218] shrink-0 inline-flex items-center gap-1">
@@ -324,13 +307,35 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                         />
                       </span>
                     </button>
+
+                    <button
+                      type="button"
+                      data-testid="drilldown-trigger-library_worked"
+                      onClick={() => triggerDrilldown('library_worked')}
+                      className="w-full py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] transition-colors cursor-pointer group"
+                    >
+                      <span className="text-xs text-[#78604E] truncate group-hover:text-[#332218]">
+                        دارای ثبت قفسه یا بررسی اولیه
+                      </span>
+                      <span className="text-xs font-bold text-[#5C4636] shrink-0 inline-flex items-center gap-1">
+                        <span>{toPersianDigits(libraryCard.workedOrRegisteredCount)} کتاب</span>
+                        <ChevronLeft
+                          className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </button>
                   </div>
 
                   {libraryCard.openDuplicateTicketCount > 0 && (
-                    <p className="text-xs text-[#78604E] pt-1">
+                    <button
+                      type="button"
+                      onClick={() => triggerDrilldown('library_open_duplicate_ticket')}
+                      className="w-full text-right text-xs text-[#8A4B16] hover:underline pt-0.5 cursor-pointer"
+                    >
                       شامل {toPersianDigits(libraryCard.openDuplicateTicketCount)} کتاب دارای
-                      پرونده باز تکرار عنوان
-                    </p>
+                      تیکت باز تکرار عنوان
+                    </button>
                   )}
                 </div>
               )}
@@ -363,7 +368,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                         <div className="h-8 w-20 bg-[#EFE4D6] rounded" />
                         <div className="h-3.5 w-32 bg-[#F5ECE0] rounded" />
                       </div>
-                      <div className="w-[88px] h-[88px] rounded-full border-8 border-[#EFE4D6] shrink-0" />
+                      <div className="w-[92px] h-[92px] rounded-full border-8 border-[#EFE4D6] shrink-0" />
                     </div>
                     <p className="text-xs text-[#78604E]">
                       در حال بررسی احراز هویت شهدای مرتبط...
@@ -378,27 +383,58 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                   </div>
                 ) : (
                   <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 space-y-1">
-                      <div className="text-3xl font-bold text-[#332218] tabular-nums leading-tight">
+                    <button
+                      type="button"
+                      data-testid="drilldown-trigger-martyrs_linked_all"
+                      onClick={() => triggerDrilldown('martyrs_linked_all')}
+                      className="min-w-0 flex-1 text-right space-y-1 rounded-xl p-1.5 -m-1.5 hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
+                    >
+                      <div className="text-3xl font-bold text-[#332218] tabular-nums leading-tight group-hover:text-[#6B3E26] transition-colors">
                         {toPersianDigits(martyrsCard.totalLinkedMartyrsCount)}
                       </div>
-                      <div className="text-xs sm:text-sm text-[#5C4636]">
-                        شهید مرتبط با کتاب‌ها
+                      <div className="text-xs sm:text-sm text-[#5C4636] inline-flex items-center gap-1">
+                        <span>شهید مرتبط با کتاب‌ها</span>
+                        <ChevronLeft
+                          className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
+                          aria-hidden="true"
+                        />
                       </div>
                       <div className="text-xs text-[#78604E] tabular-nums">
-                        شناسایی‌شده در {toPersianDigits(martyrsCard.relatedBooksCount)} کتاب
+                        در {toPersianDigits(martyrsCard.relatedBooksCount)} کتاب ·{' '}
+                        {toPersianDigits(martyrsCard.totalActiveDistinctRelationsCount)} زوج ارتباط
                       </div>
-                    </div>
+                    </button>
 
                     <OverviewDonutChart
-                      primaryPercent={martyrsCard.confirmedIdentityPercent}
-                      primaryColor="#2E6F40"
-                      trackColor="#C87A3B"
-                      centerValueText={toPersianDigits(
-                        martyrsCard.confirmedIdentityPercent
-                      )}
+                      size={96}
+                      strokeWidth={10}
+                      totalCount={martyrsCard.totalLinkedMartyrsCount}
+                      centerPercent={martyrsCard.confirmedIdentityPercent}
                       centerLabel="احرازشده"
+                      centerSubValue={`${toPersianDigits(
+                        martyrsCard.confirmedIdentityCount
+                      )} از ${toPersianDigits(martyrsCard.totalLinkedMartyrsCount)}`}
                       ariaLabel={`احراز هویت شهدا ${toPersianDigits(martyrsCard.confirmedIdentityPercent)} درصد`}
+                      segments={[
+                        {
+                          id: 'martyrs_confirmed',
+                          label: 'هویت احرازشده',
+                          count: martyrsCard.confirmedIdentityCount,
+                          percent: martyrsCard.confirmedIdentityPercent,
+                          color: '#2E6F40',
+                          testId: 'martyrs_confirmed',
+                          onClick: () => triggerDrilldown('martyrs_confirmed'),
+                        },
+                        {
+                          id: 'martyrs_needs_verification',
+                          label: 'نیازمند بررسی هویت',
+                          count: martyrsCard.needsVerificationCount,
+                          percent: martyrsCard.needsVerificationPercent,
+                          color: '#C87A3B',
+                          testId: 'martyrs_needs_verification',
+                          onClick: () => triggerDrilldown('martyrs_needs_verification'),
+                        },
+                      ]}
                     />
                   </div>
                 )}
@@ -472,11 +508,31 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                       className="w-full py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
                     >
                       <span className="text-[#5C4636] truncate group-hover:text-[#332218]">
-                        ارتباط تأییدشده کارشناسی
+                        تأیید کارشناسی صریح ارتباط
                       </span>
                       <span className="font-bold text-[#2E6F40] shrink-0 inline-flex items-center gap-1">
                         <span>
                           {toPersianDigits(martyrsCard.expertConfirmedRelationsCount)} مورد
+                        </span>
+                        <ChevronLeft
+                          className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      data-testid="drilldown-trigger-relations_definite_source"
+                      onClick={() => triggerDrilldown('relations_definite_source')}
+                      className="w-full py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-right hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
+                    >
+                      <span className="text-[#5C4636] truncate group-hover:text-[#332218]">
+                        قطعی طبق برچسب منبع
+                      </span>
+                      <span className="font-bold text-[#6B3E26] shrink-0 inline-flex items-center gap-1">
+                        <span>
+                          {toPersianDigits(martyrsCard.definiteSourceRelationsCount)} مورد
                         </span>
                         <ChevronLeft
                           className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
@@ -563,25 +619,52 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                       className="min-w-0 flex-1 text-right space-y-1 rounded-xl p-1.5 -m-1.5 hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 transition-colors cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6B3E26]"
                     >
                       <div className="text-3xl font-bold text-[#332218] tabular-nums leading-tight group-hover:text-[#6B3E26] transition-colors">
-                        {toPersianDigits(workAndOutputsCard.reviewQueueTotalCount)}
+                        {toPersianDigits(workAndOutputsCard.independentTopicsTotalCount)}
                       </div>
                       <div className="text-xs sm:text-sm text-[#5C4636] inline-flex items-center gap-1">
-                        <span>مورد در صف پیگیری</span>
+                        <span>موضوع کاری صف پیگیری</span>
                         <ChevronLeft
                           className="w-3.5 h-3.5 text-[#9C826B] group-hover:text-[#6B3E26] shrink-0"
                           aria-hidden="true"
                         />
                       </div>
+                      <div className="text-xs text-[#78604E] tabular-nums">
+                        در {toPersianDigits(workAndOutputsCard.reviewQueueTotalCount)} پرونده صف
+                      </div>
                     </button>
 
                     <OverviewDonutChart
-                      primaryPercent={workAndOutputsCard.reviewQueueCompletionPercent}
-                      primaryColor="#2E6F40"
-                      centerValueText={toPersianDigits(
-                        workAndOutputsCard.reviewQueueCompletionPercent
-                      )}
+                      size={96}
+                      strokeWidth={10}
+                      totalCount={workAndOutputsCard.independentTopicsTotalCount}
+                      centerPercent={workAndOutputsCard.reviewQueueCompletionPercent}
                       centerLabel="انجام‌شده"
-                      ariaLabel={`پیشرفت صف پیگیری ${toPersianDigits(workAndOutputsCard.reviewQueueCompletionPercent)} درصد`}
+                      centerSubValue={`${toPersianDigits(
+                        workAndOutputsCard.independentTopicsCompletedCount
+                      )} از ${toPersianDigits(workAndOutputsCard.independentTopicsTotalCount)}`}
+                      ariaLabel={`پیشرفت موضوعات صف پیگیری ${toPersianDigits(
+                        workAndOutputsCard.reviewQueueCompletionPercent
+                      )} درصد`}
+                      segments={[
+                        {
+                          id: 'work_completed',
+                          label: 'موضوعات انجام‌شده',
+                          count: workAndOutputsCard.independentTopicsCompletedCount,
+                          percent: workAndOutputsCard.reviewQueueCompletionPercent,
+                          color: '#2E6F40',
+                          testId: 'work_completed',
+                          onClick: () => triggerDrilldown('work_completed'),
+                        },
+                        {
+                          id: 'work_remaining',
+                          label: 'موضوعات باقیمانده',
+                          count: workAndOutputsCard.independentTopicsRemainingCount,
+                          percent: workAndOutputsCard.reviewQueueRemainingPercent,
+                          color: '#C9B49B',
+                          testId: 'work_remaining',
+                          onClick: () => triggerDrilldown('work_remaining'),
+                        },
+                      ]}
                     />
                   </div>
                 )}
@@ -719,11 +802,10 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                       <span className="block text-[#5C4636] truncate group-hover:text-[#332218]">
                         گزارش‌های مدیریتی نهایی و مستقل
                       </span>
-                      {workAndOutputsCard.rawExportHistoryCount >
-                        workAndOutputsCard.exportHistoryCount && (
+                      {workAndOutputsCard.draftReportsExcludedCount > 0 && (
                         <span className="block text-[11px] text-[#78604E] truncate">
-                          از مجموع {toPersianDigits(workAndOutputsCard.rawExportHistoryCount)} نسخه
-                          صادرشده در دستگاه
+                          {toPersianDigits(workAndOutputsCard.draftReportsExcludedCount)} پیش‌نویس یا
+                          نسخه ناموفق جدا شده
                         </span>
                       )}
                     </span>
