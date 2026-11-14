@@ -51,7 +51,6 @@ export {
 } from './export/exportHistoryStore';
 export {
   EXECUTIVE_FINALIZED_REPORTS_KEY,
-  MAX_FINALIZED_REPORTS_REGISTRY,
   upsertRegistryReportPure,
   registerNewReportVersionPure,
   finalizeRegistryReportPure,

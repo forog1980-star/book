@@ -8,7 +8,6 @@ import type {
 } from '../types';
 
 export const EXECUTIVE_FINALIZED_REPORTS_KEY = 'book_executive_finalized_reports_v1';
-export const MAX_FINALIZED_REPORTS_REGISTRY = 500;
 
 function nowIsoSafe(explicitIso?: string): string {
   return explicitIso || new Date().toISOString();
@@ -106,7 +105,7 @@ export function upsertRegistryReportPure(
 
     const next = [...existing];
     next[matchedIdx] = updated;
-    return { records: next.slice(0, MAX_FINALIZED_REPORTS_REGISTRY), savedRecord: updated };
+    return { records: next, savedRecord: updated };
   }
 
   const reportId = targetId || generateNextReportId(existing);
@@ -134,7 +133,7 @@ export function upsertRegistryReportPure(
   };
 
   return {
-    records: [created, ...existing].slice(0, MAX_FINALIZED_REPORTS_REGISTRY),
+    records: [created, ...existing],
     savedRecord: created,
   };
 }
@@ -289,11 +288,11 @@ export function computeFinalizedRegistryStats(
 
 export async function loadFinalizedReportsRegistry(): Promise<FinalizedReportRegistryRecord[]> {
   try {
-    const data = await hydrateOperationalKey<FinalizedReportRegistryRecord[]>(
+    const res = await hydrateOperationalKey<FinalizedReportRegistryRecord[]>(
       EXECUTIVE_FINALIZED_REPORTS_KEY,
       []
     );
-    return Array.isArray(data) ? data : [];
+    return Array.isArray(res.value) ? res.value : [];
   } catch {
     return [];
   }
@@ -301,13 +300,15 @@ export async function loadFinalizedReportsRegistry(): Promise<FinalizedReportReg
 
 export async function saveFinalizedReportsRegistry(
   records: FinalizedReportRegistryRecord[]
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; idbSaved?: boolean; localSaved?: boolean; error?: string }> {
   try {
-    const res = await saveOperationalData(
-      EXECUTIVE_FINALIZED_REPORTS_KEY,
-      records.slice(0, MAX_FINALIZED_REPORTS_REGISTRY)
-    );
-    return { ok: res.ok, error: res.error };
+    const res = await saveOperationalData(EXECUTIVE_FINALIZED_REPORTS_KEY, records);
+    return {
+      ok: res.ok,
+      idbSaved: res.idbSaved,
+      localSaved: res.localSaved,
+      error: res.error,
+    };
   } catch (err) {
     return {
       ok: false,

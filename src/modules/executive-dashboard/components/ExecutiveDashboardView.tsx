@@ -327,11 +327,22 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
       tsIso,
       tsDisplay
     );
-    await saveFinalizedReportsRegistry(records);
-    setFinalizedRegistry(records);
-    if (finalizedRecord) {
-      onNotify?.(`گزارش ${finalizedRecord.reportId} به وضعیت نهایی و مستقل ارتقا یافت.`, 'success');
+    if (!finalizedRecord) {
+      onNotify?.(`گزارش ${reportId} برای نهایی‌سازی یافت نشد.`, 'warning');
+      return;
     }
+    const saveRes = await saveFinalizedReportsRegistry(records);
+    if (!saveRes.ok) {
+      onNotify?.(
+        saveRes.error
+          ? `خطا در نهایی‌سازی گزارش ${finalizedRecord.reportId}: ${saveRes.error}`
+          : `ذخیره نهایی‌سازی گزارش ${finalizedRecord.reportId} ناموفق بود؛ وضعیت تغییر نکرد.`,
+        'warning'
+      );
+      return;
+    }
+    setFinalizedRegistry(records);
+    onNotify?.(`گزارش ${finalizedRecord.reportId} به وضعیت نهایی و مستقل ارتقا یافت.`, 'success');
   };
 
   const handleExportNewVersionForReport = async (
@@ -372,8 +383,10 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
       appliedFiltersSummary: `نسخه جدید برای ${record.reportId}`,
       status: 'success',
     });
-    await saveExecutiveExportHistory(nextHistory);
-    setExportHistory(nextHistory);
+    const histRes = await saveExecutiveExportHistory(nextHistory);
+    if (histRes.ok) {
+      setExportHistory(nextHistory);
+    }
 
     const { records, updatedRecord } = registerNewReportVersionPure(finalizedRegistry, {
       reportId: record.reportId,
@@ -384,14 +397,25 @@ export const ExecutiveDashboardView: React.FC<ExecutiveDashboardViewProps> = ({
       timestampIso: tsIso,
       timestampDisplay: tsDisplay,
     });
-    await saveFinalizedReportsRegistry(records);
-    setFinalizedRegistry(records);
-    if (updatedRecord) {
-      onNotify?.(
-        `نسخه ${updatedRecord.currentVersion} برای گزارش ${updatedRecord.reportId} صادر شد (تعداد گزارش‌های مستقل ثابت ماند).`,
-        'success'
-      );
+    if (!updatedRecord) {
+      onNotify?.(`گزارش ${record.reportId} برای ثبت نسخه جدید یافت نشد.`, 'warning');
+      return;
     }
+    const saveRes = await saveFinalizedReportsRegistry(records);
+    if (!saveRes.ok) {
+      onNotify?.(
+        saveRes.error
+          ? `خطا در ذخیره نسخه جدید گزارش ${updatedRecord.reportId}: ${saveRes.error}`
+          : `ذخیره نسخه جدید گزارش ${updatedRecord.reportId} در دفتر کل محلی ناموفق بود.`,
+        'warning'
+      );
+      return;
+    }
+    setFinalizedRegistry(records);
+    onNotify?.(
+      `نسخه ${updatedRecord.currentVersion} برای گزارش ${updatedRecord.reportId} صادر شد (تعداد گزارش‌های مستقل ثابت ماند).`,
+      'success'
+    );
   };
 
   return (

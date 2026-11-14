@@ -144,6 +144,7 @@ export const StatisticsAndReportsRouteView: React.FC<
   // وضعیت مدیریت گزارش‌های نهایی محلی
   const [newReportTitle, setNewReportTitle] = useState('');
   const [reportActionBusy, setReportActionBusy] = useState(false);
+  const [reportPersistError, setReportPersistError] = useState<string | null>(null);
 
   useEffect(() => {
     if (externalExportHistory) return;
@@ -399,6 +400,7 @@ export const StatisticsAndReportsRouteView: React.FC<
   ) => {
     if (reportActionBusy) return;
     setReportActionBusy(true);
+    setReportPersistError(null);
     try {
       const tsIso = new Date().toISOString();
       const tsDisplay = nowPersianDateTimeLabel();
@@ -422,23 +424,30 @@ export const StatisticsAndReportsRouteView: React.FC<
           }
         );
         const saveRes = await saveFinalizedReportsRegistry(records);
+        if (!saveRes.ok) {
+          const errMsg = saveRes.error
+            ? `خطا در ذخیره پیش‌نویس گزارش (${savedRecord.reportId}) در حافظه پایدار: ${saveRes.error}`
+            : `ذخیره پیش‌نویس گزارش (${savedRecord.reportId}) در حافظه پایدار ناموفق بود؛ رکورد در آمار ثبت نشد.`;
+          setReportPersistError(errMsg);
+          onNotify?.(errMsg, 'warning');
+          return;
+        }
         setLoadedFinalizedRegistry(records);
         setNewReportTitle('');
-        if (saveRes.ok) {
-          onNotify?.(
-            `پیش‌نویس گزارش (${savedRecord.reportId}) ذخیره شد و طبق قانون شمارش نهایی لحاظ نشد.`,
-            'success'
-          );
-        } else {
-          onNotify?.(saveRes.error || 'خطا در ذخیره پیش‌نویس گزارش.', 'warning');
-        }
+        setReportPersistError(null);
+        onNotify?.(
+          `پیش‌نویس گزارش (${savedRecord.reportId}) ذخیره شد و طبق قانون شمارش نهایی لحاظ نشد.`,
+          'success'
+        );
         return;
       }
 
       if (mode === 'final_excel') {
         const excelRes = exportExecutiveManagementExcel(effectiveInputs);
         if (!excelRes.ok) {
-          onNotify?.(excelRes.error || 'تولید فایل اکسل با خطا مواجه شد.', 'warning');
+          const errMsg = excelRes.error || 'تولید فایل اکسل با خطا مواجه شد.';
+          setReportPersistError(errMsg);
+          onNotify?.(errMsg, 'warning');
           return;
         }
         const exportId = `EXP-${Date.now()}`;
@@ -453,8 +462,10 @@ export const StatisticsAndReportsRouteView: React.FC<
           appliedFiltersSummary: 'کل داده‌های زنده سامانه',
           status: 'success',
         });
-        await saveExecutiveExportHistory(nextHistory);
-        setLoadedExportHistory(nextHistory);
+        const histRes = await saveExecutiveExportHistory(nextHistory);
+        if (histRes.ok) {
+          setLoadedExportHistory(nextHistory);
+        }
 
         const { records, savedRecord } = upsertRegistryReportPure(
           effectiveFinalizedRegistry,
@@ -476,9 +487,18 @@ export const StatisticsAndReportsRouteView: React.FC<
             },
           }
         );
-        await saveFinalizedReportsRegistry(records);
+        const saveRes = await saveFinalizedReportsRegistry(records);
+        if (!saveRes.ok) {
+          const errMsg = saveRes.error
+            ? `خطا در ذخیره گزارش اکسل نهایی (${savedRecord.reportId}) در دفتر کل محلی: ${saveRes.error}`
+            : `ذخیره گزارش اکسل نهایی (${savedRecord.reportId}) در دفتر کل محلی ناموفق بود؛ وضعیت آمار تغییر نکرد.`;
+          setReportPersistError(errMsg);
+          onNotify?.(errMsg, 'warning');
+          return;
+        }
         setLoadedFinalizedRegistry(records);
         setNewReportTitle('');
+        setReportPersistError(null);
         onNotify?.(
           `گزارش مدیریتی نهایی (${savedRecord.reportId}) صادر و در دفتر کل محلی ثبت شد.`,
           'success'
@@ -488,7 +508,9 @@ export const StatisticsAndReportsRouteView: React.FC<
 
       const jsonRes = downloadExecutiveDashboardJsonV1(effectiveInputs, { projection });
       if (!jsonRes.ok) {
-        onNotify?.(jsonRes.error || 'تولید بسته داده JSON با خطا مواجه شد.', 'warning');
+        const errMsg = jsonRes.error || 'تولید بسته داده JSON با خطا مواجه شد.';
+        setReportPersistError(errMsg);
+        onNotify?.(errMsg, 'warning');
         return;
       }
       const exportId = `EXP-${Date.now()}`;
@@ -503,8 +525,10 @@ export const StatisticsAndReportsRouteView: React.FC<
         appliedFiltersSummary: 'کل داده‌های زنده سامانه',
         status: 'success',
       });
-      await saveExecutiveExportHistory(nextHistory);
-      setLoadedExportHistory(nextHistory);
+      const histRes = await saveExecutiveExportHistory(nextHistory);
+      if (histRes.ok) {
+        setLoadedExportHistory(nextHistory);
+      }
 
       const { records, savedRecord } = upsertRegistryReportPure(
         effectiveFinalizedRegistry,
@@ -526,9 +550,18 @@ export const StatisticsAndReportsRouteView: React.FC<
           },
         }
       );
-      await saveFinalizedReportsRegistry(records);
+      const saveRes = await saveFinalizedReportsRegistry(records);
+      if (!saveRes.ok) {
+        const errMsg = saveRes.error
+          ? `خطا در ذخیره بسته داده نهایی JSON (${savedRecord.reportId}) در دفتر کل محلی: ${saveRes.error}`
+          : `ذخیره بسته داده نهایی JSON (${savedRecord.reportId}) در دفتر کل محلی ناموفق بود؛ وضعیت آمار تغییر نکرد.`;
+        setReportPersistError(errMsg);
+        onNotify?.(errMsg, 'warning');
+        return;
+      }
       setLoadedFinalizedRegistry(records);
       setNewReportTitle('');
+      setReportPersistError(null);
       onNotify?.(
         `بسته داده ساختاریافته نهایی (${savedRecord.reportId}) صادر و در دفتر کل محلی ثبت شد.`,
         'success'
@@ -544,10 +577,13 @@ export const StatisticsAndReportsRouteView: React.FC<
     );
     if (!latestFinal || reportActionBusy) return;
     setReportActionBusy(true);
+    setReportPersistError(null);
     try {
       const excelRes = exportExecutiveManagementExcel(effectiveInputs);
       if (!excelRes.ok) {
-        onNotify?.(excelRes.error || 'تولید نسخه جدید اکسل ناموفق بود.', 'warning');
+        const errMsg = excelRes.error || 'تولید نسخه جدید اکسل ناموفق بود.';
+        setReportPersistError(errMsg);
+        onNotify?.(errMsg, 'warning');
         return;
       }
       const tsIso = new Date().toISOString();
@@ -564,8 +600,10 @@ export const StatisticsAndReportsRouteView: React.FC<
         appliedFiltersSummary: `نسخه جدید برای ${latestFinal.reportId}`,
         status: 'success',
       });
-      await saveExecutiveExportHistory(nextHistory);
-      setLoadedExportHistory(nextHistory);
+      const histRes = await saveExecutiveExportHistory(nextHistory);
+      if (histRes.ok) {
+        setLoadedExportHistory(nextHistory);
+      }
 
       const { records, updatedRecord } = registerNewReportVersionPure(
         effectiveFinalizedRegistry,
@@ -579,32 +617,65 @@ export const StatisticsAndReportsRouteView: React.FC<
           timestampDisplay: tsDisplay,
         }
       );
-      await saveFinalizedReportsRegistry(records);
-      setLoadedFinalizedRegistry(records);
-      if (updatedRecord) {
-        onNotify?.(
-          `نسخه ${toPersianDigits(updatedRecord.currentVersion)} برای گزارش ${updatedRecord.reportId} ثبت شد (تعداد گزارش‌های مستقل تغییر نکرد).`,
-          'success'
-        );
+      if (!updatedRecord) {
+        const errMsg = `گزارش مرجع (${latestFinal.reportId}) برای ثبت نسخه جدید یافت نشد.`;
+        setReportPersistError(errMsg);
+        onNotify?.(errMsg, 'warning');
+        return;
       }
+      const saveRes = await saveFinalizedReportsRegistry(records);
+      if (!saveRes.ok) {
+        const errMsg = saveRes.error
+          ? `خطا در ذخیره نسخه جدید گزارش (${updatedRecord.reportId}) در دفتر کل محلی: ${saveRes.error}`
+          : `ذخیره نسخه جدید گزارش (${updatedRecord.reportId}) در دفتر کل محلی ناموفق بود؛ نسخه در آمار ثبت نشد.`;
+        setReportPersistError(errMsg);
+        onNotify?.(errMsg, 'warning');
+        return;
+      }
+      setLoadedFinalizedRegistry(records);
+      setReportPersistError(null);
+      onNotify?.(
+        `نسخه ${toPersianDigits(updatedRecord.currentVersion)} برای گزارش ${updatedRecord.reportId} ثبت شد (تعداد گزارش‌های مستقل تغییر نکرد).`,
+        'success'
+      );
     } finally {
       setReportActionBusy(false);
     }
   };
 
   const handleFinalizeDraft = async (reportId: string) => {
-    const tsIso = new Date().toISOString();
-    const tsDisplay = nowPersianDateTimeLabel();
-    const { records, finalizedRecord } = finalizeRegistryReportPure(
-      effectiveFinalizedRegistry,
-      reportId,
-      tsIso,
-      tsDisplay
-    );
-    await saveFinalizedReportsRegistry(records);
-    setLoadedFinalizedRegistry(records);
-    if (finalizedRecord) {
+    if (reportActionBusy) return;
+    setReportActionBusy(true);
+    setReportPersistError(null);
+    try {
+      const tsIso = new Date().toISOString();
+      const tsDisplay = nowPersianDateTimeLabel();
+      const { records, finalizedRecord } = finalizeRegistryReportPure(
+        effectiveFinalizedRegistry,
+        reportId,
+        tsIso,
+        tsDisplay
+      );
+      if (!finalizedRecord) {
+        const errMsg = `پیش‌نویس گزارش (${reportId}) برای نهایی‌سازی یافت نشد.`;
+        setReportPersistError(errMsg);
+        onNotify?.(errMsg, 'warning');
+        return;
+      }
+      const saveRes = await saveFinalizedReportsRegistry(records);
+      if (!saveRes.ok) {
+        const errMsg = saveRes.error
+          ? `خطا در نهایی‌سازی گزارش (${finalizedRecord.reportId}) در حافظه پایدار: ${saveRes.error}`
+          : `نهایی‌سازی گزارش (${finalizedRecord.reportId}) در حافظه پایدار ناموفق بود؛ وضعیت گزارش تغییر نکرد.`;
+        setReportPersistError(errMsg);
+        onNotify?.(errMsg, 'warning');
+        return;
+      }
+      setLoadedFinalizedRegistry(records);
+      setReportPersistError(null);
       onNotify?.(`گزارش ${finalizedRecord.reportId} به وضعیت نهایی و مستقل ارتقا یافت.`, 'success');
+    } finally {
+      setReportActionBusy(false);
     }
   };
 
@@ -2512,6 +2583,23 @@ export const StatisticsAndReportsRouteView: React.FC<
                       </button>
                     )}
                   </div>
+                  {reportPersistError && (
+                    <div
+                      data-testid="report-persist-error"
+                      role="alert"
+                      className="rounded-lg border border-[#D49B9B] bg-[#FDF2F2] px-3 py-2 text-[11px] text-[#8F2424] flex items-start justify-between gap-2"
+                    >
+                      <span>{reportPersistError}</span>
+                      <button
+                        type="button"
+                        onClick={() => setReportPersistError(null)}
+                        className="shrink-0 text-[#8F2424] hover:text-[#5F1414] cursor-pointer"
+                        aria-label="بستن خطای ذخیره‌سازی"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {recentDraftsAndReports.length > 0 && (
@@ -2533,8 +2621,9 @@ export const StatisticsAndReportsRouteView: React.FC<
                         {rep.lifecycleStatus === 'draft' && (
                           <button
                             type="button"
+                            disabled={reportActionBusy}
                             onClick={() => void handleFinalizeDraft(rep.reportId)}
-                            className="min-h-[32px] px-2.5 py-1 rounded-md bg-[#2E6F40] hover:bg-[#235731] text-white text-[11px] font-bold cursor-pointer"
+                            className="min-h-[32px] px-2.5 py-1 rounded-md bg-[#2E6F40] hover:bg-[#235731] text-white text-[11px] font-bold cursor-pointer disabled:opacity-60"
                           >
                             نهایی‌سازی
                           </button>

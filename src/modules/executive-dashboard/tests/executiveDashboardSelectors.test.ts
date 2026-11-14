@@ -1970,38 +1970,55 @@ test('25 - دونات ۳ بر پایه موضوعات مستقل، استقلا�
   assert.equal(byDateRange[0].id, 'ACT-2');
 });
 
-await asyncTest('26 - دفتر کل محلی گزارش‌های مدیریتی نهایی (پیش‌نویس/نهایی/نسخه v2+ بدون تکرار شمارش و ذخیره بازیابی‌شونده)', async () => {
+await asyncTest('26 - دفتر کل محلی گزارش‌های مدیریتی نهایی (نهایی‌سازی شناسه مشخص، نسخه v2+، حفظ بیش از ۵۰۰ رکورد و عدم پذیرش ذخیره ناموفق)', async () => {
   assert.equal(EXECUTIVE_FINALIZED_REPORTS_KEY, 'book_executive_finalized_reports_v1');
 
   let reg: FinalizedReportRegistryRecord[] = [];
-  // ۱. ایجاد پیش‌نویس => ۰ گزارش نهایی، ۱ پیش‌نویس کنارگذشته‌شده
+  // ۱. ایجاد گزارش واقعی با شناسه مشخص (پیش‌نویس -> ۰ نهایی، ۱ پیش‌نویس)
   const draftRes = upsertRegistryReportPure(reg, {
+    reportId: 'REP-AUDIT-001',
     category: 'management_report',
-    title: 'پیش‌نویس آبان‌ماه',
+    title: 'گزارش ممیزی ماندگاری آبان‌ماه',
     lifecycleStatus: 'draft',
     timestampIso: '2026-11-10T10:00:00Z',
     timestampDisplay: '۱۴۰۵/۰۸/۱۹',
+    initialVersion: {
+      exportedAtIso: '2026-11-10T10:00:00Z',
+      exportedAtDisplay: '۱۴۰۵/۰۸/۱۹',
+      fileName: 'report-v1.xlsx',
+      fileType: 'excel',
+      recordCount: 980,
+      relatedExportId: 'EXP-AUDIT-1',
+    },
   });
   reg = draftRes.records;
+  assert.equal(draftRes.savedRecord.reportId, 'REP-AUDIT-001');
   assert.equal(computeFinalizedRegistryStats(reg).finalizedIndependentCount, 0);
   assert.equal(computeFinalizedRegistryStats(reg).draftsExcludedCount, 1);
 
-  // ۲. نهایی‌سازی پیش‌نویس => ۱ گزارش نهایی، ۰ پیش‌نویس
-  const finRes = finalizeRegistryReportPure(reg, draftRes.savedRecord.reportId);
+  // ۲. نهایی‌سازی همان شناسه => ۱ گزارش نهایی، ۰ پیش‌نویس
+  const finRes = finalizeRegistryReportPure(reg, 'REP-AUDIT-001');
   reg = finRes.records;
+  assert.equal(finRes.finalizedRecord?.lifecycleStatus, 'final');
   assert.equal(computeFinalizedRegistryStats(reg).finalizedIndependentCount, 1);
   assert.equal(computeFinalizedRegistryStats(reg).draftsExcludedCount, 0);
 
-  // ۳. افزودن نسخه دوم (v2) روی همان reportId => تعداد مستقل همچنان ۱ می‌ماند اما تعداد نسخه‌ها ۲ است
+  // ۳. افزودن نسخه دوم (v2) روی همان reportId => تعداد مستقل همچنان ۱ می‌ماند اما شماره و تعداد نسخه‌ها ۲ است
   const v2Res = registerNewReportVersionPure(reg, {
-    reportId: draftRes.savedRecord.reportId,
+    reportId: 'REP-AUDIT-001',
     fileName: 'report-v2.xlsx',
     fileType: 'excel',
     recordCount: 980,
+    relatedExportId: 'EXP-AUDIT-2',
     timestampIso: '2026-11-11T10:00:00Z',
     timestampDisplay: '۱۴۰۵/۰۸/۲۰',
   });
   reg = v2Res.records;
+  assert.equal(v2Res.updatedRecord?.reportId, 'REP-AUDIT-001');
+  assert.equal(v2Res.updatedRecord?.lifecycleStatus, 'final');
+  assert.equal(v2Res.updatedRecord?.currentVersion, 2);
+  assert.equal(v2Res.updatedRecord?.versions.length, 2);
+
   const regStats = computeFinalizedRegistryStats(reg);
   assert.equal(regStats.finalizedIndependentCount, 1);
   assert.equal(regStats.totalVersionsCount, 2);
@@ -2012,13 +2029,32 @@ await asyncTest('26 - دفتر کل محلی گزارش‌های مدیریتی 
   assert.equal(repSummary.finalIndependentReportsCount, 1);
   assert.equal(repSummary.duplicateVersionsCollapsedCount, 1);
 
-  // تست حذف و ذخیره محلی ایمن
-  reg = deleteRegistryReportPure(reg, draftRes.savedRecord.reportId);
-  assert.equal(reg.length, 0);
-  const saveAttempt = await saveFinalizedReportsRegistry(reg);
-  assert.equal(typeof saveAttempt.ok, 'boolean');
-  const loaded = await loadFinalizedReportsRegistry();
-  assert.ok(Array.isArray(loaded));
+  // ۴. نبود محدودیت حذف خاموش ۵۰۰ رکورد: افزودن ۵۲۰ گزارش نهایی بدون افت هیچ رکورد قدیمی
+  let bulkReg: FinalizedReportRegistryRecord[] = [...reg];
+  for (let i = 1; i <= 519; i += 1) {
+    bulkReg = upsertRegistryReportPure(bulkReg, {
+      reportId: `REP-BULK-${String(i).padStart(4, '0')}`,
+      category: 'management_report',
+      title: `گزارش تاریخی ${i}`,
+      lifecycleStatus: 'final',
+      timestampIso: '2026-11-12T10:00:00Z',
+      timestampDisplay: '۱۴۰۵/۰۸/۲۱',
+    }).records;
+  }
+  assert.equal(bulkReg.length, 520);
+  assert.equal(bulkReg.some((r) => r.reportId === 'REP-AUDIT-001'), true);
+  assert.equal(computeFinalizedRegistryStats(bulkReg).finalizedIndependentCount, 520);
+
+  // ۵. بررسی صادقانه رفتار ذخیره بدون آرایه خالی در محیط Node بدون IndexedDB/localStorage
+  const saveWithoutBrowserStorage = await saveFinalizedReportsRegistry(reg);
+  assert.equal(saveWithoutBrowserStorage.ok, false);
+  assert.ok((saveWithoutBrowserStorage.error || '').length > 0);
+  const loadedWithoutStorage = await loadFinalizedReportsRegistry();
+  assert.deepEqual(loadedWithoutStorage, []);
+
+  // ۶. تست deleteRegistryReportPure بدون ذخیره آرایه خالی به‌عنوان آزمون ماندگاری
+  const afterDelete = deleteRegistryReportPure(reg, 'REP-AUDIT-001');
+  assert.equal(afterDelete.length, 0);
 });
 
 test('27 - جستجوی ۸حوزه‌ای غیرحدسی و پرسش آماری سفارشی با ساختار عدد/واحد/مبنا و رد عبارت مبهم', () => {
@@ -2082,6 +2118,15 @@ test('28 - یکپارچگی سورس UI برای نمودارهای دوناتی
   assert.equal(statsRouteSource.includes('activity-filter-from'), true);
   assert.equal(statsRouteSource.includes('book_executive_finalized_reports_v1'), true);
   assert.equal(statsRouteSource.includes('custom-statistical-question-input'), true);
+  assert.equal(statsRouteSource.includes('report-persist-error'), true);
+  assert.equal(statsRouteSource.includes('if (!saveRes.ok)'), true);
+
+  const registryStoreSource = fs.readFileSync(
+    path.join(process.cwd(), 'src/modules/executive-dashboard/export/finalizedReportsRegistryStore.ts'),
+    'utf8'
+  );
+  assert.equal(registryStoreSource.includes('MAX_FINALIZED_REPORTS_REGISTRY'), false);
+  assert.equal(registryStoreSource.includes('res.value'), true);
 
   // اشتراک readiness واحد در App.tsx
   assert.equal(appSource.includes('const executiveReadiness: ExecutiveDashboardReadiness'), true);
