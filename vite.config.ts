@@ -70,6 +70,7 @@ export default defineConfig(() => {
     build: {
       rollupOptions: {
         output: {
+          inlineDynamicImports: true,
           entryFileNames: 'assets/index-BSaCAbhS.js',
           chunkFileNames: 'assets/[name]-BSaCAbhS.js',
           assetFileNames: (assetInfo) => {

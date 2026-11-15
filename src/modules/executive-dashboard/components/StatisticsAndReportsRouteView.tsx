@@ -16,7 +16,18 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { toPersianDigits } from '../../../data/markazAsnadData';
+import {
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+} from 'recharts';
+import {
+  SUBJECT_CATEGORIES,
+  toPersianDigits,
+  type SubjectCategoryCode,
+} from '../../../data/markazAsnadData';
 import {
   appendExportHistoryRecordPure,
   loadExecutiveExportHistory,
@@ -45,6 +56,7 @@ import { buildExecutiveEntityProjection } from '../selectors/entityDossiersSelec
 import { selectThreeCardOverviewFromSummary } from '../selectors/executiveThreeCardOverviewSelector';
 import type {
   ActivityDomainKey,
+  DashboardBookListItem,
   DashboardDrilldownKey,
   ExecutiveDashboardInputs,
   ExecutiveDashboardReadiness,
@@ -53,6 +65,106 @@ import type {
   UnifiedSearchDomainScope,
 } from '../types';
 import { OverviewDonutChart } from './OverviewDonutChart';
+
+const SUBJECT_CATEGORY_COLORS: Record<string, string> = {
+  R: '#15803D',
+  M: '#1D4ED8',
+  A: '#B91C1C',
+  P: '#D97706',
+  H: '#6D28D9',
+  K: '#0F766E',
+  UNSET: '#64748B',
+};
+
+function resolveLiveBookCategory(
+  book: DashboardBookListItem,
+  copyLocationMap: Map<string, { shelf: string; level: string; location: string }>
+): { code: SubjectCategoryCode | string; label: string; fullTitle: string } {
+  const raw = (book.subjectCategory || '').trim();
+  if (raw && raw !== '—' && raw !== 'ثبت نشده' && raw !== 'UNSET' && raw !== 'نامشخص') {
+    const firstToken = raw.split(/[\s—\-ـ:،/]+/)[0]?.toUpperCase();
+    if (
+      firstToken === 'R' ||
+      firstToken === 'P' ||
+      firstToken === 'H' ||
+      firstToken === 'A' ||
+      firstToken === 'K' ||
+      firstToken === 'M'
+    ) {
+      const meta = SUBJECT_CATEGORIES.find((c) => c.code === firstToken);
+      if (meta) return { code: meta.code, label: meta.label, fullTitle: meta.fullTitle };
+    }
+    if (raw.includes('روایت') || raw.includes('خاطرات') || raw.includes('خاطره')) {
+      const meta = SUBJECT_CATEGORIES.find((c) => c.code === 'R')!;
+      return { code: 'R', label: meta.label, fullTitle: meta.fullTitle };
+    }
+    if (raw.includes('پژوهش') || raw.includes('تحلیل')) {
+      const meta = SUBJECT_CATEGORIES.find((c) => c.code === 'P')!;
+      return { code: 'P', label: meta.label, fullTitle: meta.fullTitle };
+    }
+    if (raw.includes('تاریخ') || raw.includes('اسناد')) {
+      const meta = SUBJECT_CATEGORIES.find((c) => c.code === 'H')!;
+      return { code: 'H', label: meta.label, fullTitle: meta.fullTitle };
+    }
+    if (raw.includes('ادبیات') || raw.includes('هنر') || raw.includes('شعر') || raw.includes('داستان')) {
+      const meta = SUBJECT_CATEGORIES.find((c) => c.code === 'A')!;
+      return { code: 'A', label: meta.label, fullTitle: meta.fullTitle };
+    }
+    if (raw.includes('کودک') || raw.includes('نوجوان')) {
+      const meta = SUBJECT_CATEGORIES.find((c) => c.code === 'K')!;
+      return { code: 'K', label: meta.label, fullTitle: meta.fullTitle };
+    }
+    if (raw.includes('متفرقه') || raw.includes('متنوع')) {
+      const meta = SUBJECT_CATEGORIES.find((c) => c.code === 'M')!;
+      return { code: 'M', label: meta.label, fullTitle: meta.fullTitle };
+    }
+    return { code: `CUSTOM:${raw}`, label: raw, fullTitle: raw };
+  }
+
+  const copyLoc = copyLocationMap.get(book.tempBookId);
+  const locStr = (book.locationDisplay || copyLoc?.location || '').trim().toUpperCase();
+  const shelf = (
+    book.shelf ||
+    copyLoc?.shelf ||
+    (locStr.startsWith('SH-') ? locStr.slice(0, 5) : '')
+  )
+    .trim()
+    .toUpperCase();
+  const level = (
+    book.level ||
+    copyLoc?.level ||
+    (locStr.includes('-T') ? `T${locStr.split('-T').pop()?.slice(0, 2)}` : '')
+  )
+    .trim()
+    .toUpperCase();
+
+  if (shelf === 'SH-01' || shelf === 'SH-02') {
+    const meta = SUBJECT_CATEGORIES.find((c) => c.code === 'R')!;
+    return { code: 'R', label: meta.label, fullTitle: meta.fullTitle };
+  }
+  if (shelf === 'SH-03') {
+    const mappedCode: SubjectCategoryCode =
+      level === 'T01'
+        ? 'H'
+        : level === 'T02'
+        ? 'A'
+        : level === 'T03' || level === 'T04'
+        ? 'P'
+        : 'M';
+    const meta = SUBJECT_CATEGORIES.find((c) => c.code === mappedCode)!;
+    return { code: mappedCode, label: meta.label, fullTitle: meta.fullTitle };
+  }
+  if (shelf === 'SH-04' && level === 'T01') {
+    const meta = SUBJECT_CATEGORIES.find((c) => c.code === 'K')!;
+    return { code: 'K', label: meta.label, fullTitle: meta.fullTitle };
+  }
+
+  return {
+    code: 'UNSET',
+    label: 'تعیین‌نشده / در انتظار تخصیص قفسه',
+    fullTitle: 'نیازمند تعیین گروه موضوعی در ممیزی',
+  };
+}
 
 interface StatisticsAndReportsRouteViewProps {
   inputs?: ExecutiveDashboardInputs | null;
@@ -145,6 +257,10 @@ export const StatisticsAndReportsRouteView: React.FC<
   const [newReportTitle, setNewReportTitle] = useState('');
   const [reportActionBusy, setReportActionBusy] = useState(false);
   const [reportPersistError, setReportPersistError] = useState<string | null>(null);
+  const [categoryViewMode, setCategoryViewMode] = useState<'live_collection' | 'audited_records'>(
+    'live_collection'
+  );
+  const [selectedCategoryCode, setSelectedCategoryCode] = useState<string | null>(null);
 
   useEffect(() => {
     if (externalExportHistory) return;
@@ -697,6 +813,150 @@ export const StatisticsAndReportsRouteView: React.FC<
     0,
     100 - overview.libraryCard.completedPercent - bookInProgressPct
   );
+
+  // محاسبه زنده پراکندگی کتاب‌ها بر اساس گروه‌های موضوعی (Categories) برای نمودار دونات Recharts
+  const liveCategoryAnalytics = useMemo(() => {
+    const copyLocationMap = new Map<string, { shelf: string; level: string; location: string }>();
+    for (const cp of effectiveInputs.bookCopies || []) {
+      if (!cp.bookId) continue;
+      if (cp.shelf || cp.level || cp.location) {
+        copyLocationMap.set(cp.bookId.trim(), {
+          shelf: cp.shelf || '',
+          level: cp.level || '',
+          location: cp.location || '',
+        });
+      }
+    }
+
+    const auditedCountsByCode = new Map<string, number>();
+    const booksByCategoryCode = new Map<string, DashboardBookListItem[]>();
+    const customCategoryMeta = new Map<string, { label: string; fullTitle: string }>();
+
+    for (const book of projection.books) {
+      const resolved = resolveLiveBookCategory(book, copyLocationMap);
+      auditedCountsByCode.set(
+        resolved.code,
+        (auditedCountsByCode.get(resolved.code) || 0) + 1
+      );
+      const list = booksByCategoryCode.get(resolved.code) || [];
+      list.push(book);
+      booksByCategoryCode.set(resolved.code, list);
+      if (resolved.code.startsWith('CUSTOM:')) {
+        customCategoryMeta.set(resolved.code, {
+          label: resolved.label,
+          fullTitle: resolved.fullTitle,
+        });
+      }
+    }
+
+    const totalBooks = projection.books.length;
+    const officialCategories = SUBJECT_CATEGORIES.filter((c) => c.code !== 'UNSET');
+    const explicitAssignedCount = Array.from(auditedCountsByCode.entries())
+      .filter(([code]) => code !== 'UNSET')
+      .reduce((acc, [, cnt]) => acc + cnt, 0);
+
+    // در صورتی که کارپوشه کامل بارگذاری شده باشد، نمای تجمیعی پایه شیت «توضیحات دسته» (۹۴۲ جلد در ۶ گروه) + تغییرات زنده ممیزی را ترکیب می‌کند
+    const useBaselinePlusLiveDelta =
+      categoryViewMode === 'live_collection' && totalBooks >= 942 && explicitAssignedCount < totalBooks * 0.5;
+
+    const outsideBooksByCode = new Map<string, number>();
+    for (const book of projection.books) {
+      if (book.source === 'outside-list') {
+        const resolved = resolveLiveBookCategory(book, copyLocationMap);
+        outsideBooksByCode.set(
+          resolved.code,
+          (outsideBooksByCode.get(resolved.code) || 0) + 1
+        );
+      }
+    }
+
+    const items: Array<{
+      code: string;
+      name: string;
+      shortTitle: string;
+      value: number;
+      auditedCount: number;
+      baselineCount: number;
+      allocatedLocationText: string;
+      percent: number;
+      color: string;
+    }> = [];
+
+    let assignedSumInMode = 0;
+
+    for (const meta of officialCategories) {
+      const auditedCnt = auditedCountsByCode.get(meta.code) || 0;
+      const outsideCnt = outsideBooksByCode.get(meta.code) || 0;
+      const effectiveValue = useBaselinePlusLiveDelta
+        ? Math.max(meta.physicalCountReported + outsideCnt, auditedCnt)
+        : auditedCnt;
+
+      assignedSumInMode += effectiveValue;
+      items.push({
+        code: meta.code,
+        name: meta.label,
+        shortTitle: meta.fullTitle,
+        value: effectiveValue,
+        auditedCount: auditedCnt,
+        baselineCount: meta.physicalCountReported,
+        allocatedLocationText: meta.allocatedLocationText,
+        percent: totalBooks > 0 ? Math.round((effectiveValue / totalBooks) * 1000) / 10 : 0,
+        color: SUBJECT_CATEGORY_COLORS[meta.code] || '#1D4ED8',
+      });
+    }
+
+    const customColors = ['#0284C7', '#9333EA', '#C2410C', '#4F46E5'];
+    let customIdx = 0;
+    for (const [customCode, meta] of customCategoryMeta.entries()) {
+      const cnt = auditedCountsByCode.get(customCode) || 0;
+      if (cnt <= 0) continue;
+      assignedSumInMode += cnt;
+      items.push({
+        code: customCode,
+        name: meta.label,
+        shortTitle: meta.fullTitle,
+        value: cnt,
+        auditedCount: cnt,
+        baselineCount: 0,
+        allocatedLocationText: 'دسته اختصاصی ثبت‌شده در پرونده',
+        percent: totalBooks > 0 ? Math.round((cnt / totalBooks) * 1000) / 10 : 0,
+        color: customColors[customIdx % customColors.length],
+      });
+      customIdx += 1;
+    }
+
+    const unsetCount = useBaselinePlusLiveDelta
+      ? Math.max(0, totalBooks - assignedSumInMode)
+      : auditedCountsByCode.get('UNSET') || 0;
+
+    if (unsetCount > 0 || totalBooks === 0) {
+      items.push({
+        code: 'UNSET',
+        name: 'تعیین‌نشده / در انتظار تخصیص',
+        shortTitle: 'در انتظار تعیین گروه موضوعی',
+        value: unsetCount,
+        auditedCount: auditedCountsByCode.get('UNSET') || 0,
+        baselineCount: Math.max(0, 980 - 942),
+        allocatedLocationText: 'تطبیق رکوردبه‌رکورد در ممیزی قفسه',
+        percent: totalBooks > 0 ? Math.round((unsetCount / totalBooks) * 1000) / 10 : 0,
+        color: SUBJECT_CATEGORY_COLORS.UNSET,
+      });
+    }
+
+    const chartSlices = items.filter((item) => item.value > 0);
+    const totalCategorizedCount = Math.max(0, totalBooks - unsetCount);
+    const categorizedPercent = totalBooks > 0 ? Math.round((totalCategorizedCount / totalBooks) * 100) : 0;
+
+    return {
+      items,
+      chartSlices,
+      totalBooks,
+      totalCategorizedCount,
+      categorizedPercent,
+      explicitAssignedCount,
+      booksByCategoryCode,
+    };
+  }, [projection.books, effectiveInputs.bookCopies, categoryViewMode]);
 
   const hasDataLoaded =
     lib.totalTrackedBooksCount > 0 ||
@@ -1321,6 +1581,260 @@ export const StatisticsAndReportsRouteView: React.FC<
                   },
                 ]}
               />
+            </div>
+
+            {/* نمودار دونات زنده پراکندگی کتاب‌ها بر اساس گروه‌های موضوعی (Categories) با کتابخانه Recharts */}
+            <div
+              data-testid="statistics-library-categories-donut"
+              className="rounded-xl bg-[#F0EBD9] border border-[#D8D1BB] p-4 sm:p-5 space-y-4"
+            >
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-[#D8D1BB] pb-3">
+                <div className="space-y-1">
+                  <div className="inline-flex items-center gap-2 text-xs font-bold text-[#6B3E26]">
+                    <span>نمودار دونات زنده گروه‌های موضوعی (Categories)</span>
+                    <span className="px-2 py-0.5 rounded-md bg-[#FBF8EC] border border-[#D8D1BB] text-[11px] text-[#353530]">
+                      به‌روزرسانی آنی با تغییرات کتابخانه
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#5C4636]">
+                    پراکندگی زنده کتاب‌ها در ۶ گروه موضوعی استاندارد مرکز اسناد (R، M، A، P، H، K) و پرونده‌های در انتظار تخصیص قفسه
+                  </p>
+                </div>
+
+                <div className="inline-flex rounded-lg bg-[#FBF8EC] border border-[#D8D1BB] p-1 text-[11px] self-start md:self-auto shrink-0">
+                  <button
+                    type="button"
+                    data-testid="category-chart-mode-collection"
+                    onClick={() => setCategoryViewMode('live_collection')}
+                    className={`px-2.5 py-1.5 rounded-md font-bold transition-colors cursor-pointer ${
+                      categoryViewMode === 'live_collection'
+                        ? 'bg-[#6B3E26] text-white'
+                        : 'text-[#5C4636] hover:text-[#332218]'
+                    }`}
+                  >
+                    نمای تجمیعی زنده مجموعه
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="category-chart-mode-audited"
+                    onClick={() => setCategoryViewMode('audited_records')}
+                    className={`px-2.5 py-1.5 rounded-md font-bold transition-colors cursor-pointer ${
+                      categoryViewMode === 'audited_records'
+                        ? 'bg-[#6B3E26] text-white'
+                        : 'text-[#5C4636] hover:text-[#332218]'
+                    }`}
+                  >
+                    صرفاً ثبت‌های تفکیکی پرونده‌ها ({toPersianDigits(liveCategoryAnalytics.explicitAssignedCount)})
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
+                {/* بخش گرافیکی نمودار دونات Recharts */}
+                <div className="lg:col-span-5 flex flex-col items-center justify-center bg-[#FBF8EC] border border-[#D8D1BB] rounded-xl p-4">
+                  <div className="relative w-full h-[250px] max-w-[280px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={
+                            liveCategoryAnalytics.chartSlices.length > 0
+                              ? liveCategoryAnalytics.chartSlices
+                              : [
+                                  {
+                                    code: 'EMPTY',
+                                    name: 'بدون داده',
+                                    value: 1,
+                                    percent: 0,
+                                    color: '#CBD5E1',
+                                  },
+                                ]
+                          }
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={64}
+                          outerRadius={98}
+                          paddingAngle={2}
+                          stroke="#FBF8EC"
+                          strokeWidth={2}
+                          isAnimationActive={false}
+                          onClick={(entry: unknown) => {
+                            const item = entry as {
+                              code?: string;
+                              payload?: { code?: string };
+                            } | null;
+                            const clickedCode = item?.code || item?.payload?.code;
+                            if (clickedCode && clickedCode !== 'EMPTY') {
+                              setSelectedCategoryCode((prev) =>
+                                prev === clickedCode ? null : clickedCode
+                              );
+                            }
+                          }}
+                        >
+                          {(liveCategoryAnalytics.chartSlices.length > 0
+                            ? liveCategoryAnalytics.chartSlices
+                            : [{ code: 'EMPTY', color: '#CBD5E1' }]
+                          ).map((slice) => (
+                            <Cell
+                              key={slice.code}
+                              fill={slice.color}
+                              className="cursor-pointer transition-opacity hover:opacity-85"
+                            />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip
+                          formatter={(value: unknown, name: unknown, props: { payload?: { percent?: number } }) => {
+                            const numVal = Number(value) || 0;
+                            const pctVal = props?.payload?.percent ?? 0;
+                            return [
+                              `${toPersianDigits(numVal)} کتاب (${toPersianDigits(pctVal)}٪)`,
+                              String(name || ''),
+                            ];
+                          }}
+                          contentStyle={{
+                            backgroundColor: '#FBF8EC',
+                            borderColor: '#6B3E26',
+                            borderRadius: '0.75rem',
+                            direction: 'rtl',
+                            textAlign: 'right',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            color: '#332218',
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+
+                    {/* مرکز نمودار دونات */}
+                    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center px-4">
+                      <span className="text-[11px] font-medium text-[#78604E]">
+                        تعیین‌گروه‌شده
+                      </span>
+                      <strong className="text-xl font-extrabold text-[#332218] tabular-nums leading-tight mt-0.5">
+                        {toPersianDigits(liveCategoryAnalytics.categorizedPercent)}٪
+                      </strong>
+                      <span className="text-[11px] text-[#5C4636] tabular-nums mt-0.5">
+                        {toPersianDigits(liveCategoryAnalytics.totalCategorizedCount)} از{' '}
+                        {toPersianDigits(liveCategoryAnalytics.totalBooks)} کتاب
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 text-[11px] text-[#5C4636] text-center">
+                    با اشاره یا کلیک روی هر بخش، جزئیات و فهرست کتاب‌های همان گروه موضوعی نمایش داده می‌شود.
+                  </div>
+                </div>
+
+                {/* جدول و راهنمای تعاملی گروه‌های موضوعی */}
+                <div className="lg:col-span-7 space-y-2 tabular-nums">
+                  {liveCategoryAnalytics.items.map((cat) => {
+                    const isSelected = selectedCategoryCode === cat.code;
+                    return (
+                      <button
+                        key={cat.code}
+                        type="button"
+                        data-testid={`category-slice-row-${cat.code}`}
+                        onClick={() =>
+                          setSelectedCategoryCode((prev) =>
+                            prev === cat.code ? null : cat.code
+                          )
+                        }
+                        className={`w-full text-right rounded-xl border p-2.5 sm:p-3 transition-colors cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                          isSelected
+                            ? 'bg-white border-[#6B3E26] ring-1 ring-[#6B3E26]'
+                            : 'bg-[#FBF8EC] border-[#D8D1BB] hover:bg-white'
+                        }`}
+                      >
+                        <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+                          <span
+                            className="w-3.5 h-3.5 rounded-sm shrink-0 mt-1 sm:mt-0"
+                            style={{ backgroundColor: cat.color }}
+                            aria-hidden="true"
+                          />
+                          <div className="min-w-0">
+                            <div className="text-xs sm:text-sm font-bold text-[#332218] truncate">
+                              {cat.name}
+                            </div>
+                            <div className="text-[11px] text-[#78604E] truncate">
+                              جانمایی: {cat.allocatedLocationText} · ثبت تفکیکی پرونده:{' '}
+                              {toPersianDigits(cat.auditedCount)} کتاب
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-[#EFE4D6]">
+                          <span className="text-xs font-extrabold text-[#332218]">
+                            {toPersianDigits(cat.value)} کتاب
+                          </span>
+                          <span
+                            className="min-w-[48px] text-center px-2 py-0.5 rounded-md text-[11px] font-bold text-white"
+                            style={{ backgroundColor: cat.color }}
+                          >
+                            {toPersianDigits(cat.percent)}٪
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* نمایش نمونه پرونده‌های گروه موضوعی انتخاب‌شده */}
+              {selectedCategoryCode && (
+                <div
+                  data-testid="selected-category-books-preview"
+                  className="rounded-xl bg-[#FBF8EC] border border-[#6B3E26]/40 p-3.5 space-y-2.5 text-xs"
+                >
+                  <div className="flex items-center justify-between gap-2 border-b border-[#D8D1BB] pb-2">
+                    <strong className="text-[#6B3E26]">
+                      پرونده‌های دارای ثبت تفکیکی در گروه انتخاب‌شده (
+                      {toPersianDigits(
+                        (liveCategoryAnalytics.booksByCategoryCode.get(selectedCategoryCode) || [])
+                          .length
+                      )}{' '}
+                      پرونده)
+                    </strong>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCategoryCode(null)}
+                      className="text-[11px] text-[#78604E] hover:text-[#332218] inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>بستن</span>
+                    </button>
+                  </div>
+                  {(liveCategoryAnalytics.booksByCategoryCode.get(selectedCategoryCode) || [])
+                    .length === 0 ? (
+                    <p className="text-[#5C4636]">
+                      در حال حاضر سهم این گروه بر پایه شمارش فیزیکی قفسه‌ها در شیت «توضیحات دسته» نمایش داده شده است. با ثبت قفسه یا گروه موضوعی برای هر کتاب در بخش «کتابخانه»، نام آن کتاب به‌صورت زنده در این فهرست قرار می‌گیرد.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {(liveCategoryAnalytics.booksByCategoryCode.get(selectedCategoryCode) || [])
+                        .slice(0, 8)
+                        .map((b) => (
+                          <div
+                            key={b.bookKey}
+                            className="rounded-lg bg-white border border-[#E5D7C6] px-3 py-2 flex items-center justify-between gap-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="font-bold text-[#332218] truncate">{b.title}</div>
+                              <div className="text-[11px] text-[#78604E] truncate">
+                                {b.tempBookId} · {b.publisher || 'ناشر ثبت‌نشده'}
+                              </div>
+                            </div>
+                            {b.locationDisplay && (
+                              <span className="px-2 py-0.5 rounded bg-[#F0EBD9] text-[10px] font-mono text-[#332218] shrink-0">
+                                {b.locationDisplay}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* ۱۲ سنجه تعاملی کتابخانه */}

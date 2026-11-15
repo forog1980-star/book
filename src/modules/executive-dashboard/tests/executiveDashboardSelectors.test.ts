@@ -2110,6 +2110,9 @@ test('28 - یکپارچگی سورس UI برای نمودارهای دوناتی
 
   assert.equal(overviewSource.includes('OverviewDonutChart'), true);
   assert.equal(statsRouteSource.includes('OverviewDonutChart'), true);
+  assert.equal(statsRouteSource.includes("from 'recharts'"), true);
+  assert.equal(statsRouteSource.includes('<PieChart'), true);
+  assert.equal(statsRouteSource.includes('statistics-library-categories-donut'), true);
   assert.equal(statsRouteSource.includes('statistics-loading-state'), true);
   assert.equal(statsRouteSource.includes('statistics-error-state'), true);
   assert.equal(statsRouteSource.includes('statistics-relations-subblock'), true);
