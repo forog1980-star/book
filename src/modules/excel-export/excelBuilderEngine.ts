@@ -1,0 +1,2024 @@
+import XLSXStyle from 'xlsx-js-style';
+import * as XLSX from 'xlsx';
+import {
+  BookCopyRecord,
+  BookMartyrLinkRecord,
+  CustomMartyrRecord,
+  ExtractedContentItem,
+  FieldAuditRecord,
+  ReferenceCatalogRow,
+  WorkbookGolzarMartyr,
+  toPersianDigits,
+} from '../../data/markazAsnadData';
+import {
+  BookDossierMartyrRelation,
+  MartyrRelationCertainty,
+  UnifiedBookDossier,
+  buildUnifiedBookDossiers,
+  classifyMartyrLinkCertainty,
+  compactPersianForMatch,
+} from '../../data/soorehMehrResearch';
+import { evaluateMartyrTehranStatus } from '../../utils/martyrsCrossMatchEngine';
+import {
+  EXCEL_FIELDS_CATALOG,
+  EXCEL_MAIN_SUBJECT_CATEGORIES,
+  EXCEL_SHEETS_CATALOG,
+} from './fieldCatalog';
+import {
+  BookMainSubjectCode,
+  ExcelExportDatasetContext,
+  ExcelExportUserSelection,
+  ExcelSheetKey,
+  StandardizedMartyrEntry,
+} from './types';
+
+export function resolveBookMainSubjectCode(
+  book: Pick<UnifiedBookDossier, 'category' | 'shelf' | 'level' | 'locationCode'>
+): BookMainSubjectCode | 'UNSET' {
+  const raw = (book.category || '').trim();
+  if (raw && raw !== '—' && raw !== 'ثبت نشده' && raw !== 'UNSET') {
+    const firstToken = raw.split(/[\s—\-:،/]+/)[0]?.toUpperCase();
+    if (
+      firstToken === 'R' ||
+      firstToken === 'P' ||
+      firstToken === 'H' ||
+      firstToken === 'A' ||
+      firstToken === 'K' ||
+      firstToken === 'M'
+    ) {
+      return firstToken;
+    }
+    if (raw.includes('روایت') || raw.includes('خاطرات')) return 'R';
+    if (raw.includes('پژوهش') || raw.includes('تحلیل')) return 'P';
+    if (raw.includes('تاریخ') || raw.includes('اسناد')) return 'H';
+    if (raw.includes('ادبیات') || raw.includes('هنر')) return 'A';
+    if (raw.includes('کودک') || raw.includes('نوجوان')) return 'K';
+    if (raw.includes('متفرقه')) return 'M';
+  }
+
+  const shelf = (book.shelf || book.locationCode?.slice(0, 5) || '').trim().toUpperCase();
+  const level = (
+    book.level ||
+    (book.locationCode && book.locationCode.includes('-')
+      ? book.locationCode.split('-').pop()
+      : '') ||
+    ''
+  )
+    .trim()
+    .toUpperCase();
+
+  if (shelf === 'SH-01' || shelf === 'SH-02') return 'R';
+  if (shelf === 'SH-03') {
+    if (level === 'T01') return 'H';
+    if (level === 'T02') return 'A';
+    if (level === 'T03' || level === 'T04') return 'P';
+    if (level === 'T05' || level === 'T06') return 'M';
+  }
+  if (shelf === 'SH-04' && level === 'T01') return 'K';
+
+  return 'UNSET';
+}
+
+export function formatBookSubjectCategoryDisplay(
+  book: Pick<UnifiedBookDossier, 'category' | 'shelf' | 'level' | 'locationCode'>
+): string {
+  const code = resolveBookMainSubjectCode(book);
+  if (code !== 'UNSET') {
+    const meta = EXCEL_MAIN_SUBJECT_CATEGORIES.find((c) => c.code === code);
+    if (meta) return meta.label;
+  }
+  return book.category && book.category !== '—' ? book.category : '—';
+}
+
+function getPersianDateStamp(): string {
+  try {
+    return new Date().toLocaleDateString('fa-IR').replace(/\//g, '-');
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function getPersianDateTimeDisplay(): string {
+  try {
+    return new Intl.DateTimeFormat('fa-IR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString();
+  }
+}
+
+function formatPhysicalStatusLabel(status: UnifiedBookDossier['physicalStatus']): string {
+  if (status === 'verified') return 'موجود در کتابخانه (تأییدشده)';
+  if (status === 'review') return 'نیازمند بررسی';
+  if (status === 'not_found') return 'مشاهده‌نشده در قفسه';
+  return 'تعیین‌تکلیف‌نشده';
+}
+
+function formatCertaintyLabel(certainty: MartyrRelationCertainty): string {
+  if (certainty === 'قطعی') return 'ارتباط قطعی';
+  if (certainty === 'احتمالی') return 'ارتباط احتمالی';
+  return 'نیازمند بررسی';
+}
+
+function formatGraveAddress(piece?: string, row?: string, num?: string): string {
+  const p = (piece || '').trim();
+  const r = (row || '').trim();
+  const n = (num || '').trim();
+  const parts: string[] = [];
+  if (p && p !== '—') parts.push(`قطعه ${p}`);
+  if (r && r !== '—') parts.push(`ردیف ${r}`);
+  if (n && n !== '—') parts.push(`شماره ${n}`);
+  return parts.length > 0 ? parts.join('، ') : 'ثبت‌نشده در منبع';
+}
+
+/**
+ * تجمیع پرونده‌های یکتای کتاب و ارتباط‌های دوطرفه با شهدا، مزار، موضوعات، صفحات و متون استخراج‌شده
+ * بدون حذف، ادغام اشتباه یا ساخت اطلاعات حدسی برای فیلدهای ناقص
+ */
+export function resolveDossiersAndMartyrIndex(ctx: ExcelExportDatasetContext): {
+  dossiers: UnifiedBookDossier[];
+  martyrMap: Map<string, StandardizedMartyrEntry>;
+  copiesByBookId: Map<string, BookCopyRecord[]>;
+  extractedItems: ExtractedContentItem[];
+  links: BookMartyrLinkRecord[];
+} {
+  const catalogRows: ReferenceCatalogRow[] = ctx.catalogRows || [];
+  const auditRecords: Record<string, FieldAuditRecord> =
+    ctx.auditRecords && Object.keys(ctx.auditRecords).length > 0
+      ? ctx.auditRecords
+      : Array.isArray(ctx.shelfRecords)
+      ? Object.fromEntries(ctx.shelfRecords.map((r) => [r.key || r.tempBookId, r]))
+      : {};
+  const bookCopies: BookCopyRecord[] = ctx.bookCopies || [];
+  const links: BookMartyrLinkRecord[] = ctx.links || [];
+  const extractedItems: ExtractedContentItem[] = ctx.extractedItems || [];
+  const customMartyrs: CustomMartyrRecord[] = ctx.customMartyrs || [];
+  const workbookMartyrs: WorkbookGolzarMartyr[] = ctx.workbookMartyrs || [];
+
+  const allBuiltDossiers: UnifiedBookDossier[] =
+    ctx.dossiers && ctx.dossiers.length > 0
+      ? ctx.dossiers
+      : buildUnifiedBookDossiers({
+          catalogRows,
+          auditRecords,
+          bookCopies,
+          links,
+          extractedItems,
+        });
+
+  const dossiers: UnifiedBookDossier[] =
+    Array.isArray(ctx.shelfRecords) && ctx.shelfRecords.length > 0 && (!ctx.dossiers || ctx.dossiers.length === 0)
+      ? (() => {
+          const allowedKeys = new Set(
+            ctx.shelfRecords.flatMap((r) => [r.key, r.tempBookId].filter(Boolean))
+          );
+          const filtered = allBuiltDossiers.filter(
+            (d) => allowedKeys.has(d.rowKey) || allowedKeys.has(d.bookId)
+          );
+          return filtered.length > 0 ? filtered : allBuiltDossiers;
+        })()
+      : allBuiltDossiers;
+
+  const copiesByBookId = new Map<string, BookCopyRecord[]>();
+  for (const cp of bookCopies) {
+    if (!cp.bookId) continue;
+    const arr = copiesByBookId.get(cp.bookId) || [];
+    arr.push(cp);
+    copiesByBookId.set(cp.bookId, arr);
+  }
+
+  const martyrMap = new Map<string, StandardizedMartyrEntry>();
+
+  // ۱. افزودن شهدای صریح ارسال‌شده (مثلاً از نتایج جست‌وجوی تب شهدا)
+  if (Array.isArray(ctx.explicitMartyrsList)) {
+    for (const m of ctx.explicitMartyrsList) {
+      const key = compactPersianForMatch(m.fullName) || m.martyrId;
+      if (key && !martyrMap.has(key)) {
+        martyrMap.set(key, m);
+      }
+    }
+  }
+
+  if (Array.isArray(ctx.martyrRecords)) {
+    for (const r of ctx.martyrRecords) {
+      const fullName =
+        [r.first_name, r.last_name].filter(Boolean).join(' ').trim() ||
+        r.memorial_name ||
+        'شهید گمنام';
+      const key = compactPersianForMatch(fullName) || r.id;
+      if (key && !martyrMap.has(key)) {
+        martyrMap.set(key, {
+          martyrId: r.id || '—',
+          fullName,
+          firstName: r.first_name || '—',
+          lastName: r.last_name || '—',
+          fatherName: r.father_name || '—',
+          birthDate: r.birth_date?.display || r.birth_date?.year || '—',
+          martyrdomDate: r.death_date?.display || r.death_date?.year || '—',
+          operationOrLocation:
+            [r.martyrdom_operation, r.martyrdom_location].filter(Boolean).join(' — ') || '—',
+          gravePiece: r.grave_piece || '—',
+          graveRow: r.grave_row || '—',
+          graveNumber: r.grave_number || '—',
+          graveAddressDisplay: formatGraveAddress(r.grave_piece, r.grave_row, r.grave_number),
+          graveStatus: r.source === 'outside' ? 'قطعات عمومی بهشت زهرا' : 'گلزار شهدای تهران',
+          sourceLabel: 'بانک جامع شهدای گلزار تهران',
+        });
+      }
+    }
+  }
+
+  // ۲. افزودن پرونده‌های مستقل شهید (CustomMartyrRecord)
+  for (const cm of customMartyrs) {
+    const key = compactPersianForMatch(cm.fullName);
+    if (!key) continue;
+    if (!martyrMap.has(key)) {
+      martyrMap.set(key, {
+        martyrId: cm.martyrId || '—',
+        fullName: cm.fullName,
+        firstName: cm.firstName,
+        lastName: cm.lastName,
+        gravePiece: cm.gravePiece || '—',
+        graveRow: cm.graveRow || '—',
+        graveNumber: cm.graveNumber || '—',
+        graveAddressDisplay:
+          cm.graveDisplayAddress ||
+          formatGraveAddress(cm.gravePiece, cm.graveRow, cm.graveNumber),
+        graveStatus: cm.graveVerificationStatus || 'بررسی‌شده',
+        sourceLabel: cm.informationSource || 'پرونده مستقل شهید در سامانه',
+      });
+    }
+  }
+
+  // ۳. افزودن شهدای گلزار شیت مرجع (WorkbookGolzarMartyr)
+  for (const wm of workbookMartyrs) {
+    const key = compactPersianForMatch(wm.fullNameSearch);
+    if (!key) continue;
+    if (!martyrMap.has(key)) {
+      martyrMap.set(key, {
+        martyrId: wm.tempPersonId || '—',
+        fullName: wm.fullNameSearch,
+        firstName: wm.firstNameRaw,
+        lastName: wm.lastNameRaw,
+        gravePiece: wm.piece || '—',
+        graveRow: wm.graveRow || '—',
+        graveNumber: wm.graveNumber || '—',
+        graveAddressDisplay: formatGraveAddress(wm.piece, wm.graveRow, wm.graveNumber),
+        graveStatus: wm.graveStatus || 'شیت شهدای گلزار',
+        sourceLabel: `${wm.sourceFile || 'مرجع'} / ${wm.sourceSheet || 'شهدای گلزار'}`,
+      });
+    }
+  }
+
+  // ۴. تکمیل از روی ارتباط‌های مستند کتاب‌ها بدون حذف هیچ رکوردی
+  let autoMartyrSeq = 1;
+  for (const book of dossiers) {
+    for (const rel of book.martyrRelations) {
+      if (!rel.martyrName || rel.martyrName === '*') continue;
+      const key = compactPersianForMatch(rel.martyrName);
+      if (!key) continue;
+      if (!martyrMap.has(key)) {
+        martyrMap.set(key, {
+          martyrId: `SH-REL-${String(autoMartyrSeq++).padStart(4, '0')}`,
+          fullName: rel.martyrName,
+          gravePiece: rel.gravePiece || '—',
+          graveRow: rel.graveRow || '—',
+          graveNumber: rel.graveNumber || '—',
+          graveAddressDisplay: formatGraveAddress(rel.gravePiece, rel.graveRow, rel.graveNumber),
+          graveStatus: formatCertaintyLabel(rel.certainty),
+          sourceLabel: `${rel.sourceFile || 'پژوهش'} / ${rel.sourceSheet || 'ارتباط کتاب و شهید'}`,
+          isTehranMartyr: rel.isTehranMartyr,
+          tehranStatusLabel: rel.isTehranMartyr
+            ? 'تهرانی (گلزار شهدای تهران)'
+            : rel.hasHomonymIn28kNeedsReview
+            ? 'غیرتهرانی — نیازمند بررسی کارشناس (تشابه اسمی با شهدای تهران)'
+            : rel.isNonTehranMartyr
+            ? 'غیرتهرانی'
+            : 'بررسی‌نشده',
+        });
+      } else {
+        const existing = martyrMap.get(key)!;
+        if ((!existing.gravePiece || existing.gravePiece === '—') && rel.gravePiece && rel.gravePiece !== '—') {
+          existing.gravePiece = rel.gravePiece;
+        }
+        if ((!existing.graveRow || existing.graveRow === '—') && rel.graveRow && rel.graveRow !== '—') {
+          existing.graveRow = rel.graveRow;
+        }
+        if ((!existing.graveNumber || existing.graveNumber === '—') && rel.graveNumber && rel.graveNumber !== '—') {
+          existing.graveNumber = rel.graveNumber;
+        }
+        existing.graveAddressDisplay = formatGraveAddress(
+          existing.gravePiece,
+          existing.graveRow,
+          existing.graveNumber
+        );
+      }
+    }
+  }
+
+  return {
+    dossiers,
+    martyrMap,
+    copiesByBookId,
+    extractedItems,
+    links,
+  };
+}
+
+interface StyledColumnSpec {
+  header: string;
+  key: string;
+  width: number;
+  isLongText?: boolean;
+}
+
+export const EXCEL_UNIFIED_FONT_NAME = 'Vazirmatn';
+
+export const EXCEL_VAZIRMATN_THEME_XML = [
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+  '<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="MarkazAsnadVazirmatnTheme">',
+  '<a:themeElements>',
+  '<a:clrScheme name="Office">',
+  '<a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>',
+  '<a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1>',
+  '<a:dk2><a:srgbClr val="1F497D"/></a:dk2>',
+  '<a:lt2><a:srgbClr val="EEECE1"/></a:lt2>',
+  '<a:accent1><a:srgbClr val="4F81BD"/></a:accent1>',
+  '<a:accent2><a:srgbClr val="C0504D"/></a:accent2>',
+  '<a:accent3><a:srgbClr val="9BBB59"/></a:accent3>',
+  '<a:accent4><a:srgbClr val="8064A2"/></a:accent4>',
+  '<a:accent5><a:srgbClr val="4BACC6"/></a:accent5>',
+  '<a:accent6><a:srgbClr val="F79646"/></a:accent6>',
+  '<a:hlink><a:srgbClr val="0000FF"/></a:hlink>',
+  '<a:folHlink><a:srgbClr val="800080"/></a:folHlink>',
+  '</a:clrScheme>',
+  '<a:fontScheme name="VazirmatnScheme">',
+  '<a:majorFont>',
+  `<a:latin typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  `<a:ea typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  `<a:cs typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  `<a:font script="Arab" typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  '</a:majorFont>',
+  '<a:minorFont>',
+  `<a:latin typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  `<a:ea typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  `<a:cs typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  `<a:font script="Arab" typeface="${EXCEL_UNIFIED_FONT_NAME}"/>`,
+  '</a:minorFont>',
+  '</a:fontScheme>',
+  '<a:fmtScheme name="Office">',
+  '<a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst>',
+  '<a:lnStyleLst><a:ln w="9525" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln><a:ln w="25400" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln><a:ln w="38100" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln></a:lnStyleLst>',
+  '<a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst>',
+  '<a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst>',
+  '</a:fmtScheme>',
+  '</a:themeElements>',
+  '<a:objectDefaults/>',
+  '<a:extraClrSchemeLst/>',
+  '</a:theme>',
+].join('');
+
+export const EXCEL_UNIFIED_WRITE_OPTIONS = {
+  bookType: 'xlsx' as const,
+  defaultCellStyle: {
+    font: {
+      name: EXCEL_UNIFIED_FONT_NAME,
+      sz: 10,
+      color: { rgb: '24303F' },
+    },
+  },
+  themeXLSX: EXCEL_VAZIRMATN_THEME_XML,
+};
+
+function createUnifiedWorksheetStyles() {
+  const thinBorder = {
+    top: { style: 'thin', color: { rgb: 'C8B69B' } },
+    bottom: { style: 'thin', color: { rgb: 'C8B69B' } },
+    left: { style: 'thin', color: { rgb: 'C8B69B' } },
+    right: { style: 'thin', color: { rgb: 'C8B69B' } },
+  };
+
+  return {
+    titleBannerStyle: {
+      font: { name: EXCEL_UNIFIED_FONT_NAME, sz: 13, bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FF6B3E26' }, bgColor: { indexed: '64' } },
+      alignment: { horizontal: 'center', vertical: 'center', readingOrder: 2, wrapText: true },
+      border: thinBorder,
+    },
+    subBannerStyle: {
+      font: { name: EXCEL_UNIFIED_FONT_NAME, sz: 10, bold: true, color: { rgb: '332218' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FFF5E6D3' }, bgColor: { indexed: '64' } },
+      alignment: { horizontal: 'right', vertical: 'center', readingOrder: 2, wrapText: true },
+      border: thinBorder,
+    },
+    tableHeaderStyle: {
+      font: { name: EXCEL_UNIFIED_FONT_NAME, sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FF1E4D2B' }, bgColor: { indexed: '64' } },
+      alignment: { horizontal: 'center', vertical: 'center', readingOrder: 2, wrapText: true },
+      border: {
+        top: { style: 'medium', color: { rgb: '14361E' } },
+        bottom: { style: 'medium', color: { rgb: '14361E' } },
+        left: { style: 'thin', color: { rgb: 'A8D5B5' } },
+        right: { style: 'thin', color: { rgb: 'A8D5B5' } },
+      },
+    },
+    dataRowOddIndexColStyle: {
+      font: { name: EXCEL_UNIFIED_FONT_NAME, sz: 10, bold: true, color: { rgb: '24303F' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FFFFFFFF' }, bgColor: { indexed: '64' } },
+      alignment: { horizontal: 'center', vertical: 'center', readingOrder: 2, wrapText: true },
+      border: thinBorder,
+    },
+    dataRowOddTextColStyle: {
+      font: { name: EXCEL_UNIFIED_FONT_NAME, sz: 10, bold: false, color: { rgb: '24303F' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FFFFFFFF' }, bgColor: { indexed: '64' } },
+      alignment: { horizontal: 'right', vertical: 'center', readingOrder: 2, wrapText: true },
+      border: thinBorder,
+    },
+    dataRowEvenIndexColStyle: {
+      font: { name: EXCEL_UNIFIED_FONT_NAME, sz: 10, bold: true, color: { rgb: '24303F' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FFFAF6EE' }, bgColor: { indexed: '64' } },
+      alignment: { horizontal: 'center', vertical: 'center', readingOrder: 2, wrapText: true },
+      border: thinBorder,
+    },
+    dataRowEvenTextColStyle: {
+      font: { name: EXCEL_UNIFIED_FONT_NAME, sz: 10, bold: false, color: { rgb: '24303F' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FFFAF6EE' }, bgColor: { indexed: '64' } },
+      alignment: { horizontal: 'right', vertical: 'center', readingOrder: 2, wrapText: true },
+      border: thinBorder,
+    },
+  };
+}
+
+/**
+ * ساخت شیت اکسل استاندارد با فونت فارسی Vazirmatn، راست‌به‌چپ، سرصفحه رسمی مرکز اسناد گلزار شهدای تهران،
+ * قاب‌بندی کامل سلول‌ها، سطر عنوان متمایز، فیلتر ستون‌ها، تثبیت سطر عنوان و تنظیمات چاپ
+ */
+function buildStyledWorksheet(
+  sheetTitle: string,
+  reportTitle: string,
+  columns: StyledColumnSpec[],
+  dataRows: Record<string, string | number>[]
+): XLSX.WorkSheet {
+  const colCount = Math.max(1, columns.length);
+  const dateDisplay = getPersianDateTimeDisplay();
+
+  const headerBannerRow1 = [
+    `مرکز اسناد گلزار شهدای تهران — ${reportTitle}`,
+    ...Array(colCount - 1).fill(''),
+  ];
+  const headerBannerRow2 = [
+    `عنوان برگه: ${sheetTitle}   |   تاریخ تولید گزارش: ${dateDisplay}   |   تعداد رکورد: ${toPersianDigits(
+      dataRows.length
+    )}`,
+    ...Array(colCount - 1).fill(''),
+  ];
+  const tableHeaderRow = columns.map((c) => c.header);
+
+  const matrix: (string | number)[][] = [
+    headerBannerRow1,
+    headerBannerRow2,
+    tableHeaderRow,
+  ];
+
+  if (dataRows.length === 0) {
+    const emptyRow = columns.map((_, idx) =>
+      idx === 0 ? 1 : idx === 1 ? 'هیچ رکوردی در این بخش یافت نشد' : '—'
+    );
+    matrix.push(emptyRow);
+  } else {
+    for (const rowObj of dataRows) {
+      matrix.push(
+        columns.map((c) => {
+          const val = rowObj[c.key];
+          return val !== undefined && val !== null && val !== '' ? val : '—';
+        })
+      );
+    }
+  }
+
+  const ws = XLSXStyle.utils.aoa_to_sheet(matrix);
+
+  // ۱. راست‌به‌چپ (RTL) و تثبیت ۳ سطر اول (سرصفحه + عنوان ستون‌ها)
+  ws['!views'] = [
+    {
+      rightToLeft: true,
+      state: 'frozen',
+      ySplit: 3,
+      topLeftCell: 'A4',
+      activeCell: 'A4',
+    },
+  ];
+
+  // ۲. ادغام سلول‌های سرصفحه رسمی در سطر ۱ و ۲
+  ws['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: colCount - 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: colCount - 1 } },
+  ];
+
+  // ۳. عرض ستون‌ها
+  ws['!cols'] = columns.map((c) => ({ wch: Math.max(10, c.width || 18) }));
+
+  // ۴. ارتفاع سطرها (سرصفحه‌ها، هدر جدول و سطرهای داده)
+  const rowsMeta: Array<{ hpt: number }> = [
+    { hpt: 28 }, // سطر ۱: عنوان رسمی مرکز اسناد
+    { hpt: 22 }, // سطر ۲: تاریخ و مشخصات گزارش
+    { hpt: 26 }, // سطر ۳: عناوین ستون‌ها
+  ];
+  for (let i = 0; i < Math.max(1, dataRows.length); i++) {
+    const rowObj = dataRows[i];
+    const hasLongContent =
+      rowObj &&
+      columns.some(
+        (c) => c.isLongText && String(rowObj[c.key] || '').length > 90
+      );
+    rowsMeta.push({ hpt: hasLongContent ? 48 : 24 });
+  }
+  ws['!rows'] = rowsMeta;
+
+  // ۵. فیلتر خودکار روی سطر عنوان جدول (سطر ۳، اندیس ۲)
+  const lastColLetter = XLSXStyle.utils.encode_col(colCount - 1);
+  const totalSheetRows = matrix.length;
+  ws['!autofilter'] = {
+    ref: `A3:${lastColLetter}${totalSheetRows}`,
+  };
+
+  // ۶. تنظیمات چاپ (افقی Landscape برای جداول چندستونه و حاشیه‌های استاندارد)
+  ws['!pageSetup'] = {
+    orientation: colCount > 6 ? 'landscape' : 'portrait',
+    paperSize: 9, // A4
+    fitToWidth: 1,
+    fitToHeight: 0,
+  };
+  ws['!margins'] = {
+    left: 0.4,
+    right: 0.4,
+    top: 0.5,
+    bottom: 0.5,
+    header: 0.3,
+    footer: 0.3,
+  };
+
+  // ۷. استایل‌دهی یکپارچه تمام سلول‌ها با فونت فارسی Vazirmatn و قاب‌بندی جدول
+  // استفاده از کدهای رنگ ۸ کاراکتری ARGB برای جلوگیری از تغییر درجای استایل در برگه اول توسط xlsx-js-style
+  const styles = createUnifiedWorksheetStyles();
+
+  for (let r = 0; r < matrix.length; r++) {
+    for (let c = 0; c < colCount; c++) {
+      const cellRef = XLSXStyle.utils.encode_cell({ r, c });
+      if (!ws[cellRef]) {
+        ws[cellRef] = { t: 's', v: '' };
+      }
+      if (r === 0) {
+        ws[cellRef].s = styles.titleBannerStyle;
+      } else if (r === 1) {
+        ws[cellRef].s = styles.subBannerStyle;
+      } else if (r === 2) {
+        ws[cellRef].s = styles.tableHeaderStyle;
+      } else {
+        const isEvenDataRow = (r - 3) % 2 === 1;
+        const isFirstRowNumCol = c === 0;
+        if (isEvenDataRow) {
+          ws[cellRef].s = isFirstRowNumCol
+            ? styles.dataRowEvenIndexColStyle
+            : styles.dataRowEvenTextColStyle;
+        } else {
+          ws[cellRef].s = isFirstRowNumCol
+            ? styles.dataRowOddIndexColStyle
+            : styles.dataRowOddTextColStyle;
+        }
+      }
+    }
+  }
+
+  for (const key of Object.keys(ws)) {
+    if (key.startsWith('!')) continue;
+    const cell = ws[key];
+    if (cell && typeof cell === 'object') {
+      if (!cell.s) {
+        cell.s = styles.dataRowOddTextColStyle;
+      } else if (!cell.s.font || cell.s.font.name !== EXCEL_UNIFIED_FONT_NAME) {
+        cell.s = {
+          ...cell.s,
+          font: {
+            ...(cell.s.font || {}),
+            name: EXCEL_UNIFIED_FONT_NAME,
+            sz: cell.s.font?.sz || 10,
+          },
+        };
+      }
+    }
+  }
+
+  return ws;
+}
+
+/**
+ * تولید و دانلود فایل Excel استاندارد و چندبرگه‌ای بر اساس فیلدها و برگه‌های انتخاب‌شده توسط کاربر
+ * بدون تغییر یا حذف هیچ داده‌ای در پایگاه داده اصلی نرم‌افزار
+ */
+export function generateStandardizedMartyrCentricExcel(
+  ctx: ExcelExportDatasetContext,
+  selection: ExcelExportUserSelection
+): { ok: boolean; fileName: string; sheetsCount: number; totalRowsExported: number } {
+  const { dossiers: allResolvedDossiers, martyrMap, copiesByBookId, extractedItems } =
+    resolveDossiersAndMartyrIndex(ctx);
+
+  const activeSubjectFilter =
+    selection.selectedSubjectCategories && selection.selectedSubjectCategories.size > 0
+      ? selection.selectedSubjectCategories
+      : null;
+
+  const subjectFilteredDossiers = activeSubjectFilter
+    ? allResolvedDossiers.filter((b) => {
+        const code = resolveBookMainSubjectCode(b);
+        return code !== 'UNSET' && activeSubjectFilter.has(code);
+      })
+    : allResolvedDossiers;
+
+  const dossiers = selection.onlyTehranMartyrs
+    ? subjectFilteredDossiers.filter((b) => b.hasTehranMartyr)
+    : subjectFilteredDossiers;
+
+  const subjectCodesSuffix = activeSubjectFilter
+    ? Array.from(activeSubjectFilter).join('، ')
+    : '';
+  const tehranSuffix = selection.onlyTehranMartyrs ? ' — فقط شهدای تهرانی' : '';
+  const effectiveReportTitle =
+    (activeSubjectFilter && !selection.reportTitle.includes('موضوع:')
+      ? `${selection.reportTitle} (موضوع: ${subjectCodesSuffix})`
+      : selection.reportTitle) + tehranSuffix;
+
+  const hasField = (id: string) => selection.selectedFields.has(id);
+  const wb = XLSXStyle.utils.book_new();
+  if (!wb.Workbook) wb.Workbook = {};
+  wb.Workbook.Views = [{ RTL: true }];
+  (wb as Record<string, unknown>).Themes = { raw: EXCEL_VAZIRMATN_THEME_XML };
+
+  let sheetsCreated = 0;
+  let totalRowsExported = 0;
+
+  // کمکی: بازیابی شناسه و اطلاعات شهید از روی نام
+  const lookupMartyrMeta = (
+    martyrName: string,
+    fallbackPiece?: string,
+    fallbackRow?: string,
+    fallbackNum?: string,
+    fallbackCertainty?: MartyrRelationCertainty
+  ): StandardizedMartyrEntry => {
+    const key = compactPersianForMatch(martyrName);
+    const found = key ? martyrMap.get(key) : undefined;
+    const piece = found?.gravePiece && found.gravePiece !== '—' ? found.gravePiece : fallbackPiece || '—';
+    const row = found?.graveRow && found.graveRow !== '—' ? found.graveRow : fallbackRow || '—';
+    const num = found?.graveNumber && found.graveNumber !== '—' ? found.graveNumber : fallbackNum || '—';
+    return {
+      martyrId: found?.martyrId || '—',
+      fullName: martyrName || 'بدون نام شهید مشخص',
+      fatherName: found?.fatherName || '—',
+      birthDate: found?.birthDate || '—',
+      martyrdomDate: found?.martyrdomDate || '—',
+      operationOrLocation: found?.operationOrLocation || '—',
+      gravePiece: piece,
+      graveRow: row,
+      graveNumber: num,
+      graveAddressDisplay: formatGraveAddress(piece, row, num),
+      graveStatus:
+        found?.graveStatus ||
+        (fallbackCertainty ? formatCertaintyLabel(fallbackCertainty) : '—'),
+      sourceLabel: found?.sourceLabel || 'پژوهش مرکز اسناد',
+      isTehranMartyr:
+        found?.isTehranMartyr ??
+        evaluateMartyrTehranStatus({
+          martyrName,
+          gravePiece: piece,
+          graveRow: row,
+          graveNumber: num,
+        }).isTehran,
+      tehranStatusLabel:
+        found?.tehranStatusLabel ||
+        (evaluateMartyrTehranStatus({
+          martyrName,
+          gravePiece: piece,
+          graveRow: row,
+          graveNumber: num,
+        }).isTehran
+          ? 'تهرانی (گلزار شهدای تهران)'
+          : evaluateMartyrTehranStatus({
+              martyrName,
+              gravePiece: piece,
+              graveRow: row,
+              graveNumber: num,
+            }).isNonTehran
+          ? 'غیرتهرانی'
+          : 'بررسی‌نشده'),
+    };
+  };
+
+  // ============================================================================
+  // برگه ۱: فهرست اصلی کتاب‌ها (یک ردیف به ازای هر کتاب یکتا + خلاصه شهدای مرتبط)
+  // ============================================================================
+  if (selection.selectedSheets.has('main_books')) {
+    const cols: StyledColumnSpec[] = [{ header: 'ردیف', key: 'row_num', width: 8 }];
+    const pushIf = (id: string, customHeader?: string, customWidth?: number, isLong?: boolean) => {
+      if (!hasField(id)) return;
+      const meta = EXCEL_FIELDS_CATALOG.find((f) => f.id === id);
+      cols.push({
+        header: customHeader || meta?.label || id,
+        key: id,
+        width: customWidth || meta?.width || 20,
+        isLongText: isLong ?? meta?.isLongText,
+      });
+    };
+
+    pushIf('book_id');
+    pushIf('book_title');
+    pushIf('book_alt_title');
+    pushIf('book_author');
+    pushIf('book_publisher');
+    pushIf('book_year');
+    pushIf('book_edition');
+    pushIf('book_isbn');
+    pushIf('book_fipa');
+    pushIf('book_reg_no');
+    pushIf('book_subject_category');
+    pushIf('physical_status');
+    pushIf('shelf_code');
+    pushIf('level_code');
+    pushIf('location_code');
+    pushIf('counted_copies');
+    pushIf('copy_id');
+    pushIf('relation_category');
+    pushIf('related_martyrs_count');
+    pushIf('martyr_name', 'اسامی شهدای مرتبط با کتاب', 36, true);
+    pushIf('tehran_martyr_status', 'وضعیت شهید تهرانی (گلزار شهدای تهران)', 24);
+    pushIf('martyr_id', 'شناسه‌های شهدای مرتبط', 22);
+    pushIf('grave_full_address', 'آدرس و محل مزار شهدای مرتبط', 38, true);
+    pushIf('grave_piece', 'قطعه مزار شهدا', 16);
+    pushIf('grave_row', 'ردیف مزار شهدا', 16);
+    pushIf('grave_number', 'شماره مزار شهدا', 16);
+    pushIf('martyr_relation_subject', 'موضوعات مرتبط با شهدا در کتاب', 38, true);
+    pushIf('page_reference_raw', 'شماره صفحات مرتبط در کتاب', 28, true);
+    pushIf('extracted_passages_count');
+    pushIf('extracted_text', 'خلاصه متن‌های استخراج‌شده درباره شهدا', 55, true);
+    pushIf('link_id', 'شناسه‌های ارتباط کتاب و شهید (RL)', 24);
+    pushIf('relation_certainty', 'وضعیت قطعیت ارتباط‌ها', 24);
+    pushIf('review_verification_status', 'وضعیت بررسی و تأیید', 24);
+    pushIf('source_file_and_sheet', 'منبع اطلاعات کتاب و ارتباط', 30);
+    pushIf('book_description');
+    pushIf('reviewer_expert_note');
+
+    const rows: Record<string, string | number>[] = dossiers.map((book, idx) => {
+      const copies = copiesByBookId.get(book.bookId) || [];
+      const copyIdsStr = copies.map((c) => c.copyId).join('، ') || '—';
+
+      const martyrMetaList = book.martyrRelations.map((m) =>
+        lookupMartyrMeta(m.martyrName, m.gravePiece, m.graveRow, m.graveNumber, m.certainty)
+      );
+
+      const martyrNamesSummary =
+        book.martyrRelations.length === 0
+          ? 'بدون ارتباط ثبت‌شده با شهید'
+          : book.martyrRelations.map((m, i) => `${i + 1}. ${m.martyrName}`).join(' | ');
+
+      const martyrIdsSummary =
+        martyrMetaList.length === 0
+          ? '—'
+          : martyrMetaList.map((m) => m.martyrId).join(' | ');
+
+      const graveAddressesSummary =
+        book.martyrRelations.length === 0
+          ? '—'
+          : book.martyrRelations
+              .map(
+                (m) =>
+                  `${m.martyrName}: ${formatGraveAddress(
+                    m.gravePiece,
+                    m.graveRow,
+                    m.graveNumber
+                  )}`
+              )
+              .join(' | ');
+
+      const gravePiecesSummary =
+        book.martyrRelations.map((m) => m.gravePiece).filter((v) => v && v !== '—').join('، ') || '—';
+      const graveRowsSummary =
+        book.martyrRelations.map((m) => m.graveRow).filter((v) => v && v !== '—').join('، ') || '—';
+      const graveNumbersSummary =
+        book.martyrRelations.map((m) => m.graveNumber).filter((v) => v && v !== '—').join('، ') || '—';
+
+      const subjectsSummary =
+        book.martyrRelations
+          .map((m) => (m.sourceDescriptionRaw ? `${m.martyrName}: ${m.sourceDescriptionRaw}` : ''))
+          .filter(Boolean)
+          .join(' | ') ||
+        (book.description && book.description !== '—' ? book.description : '—');
+
+      const pagesSummary =
+        book.martyrRelations
+          .map((m) => (m.pageReference ? `${m.martyrName}: ${m.pageReference}` : ''))
+          .filter(Boolean)
+          .join(' | ') || '—';
+
+      const extractedTextsSummary =
+        book.extractedPassages.length === 0
+          ? '—'
+          : book.extractedPassages
+              .map((ex) => `[${ex.martyrNameRaw} - ص ${ex.pageReferenceRaw}]: ${ex.extractedText}`)
+              .join(' || ');
+
+      const linkIdsSummary =
+        book.martyrRelations.map((m) => m.linkId).join('، ') || '—';
+
+      const certaintiesSummary =
+        book.martyrRelations.length === 0
+          ? '—'
+          : Array.from(
+              new Set(book.martyrRelations.map((m) => formatCertaintyLabel(m.certainty)))
+            ).join('، ');
+
+      const reviewStatusesSummary =
+        book.martyrRelations.length === 0
+          ? book.determinationStatusLabel
+          : Array.from(new Set(book.martyrRelations.map((m) => m.rawStatus))).join('، ');
+
+      const sourceSummary = `${book.originalExcelData.sourceFile} / ${book.originalExcelData.sourceSheet} (ردیف ${book.originalExcelData.sourceRow})`;
+
+      return {
+        row_num: idx + 1,
+        book_id: book.bookId,
+        book_title: book.title,
+        book_alt_title: book.alternativeTitle || '—',
+        book_author: book.author || '—',
+        book_publisher: book.publisher || '—',
+        book_year: book.year || '—',
+        book_edition: book.edition || '—',
+        book_isbn: book.isbn || '—',
+        book_fipa: book.fipa || '—',
+        book_reg_no: book.registrationNo || '—',
+        book_subject_category: formatBookSubjectCategoryDisplay(book),
+        physical_status:
+          book.determinationStatusLabel || formatPhysicalStatusLabel(book.physicalStatus),
+        shelf_code: book.shelf || '—',
+        level_code: book.level || '—',
+        location_code: book.locationCode || '—',
+        counted_copies: book.countedCopies || '0',
+        copy_id: copyIdsStr,
+        relation_category: book.sheetCategory,
+        related_martyrs_count: book.martyrRelations.length,
+        martyr_name: martyrNamesSummary,
+        tehran_martyr_status: book.hasTehranMartyr
+          ? `تهرانی (${toPersianDigits(book.tehranMartyrsCount)} شهید در گلزار شهدای تهران)`
+          : book.martyrRelations.some((m) => m.hasHomonymIn28kNeedsReview)
+          ? 'غیرتهرانی — نیازمند بررسی کارشناس (تشابه اسمی با شهدای تهران)'
+          : book.martyrRelations.some((m) => m.isNonTehranMartyr)
+          ? 'غیرتهرانی'
+          : 'فاقد شهید تهرانی',
+        martyr_id: martyrIdsSummary,
+        grave_full_address: graveAddressesSummary,
+        grave_piece: gravePiecesSummary,
+        grave_row: graveRowsSummary,
+        grave_number: graveNumbersSummary,
+        martyr_relation_subject: subjectsSummary,
+        page_reference_raw: pagesSummary,
+        extracted_passages_count: book.extractedPassages.length,
+        extracted_text: extractedTextsSummary,
+        link_id: linkIdsSummary,
+        relation_certainty: certaintiesSummary,
+        review_verification_status: reviewStatusesSummary,
+        source_file_and_sheet: sourceSummary,
+        book_description: book.description || '—',
+        reviewer_expert_note: book.notes || '—',
+      };
+    });
+
+    const sheetMeta = EXCEL_SHEETS_CATALOG.find((s) => s.key === 'main_books')!;
+    const ws = buildStyledWorksheet(sheetMeta.title, effectiveReportTitle, cols, rows);
+    XLSXStyle.utils.book_append_sheet(wb, ws, sheetMeta.sheetTabName);
+    sheetsCreated++;
+    totalRowsExported += rows.length;
+  }
+
+  // ============================================================================
+  // برگه ۲: ارتباط کتاب و شهید (جدول میانی چندبه‌چند — هر ارتباط در یک ردیف مستقل)
+  // ============================================================================
+  if (selection.selectedSheets.has('book_martyr_relations')) {
+    const cols: StyledColumnSpec[] = [{ header: 'ردیف', key: 'row_num', width: 8 }];
+    const pushIf = (id: string, customHeader?: string, customWidth?: number, isLong?: boolean) => {
+      if (!hasField(id)) return;
+      const meta = EXCEL_FIELDS_CATALOG.find((f) => f.id === id);
+      cols.push({
+        header: customHeader || meta?.label || id,
+        key: id,
+        width: customWidth || meta?.width || 20,
+        isLongText: isLong ?? meta?.isLongText,
+      });
+    };
+
+    pushIf('link_id');
+    pushIf('book_id');
+    pushIf('book_title');
+    pushIf('book_alt_title');
+    pushIf('book_author');
+    pushIf('book_publisher');
+    pushIf('martyr_id');
+    pushIf('martyr_name');
+    pushIf('tehran_martyr_status');
+    pushIf('grave_full_address');
+    pushIf('grave_piece');
+    pushIf('grave_row');
+    pushIf('grave_number');
+    pushIf('grave_status');
+    pushIf('relation_category');
+    pushIf('book_subject_category');
+    pushIf('martyr_relation_subject');
+    pushIf('page_reference_raw');
+    pushIf('extracted_text', 'متن استخراج‌شده درباره این شهید در این کتاب', 55, true);
+    pushIf('relation_certainty');
+    pushIf('review_verification_status');
+    pushIf('source_file_and_sheet');
+    pushIf('reviewer_expert_note');
+    pushIf('location_code');
+    pushIf('physical_status');
+
+    const rows: Record<string, string | number>[] = [];
+    let relIdx = 1;
+
+    for (const book of dossiers) {
+      if (book.martyrRelations.length === 0) {
+        // حفظ کتاب‌های بدون شهید در صورت گزارش کتاب‌محور تا هیچ کتابی به خاطر نقص ارتباط حذف نشود
+        if (selection.direction === 'book_to_martyr') {
+          rows.push({
+            row_num: relIdx++,
+            link_id: 'بدون پیوند ثبت‌شده',
+            book_id: book.bookId,
+            book_title: book.title,
+            book_alt_title: book.alternativeTitle || '—',
+            book_author: book.author || '—',
+            book_publisher: book.publisher || '—',
+            martyr_id: '—',
+            martyr_name: 'بدون ارتباط ثبت‌شده با شهید',
+            tehran_martyr_status: 'فاقد شهید تهرانی',
+            grave_full_address: '—',
+            grave_piece: '—',
+            grave_row: '—',
+            grave_number: '—',
+            grave_status: '—',
+            relation_category: book.sheetCategory,
+            book_subject_category: formatBookSubjectCategoryDisplay(book),
+            martyr_relation_subject: book.description || '—',
+            page_reference_raw: '—',
+            extracted_text: '—',
+            relation_certainty: '—',
+            review_verification_status: book.determinationStatusLabel,
+            source_file_and_sheet: `${book.originalExcelData.sourceFile} / ${book.originalExcelData.sourceSheet}`,
+            reviewer_expert_note: book.notes || '—',
+            location_code: book.locationCode || '—',
+            physical_status: book.determinationStatusLabel,
+          });
+        }
+      } else {
+        for (const rel of book.martyrRelations) {
+          const mMeta = lookupMartyrMeta(
+            rel.martyrName,
+            rel.gravePiece,
+            rel.graveRow,
+            rel.graveNumber,
+            rel.certainty
+          );
+          const matchingPassages = book.extractedPassages.filter(
+            (ex) =>
+              compactPersianForMatch(ex.martyrNameRaw) ===
+              compactPersianForMatch(rel.martyrName)
+          );
+          const passageText =
+            matchingPassages.length > 0
+              ? matchingPassages.map((p) => p.extractedText).join(' | ')
+              : '—';
+
+          rows.push({
+            row_num: relIdx++,
+            link_id: rel.linkId,
+            book_id: book.bookId,
+            book_title: book.title,
+            book_alt_title: book.alternativeTitle || '—',
+            book_author: book.author || '—',
+            book_publisher: book.publisher || '—',
+            martyr_id: mMeta.martyrId,
+            martyr_name: rel.martyrName,
+            tehran_martyr_status: rel.isTehranMartyr
+              ? 'تهرانی (گلزار شهدای تهران)'
+              : rel.hasHomonymIn28kNeedsReview
+              ? 'غیرتهرانی — نیازمند بررسی کارشناس (تشابه اسمی با شهدای تهران)'
+              : rel.isNonTehranMartyr
+              ? 'غیرتهرانی'
+              : mMeta.tehranStatusLabel || 'بررسی‌نشده',
+            grave_full_address: mMeta.graveAddressDisplay,
+            grave_piece: mMeta.gravePiece,
+            grave_row: mMeta.graveRow,
+            grave_number: mMeta.graveNumber,
+            grave_status: mMeta.graveStatus,
+            relation_category: rel.sourceSheetCategory,
+            book_subject_category: formatBookSubjectCategoryDisplay(book),
+            martyr_relation_subject: rel.sourceDescriptionRaw || book.description || '—',
+            page_reference_raw: rel.pageReference || '—',
+            extracted_text: passageText,
+            relation_certainty: formatCertaintyLabel(rel.certainty),
+            review_verification_status: rel.rawStatus || '—',
+            source_file_and_sheet: `${rel.sourceFile} / ${rel.sourceSheet} (ردیف ${rel.sourceExcelRow})`,
+            reviewer_expert_note: rel.reviewerNote || '—',
+            location_code: book.locationCode || '—',
+            physical_status: book.determinationStatusLabel,
+          });
+        }
+      }
+    }
+
+    const sheetMeta = EXCEL_SHEETS_CATALOG.find((s) => s.key === 'book_martyr_relations')!;
+    const ws = buildStyledWorksheet(sheetMeta.title, effectiveReportTitle, cols, rows);
+    XLSXStyle.utils.book_append_sheet(wb, ws, sheetMeta.sheetTabName);
+    sheetsCreated++;
+    totalRowsExported += rows.length;
+  }
+
+  // ============================================================================
+  // برگه ۳: اطلاعات موضوعی و صفحات مرتبط
+  // ============================================================================
+  if (selection.selectedSheets.has('subjects_and_pages')) {
+    const cols: StyledColumnSpec[] = [{ header: 'ردیف', key: 'row_num', width: 8 }];
+    const pushIf = (id: string, customHeader?: string, customWidth?: number, isLong?: boolean) => {
+      if (!hasField(id)) return;
+      const meta = EXCEL_FIELDS_CATALOG.find((f) => f.id === id);
+      cols.push({
+        header: customHeader || meta?.label || id,
+        key: id,
+        width: customWidth || meta?.width || 20,
+        isLongText: isLong ?? meta?.isLongText,
+      });
+    };
+
+    pushIf('book_id');
+    pushIf('book_title');
+    pushIf('book_author');
+    pushIf('book_publisher');
+    pushIf('book_subject_category');
+    pushIf('martyr_id');
+    pushIf('martyr_name');
+    pushIf('tehran_martyr_status');
+    pushIf('grave_full_address');
+    pushIf('martyr_relation_subject');
+    pushIf('extracted_content_type');
+    pushIf('passage_section_title');
+    pushIf('page_reference_raw');
+    pushIf('page_range_normalized');
+    pushIf('extracted_keywords');
+    pushIf('link_id');
+    pushIf('relation_certainty');
+    pushIf('source_file_and_sheet');
+
+    const rows: Record<string, string | number>[] = [];
+    let spIdx = 1;
+
+    for (const book of dossiers) {
+      for (const rel of book.martyrRelations) {
+        const mMeta = lookupMartyrMeta(
+          rel.martyrName,
+          rel.gravePiece,
+          rel.graveRow,
+          rel.graveNumber,
+          rel.certainty
+        );
+        const matchingEx = book.extractedPassages.find(
+          (ex) =>
+            compactPersianForMatch(ex.martyrNameRaw) === compactPersianForMatch(rel.martyrName)
+        );
+        const pageNorm =
+          matchingEx?.pageStartNormalized || matchingEx?.pageEndNormalized
+            ? `${matchingEx.pageStartNormalized || ''} تا ${matchingEx.pageEndNormalized || ''}`.trim()
+            : '—';
+
+        rows.push({
+          row_num: spIdx++,
+          book_id: book.bookId,
+          book_title: book.title,
+          book_author: book.author || '—',
+          book_publisher: book.publisher || '—',
+          book_subject_category: formatBookSubjectCategoryDisplay(book),
+          martyr_id: mMeta.martyrId,
+          martyr_name: rel.martyrName,
+          tehran_martyr_status: rel.isTehranMartyr
+            ? 'تهرانی (گلزار شهدای تهران)'
+            : rel.hasHomonymIn28kNeedsReview
+            ? 'غیرتهرانی — نیازمند بررسی کارشناس (تشابه اسمی با شهدای تهران)'
+            : rel.isNonTehranMartyr
+            ? 'غیرتهرانی'
+            : mMeta.tehranStatusLabel || 'بررسی‌نشده',
+          grave_full_address: mMeta.graveAddressDisplay,
+          martyr_relation_subject: rel.sourceDescriptionRaw || book.description || '—',
+          extracted_content_type: matchingEx?.contentType || 'معرفی و ارتباط پژوهشی',
+          passage_section_title: matchingEx?.passageTitle || rel.sourceDescriptionRaw || '—',
+          page_reference_raw: rel.pageReference || matchingEx?.pageReferenceRaw || '—',
+          page_range_normalized: pageNorm,
+          extracted_keywords: (matchingEx?.keywords || []).join('، ') || '—',
+          link_id: rel.linkId,
+          relation_certainty: formatCertaintyLabel(rel.certainty),
+          source_file_and_sheet: `${rel.sourceFile} / ${rel.sourceSheet} (ردیف ${rel.sourceExcelRow})`,
+        });
+      }
+    }
+
+    const sheetMeta = EXCEL_SHEETS_CATALOG.find((s) => s.key === 'subjects_and_pages')!;
+    const ws = buildStyledWorksheet(sheetMeta.title, effectiveReportTitle, cols, rows);
+    XLSXStyle.utils.book_append_sheet(wb, ws, sheetMeta.sheetTabName);
+    sheetsCreated++;
+    totalRowsExported += rows.length;
+  }
+
+  // ============================================================================
+  // برگه ۴: متن‌های استخراج‌شده درباره شهدا
+  // ============================================================================
+  if (selection.selectedSheets.has('extracted_passages')) {
+    const cols: StyledColumnSpec[] = [{ header: 'ردیف', key: 'row_num', width: 8 }];
+    const pushIf = (id: string, customHeader?: string, customWidth?: number, isLong?: boolean) => {
+      if (!hasField(id)) return;
+      const meta = EXCEL_FIELDS_CATALOG.find((f) => f.id === id);
+      cols.push({
+        header: customHeader || meta?.label || id,
+        key: id,
+        width: customWidth || meta?.width || 20,
+        isLongText: isLong ?? meta?.isLongText,
+      });
+    };
+
+    pushIf('extracted_id');
+    pushIf('book_id');
+    pushIf('book_title');
+    pushIf('book_author');
+    pushIf('book_publisher');
+    pushIf('martyr_id');
+    pushIf('martyr_name');
+    pushIf('tehran_martyr_status');
+    pushIf('grave_full_address');
+    pushIf('grave_piece');
+    pushIf('grave_row');
+    pushIf('grave_number');
+    pushIf('extracted_content_type');
+    pushIf('passage_section_title');
+    pushIf('page_reference_raw');
+    pushIf('page_range_normalized');
+    pushIf('extracted_text');
+    pushIf('short_verified_quote');
+    pushIf('extracted_keywords');
+    pushIf('review_verification_status');
+    pushIf('source_file_and_sheet');
+    pushIf('reviewer_expert_note');
+
+    // جمع‌آوری تمام متون استخراج‌شده مرتبط با کتاب‌های مجموعه فعلی
+    const bookById = new Map<string, UnifiedBookDossier>();
+    const bookByCompactTitle = new Map<string, UnifiedBookDossier>();
+    for (const d of dossiers) {
+      bookById.set(d.bookId, d);
+      const ct = compactPersianForMatch(d.title);
+      if (ct) bookByCompactTitle.set(ct, d);
+    }
+
+    const activeExtracts: ExtractedContentItem[] =
+      activeSubjectFilter || (ctx.dossiers && ctx.dossiers.length > 0)
+        ? Array.from(
+            new Map(
+              dossiers.flatMap((d) => d.extractedPassages).map((e) => [e.id, e])
+            ).values()
+          )
+        : extractedItems;
+
+    const rows: Record<string, string | number>[] = activeExtracts.map((ex, idx) => {
+      const matchedBook =
+        (ex.tempBookId ? bookById.get(ex.tempBookId) : undefined) ||
+        bookByCompactTitle.get(compactPersianForMatch(ex.bookTitleRaw));
+      const mMeta = lookupMartyrMeta(ex.martyrNameRaw, ex.gravePieceRaw);
+      const pageNorm =
+        ex.pageStartNormalized || ex.pageEndNormalized
+          ? `${ex.pageStartNormalized || ''} تا ${ex.pageEndNormalized || ''}`.trim()
+          : '—';
+
+      return {
+        row_num: idx + 1,
+        extracted_id: ex.id,
+        book_id: ex.tempBookId || matchedBook?.bookId || '—',
+        book_title: matchedBook?.title || ex.bookTitleRaw || '—',
+        book_author: matchedBook?.author || '—',
+        book_publisher: ex.publisherRaw || matchedBook?.publisher || '—',
+        martyr_id: mMeta.martyrId,
+        martyr_name: ex.martyrNameRaw || '—',
+        tehran_martyr_status: mMeta.tehranStatusLabel || 'بررسی‌نشده',
+        grave_full_address: mMeta.graveAddressDisplay,
+        grave_piece: mMeta.gravePiece,
+        grave_row: mMeta.graveRow,
+        grave_number: mMeta.graveNumber,
+        extracted_content_type: ex.contentType,
+        passage_section_title: ex.passageTitle || '—',
+        page_reference_raw: ex.pageReferenceRaw || '—',
+        page_range_normalized: pageNorm,
+        extracted_text: ex.extractedText || '—',
+        short_verified_quote: ex.shortVerifiedQuote || '—',
+        extracted_keywords: (ex.keywords || []).join('، ') || '—',
+        review_verification_status: ex.reviewStatus,
+        source_file_and_sheet: `${ex.sourceFile} / ${ex.sourceSheet} (ردیف ${ex.sourceRow})`,
+        reviewer_expert_note: ex.researcherNote || '—',
+      };
+    });
+
+    const sheetMeta = EXCEL_SHEETS_CATALOG.find((s) => s.key === 'extracted_passages')!;
+    const ws = buildStyledWorksheet(sheetMeta.title, effectiveReportTitle, cols, rows);
+    XLSXStyle.utils.book_append_sheet(wb, ws, sheetMeta.sheetTabName);
+    sheetsCreated++;
+    totalRowsExported += rows.length;
+  }
+
+  // ============================================================================
+  // برگه ۵: اطلاعات شهدای مرتبط (از شهید به کتاب — دوطرفه)
+  // ============================================================================
+  if (selection.selectedSheets.has('related_martyrs')) {
+    const cols: StyledColumnSpec[] = [{ header: 'ردیف', key: 'row_num', width: 8 }];
+    const pushIf = (id: string, customHeader?: string, customWidth?: number, isLong?: boolean) => {
+      if (!hasField(id)) return;
+      const meta = EXCEL_FIELDS_CATALOG.find((f) => f.id === id);
+      cols.push({
+        header: customHeader || meta?.label || id,
+        key: id,
+        width: customWidth || meta?.width || 20,
+        isLongText: isLong ?? meta?.isLongText,
+      });
+    };
+
+    pushIf('martyr_id');
+    pushIf('martyr_name');
+    pushIf('tehran_martyr_status');
+    pushIf('martyr_father_name');
+    pushIf('martyr_dates');
+    pushIf('martyr_operation');
+    pushIf('grave_full_address');
+    pushIf('grave_piece');
+    pushIf('grave_row');
+    pushIf('grave_number');
+    pushIf('grave_status');
+    pushIf('related_books_count');
+    pushIf('book_id', 'شناسه‌های کتاب‌های مرتبط', 22);
+    pushIf('book_title', 'کتاب یا کتاب‌های مرتبط با شهید', 38, true);
+    pushIf('book_author', 'نویسندگان کتاب‌های مرتبط', 26, true);
+    pushIf('book_publisher', 'ناشران کتاب‌های مرتبط', 24, true);
+    pushIf('book_subject_category', 'موضوعات کتاب‌های مرتبط', 24);
+    pushIf('martyr_relation_subject', 'موضوعات مرتبط با شهید در کتاب‌ها', 36, true);
+    pushIf('page_reference_raw', 'شماره صفحات مرتبط در کتاب‌ها', 28, true);
+    pushIf('extracted_passages_count');
+    pushIf('extracted_text', 'متن استخراج‌شده از کتاب‌ها درباره شهید', 60, true);
+    pushIf('link_id', 'شناسه‌های ارتباط (RL)', 22);
+    pushIf('relation_certainty');
+    pushIf('source_file_and_sheet', 'توضیحات و منبع ارتباط', 32, true);
+
+    // ساخت نگاشت معکوس از شهید به کتاب‌ها و متون استخراج‌شده
+    const booksByMartyrKey = new Map<
+      string,
+      Array<{ book: UnifiedBookDossier; rel: BookDossierMartyrRelation }>
+    >();
+    for (const book of dossiers) {
+      for (const rel of book.martyrRelations) {
+        if (!rel.martyrName || rel.martyrName === '*') continue;
+        const mKey = compactPersianForMatch(rel.martyrName);
+        if (!mKey) continue;
+        const list = booksByMartyrKey.get(mKey) || [];
+        list.push({ book, rel });
+        booksByMartyrKey.set(mKey, list);
+      }
+    }
+
+    const extractsByMartyrKey = new Map<string, ExtractedContentItem[]>();
+    for (const ex of extractedItems) {
+      const mKey = compactPersianForMatch(ex.martyrNameRaw);
+      if (!mKey) continue;
+      const list = extractsByMartyrKey.get(mKey) || [];
+      list.push(ex);
+      extractsByMartyrKey.set(mKey, list);
+    }
+
+    // اگر explicitMartyrsList داده شده باشد (مثلاً در خروجی جست‌وجوی بانک شهدا)، همان لیست مبناست؛
+    // در غیر این صورت شهدای مرتبط با مجموعه کتاب‌های فعلی مبنا هستند.
+    const targetMartyrs: StandardizedMartyrEntry[] =
+      ctx.explicitMartyrsList && ctx.explicitMartyrsList.length > 0
+        ? ctx.explicitMartyrsList
+        : Array.from(martyrMap.values()).filter((m) =>
+            booksByMartyrKey.has(compactPersianForMatch(m.fullName))
+          );
+
+    const rows: Record<string, string | number>[] = targetMartyrs.map((m, idx) => {
+      const mKey = compactPersianForMatch(m.fullName);
+      const linkedPairs = (mKey ? booksByMartyrKey.get(mKey) : undefined) || [];
+      const linkedExtracts = (mKey ? extractsByMartyrKey.get(mKey) : undefined) || [];
+
+      const bookIdsStr =
+        linkedPairs.map((p) => p.book.bookId).join(' | ') || '—';
+      const bookTitlesStr =
+        linkedPairs.length === 0
+          ? 'بدون کتاب ثبت‌شده در فهرست فعلی'
+          : linkedPairs
+              .map(
+                (p, i) =>
+                  `${i + 1}. ${p.book.title}${
+                    p.rel.pageReference ? ` (ص ${p.rel.pageReference})` : ''
+                  }`
+              )
+              .join(' | ');
+      const authorsStr =
+        Array.from(
+          new Set(linkedPairs.map((p) => p.book.author).filter((a) => a && a !== 'ثبت‌نشده'))
+        ).join('، ') || '—';
+      const publishersStr =
+        Array.from(
+          new Set(linkedPairs.map((p) => p.book.publisher).filter((pub) => pub && pub !== 'ثبت‌نشده'))
+        ).join('، ') || '—';
+      const categoriesStr =
+        Array.from(
+          new Set(linkedPairs.map((p) => p.book.category).filter((c) => c && c !== '—'))
+        ).join('، ') || '—';
+      const subjectsStr =
+        linkedPairs
+          .map((p) =>
+            p.rel.sourceDescriptionRaw
+              ? `${p.book.title}: ${p.rel.sourceDescriptionRaw}`
+              : ''
+          )
+          .filter(Boolean)
+          .join(' | ') || '—';
+      const pagesStr =
+        linkedPairs
+          .map((p) => `${p.book.title}: ${p.rel.pageReference || '—'}`)
+          .join(' | ') || '—';
+      const extractsStr =
+        linkedExtracts.length === 0
+          ? '—'
+          : linkedExtracts
+              .map((ex) => `[${ex.bookTitleRaw} - ص ${ex.pageReferenceRaw}]: ${ex.extractedText}`)
+              .join(' || ');
+      const linkIdsStr = linkedPairs.map((p) => p.rel.linkId).join('، ') || '—';
+      const certaintiesStr =
+        Array.from(
+          new Set(linkedPairs.map((p) => formatCertaintyLabel(p.rel.certainty)))
+        ).join('، ') || '—';
+      const sourcesStr =
+        linkedPairs
+          .map((p) => `${p.rel.sourceFile}/${p.rel.sourceSheet}`)
+          .filter(Boolean)
+          .join(' | ') || m.sourceLabel;
+
+      const datesStr =
+        [
+          m.birthDate && m.birthDate !== '—' ? `تولد: ${m.birthDate}` : '',
+          m.martyrdomDate && m.martyrdomDate !== '—' ? `شهادت: ${m.martyrdomDate}` : '',
+        ]
+          .filter(Boolean)
+          .join(' | ') || '—';
+
+      return {
+        row_num: idx + 1,
+        martyr_id: m.martyrId || '—',
+        martyr_name: m.fullName,
+        tehran_martyr_status: m.tehranStatusLabel || 'تهرانی (گلزار شهدای تهران)',
+        martyr_father_name: m.fatherName || '—',
+        martyr_dates: datesStr,
+        martyr_operation: m.operationOrLocation || '—',
+        grave_full_address: m.graveAddressDisplay,
+        grave_piece: m.gravePiece || '—',
+        grave_row: m.graveRow || '—',
+        grave_number: m.graveNumber || '—',
+        grave_status: m.graveStatus || '—',
+        related_books_count: linkedPairs.length,
+        book_id: bookIdsStr,
+        book_title: bookTitlesStr,
+        book_author: authorsStr,
+        book_publisher: publishersStr,
+        book_subject_category: categoriesStr,
+        martyr_relation_subject: subjectsStr,
+        page_reference_raw: pagesStr,
+        extracted_passages_count: linkedExtracts.length,
+        extracted_text: extractsStr,
+        link_id: linkIdsStr,
+        relation_certainty: certaintiesStr,
+        source_file_and_sheet: sourcesStr,
+      };
+    });
+
+    const sheetMeta = EXCEL_SHEETS_CATALOG.find((s) => s.key === 'related_martyrs')!;
+    const ws = buildStyledWorksheet(sheetMeta.title, effectiveReportTitle, cols, rows);
+    XLSXStyle.utils.book_append_sheet(wb, ws, sheetMeta.sheetTabName);
+    sheetsCreated++;
+    totalRowsExported += rows.length;
+  }
+
+  // اگر کاربر جهت «از شهید به کتاب» را انتخاب کرده باشد، برگه ۵ (اطلاعات شهدای مرتبط) را در ابتدای فایل قرار بده
+  if (selection.direction === 'martyr_to_book' && wb.SheetNames.length > 1) {
+    const martyrTab = '۵-اطلاعات شهدای مرتبط';
+    const relTab = '۲-ارتباط کتاب و شهید';
+    wb.SheetNames.sort((a, b) => {
+      if (a === martyrTab) return -1;
+      if (b === martyrTab) return 1;
+      if (a === relTab) return -1;
+      if (b === relTab) return 1;
+      return 0;
+    });
+  }
+
+  // اگر کاربر برگه‌ای را انتخاب نکرده بود، حداقل برگه اول ساخته شود
+  if (sheetsCreated === 0) {
+    const fallbackSel: ExcelExportUserSelection = {
+      ...selection,
+      selectedSheets: new Set<ExcelSheetKey>(['main_books']),
+    };
+    return generateStandardizedMartyrCentricExcel(ctx, fallbackSel);
+  }
+
+  const subjectFileTag = activeSubjectFilter
+    ? `_موضوع_${Array.from(activeSubjectFilter).join('_')}`
+    : '';
+  const safePrefix = (
+    (selection.fileNamePrefix || 'گزارش_مرکز_اسناد_گلزار_شهدا') + subjectFileTag
+  ).replace(/[\\/:*?"<>|\s]+/g, '_');
+  const fileName = `${safePrefix}_${getPersianDateStamp()}.xlsx`;
+  XLSXStyle.writeFile(wb, fileName, EXCEL_UNIFIED_WRITE_OPTIONS);
+
+  return {
+    ok: true,
+    fileName,
+    sheetsCount: sheetsCreated,
+    totalRowsExported,
+  };
+}
+
+/**
+ * استخراج جداول کامل ۰ تا ۱۰۰ کل اطلاعات نرم‌افزار (تمام کتاب‌ها چه کارشده و چه کارنشده، تمام اسامی شهدا، و تمام ارتباط‌های شهدا و کتاب‌ها با فیلدهای متصل)
+ * برای استفاده مشترک در خروجی اضطراری اکسل (چندشیته) و خروجی اضطراری جیسون (پشتیبان کامل ۰ تا ۱۰۰)
+ */
+export function buildEmergencyZeroToHundredTables(ctx: Partial<ExcelExportDatasetContext>) {
+  const fullCtx: ExcelExportDatasetContext = {
+    reportTitle:
+      ctx.reportTitle ||
+      'خروجی جامع و اضطراری ۰ تا ۱۰۰ کل بانک اطلاعات نرم‌افزار (تمام کتاب‌ها، تمام شهدا و ارتباط‌ها)',
+    fileNamePrefix:
+      ctx.fileNamePrefix || 'خروجی_اضطراری_۰_تا_۱۰۰_کل_اطلاعات_مرکز_اسناد',
+    ...ctx,
+  };
+  const { dossiers, martyrMap, copiesByBookId, extractedItems } =
+    resolveDossiersAndMartyrIndex(fullCtx);
+
+  const lookupMartyrMeta = (
+    martyrName: string,
+    fallbackPiece?: string,
+    fallbackRow?: string,
+    fallbackNum?: string,
+    fallbackCertainty?: MartyrRelationCertainty
+  ): StandardizedMartyrEntry => {
+    const key = compactPersianForMatch(martyrName);
+    const found = key ? martyrMap.get(key) : undefined;
+    const piece =
+      found?.gravePiece && found.gravePiece !== '—' ? found.gravePiece : fallbackPiece || '—';
+    const row =
+      found?.graveRow && found.graveRow !== '—' ? found.graveRow : fallbackRow || '—';
+    const num =
+      found?.graveNumber && found.graveNumber !== '—' ? found.graveNumber : fallbackNum || '—';
+    const evalStatus = evaluateMartyrTehranStatus({
+      martyrName,
+      gravePiece: piece,
+      graveRow: row,
+      graveNumber: num,
+    });
+    return {
+      martyrId: found?.martyrId || '—',
+      fullName: martyrName || 'بدون نام شهید مشخص',
+      fatherName: found?.fatherName || '—',
+      birthDate: found?.birthDate || '—',
+      martyrdomDate: found?.martyrdomDate || '—',
+      operationOrLocation: found?.operationOrLocation || '—',
+      gravePiece: piece,
+      graveRow: row,
+      graveNumber: num,
+      graveAddressDisplay: formatGraveAddress(piece, row, num),
+      graveStatus:
+        found?.graveStatus ||
+        (fallbackCertainty ? formatCertaintyLabel(fallbackCertainty) : '—'),
+      sourceLabel: found?.sourceLabel || 'پژوهش مرکز اسناد',
+      isTehranMartyr: found?.isTehranMartyr ?? evalStatus.isTehran,
+      tehranStatusLabel:
+        found?.tehranStatusLabel ||
+        (evalStatus.isTehran
+          ? 'تهرانی (گلزار شهدای تهران)'
+          : evalStatus.isNonTehran
+          ? 'غیرتهرانی'
+          : 'بررسی‌نشده'),
+    };
+  };
+
+  // ۱. جدول کامل تمام کتاب‌ها (چه کارشده در قفسه و چه کارنشده در فهرست پایه)
+  const booksRows: Record<string, string | number>[] = dossiers.map((book, idx) => {
+    const copies = copiesByBookId.get(book.bookId) || [];
+    const copyIdsStr = copies.map((c) => c.copyId).join('، ') || '—';
+
+    const martyrMetaList = book.martyrRelations.map((m) =>
+      lookupMartyrMeta(m.martyrName, m.gravePiece, m.graveRow, m.graveNumber, m.certainty)
+    );
+
+    const martyrNamesSummary =
+      book.martyrRelations.length === 0
+        ? 'بدون ارتباط ثبت‌شده با شهید'
+        : book.martyrRelations.map((m, i) => `${i + 1}. ${m.martyrName}`).join(' | ');
+
+    const martyrIdsSummary =
+      martyrMetaList.length === 0 ? '—' : martyrMetaList.map((m) => m.martyrId).join(' | ');
+
+    const graveAddressesSummary =
+      book.martyrRelations.length === 0
+        ? '—'
+        : book.martyrRelations
+            .map(
+              (m) =>
+                `${m.martyrName}: ${formatGraveAddress(
+                  m.gravePiece,
+                  m.graveRow,
+                  m.graveNumber
+                )}`
+            )
+            .join(' | ');
+
+    const gravePiecesSummary =
+      book.martyrRelations.map((m) => m.gravePiece).filter((v) => v && v !== '—').join('، ') ||
+      '—';
+    const graveRowsSummary =
+      book.martyrRelations.map((m) => m.graveRow).filter((v) => v && v !== '—').join('، ') ||
+      '—';
+    const graveNumbersSummary =
+      book.martyrRelations.map((m) => m.graveNumber).filter((v) => v && v !== '—').join('، ') ||
+      '—';
+
+    const subjectsSummary =
+      book.martyrRelations
+        .map((m) => (m.sourceDescriptionRaw ? `${m.martyrName}: ${m.sourceDescriptionRaw}` : ''))
+        .filter(Boolean)
+        .join(' | ') ||
+      (book.description && book.description !== '—' ? book.description : '—');
+
+    const pagesSummary =
+      book.martyrRelations
+        .map((m) => (m.pageReference ? `${m.martyrName}: ${m.pageReference}` : ''))
+        .filter(Boolean)
+        .join(' | ') || '—';
+
+    const extractedTextsSummary =
+      book.extractedPassages.length === 0
+        ? '—'
+        : book.extractedPassages
+            .map((ex) => `[${ex.martyrNameRaw} - ص ${ex.pageReferenceRaw}]: ${ex.extractedText}`)
+            .join(' || ');
+
+    const linkIdsSummary = book.martyrRelations.map((m) => m.linkId).join('، ') || '—';
+
+    const certaintiesSummary =
+      book.martyrRelations.length === 0
+        ? '—'
+        : Array.from(
+            new Set(book.martyrRelations.map((m) => formatCertaintyLabel(m.certainty)))
+          ).join('، ');
+
+    const isWorkedInShelf =
+      book.physicalStatus === 'verified' ||
+      book.physicalStatus === 'review' ||
+      book.physicalStatus === 'not_found' ||
+      Boolean(book.shelf && book.shelf !== '—');
+
+    return {
+      row_num: idx + 1,
+      book_id: book.bookId,
+      book_title: book.title,
+      book_alt_title: book.alternativeTitle || '—',
+      book_author: book.author || '—',
+      book_publisher: book.publisher || '—',
+      book_year: book.year || '—',
+      book_edition: book.edition || '—',
+      book_isbn: book.isbn || '—',
+      book_fipa: book.fipa || '—',
+      book_reg_no: book.registrationNo || '—',
+      book_subject_category: formatBookSubjectCategoryDisplay(book),
+      work_status: isWorkedInShelf ? 'کارشده / ثبت‌شده در قفسه' : 'کارنشده (فهرست پایه)',
+      physical_status:
+        book.determinationStatusLabel || formatPhysicalStatusLabel(book.physicalStatus),
+      shelf_code: book.shelf || '—',
+      level_code: book.level || '—',
+      location_code: book.locationCode || '—',
+      counted_copies: book.countedCopies || '0',
+      copy_id: copyIdsStr,
+      relation_category: book.sheetCategory,
+      related_martyrs_count: book.martyrRelations.length,
+      martyr_name: martyrNamesSummary,
+      tehran_martyr_status: book.hasTehranMartyr
+        ? `تهرانی (${toPersianDigits(book.tehranMartyrsCount)} شهید در گلزار شهدای تهران)`
+        : book.martyrRelations.some((m) => m.hasHomonymIn28kNeedsReview)
+        ? 'غیرتهرانی — نیازمند بررسی کارشناس (تشابه اسمی با شهدای تهران)'
+        : book.martyrRelations.some((m) => m.isNonTehranMartyr)
+        ? 'غیرتهرانی'
+        : 'فاقد شهید تهرانی',
+      martyr_id: martyrIdsSummary,
+      grave_full_address: graveAddressesSummary,
+      grave_piece: gravePiecesSummary,
+      grave_row: graveRowsSummary,
+      grave_number: graveNumbersSummary,
+      martyr_relation_subject: subjectsSummary,
+      page_reference_raw: pagesSummary,
+      extracted_passages_count: book.extractedPassages.length,
+      extracted_text: extractedTextsSummary,
+      link_id: linkIdsSummary,
+      relation_certainty: certaintiesSummary,
+      source_file_and_sheet: `${book.originalExcelData.sourceFile} / ${book.originalExcelData.sourceSheet} (ردیف ${book.originalExcelData.sourceRow})`,
+      book_description: book.description || '—',
+      reviewer_expert_note: book.notes || '—',
+    };
+  });
+
+  // ۲. جدول کامل اسامی تمام شهدا (شهدای دارای کتاب مرتبط + شهدای ثبت‌شده سفارشی + شهدای شیت گلزار)
+  const booksByMartyrKey = new Map<
+    string,
+    Array<{ book: UnifiedBookDossier; rel: BookDossierMartyrRelation }>
+  >();
+  for (const book of dossiers) {
+    for (const rel of book.martyrRelations) {
+      if (!rel.martyrName || rel.martyrName === '*') continue;
+      const mKey = compactPersianForMatch(rel.martyrName);
+      if (!mKey) continue;
+      const list = booksByMartyrKey.get(mKey) || [];
+      list.push({ book, rel });
+      booksByMartyrKey.set(mKey, list);
+    }
+  }
+
+  const extractsByMartyrKey = new Map<string, ExtractedContentItem[]>();
+  for (const ex of extractedItems) {
+    const mKey = compactPersianForMatch(ex.martyrNameRaw);
+    if (!mKey) continue;
+    const list = extractsByMartyrKey.get(mKey) || [];
+    list.push(ex);
+    extractsByMartyrKey.set(mKey, list);
+  }
+
+  const allMartyrsSorted = Array.from(martyrMap.values()).sort((a, b) => {
+    const aBooks = (booksByMartyrKey.get(compactPersianForMatch(a.fullName)) || []).length;
+    const bBooks = (booksByMartyrKey.get(compactPersianForMatch(b.fullName)) || []).length;
+    if (bBooks !== aBooks) return bBooks - aBooks;
+    return a.fullName.localeCompare(b.fullName, 'fa');
+  });
+
+  const martyrsRows: Record<string, string | number>[] = allMartyrsSorted.map((m, idx) => {
+    const mKey = compactPersianForMatch(m.fullName);
+    const linkedPairs = (mKey ? booksByMartyrKey.get(mKey) : undefined) || [];
+    const linkedExtracts = (mKey ? extractsByMartyrKey.get(mKey) : undefined) || [];
+
+    const bookIdsStr = linkedPairs.map((p) => p.book.bookId).join(' | ') || '—';
+    const bookTitlesStr =
+      linkedPairs.length === 0
+        ? 'بدون کتاب ثبت‌شده در فهرست فعلی'
+        : linkedPairs
+            .map(
+              (p, i) =>
+                `${i + 1}. ${p.book.title}${
+                  p.rel.pageReference ? ` (ص ${p.rel.pageReference})` : ''
+                }`
+            )
+            .join(' | ');
+    const authorsStr =
+      Array.from(
+        new Set(linkedPairs.map((p) => p.book.author).filter((a) => a && a !== 'ثبت‌نشده'))
+      ).join('، ') || '—';
+    const publishersStr =
+      Array.from(
+        new Set(linkedPairs.map((p) => p.book.publisher).filter((pub) => pub && pub !== 'ثبت‌نشده'))
+      ).join('، ') || '—';
+    const categoriesStr =
+      Array.from(
+        new Set(linkedPairs.map((p) => formatBookSubjectCategoryDisplay(p.book)).filter((c) => c && c !== '—'))
+      ).join('، ') || '—';
+    const locationsStr =
+      Array.from(
+        new Set(linkedPairs.map((p) => p.book.locationCode).filter((loc) => loc && loc !== '—'))
+      ).join('، ') || '—';
+    const subjectsStr =
+      linkedPairs
+        .map((p) =>
+          p.rel.sourceDescriptionRaw ? `${p.book.title}: ${p.rel.sourceDescriptionRaw}` : ''
+        )
+        .filter(Boolean)
+        .join(' | ') || '—';
+    const pagesStr =
+      linkedPairs
+        .map((p) => `${p.book.title}: ${p.rel.pageReference || '—'}`)
+        .join(' | ') || '—';
+    const extractsStr =
+      linkedExtracts.length === 0
+        ? '—'
+        : linkedExtracts
+            .map((ex) => `[${ex.bookTitleRaw} - ص ${ex.pageReferenceRaw}]: ${ex.extractedText}`)
+            .join(' || ');
+    const linkIdsStr = linkedPairs.map((p) => p.rel.linkId).join('، ') || '—';
+    const certaintiesStr =
+      Array.from(
+        new Set(linkedPairs.map((p) => formatCertaintyLabel(p.rel.certainty)))
+      ).join('، ') || '—';
+    const sourcesStr =
+      linkedPairs
+        .map((p) => `${p.rel.sourceFile}/${p.rel.sourceSheet}`)
+        .filter(Boolean)
+        .join(' | ') || m.sourceLabel;
+
+    const datesStr =
+      [
+        m.birthDate && m.birthDate !== '—' ? `تولد: ${m.birthDate}` : '',
+        m.martyrdomDate && m.martyrdomDate !== '—' ? `شهادت: ${m.martyrdomDate}` : '',
+      ]
+        .filter(Boolean)
+        .join(' | ') || '—';
+
+    return {
+      row_num: idx + 1,
+      martyr_id: m.martyrId || '—',
+      martyr_name: m.fullName,
+      tehran_martyr_status: m.tehranStatusLabel || 'تهرانی (گلزار شهدای تهران)',
+      martyr_father_name: m.fatherName || '—',
+      martyr_dates: datesStr,
+      martyr_operation: m.operationOrLocation || '—',
+      grave_full_address: m.graveAddressDisplay,
+      grave_piece: m.gravePiece || '—',
+      grave_row: m.graveRow || '—',
+      grave_number: m.graveNumber || '—',
+      grave_status: m.graveStatus || '—',
+      related_books_count: linkedPairs.length,
+      book_id: bookIdsStr,
+      book_title: bookTitlesStr,
+      book_author: authorsStr,
+      book_publisher: publishersStr,
+      book_subject_category: categoriesStr,
+      location_code: locationsStr,
+      martyr_relation_subject: subjectsStr,
+      page_reference_raw: pagesStr,
+      extracted_passages_count: linkedExtracts.length,
+      extracted_text: extractsStr,
+      link_id: linkIdsStr,
+      relation_certainty: certaintiesStr,
+      source_file_and_sheet: sourcesStr,
+    };
+  });
+
+  // ۳. جدول کامل ارتباط‌های شهدا و کتاب‌ها (با تمام فیلدهای متصل کتاب و شهید در یک سطر)
+  const relationsRows: Record<string, string | number>[] = [];
+  let relIdx = 1;
+  for (const book of dossiers) {
+    if (book.martyrRelations.length === 0) {
+      continue;
+    }
+    const isWorkedInShelf =
+      book.physicalStatus === 'verified' ||
+      book.physicalStatus === 'review' ||
+      book.physicalStatus === 'not_found' ||
+      Boolean(book.shelf && book.shelf !== '—');
+
+    for (const rel of book.martyrRelations) {
+      const mMeta = lookupMartyrMeta(
+        rel.martyrName,
+        rel.gravePiece,
+        rel.graveRow,
+        rel.graveNumber,
+        rel.certainty
+      );
+      const matchingPassages = book.extractedPassages.filter(
+        (ex) =>
+          compactPersianForMatch(ex.martyrNameRaw) === compactPersianForMatch(rel.martyrName)
+      );
+      const passageText =
+        matchingPassages.length > 0
+          ? matchingPassages.map((p) => p.extractedText).join(' | ')
+          : '—';
+
+      relationsRows.push({
+        row_num: relIdx++,
+        link_id: rel.linkId,
+        martyr_name: rel.martyrName,
+        martyr_id: mMeta.martyrId,
+        tehran_martyr_status: rel.isTehranMartyr
+          ? 'تهرانی (گلزار شهدای تهران)'
+          : rel.hasHomonymIn28kNeedsReview
+          ? 'غیرتهرانی — نیازمند بررسی کارشناس (تشابه اسمی با شهدای تهران)'
+          : rel.isNonTehranMartyr
+          ? 'غیرتهرانی'
+          : mMeta.tehranStatusLabel || 'بررسی‌نشده',
+        grave_full_address: mMeta.graveAddressDisplay,
+        grave_piece: mMeta.gravePiece,
+        grave_row: mMeta.graveRow,
+        grave_number: mMeta.graveNumber,
+        grave_status: mMeta.graveStatus,
+        book_id: book.bookId,
+        book_title: book.title,
+        book_alt_title: book.alternativeTitle || '—',
+        book_author: book.author || '—',
+        book_publisher: book.publisher || '—',
+        book_year: book.year || '—',
+        book_subject_category: formatBookSubjectCategoryDisplay(book),
+        work_status: isWorkedInShelf ? 'کارشده / ثبت‌شده در قفسه' : 'کارنشده (فهرست پایه)',
+        location_code: book.locationCode || '—',
+        shelf_code: book.shelf || '—',
+        level_code: book.level || '—',
+        physical_status: book.determinationStatusLabel,
+        relation_category: rel.sourceSheetCategory,
+        martyr_relation_subject: rel.sourceDescriptionRaw || book.description || '—',
+        page_reference_raw: rel.pageReference || '—',
+        extracted_text: passageText,
+        relation_certainty: formatCertaintyLabel(rel.certainty),
+        review_verification_status: rel.rawStatus || '—',
+        source_file_and_sheet: `${rel.sourceFile} / ${rel.sourceSheet} (ردیف ${rel.sourceExcelRow})`,
+        reviewer_expert_note: rel.reviewerNote || book.notes || '—',
+      });
+    }
+  }
+
+  return {
+    booksRows,
+    martyrsRows,
+    relationsRows,
+    counts: {
+      totalBooks: booksRows.length,
+      workedBooks: booksRows.filter((r) => r.work_status === 'کارشده / ثبت‌شده در قفسه').length,
+      unworkedBooks: booksRows.filter((r) => r.work_status !== 'کارشده / ثبت‌شده در قفسه').length,
+      totalMartyrs: martyrsRows.length,
+      martyrsWithBooks: martyrsRows.filter((r) => Number(r.related_books_count) > 0).length,
+      totalBookMartyrRelations: relationsRows.length,
+    },
+  };
+}
+
+/**
+ * خروجی اضطراری ۰ تا ۱۰۰ کل بانک اطلاعات نرم‌افزار در قالب اکسل استاندارد چندشیته:
+ * - شیت ۱: کل کتاب‌ها (کارشده و کارنشده با تمام فیلدهای جستجو و فیلتر)
+ * - شیت ۲: اسامی شهدا (تمام شهدا به همراه مزار و کتاب‌های مرتبط)
+ * - شیت ۳: اسامی شهدا و کتاب‌های مرتبط (تمام ارتباط‌ها به همراه فیلدهای متصل دوطرفه)
+ */
+export function generateEmergencyZeroToHundredExcel(ctx: Partial<ExcelExportDatasetContext>): {
+  ok: boolean;
+  fileName: string;
+  sheetsCount: number;
+  totalRowsExported: number;
+  counts: ReturnType<typeof buildEmergencyZeroToHundredTables>['counts'];
+} {
+  const { booksRows, martyrsRows, relationsRows, counts } =
+    buildEmergencyZeroToHundredTables(ctx);
+
+  const reportTitle =
+    'خروجی جامع و اضطراری ۰ تا ۱۰۰ کل بانک اطلاعات نرم‌افزار (تمام کتاب‌ها، تمام شهدا و ارتباط‌ها)';
+
+  const wb = XLSXStyle.utils.book_new();
+  if (!wb.Workbook) wb.Workbook = {};
+  wb.Workbook.Views = [{ RTL: true }];
+  (wb as Record<string, unknown>).Themes = { raw: EXCEL_VAZIRMATN_THEME_XML };
+
+  // شیت ۱: کل کتاب‌ها (کارشده و کارنشده)
+  const bookCols: StyledColumnSpec[] = [
+    { header: 'ردیف', key: 'row_num', width: 8 },
+    { header: 'شناسه کتاب', key: 'book_id', width: 15 },
+    { header: 'عنوان کتاب', key: 'book_title', width: 34, isLongText: true },
+    { header: 'عنوان اولیه / دیگر', key: 'book_alt_title', width: 24, isLongText: true },
+    { header: 'نویسنده / گردآورنده', key: 'book_author', width: 24, isLongText: true },
+    { header: 'ناشر', key: 'book_publisher', width: 22 },
+    { header: 'سال چاپ', key: 'book_year', width: 12 },
+    { header: 'نوبت چاپ', key: 'book_edition', width: 12 },
+    { header: 'شابک (ISBN)', key: 'book_isbn', width: 18 },
+    { header: 'شماره فیپا', key: 'book_fipa', width: 16 },
+    { header: 'شماره ثبت', key: 'book_reg_no', width: 15 },
+    { header: 'گروه موضوعی', key: 'book_subject_category', width: 22 },
+    { header: 'وضعیت کارکرد (کارشده / کارنشده)', key: 'work_status', width: 24 },
+    { header: 'وضعیت موجودی و بررسی قفسه', key: 'physical_status', width: 24 },
+    { header: 'قفسه', key: 'shelf_code', width: 12 },
+    { header: 'طبقه', key: 'level_code', width: 12 },
+    { header: 'کد محل نگهداری', key: 'location_code', width: 18 },
+    { header: 'تعداد نسخه', key: 'counted_copies', width: 14 },
+    { header: 'شناسه نسخه (CP)', key: 'copy_id', width: 18 },
+    { header: 'دسته‌بندی ارتباط', key: 'relation_category', width: 18 },
+    { header: 'تعداد شهدای مرتبط', key: 'related_martyrs_count', width: 16 },
+    { header: 'اسامی شهدای مرتبط', key: 'martyr_name', width: 38, isLongText: true },
+    { header: 'وضعیت شهید تهرانی (گلزار تهران)', key: 'tehran_martyr_status', width: 26 },
+    { header: 'شناسه‌های شهدا', key: 'martyr_id', width: 20 },
+    { header: 'آدرس و محل مزار شهدای مرتبط', key: 'grave_full_address', width: 38, isLongText: true },
+    { header: 'قطعه مزار', key: 'grave_piece', width: 14 },
+    { header: 'ردیف مزار', key: 'grave_row', width: 14 },
+    { header: 'شماره مزار', key: 'grave_number', width: 14 },
+    { header: 'موضوعات مرتبط با شهدا در کتاب', key: 'martyr_relation_subject', width: 38, isLongText: true },
+    { header: 'شماره صفحات مرتبط', key: 'page_reference_raw', width: 24, isLongText: true },
+    { header: 'تعداد متن استخراج‌شده', key: 'extracted_passages_count', width: 16 },
+    { header: 'خلاصه متن‌های استخراج‌شده', key: 'extracted_text', width: 50, isLongText: true },
+    { header: 'شناسه‌های ارتباط (RL)', key: 'link_id', width: 22 },
+    { header: 'وضعیت قطعیت ارتباط', key: 'relation_certainty', width: 20 },
+    { header: 'منبع اطلاعات کتاب', key: 'source_file_and_sheet', width: 28 },
+    { header: 'توضیحات کتاب', key: 'book_description', width: 36, isLongText: true },
+    { header: 'یادداشت کارشناس / قفسه', key: 'reviewer_expert_note', width: 32, isLongText: true },
+  ];
+  const wsBooks = buildStyledWorksheet(
+    'شیت ۱ — بانک کامل تمام کتاب‌ها (کارشده و کارنشده)',
+    reportTitle,
+    bookCols,
+    booksRows
+  );
+  XLSXStyle.utils.book_append_sheet(wb, wsBooks, '۱-کل کتاب‌ها');
+
+  // شیت ۲: اسامی تمام شهدا
+  const martyrCols: StyledColumnSpec[] = [
+    { header: 'ردیف', key: 'row_num', width: 8 },
+    { header: 'شناسه یا کد شهید', key: 'martyr_id', width: 18 },
+    { header: 'نام و نام خانوادگی شهید', key: 'martyr_name', width: 28 },
+    { header: 'وضعیت شهید تهرانی (گلزار شهدای تهران)', key: 'tehran_martyr_status', width: 26 },
+    { header: 'نام پدر', key: 'martyr_father_name', width: 18 },
+    { header: 'تاریخ تولد و شهادت', key: 'martyr_dates', width: 24 },
+    { header: 'عملیات / محل شهادت', key: 'martyr_operation', width: 24 },
+    { header: 'نشانی کامل مزار', key: 'grave_full_address', width: 32, isLongText: true },
+    { header: 'قطعه مزار', key: 'grave_piece', width: 14 },
+    { header: 'ردیف مزار', key: 'grave_row', width: 14 },
+    { header: 'شماره مزار', key: 'grave_number', width: 14 },
+    { header: 'وضعیت تطبیق مزار', key: 'grave_status', width: 20 },
+    { header: 'تعداد کتاب‌های مرتبط', key: 'related_books_count', width: 16 },
+    { header: 'شناسه‌های کتاب‌های مرتبط', key: 'book_id', width: 22 },
+    { header: 'کتاب یا کتاب‌های مرتبط با شهید', key: 'book_title', width: 40, isLongText: true },
+    { header: 'نویسندگان کتاب‌های مرتبط', key: 'book_author', width: 26, isLongText: true },
+    { header: 'ناشران کتاب‌های مرتبط', key: 'book_publisher', width: 24, isLongText: true },
+    { header: 'گروه موضوعی کتاب‌های مرتبط', key: 'book_subject_category', width: 24 },
+    { header: 'محل نگهداری کتاب‌ها در قفسه', key: 'location_code', width: 22 },
+    { header: 'موضوعات مرتبط با شهید در کتاب‌ها', key: 'martyr_relation_subject', width: 38, isLongText: true },
+    { header: 'شماره صفحات مرتبط در کتاب‌ها', key: 'page_reference_raw', width: 26, isLongText: true },
+    { header: 'تعداد متن استخراج‌شده', key: 'extracted_passages_count', width: 16 },
+    { header: 'متن استخراج‌شده درباره شهید', key: 'extracted_text', width: 52, isLongText: true },
+    { header: 'شناسه‌های ارتباط (RL)', key: 'link_id', width: 22 },
+    { header: 'وضعیت قطعیت ارتباط', key: 'relation_certainty', width: 20 },
+    { header: 'منبع پرونده و ارتباط', key: 'source_file_and_sheet', width: 30, isLongText: true },
+  ];
+  const wsMartyrs = buildStyledWorksheet(
+    'شیت ۲ — بانک کامل اسامی شهدا و مشخصات مزار و آثار مرتبط',
+    reportTitle,
+    martyrCols,
+    martyrsRows
+  );
+  XLSXStyle.utils.book_append_sheet(wb, wsMartyrs, '۲-اسامی شهدا');
+
+  // شیت ۳: اسامی شهدا و کتاب‌های مرتبط (تمام فیلدهای متصل به هم)
+  const relCols: StyledColumnSpec[] = [
+    { header: 'ردیف', key: 'row_num', width: 8 },
+    { header: 'شناسه ارتباط (RL)', key: 'link_id', width: 18 },
+    { header: 'نام و نام خانوادگی شهید', key: 'martyr_name', width: 28 },
+    { header: 'شناسه شهید', key: 'martyr_id', width: 18 },
+    { header: 'وضعیت شهید تهرانی (گلزار تهران)', key: 'tehran_martyr_status', width: 26 },
+    { header: 'نشانی کامل مزار شهید', key: 'grave_full_address', width: 32, isLongText: true },
+    { header: 'قطعه مزار', key: 'grave_piece', width: 14 },
+    { header: 'ردیف مزار', key: 'grave_row', width: 14 },
+    { header: 'شماره مزار', key: 'grave_number', width: 14 },
+    { header: 'وضعیت مزار', key: 'grave_status', width: 18 },
+    { header: 'شناسه کتاب', key: 'book_id', width: 16 },
+    { header: 'عنوان کتاب مرتبط', key: 'book_title', width: 34, isLongText: true },
+    { header: 'عنوان دیگر کتاب', key: 'book_alt_title', width: 22 },
+    { header: 'نویسنده / گردآورنده کتاب', key: 'book_author', width: 24 },
+    { header: 'ناشر کتاب', key: 'book_publisher', width: 22 },
+    { header: 'سال چاپ', key: 'book_year', width: 12 },
+    { header: 'گروه موضوعی کتاب', key: 'book_subject_category', width: 22 },
+    { header: 'وضعیت کارکرد کتاب در قفسه', key: 'work_status', width: 24 },
+    { header: 'کد محل نگهداری (قفسه-طبقه)', key: 'location_code', width: 20 },
+    { header: 'قفسه', key: 'shelf_code', width: 12 },
+    { header: 'طبقه', key: 'level_code', width: 12 },
+    { header: 'وضعیت موجودی کتاب', key: 'physical_status', width: 22 },
+    { header: 'دسته‌بندی ارتباط', key: 'relation_category', width: 18 },
+    { header: 'موضوع ارتباط شهید با کتاب', key: 'martyr_relation_subject', width: 38, isLongText: true },
+    { header: 'شماره صفحه در کتاب', key: 'page_reference_raw', width: 18 },
+    { header: 'متن استخراج‌شده درباره شهید در کتاب', key: 'extracted_text', width: 50, isLongText: true },
+    { header: 'سطح قطعیت ارتباط', key: 'relation_certainty', width: 18 },
+    { header: 'وضعیت بررسی و تأیید', key: 'review_verification_status', width: 22 },
+    { header: 'منبع ارتباط (فایل / شیت / ردیف)', key: 'source_file_and_sheet', width: 28 },
+    { header: 'یادداشت کارشناس', key: 'reviewer_expert_note', width: 30, isLongText: true },
+  ];
+  const wsRelations = buildStyledWorksheet(
+    'شیت ۳ — ارتباط متقابل اسامی شهدا و کتاب‌های مرتبط (با تمام فیلدهای متصل)',
+    reportTitle,
+    relCols,
+    relationsRows
+  );
+  XLSXStyle.utils.book_append_sheet(wb, wsRelations, '۳-شهدا و کتاب‌های مرتبط');
+
+  const fileName = `خروجی_اضطراری_۰_تا_۱۰۰_کل_اطلاعات_مرکز_اسناد_${getPersianDateStamp()}.xlsx`;
+  XLSXStyle.writeFile(wb, fileName, EXCEL_UNIFIED_WRITE_OPTIONS);
+
+  return {
+    ok: true,
+    fileName,
+    sheetsCount: 3,
+    totalRowsExported: booksRows.length + martyrsRows.length + relationsRows.length,
+    counts,
+  };
+}
+

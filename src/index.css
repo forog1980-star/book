@@ -1,0 +1,331 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: local('Vazirmatn'), url('./assets/fonts/Vazirmatn-variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'B Titr';
+  src: local('B Titr'), local('BTitrBold'), local('Titr');
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --font-sans: 'Vazirmatn', system-ui, -apple-system, sans-serif;
+    --font-titr: 'B Titr', 'Lalezar', 'Vazirmatn', sans-serif;
+    --font-serif: 'B Titr', 'Lalezar', 'Amiri', Georgia, serif;
+    --font-mono: 'JetBrains Mono', 'Vazirmatn', monospace;
+
+    /* پالت رنگی مصوب مرکز اسناد (گرم، روشن، آرشیوی و آرام) در کل سامانه:
+       - زمینه بیرونی: #C8BD9B
+       - زمینه اصلی: #F0EBD9
+       - زمینه کارت‌ها و پنل‌ها: #FBF8EC
+       - رنگ زیتونی ملایم: #B9B38A
+       - رنگ زغالی (نوشته‌ها و دکمه‌های اصلی): #353530
+       - خطوط و حاشیه‌ها: #D8D1BB
+    */
+    --bg-outer: #C8BD9B;
+    --bg-cream: #F0EBD9;
+    --bg-card: #FBF8EC;
+    --bg-sand: #F0EBD9;
+    --bg-sand-hover: #E5DEC6;
+    --border-warm: #D8D1BB;
+    --text-espresso: #353530;
+    --text-chocolate: #525046;
+    --text-muted: #6E6A5C;
+    --brand-chocolate: #353530;
+    --brand-chocolate-hover: #4A493E;
+    --brand-olive: #B9B38A;
+    --action-confirm: #15803D;
+    --action-confirm-hover: #166534;
+    --action-danger: #B91C1C;
+    --action-danger-hover: #991B1B;
+    --depository-blue-bg: #FBF8EC;
+    --depository-blue-border: #D8D1BB;
+    --depository-blue-text: #353530;
+  }
+
+  html,
+  body,
+  #root {
+    max-width: 100%;
+    overflow-x: hidden;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: 'Vazirmatn', var(--font-sans);
+    background-color: var(--bg-outer);
+    color: var(--text-espresso);
+    font-feature-settings: "kern" 1;
+  }
+
+  h1,
+  h2,
+  h3,
+  .font-titr,
+  .font-editorial {
+    font-family: 'B Titr', 'Lalezar', 'Vazirmatn', sans-serif;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1.45;
+  }
+}
+
+/* استایل کارت‌های صفحه خانه و بخش‌های سامانه با پالت آرشیوی (#FBF8EC, #F0EBD9, #D8D1BB, #353530) */
+.home-hero {
+  background: linear-gradient(135deg, #FBF8EC 0%, #F0EBD9 100%);
+  border: 1px solid #D8D1BB;
+}
+
+.home-section-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.65rem;
+  background-color: #FBF8EC;
+  border: 1px solid #D8D1BB;
+  border-radius: 1rem;
+  padding: 1rem;
+  transition: all 0.2s ease;
+}
+
+.home-section-card:hover {
+  background-color: #F0EBD9;
+  border-color: #B9B38A;
+  transform: translateY(-2px);
+}
+
+.home-section-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  background-color: #F0EBD9;
+  color: #353530;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.home-section-title {
+  font-family: 'B Titr', 'Lalezar', 'Vazirmatn', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #353530;
+  display: block;
+}
+
+.home-section-note {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: #6E6A5C;
+  display: block;
+}
+
+.home-section-open {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #353530;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.home-statistics {
+  background-color: #FBF8EC;
+  border: 1px solid #D8D1BB;
+  border-radius: 1rem;
+  padding: 0.75rem 1rem;
+}
+
+.home-statistics > summary {
+  cursor: pointer;
+  font-family: 'B Titr', 'Lalezar', 'Vazirmatn', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #353530;
+  padding: 0.35rem 0;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.home-statistics > summary::after {
+  content: '▼ نمایش / بستن';
+  font-family: 'Vazirmatn', sans-serif;
+  font-size: 0.72rem;
+  background-color: #F0EBD9;
+  color: #353530;
+  padding: 0.25rem 0.65rem;
+  border-radius: 0.5rem;
+}
+
+/* هماهنگ‌سازی سراسری کل صفحات نرم‌افزار با پالت مصوب آرشیوی:
+   - زمینه بیرونی: #C8BD9B
+   - زمینه اصلی: #F0EBD9
+   - کارت‌ها و پنل‌ها: #FBF8EC
+   - زیتونی ملایم: #B9B38A
+   - زغالی (متن و دکمه‌های اصلی): #353530
+   - خطوط و حاشیه‌ها: #D8D1BB
+*/
+.bg-\[\#1F4E79\],
+.bg-\[\#1f4e79\],
+.bg-\[\#8C3B2B\],
+.bg-\[\#6B3E26\] {
+  background-color: #353530 !important;
+}
+
+.hover\:bg-\[\#173b5c\]:hover,
+.hover\:bg-\[\#163a5b\]:hover,
+.hover\:bg-\[\#163858\]:hover,
+.hover\:bg-\[\#702D20\]:hover,
+.hover\:bg-\[\#56311E\]:hover,
+.hover\:bg-\[\#54301D\]:hover {
+  background-color: #4A493E !important;
+}
+
+.text-\[\#1F4E79\],
+.text-\[\#1f4e79\],
+.text-\[\#8C3B2B\],
+.text-\[\#6B3E26\],
+.text-\[\#332218\],
+.text-\[\#253247\],
+.text-slate-900,
+.text-slate-800,
+.text-\[\#162b3b\] {
+  color: #353530 !important;
+}
+
+.text-\[\#5C4636\],
+.text-\[\#5C4033\],
+.text-\[\#6E5846\],
+.text-\[\#6E5849\],
+.text-\[\#755C48\] {
+  color: #525046 !important;
+}
+
+.text-\[\#697586\],
+.text-slate-600,
+.text-slate-500,
+.text-\[\#78604E\],
+.text-\[\#9C826B\] {
+  color: #6E6A5C !important;
+}
+
+.bg-white,
+.bg-\[\#FFFDFA\] {
+  background-color: #FBF8EC !important;
+}
+
+.bg-\[\#FDF8F2\],
+.bg-\[\#FAF3EA\],
+.bg-\[\#FAF5EE\],
+.bg-\[\#F6EFE6\],
+.bg-\[\#EFE6D8\],
+.bg-\[\#F5F7FA\],
+.bg-slate-50,
+.bg-slate-100 {
+  background-color: #F0EBD9 !important;
+}
+
+.bg-\[\#EAF1F7\],
+.bg-\[\#EAF1F7\]\/60,
+.bg-\[\#EAF1F7\]\/70,
+.bg-\[\#EAF1F7\]\/80,
+.bg-\[\#edf4fa\],
+.bg-\[\#f2f7fb\],
+.bg-\[\#F5E6D3\],
+.bg-\[\#F3E9DC\],
+.bg-\[\#EDF4FB\] {
+  background-color: #E5DEC6 !important;
+}
+
+.border-slate-200,
+.border-slate-300,
+.border-\[\#b8d0e8\],
+.border-\[\#c9dced\],
+.border-\[\#E6D5C1\],
+.border-\[\#E2D2BE\],
+.border-\[\#D8C7B2\],
+.border-\[\#EFE5D8\],
+.border-\[\#EFE4D6\],
+.border-\[\#E5D7C6\],
+.border-\[\#F2E9DE\],
+.border-\[\#C5D9ED\] {
+  border-color: #D8D1BB !important;
+}
+
+.border-\[\#1F4E79\],
+.border-\[\#1f4e79\],
+.border-\[\#8C3B2B\],
+.border-\[\#6B3E26\],
+.border-\[\#702D20\] {
+  border-color: #B9B38A !important;
+}
+
+/* کلیدهای ذخیره و تأیید: سبز پررنگ (#15803D) */
+.bg-\[\#2E7D5B\],
+.bg-\[\#2E6F40\],
+.bg-emerald-600,
+.bg-emerald-700 {
+  background-color: #15803D !important;
+}
+
+.hover\:bg-\[\#246348\]:hover,
+.hover\:bg-\[\#236347\]:hover,
+.hover\:bg-\[\#236247\]:hover,
+.hover\:bg-\[\#235632\]:hover,
+.hover\:bg-emerald-700:hover,
+.hover\:bg-emerald-500:hover {
+  background-color: #166534 !important;
+}
+
+.text-\[\#2E7D5B\],
+.text-\[\#2E6F40\],
+.text-emerald-700,
+.text-emerald-800 {
+  color: #15803D !important;
+}
+
+/* کلیدهای رد و حذف: قرمز پررنگ (#B91C1C) */
+.bg-\[\#B94A48\],
+.bg-rose-600,
+.bg-red-600 {
+  background-color: #B91C1C !important;
+}
+
+.hover\:bg-\[\#993b39\]:hover,
+.hover\:bg-rose-700:hover,
+.hover\:bg-red-700:hover {
+  background-color: #991B1B !important;
+}
+
+.text-\[\#B94A48\],
+.text-rose-600,
+.text-rose-700 {
+  color: #B91C1C !important;
+}
+
+/* بخش متمایز خروجی دوسویه اسناد هماهنگ با پالت آرشیوی */
+.depository-soft-blue {
+  background: linear-gradient(135deg, #FBF8EC 0%, #F0EBD9 100%) !important;
+  border: 1px solid #D8D1BB !important;
+  color: #353530 !important;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.balance-text {
+  text-wrap: balance;
+}

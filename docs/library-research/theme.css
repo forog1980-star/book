@@ -1,0 +1,286 @@
+/* Soft paper and pale warm neutrals. Fonts are local/system only. */
+:root {
+  color-scheme: light;
+  --archive-primary: #BFA18D;
+  --archive-primary-hover: #B39782;
+  --archive-accent: #D9C3AD;
+  --archive-bg: #FBF8F3;
+  --archive-surface: #FFFEFB;
+  --archive-surface-alt: #F5F0E9;
+  --archive-border: #E9E0D6;
+  --archive-text: #665D56;
+  --archive-muted: #8B827B;
+  --archive-success: #829788;
+  --archive-warning: #B69A6E;
+  --archive-danger: #BE8B85;
+  --font-persian: "Vazirmatn", "IRANSansX", "IRANYekanX", "Estedad", "Sahel", "Shabnam", "Noto Sans Arabic", "Noto Naskh Arabic", sans-serif;
+}
+
+html, body {
+  background: var(--archive-bg) !important;
+  color: var(--archive-text) !important;
+  font-family: var(--font-persian);
+  font-feature-settings: "kern" 1;
+  text-rendering: optimizeLegibility;
+}
+
+body, button, input, select, textarea {
+  font-family: var(--font-persian);
+}
+
+button {
+  min-height: 42px;
+  border-radius: 11px;
+  transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible,
+select:focus-visible, textarea:focus-visible {
+  outline: 2px solid #CDB8A3;
+  outline-offset: 2px;
+}
+
+.app-header {
+  background: linear-gradient(115deg, #FFFEFB 0%, #F7F1E9 100%) !important;
+  border-bottom: 1px solid var(--archive-border) !important;
+  color: var(--archive-text) !important;
+}
+
+.brand-mark {
+  background: #EDE1D6 !important;
+  color: #756358 !important;
+  box-shadow: 0 3px 10px rgb(120 96 77 / 7%);
+}
+
+.brand strong, .page-heading h1, .panel h2, .record-card h3 {
+  color: var(--archive-text);
+}
+
+.small-note, .muted, .app-footer {
+  color: var(--archive-muted) !important;
+}
+
+.main-nav {
+  background: var(--archive-surface-alt) !important;
+  border: 1px solid var(--archive-border) !important;
+  border-radius: 14px;
+}
+
+.main-nav button {
+  color: #74675D !important;
+  border-color: transparent !important;
+}
+
+.main-nav button.active {
+  background: #E8DBCF !important;
+  border-color: #E1D2C5 !important;
+  color: #67584E !important;
+  box-shadow: 0 2px 7px rgb(120 96 77 / 7%);
+}
+
+.app-main {
+  color: var(--archive-text);
+}
+
+.eyebrow {
+  color: #A88D79 !important;
+  letter-spacing: 0;
+}
+
+.panel, .stat-card, .record-card, .empty-state {
+  background: var(--archive-surface) !important;
+  border: 1px solid var(--archive-border) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 4px 14px rgb(95 78 63 / 3%) !important;
+}
+
+.stat-card strong, .category-chip b {
+  color: #9C806D !important;
+}
+
+.category-chip {
+  background: #FAF6F0 !important;
+  border: 1px solid var(--archive-border) !important;
+  border-radius: 12px;
+}
+
+.primary, button.primary {
+  background: #E8DBCF !important;
+  border-color: #DED0C3 !important;
+  color: #66584F !important;
+}
+
+.primary:hover, button.primary:hover {
+  background: #DECEC0 !important;
+  border-color: #D5C4B5 !important;
+}
+
+.secondary, button.secondary {
+  background: #F8F5F0 !important;
+  border: 1px solid #E9E0D6 !important;
+  color: #75685E !important;
+}
+
+.secondary:hover, button.secondary:hover {
+  background: #F1EBE3 !important;
+  border-color: #E1D6CA !important;
+}
+
+.text-button {
+  color: #9A7F6C !important;
+}
+
+.field input, .field select, .field textarea,
+.search-large input, input[type="text"], input[type="number"],
+input[type="file"], select, textarea {
+  background: #FFFEFC !important;
+  border-color: #E6DDD3 !important;
+  color: var(--archive-text) !important;
+  border-radius: 10px;
+}
+
+.field input:focus, .field select:focus, .field textarea:focus,
+.search-large input:focus {
+  border-color: var(--archive-accent) !important;
+  box-shadow: 0 0 0 3px rgb(217 195 173 / 20%) !important;
+}
+
+.pill {
+  border: 1px solid #E8DED4;
+  border-radius: 999px;
+  background: #F6F0E9;
+  color: #786B61;
+}
+
+.notice-success {
+  background: #F0F4EF !important;
+  border-color: #DDE6DC !important;
+  color: #637A68 !important;
+}
+
+.notice-amber {
+  background: #FBF5E9 !important;
+  border-color: #EEE3D0 !important;
+  color: #8A765B !important;
+}
+
+.related-links {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--archive-border);
+}
+
+.related-link-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.related-link-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 7px 10px;
+  border: 1px solid #EEE7DF;
+  border-radius: 10px;
+  background: #FCFAF6;
+}
+
+.copy-row {
+  border-color: var(--archive-border) !important;
+}
+
+.table-wrap {
+  border-color: var(--archive-border) !important;
+  border-radius: 12px;
+}
+
+.app-footer {
+  border-top: 1px solid var(--archive-border) !important;
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    position: relative;
+    z-index: 30;
+    gap: 10px;
+    align-items: center;
+    background: #FFFEFB !important;
+  }
+  .main-nav {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: thin;
+  }
+  .main-nav button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    min-height: 44px;
+  }
+  .panel, .stat-card, .record-card {
+    border-radius: 13px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+
+/* Keep the mobile navigation above long tables and make every destination reachable. */
+.app-header,
+.main-nav {
+  position: relative;
+  z-index: 30;
+}
+
+.app-main {
+  position: relative;
+  z-index: 1;
+}
+
+.table-wrap {
+  position: relative;
+  z-index: 0;
+}
+
+.form-actions {
+  position: relative;
+  z-index: 2;
+}
+
+@media (max-width: 640px) {
+  .main-nav {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    overflow: visible;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 8px;
+  }
+  .main-nav button {
+    display: flex;
+    position: relative;
+    box-sizing: border-box;
+    flex: 1 1 calc(33.333% - 6px);
+    width: calc(33.333% - 6px);
+    max-width: calc(33.333% - 6px);
+    min-width: 0;
+    min-height: 44px;
+    margin: 0;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    white-space: normal;
+    line-height: 1.45;
+    padding: 7px 5px;
+  }
+}

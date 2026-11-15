@@ -1,0 +1,40 @@
+name: Library Research PWA checks
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "apps/library-research-pwa/**"
+      - ".github/workflows/library-research-pwa.yml"
+  pull_request:
+    paths:
+      - "apps/library-research-pwa/**"
+      - ".github/workflows/library-research-pwa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/library-research-pwa
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Install Chromium for browser smoke tests
+        run: npx playwright install --with-deps chromium
+      - name: Verify source archives
+        run: |
+          test -s src/app.ts
+          gzip -t src/backup.ts.gz src/db.ts.gz src/domain.ts.gz src/model.ts.gz src/xlsx.ts.gz styles.css.gz
+      - name: Build, unit test, and HTTP smoke test
+        run: npm test
