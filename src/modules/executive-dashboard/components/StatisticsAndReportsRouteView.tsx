@@ -65,15 +65,16 @@ import type {
   UnifiedSearchDomainScope,
 } from '../types';
 import { OverviewDonutChart } from './OverviewDonutChart';
+import { downloadComprehensiveDashboardDocx } from '../../../utils/docxReportDownloader';
 
 const SUBJECT_CATEGORY_COLORS: Record<string, string> = {
-  R: '#15803D',
-  M: '#1D4ED8',
-  A: '#B91C1C',
-  P: '#D97706',
-  H: '#6D28D9',
-  K: '#0F766E',
-  UNSET: '#64748B',
+  R: '#4D8B68',
+  M: '#5279A8',
+  A: '#C06C6C',
+  P: '#CC9352',
+  H: '#85729E',
+  K: '#538E8A',
+  UNSET: '#7C8B99',
 };
 
 function resolveLiveBookCategory(
@@ -901,11 +902,11 @@ export const StatisticsAndReportsRouteView: React.FC<
         baselineCount: meta.physicalCountReported,
         allocatedLocationText: meta.allocatedLocationText,
         percent: totalBooks > 0 ? Math.round((effectiveValue / totalBooks) * 1000) / 10 : 0,
-        color: SUBJECT_CATEGORY_COLORS[meta.code] || '#1D4ED8',
+        color: SUBJECT_CATEGORY_COLORS[meta.code] || '#5279A8',
       });
     }
 
-    const customColors = ['#0284C7', '#9333EA', '#C2410C', '#4F46E5'];
+    const customColors = ['#5A8AB0', '#8E74A8', '#C47D5B', '#6773A8'];
     let customIdx = 0;
     for (const [customCode, meta] of customCategoryMeta.entries()) {
       const cnt = auditedCountsByCode.get(customCode) || 0;
@@ -974,13 +975,127 @@ export const StatisticsAndReportsRouteView: React.FC<
         : 'hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 cursor-pointer group'
     }`;
 
+  const handleExportDetailedSection = (
+    targetSection: 'all' | 'library' | 'martyrs' | 'work',
+    format: 'excel' | 'word' | 'pdf'
+  ) => {
+    const sectionTitles: Record<'all' | 'library' | 'martyrs' | 'work', string> = {
+      all: 'گزارش جامع آمار و گزارش‌های تفصیلی (بخش‌های اول، دوم و سوم)',
+      library: 'گزارش تفصیلی بخش اول: کتابخانه و گروه‌های موضوعی',
+      martyrs: 'گزارش تفصیلی بخش دوم: شهدا، احراز هویت و ارتباطات',
+      work: 'گزارش تفصیلی بخش سوم: وضعیت کار، صف پیگیری، تاریخچه فعالیت و خروجی‌ها',
+    };
+    const filePrefixes: Record<'all' | 'library' | 'martyrs' | 'work', string> = {
+      all: 'گزارش_جامع_آمار_تفصیلی_مرکز_اسناد',
+      library: 'گزارش_بخش_اول_کتابخانه',
+      martyrs: 'گزارش_بخش_دوم_شهدا_و_ارتباطات',
+      work: 'گزارش_بخش_سوم_وضعیت_کار_و_خروجیها',
+    };
+
+    const reportTitle = sectionTitles[targetSection];
+    const filePrefix = filePrefixes[targetSection];
+
+    if (format === 'excel') {
+      const excelRes = exportExecutiveManagementExcel(effectiveInputs, {
+        reportTitle,
+        fileNamePrefix: filePrefix,
+      });
+      if (!excelRes.ok) {
+        onNotify?.(excelRes.error || 'تولید فایل اکسل با خطا مواجه شد.', 'warning');
+        return;
+      }
+      onNotify?.(`فایل اکسل «${reportTitle}» با موفقیت دانلود شد.`, 'success');
+      return;
+    }
+
+    if (format === 'word') {
+      const tsDisplay = nowPersianDateTimeLabel();
+      const lines: string[] = [
+        `# ${reportTitle}`,
+        `تاریخ و زمان صدور: ${tsDisplay}`,
+        '',
+      ];
+
+      if (targetSection === 'all' || targetSection === 'library') {
+        lines.push(
+          '## بخش اول: کتابخانه و گروه‌های موضوعی',
+          `- کل کتاب‌های تحت پایش: ${toPersianDigits(libDet.totalTrackedBooksCount)} کتاب`,
+          `- تکمیل‌شده کامل: ${toPersianDigits(libDet.completedCount)} کتاب (${toPersianDigits(overview.libraryCard.completedPercent)}٪)`,
+          `- در حال بررسی: ${toPersianDigits(libDet.inProgressCount)} کتاب`,
+          `- شروع‌نشده: ${toPersianDigits(libDet.notStartedCount)} کتاب`,
+          `- دارای ثبت قفسه یا بررسی اولیه: ${toPersianDigits(libDet.workedOrRegisteredCount)} کتاب`,
+          `- تأیید موجودی قفسه: ${toPersianDigits(libDet.shelfVerifiedPresentCount)} کتاب`,
+          `- تأییدشده کارشناسی: ${toPersianDigits(libDet.expertApprovedCount)} کتاب`,
+          `- دارای ارتباط ثبت‌شده با شهید: ${toPersianDigits(libDet.hasRegisteredMartyrLinkCount)} کتاب`,
+          '',
+          '### پراکندگی کتاب‌ها در گروه‌های موضوعی (Categories)',
+          '| کد گروه | عنوان گروه موضوعی | تعداد کتاب | سهم درصدی | جانمایی قفسه |',
+          '| --- | --- | --- | --- | --- |',
+          ...liveCategoryAnalytics.items.map(
+            (cat) =>
+              `| ${cat.code} | ${cat.name} | ${toPersianDigits(cat.value)} | ${toPersianDigits(cat.percent)}٪ | ${cat.allocatedLocationText} |`
+          ),
+          ''
+        );
+      }
+
+      if (targetSection === 'all' || targetSection === 'martyrs') {
+        lines.push(
+          '## بخش دوم: شهدا ـ احراز هویت و ارتباطات',
+          `- شهدای مرتبط با کتاب‌ها: ${toPersianDigits(martyrsDet.linkedMartyrsCount)} شناسه شهید`,
+          `- هویت احرازشده: ${toPersianDigits(martyrsDet.confirmedIdentityCount)} شناسه شهید (${toPersianDigits(overview.martyrsCard.confirmedIdentityPercent)}٪)`,
+          `- نیازمند بررسی هویت: ${toPersianDigits(martyrsDet.needsIdentityVerificationCount)} شناسه شهید`,
+          `- تهرانی مرتبط: ${toPersianDigits(martyrsDet.tehranLinkedCount)} شناسه شهید`,
+          `- غیرتهرانی / یادبود مرتبط: ${toPersianDigits(martyrsDet.nonTehranLinkedCount)} شناسه شهید`,
+          `- کل ارتباطات فعال متمایز (کتاب و شهید): ${toPersianDigits(relSplit.totalActiveDistinctPairsCount)} زوج (${toPersianDigits(rels.totalRawLinkRows)} ردیف خام)`,
+          `- تأیید کارشناسی صریح ارتباط: ${toPersianDigits(relSplit.explicitExpertConfirmedDistinctCount)} زوج`,
+          `- قطعی طبق برچسب منبع: ${toPersianDigits(relSplit.definiteBySourceLabelDistinctCount)} زوج`,
+          `- نیازمند بررسی / گروهی: ${toPersianDigits(relSplit.needsReviewDistinctCount)} زوج`,
+          ''
+        );
+      }
+
+      if (targetSection === 'all' || targetSection === 'work') {
+        lines.push(
+          '## بخش سوم: وضعیت کار و خروجی‌ها',
+          `- کل پرونده‌های صف پیگیری: ${toPersianDigits(workAnalytics.reviewQueueTotalCount)} پرونده (${toPersianDigits(topics.totalTopicsCount)} موضوع مستقل)`,
+          `- انجام‌شده در صف پیگیری: ${toPersianDigits(workAnalytics.reviewQueueCompletedCount)} پرونده (${toPersianDigits(overview.workAndOutputsCard.reviewQueueCompletionPercent)}٪)`,
+          `- باقیمانده در صف پیگیری: ${toPersianDigits(workAnalytics.reviewQueueRemainingCount)} پرونده`,
+          `- نیازمند منبع: ${toPersianDigits(workAnalytics.reviewQueueNeedsSourceCount)} پرونده`,
+          `- فعالیت‌های ثبت‌شده در تاریخچه: ${toPersianDigits(workAnalytics.activityLog.totalEntriesCount)} رویداد`,
+          `- مطالب پژوهشی استخراج‌شده غیرردشده: ${toPersianDigits(workAnalytics.researchOutputs.totalExtractedNonRejectedCount)} مورد`,
+          `- خروجی پژوهشی نهایی و مستقل: ${toPersianDigits(workAnalytics.researchOutputs.finalIndependentOutputsCount)} خروجی`,
+          `- گزارش‌های مدیریتی نهایی و مستقل: ${toPersianDigits(workAnalytics.managementReports.finalIndependentReportsCount)} گزارش`,
+          ''
+        );
+      }
+
+      downloadComprehensiveDashboardDocx(lines.join('\n'), `${filePrefix}.docx`, reportTitle);
+      onNotify?.(`فایل ورد (Word) «${reportTitle}» با موفقیت دانلود شد.`, 'success');
+      return;
+    }
+
+    if (format === 'pdf') {
+      if (targetSection !== 'all') {
+        scrollToSection(targetSection);
+      }
+      onNotify?.(
+        `پنجره چاپ و ذخیره PDF برای «${reportTitle}» باز شد (در مقصد چاپ گزینه Save as PDF را انتخاب کنید).`,
+        'success'
+      );
+      window.setTimeout(() => {
+        window.print();
+      }, 150);
+    }
+  };
+
   return (
     <div
       data-testid="executive-statistics-route-view"
       className="max-w-6xl mx-auto px-3 sm:px-6 pt-3 pb-14 space-y-6 text-[#332218]"
     >
       {/* سرصفحه مسیر مستقل آمار و گزارش‌ها */}
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-[#E5D7C6] pb-4">
+      <header className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 border-b border-[#E5D7C6] pb-4">
         <div className="space-y-1">
           <div className="text-xs text-[#78604E]">
             مرکز اسناد و کتابخانه · آمار زنده، نمودارهای تعاملی و گزارش‌های تفصیلی سه‌محوره
@@ -990,15 +1105,44 @@ export const StatisticsAndReportsRouteView: React.FC<
           </h2>
         </div>
 
-        <button
-          type="button"
-          data-testid="back-to-dashboard-btn"
-          onClick={onBackToDashboard}
-          className="w-full sm:w-auto min-h-[46px] px-5 py-2.5 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer transition-colors shrink-0"
-        >
-          <ArrowRight className="w-4 h-4 shrink-0" />
-          <span>بازگشت به داشبورد</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            data-testid="top-export-excel-btn"
+            onClick={() => handleExportDetailedSection('all', 'excel')}
+            className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#4D8B68] hover:bg-[#3D7254] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+          >
+            <Download className="w-3.5 h-3.5 shrink-0" />
+            <span>خروجی اکسل (Excel)</span>
+          </button>
+          <button
+            type="button"
+            data-testid="top-export-word-btn"
+            onClick={() => handleExportDetailedSection('all', 'word')}
+            className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#5279A8] hover:bg-[#41638B] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+          >
+            <Download className="w-3.5 h-3.5 shrink-0" />
+            <span>خروجی ورد (Word)</span>
+          </button>
+          <button
+            type="button"
+            data-testid="top-export-pdf-btn"
+            onClick={() => handleExportDetailedSection('all', 'pdf')}
+            className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#85729E] hover:bg-[#6E5C85] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+          >
+            <Download className="w-3.5 h-3.5 shrink-0" />
+            <span>خروجی PDF / چاپ</span>
+          </button>
+          <button
+            type="button"
+            data-testid="back-to-dashboard-btn"
+            onClick={onBackToDashboard}
+            className="min-h-[42px] px-4 py-2 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs sm:text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer transition-colors shrink-0"
+          >
+            <ArrowRight className="w-4 h-4 shrink-0" />
+            <span>بازگشت به داشبورد</span>
+          </button>
+        </div>
       </header>
 
       {/* وضعیت بارگذاری اولیه بدون نمایش عدد ۰ جعلی */}
@@ -1073,50 +1217,45 @@ export const StatisticsAndReportsRouteView: React.FC<
             </div>
           )}
 
-          {/* ابزارهای مشترک دسترسی به سه بخش (نه کارت یا بخش چهارم) */}
+          {/* ابزارهای مشترک دسترسی به سه بخش اصلی */}
           <div
             data-testid="statistics-shared-tools"
             aria-label="ابزارهای مشترک دسترسی به آمار سه بخش"
             className="bg-[#FAF5EE] border border-[#E5D7C6] rounded-2xl p-4 sm:p-5 space-y-4"
           >
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-              <div className="space-y-0.5">
-                <div className="text-xs font-bold text-[#6B3E26]">
-                  ابزارهای مشترک دسترسی به سه بخش اصلی
-                </div>
-                <p className="text-xs text-[#78604E]">
-                  جستجوی یکپارچه ۸حوزه‌ای و پرسش‌های آماری زنده روی داده‌های «کتابخانه»، «شهدا و ارتباطات» و «وضعیت کار و خروجی‌ها»
-                </p>
+              <div className="text-xs sm:text-sm font-bold text-[#6B3E26]">
+                ابزارهای مشترک دسترسی به سه بخش اصلی
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs w-full lg:w-auto">
                 <button
                   type="button"
                   onClick={() => scrollToSection('library')}
-                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-white border border-[#E5D7C6] hover:border-[#6B3E26] text-[#332218] font-medium cursor-pointer transition-colors"
+                  className="min-h-[38px] px-3.5 py-1.5 rounded-lg bg-white border border-[#E5D7C6] hover:border-[#6B3E26] text-[#332218] font-bold flex items-center justify-center cursor-pointer transition-colors"
                 >
                   ۱. کتابخانه
                 </button>
                 <button
                   type="button"
                   onClick={() => scrollToSection('martyrs')}
-                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-white border border-[#E5D7C6] hover:border-[#6B3E26] text-[#332218] font-medium cursor-pointer transition-colors"
+                  className="min-h-[38px] px-3.5 py-1.5 rounded-lg bg-white border border-[#E5D7C6] hover:border-[#6B3E26] text-[#332218] font-bold flex items-center justify-center cursor-pointer transition-colors"
                 >
                   ۲. شهدا و ارتباطات
                 </button>
                 <button
                   type="button"
                   onClick={() => scrollToSection('work')}
-                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-white border border-[#E5D7C6] hover:border-[#6B3E26] text-[#332218] font-medium cursor-pointer transition-colors"
+                  className="min-h-[38px] px-3.5 py-1.5 rounded-lg bg-white border border-[#E5D7C6] hover:border-[#6B3E26] text-[#332218] font-bold flex items-center justify-center cursor-pointer transition-colors"
                 >
                   ۳. وضعیت کار و خروجی‌ها
                 </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-              {/* جستجوی یکپارچه ۸حوزه‌ای */}
-              <div className="lg:col-span-5 bg-white border border-[#E5D7C6] rounded-xl p-3.5 space-y-3">
+            {/* جستجوی یکپارچه ۸حوزه‌ای (تمام‌عرض در بالای صفحه؛ پرسش‌های آماری زنده به پایین صفحه منتقل شد) */}
+            <div className="bg-white border border-[#E5D7C6] rounded-xl p-3.5 sm:p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <label
                   htmlFor="statistics-unified-search-input"
                   className="flex items-center gap-1.5 text-xs font-bold text-[#332218]"
@@ -1125,367 +1264,310 @@ export const StatisticsAndReportsRouteView: React.FC<
                   <span>جستجوی یکپارچه در ۸ حوزه داده‌ای</span>
                 </label>
 
-                <div className="flex flex-wrap gap-1.5">
-                  {SEARCH_SCOPE_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      data-testid={`search-scope-${opt.id}`}
-                      onClick={() => setSearchScope(opt.id)}
-                      className={`px-2 py-1 rounded-md text-[11px] border transition-colors cursor-pointer ${
-                        searchScope === opt.id
-                          ? 'bg-[#6B3E26] border-[#6B3E26] text-white font-bold'
-                          : 'bg-[#FAF5EE] border-[#E5D7C6] text-[#5C4636] hover:border-[#6B3E26]'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="relative">
-                  <input
-                    id="statistics-unified-search-input"
-                    data-testid="statistics-unified-search"
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="نام کتاب، شناسه BK / PV / RL، نام شهید، فعالیت یا گزارش..."
-                    className="w-full min-h-[42px] pr-3 pl-9 py-2 rounded-lg border border-[#D8C5B0] bg-[#FFFDFA] text-xs sm:text-sm text-[#332218] placeholder:text-[#9C826B] focus:outline-none focus:ring-2 focus:ring-[#6B3E26]"
-                  />
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchQuery('')}
-                      aria-label="پاک کردن جستجو"
-                      className="absolute left-2 top-1/2 -translate-y-1/2 p-1 text-[#78604E] hover:text-[#332218] cursor-pointer"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-
-                {searchQuery.trim() ? (
-                  searchPreview.isQueryUnclear ? (
-                    <div
-                      data-testid="statistics-search-unclear"
-                      className="rounded-lg bg-[#FDF5ED] border border-[#E5C9A8] p-2.5 text-[11px] text-[#8C4A19]"
-                    >
-                      {searchPreview.unclearMessage}
-                    </div>
-                  ) : (
-                    <div
-                      data-testid="statistics-search-results"
-                      className="space-y-2.5 text-xs tabular-nums"
-                    >
-                      <div className="flex flex-wrap gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => triggerDrilldown('library_all')}
-                          className="px-2 py-1 rounded-md bg-[#FAF5EE] border border-[#E5D7C6] text-[#332218] cursor-pointer hover:border-[#6B3E26]"
-                        >
-                          کتاب‌ها: <strong>{toPersianDigits(searchPreview.booksMatchesCount)}</strong>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => triggerDrilldown('martyrs_linked_all')}
-                          className="px-2 py-1 rounded-md bg-[#FAF5EE] border border-[#E5D7C6] text-[#332218] cursor-pointer hover:border-[#6B3E26]"
-                        >
-                          شهدا: <strong>{toPersianDigits(searchPreview.martyrsMatchesCount)}</strong>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => triggerDrilldown('relations_active_all')}
-                          className="px-2 py-1 rounded-md bg-[#FAF5EE] border border-[#E5D7C6] text-[#332218] cursor-pointer hover:border-[#6B3E26]"
-                        >
-                          ارتباطات: <strong>{toPersianDigits(searchPreview.relationsMatchesCount)}</strong>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => triggerDrilldown('work_all')}
-                          className="px-2 py-1 rounded-md bg-[#FAF5EE] border border-[#E5D7C6] text-[#332218] cursor-pointer hover:border-[#6B3E26]"
-                        >
-                          صف: <strong>{toPersianDigits(searchPreview.workMatchesCount)}</strong>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => triggerDrilldown('activity_logs')}
-                          className="px-2 py-1 rounded-md bg-[#FAF5EE] border border-[#E5D7C6] text-[#332218] cursor-pointer hover:border-[#6B3E26]"
-                        >
-                          فعالیت: <strong>{toPersianDigits(searchPreview.activityMatchesCount)}</strong>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => triggerDrilldown('research_outputs')}
-                          className="px-2 py-1 rounded-md bg-[#FAF5EE] border border-[#E5D7C6] text-[#332218] cursor-pointer hover:border-[#6B3E26]"
-                        >
-                          پژوهش: <strong>{toPersianDigits(searchPreview.researchMatchesCount)}</strong>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => triggerDrilldown('management_reports')}
-                          className="px-2 py-1 rounded-md bg-[#FAF5EE] border border-[#E5D7C6] text-[#332218] cursor-pointer hover:border-[#6B3E26]"
-                        >
-                          گزارش‌ها: <strong>{toPersianDigits(searchPreview.reportMatchesCount)}</strong>
-                        </button>
-                      </div>
-
-                      {searchPreview.totalMatchesCount === 0 ? (
-                        <p className="text-[#78604E]">
-                          موردی مطابق عبارت جستجو در دامنه انتخاب‌شده یافت نشد.
-                        </p>
-                      ) : (
-                        <div className="space-y-1 max-h-44 overflow-y-auto border-t border-[#F0E6D8] pt-2">
-                          {matchingTopRecords.books.map((b) => (
-                            <button
-                              key={b.bookKey}
-                              type="button"
-                              onClick={() => triggerDrilldown('library_all')}
-                              className="w-full flex items-center justify-between gap-2 text-[11px] text-[#5C4636] hover:bg-[#FAF5EE] px-1.5 py-1 rounded text-right cursor-pointer"
-                            >
-                              <span className="truncate">
-                                [کتاب] {b.tempBookId} · {b.title}
-                              </span>
-                              <span className="shrink-0 text-[#78604E]">
-                                {b.managerialStatusLabel}
-                              </span>
-                            </button>
-                          ))}
-                          {matchingTopRecords.martyrs.map((m) => (
-                            <button
-                              key={m.martyrKey}
-                              type="button"
-                              onClick={() => triggerDrilldown('martyrs_linked_all')}
-                              className="w-full flex items-center justify-between gap-2 text-[11px] text-[#5C4636] hover:bg-[#FAF5EE] px-1.5 py-1 rounded text-right cursor-pointer"
-                            >
-                              <span className="truncate">
-                                [شهید] {m.displayCode} · {m.fullName}
-                              </span>
-                              <span className="shrink-0 text-[#78604E]">
-                                {m.identityStatusLabel}
-                              </span>
-                            </button>
-                          ))}
-                          {matchingTopRecords.relations.map((r) => (
-                            <button
-                              key={r.linkId}
-                              type="button"
-                              onClick={() => triggerDrilldown('relations_active_all')}
-                              className="w-full flex items-center justify-between gap-2 text-[11px] text-[#5C4636] hover:bg-[#FAF5EE] px-1.5 py-1 rounded text-right cursor-pointer"
-                            >
-                              <span className="truncate">
-                                [ارتباط] {r.linkId} · {r.bookTitle} ↔ {r.martyrName}
-                              </span>
-                              <span className="shrink-0 text-[#78604E]">{r.certaintyLabel}</span>
-                            </button>
-                          ))}
-                          {matchingTopRecords.work.map((pv) => (
-                            <button
-                              key={pv.trackingId}
-                              type="button"
-                              onClick={() => triggerDrilldown('work_all')}
-                              className="w-full flex items-center justify-between gap-2 text-[11px] text-[#5C4636] hover:bg-[#FAF5EE] px-1.5 py-1 rounded text-right cursor-pointer"
-                            >
-                              <span className="truncate">
-                                [صف] {pv.trackingId} · {pv.issueSubject || pv.bookTitle}
-                              </span>
-                              <span className="shrink-0 text-[#78604E]">{pv.trackingStatus}</span>
-                            </button>
-                          ))}
-                          {matchingTopRecords.activities.map((log) => (
-                            <button
-                              key={log.id}
-                              type="button"
-                              onClick={() => triggerDrilldown('activity_logs')}
-                              className="w-full flex items-center justify-between gap-2 text-[11px] text-[#5C4636] hover:bg-[#FAF5EE] px-1.5 py-1 rounded text-right cursor-pointer"
-                            >
-                              <span className="truncate">
-                                [فعالیت] {log.actionType} · {log.summary}
-                              </span>
-                              <span className="shrink-0 text-[#78604E]">{log.targetId}</span>
-                            </button>
-                          ))}
-                          {matchingTopRecords.research.map((ex) => (
-                            <button
-                              key={ex.id}
-                              type="button"
-                              onClick={() => triggerDrilldown('research_outputs')}
-                              className="w-full flex items-center justify-between gap-2 text-[11px] text-[#5C4636] hover:bg-[#FAF5EE] px-1.5 py-1 rounded text-right cursor-pointer"
-                            >
-                              <span className="truncate">
-                                [پژوهش] {ex.passageTitle || ex.contentType} · {ex.bookTitleRaw}
-                              </span>
-                              <span className="shrink-0 text-[#78604E]">{ex.reviewStatus}</span>
-                            </button>
-                          ))}
-                          {matchingTopRecords.reports.map((rep) => (
-                            <button
-                              key={rep.reportId}
-                              type="button"
-                              onClick={() =>
-                                triggerDrilldown(
-                                  rep.lifecycleStatus === 'final'
-                                    ? 'management_reports'
-                                    : 'management_reports_drafts'
-                                )
-                              }
-                              className="w-full flex items-center justify-between gap-2 text-[11px] text-[#5C4636] hover:bg-[#FAF5EE] px-1.5 py-1 rounded text-right cursor-pointer"
-                            >
-                              <span className="truncate">
-                                [گزارش] {rep.reportId} · {rep.title}
-                              </span>
-                              <span className="shrink-0 text-[#78604E]">
-                                {rep.lifecycleStatus === 'final' ? 'نهایی' : 'پیش‌نویس'}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )
-                ) : (
-                  <p className="text-[11px] text-[#78604E] tabular-nums">
-                    مجموع کل رکوردهای زنده قابل جستجو:{' '}
-                    {toPersianDigits(
-                      lib.totalTrackedBooksCount +
-                        martyrs.linkedMartyrsSummary.distinctNormalizedLinkedNamesCount +
-                        rels.totalRawLinkRows +
-                        workAnalytics.reviewQueueTotalCount +
-                        workAnalytics.activityLog.totalEntriesCount +
-                        workAnalytics.researchOutputs.totalExtractedNonRejectedCount +
-                        effectiveFinalizedRegistry.length
-                    )}{' '}
-                    رکورد
-                  </p>
-                )}
-              </div>
-
-              {/* پرسش‌های آماری زنده + پرسش سفارشی غیرحدسی */}
-              <div
-                data-testid="statistics-statistical-queries"
-                className="lg:col-span-7 bg-white border border-[#E5D7C6] rounded-xl p-3.5 space-y-3"
-              >
-                <div className="flex items-center gap-1.5 text-xs font-bold text-[#332218]">
-                  <HelpCircle className="w-4 h-4 text-[#6B3E26]" />
-                  <span>پرسش‌های آماری زنده (محاسبه مستقیم با عدد، واحد و مبنای شمارش)</span>
-                </div>
-
-                <form onSubmit={handleAskCustomQuestion} className="flex flex-col sm:flex-row gap-2">
-                  <input
-                    type="text"
-                    data-testid="custom-statistical-question-input"
-                    value={customQuestionInput}
-                    onChange={(e) => setCustomQuestionInput(e.target.value)}
-                    placeholder="پرسش آماری خود را بنویسید (مثلاً: چند کتاب تکمیل‌شده داریم؟ یا چند ارتباط تأیید کارشناسی شده؟)"
-                    className="flex-1 min-h-[40px] px-3 py-1.5 rounded-lg border border-[#D8C5B0] bg-[#FFFDFA] text-xs text-[#332218] placeholder:text-[#9C826B] focus:outline-none focus:ring-2 focus:ring-[#6B3E26]"
-                  />
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                  <span className="text-[#78604E] ml-1">خروجی مستقیم بخش انتخابی:</span>
                   <button
-                    type="submit"
-                    data-testid="custom-statistical-question-submit"
-                    className="min-h-[40px] px-3.5 py-1.5 rounded-lg bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                    type="button"
+                    onClick={() =>
+                      handleExportDetailedSection(
+                        searchScope === 'books'
+                          ? 'library'
+                          : searchScope === 'martyrs' || searchScope === 'relations'
+                          ? 'martyrs'
+                          : searchScope === 'work' ||
+                            searchScope === 'activity' ||
+                            searchScope === 'research' ||
+                            searchScope === 'reports'
+                          ? 'work'
+                          : 'all',
+                        'excel'
+                      )
+                    }
+                    className="px-2.5 py-1 rounded-md bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>محاسبه پاسخ</span>
+                    <Download className="w-3 h-3" />
+                    <span>اکسل</span>
                   </button>
-                </form>
-
-                {customQuestionResult?.status === 'unclear' && (
-                  <div
-                    data-testid="custom-question-unclear-box"
-                    className="rounded-lg bg-[#FDF5ED] border border-[#E5C9A8] p-2.5 text-xs text-[#8C4A19]"
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleExportDetailedSection(
+                        searchScope === 'books'
+                          ? 'library'
+                          : searchScope === 'martyrs' || searchScope === 'relations'
+                          ? 'martyrs'
+                          : searchScope === 'work' ||
+                            searchScope === 'activity' ||
+                            searchScope === 'research' ||
+                            searchScope === 'reports'
+                          ? 'work'
+                          : 'all',
+                        'word'
+                      )
+                    }
+                    className="px-2.5 py-1 rounded-md bg-[#5279A8] hover:bg-[#41638B] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
                   >
-                    {customQuestionResult.message}
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-1.5">
-                  {statisticalQueries.map((q) => {
-                    const isSelected =
-                      !customQuestionResult && selectedPrebuiltQuery?.id === q.id;
-                    return (
-                      <button
-                        key={q.id}
-                        type="button"
-                        data-testid={`stat-query-btn-${q.id}`}
-                        onClick={() => {
-                          setCustomQuestionResult(null);
-                          setSelectedQueryId(q.id);
-                        }}
-                        className={`text-right px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs border transition-colors cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#6B3E26] border-[#6B3E26] text-white font-bold'
-                            : 'bg-[#FAF5EE] border-[#E5D7C6] text-[#5C4636] hover:border-[#6B3E26]'
-                        }`}
-                      >
-                        {q.question}
-                      </button>
-                    );
-                  })}
+                    <Download className="w-3 h-3" />
+                    <span>ورد (Word)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleExportDetailedSection(
+                        searchScope === 'books'
+                          ? 'library'
+                          : searchScope === 'martyrs' || searchScope === 'relations'
+                          ? 'martyrs'
+                          : searchScope === 'work' ||
+                            searchScope === 'activity' ||
+                            searchScope === 'research' ||
+                            searchScope === 'reports'
+                          ? 'work'
+                          : 'all',
+                        'pdf'
+                      )
+                    }
+                    className="px-2.5 py-1 rounded-md bg-[#85729E] hover:bg-[#6E5C85] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>PDF</span>
+                  </button>
                 </div>
+              </div>
 
-                {activeAnswer && (
-                  <div
-                    data-testid="stat-query-answer-box"
-                    className="rounded-lg bg-[#FFFDFA] border border-[#EFE4D6] p-3.5 space-y-2 tabular-nums"
+              <div className="flex flex-wrap gap-1.5">
+                {SEARCH_SCOPE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    data-testid={`search-scope-${opt.id}`}
+                    onClick={() => setSearchScope(opt.id)}
+                    className={`px-2.5 py-1 rounded-md text-[11px] border transition-colors cursor-pointer ${
+                      searchScope === opt.id
+                        ? 'bg-[#6B3E26] border-[#6B3E26] text-white font-bold'
+                        : 'bg-[#FAF5EE] border-[#E5D7C6] text-[#5C4636] hover:border-[#6B3E26]'
+                    }`}
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-[11px] font-bold text-[#6B3E26]">
-                        بخش متناظر: {activeAnswer.targetSectionLabel}
-                      </span>
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => scrollToSection(activeAnswer.targetSection)}
-                          className="text-[11px] text-[#78604E] hover:text-[#332218] hover:underline cursor-pointer"
-                        >
-                          رفتن به بخش
-                        </button>
-                        {onSelectDrilldown && (
-                          <button
-                            type="button"
-                            data-testid="stat-query-open-drilldown-btn"
-                            onClick={() => triggerDrilldown(activeAnswer.drilldownKey)}
-                            className="min-h-[32px] px-2.5 py-1 rounded-md bg-[#6B3E26] hover:bg-[#56311E] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                          >
-                            <span>مشاهده فهرست</span>
-                            <ChevronLeft className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 rounded-lg bg-[#FAF5EE] border border-[#EFE4D6] p-2.5 text-xs">
-                      <div>
-                        <div className="text-[10px] text-[#78604E]">عدد شاخص</div>
-                        <div className="text-base font-bold text-[#332218]">
-                          {activeAnswer.countNumber !== null
-                            ? toPersianDigits(activeAnswer.countDisplay)
-                            : 'در دسترس نیست'}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-[#78604E]">واحد شمارش</div>
-                        <div className="font-semibold text-[#332218]">
-                          {activeAnswer.countingUnit}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-[#78604E]">مبنای شمارش</div>
-                        <div className="text-[11px] text-[#5C4636] leading-snug">
-                          {activeAnswer.countingBasis}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="text-xs sm:text-sm font-bold text-[#332218]">
-                      {toPersianDigits(activeAnswer.headlineMetric)}
-                    </div>
-                    <p className="text-xs text-[#5C4636] leading-relaxed">
-                      {toPersianDigits(activeAnswer.explanation)}
-                    </p>
-                  </div>
+              <div className="relative">
+                <input
+                  id="statistics-unified-search-input"
+                  data-testid="statistics-unified-search"
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="نام کتاب، شناسه BK / PV / RL، نام شهید، فعالیت یا گزارش..."
+                  className="w-full min-h-[42px] pr-3 pl-9 py-2 rounded-lg border border-[#D8C5B0] bg-[#FFFDFA] text-xs sm:text-sm text-[#332218] placeholder:text-[#9C826B] focus:outline-none focus:ring-2 focus:ring-[#6B3E26]"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    aria-label="پاک کردن جستجو"
+                    className="absolute left-2 top-1/2 -translate-y-1/2 p-1 text-[#78604E] hover:text-[#332218] cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 )}
               </div>
+
+              {searchQuery.trim() ? (
+                searchPreview.isQueryUnclear ? (
+                  <div
+                    data-testid="statistics-search-unclear"
+                    className="rounded-lg bg-[#FDF5ED] border border-[#E5C9A8] p-2.5 text-[11px] text-[#8C4A19]"
+                  >
+                    {searchPreview.unclearMessage}
+                  </div>
+                ) : (
+                  <div
+                    data-testid="statistics-search-results"
+                    className="space-y-2.5 text-xs tabular-nums"
+                  >
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => triggerDrilldown('library_all')}
+                        className="px-2 py-1 rounded-md bg-[#FAF5EE] border border-[#E5D7C6] text-[#332218] cursor-pointer hover:border-[#6B3E26]"
+                      >
+                        کتاب‌ها: <strong>{toPersianDigits(searchPreview.booksMatchesCount)}</strong>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => triggerDrilldown('martyrs_linked_all')}
+                        className="px-2 py-1 rounded-md bg-[#FAF5EE] border border-[#E5D7C6] text-[#332218] cursor-pointer hover:border-[#6B3E26]"
+                      >
+                        شهدا: <strong>{toPersianDigits(searchPreview.martyrsMatchesCount)}</strong>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => triggerDrilldown('relations_active_all')}
+                        className="px-2 py-1 rounded-md bg-[#FAF5EE] border border-[#E5D7C6] text-[#332218] cursor-pointer hover:border-[#6B3E26]"
+                      >
+                        ارتباطات: <strong>{toPersianDigits(searchPreview.relationsMatchesCount)}</strong>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => triggerDrilldown('work_all')}
+                        className="px-2 py-1 rounded-md bg-[#FAF5EE] border border-[#E5D7C6] text-[#332218] cursor-pointer hover:border-[#6B3E26]"
+                      >
+                        صف: <strong>{toPersianDigits(searchPreview.workMatchesCount)}</strong>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => triggerDrilldown('activity_logs')}
+                        className="px-2 py-1 rounded-md bg-[#FAF5EE] border border-[#E5D7C6] text-[#332218] cursor-pointer hover:border-[#6B3E26]"
+                      >
+                        فعالیت: <strong>{toPersianDigits(searchPreview.activityMatchesCount)}</strong>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => triggerDrilldown('research_outputs')}
+                        className="px-2 py-1 rounded-md bg-[#FAF5EE] border border-[#E5D7C6] text-[#332218] cursor-pointer hover:border-[#6B3E26]"
+                      >
+                        پژوهش: <strong>{toPersianDigits(searchPreview.researchMatchesCount)}</strong>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => triggerDrilldown('management_reports')}
+                        className="px-2 py-1 rounded-md bg-[#FAF5EE] border border-[#E5D7C6] text-[#332218] cursor-pointer hover:border-[#6B3E26]"
+                      >
+                        گزارش‌ها: <strong>{toPersianDigits(searchPreview.reportMatchesCount)}</strong>
+                      </button>
+                    </div>
+
+                    {searchPreview.totalMatchesCount === 0 ? (
+                      <p className="text-[#78604E]">
+                        موردی مطابق عبارت جستجو در دامنه انتخاب‌شده یافت نشد.
+                      </p>
+                    ) : (
+                      <div className="space-y-1 max-h-44 overflow-y-auto border-t border-[#F0E6D8] pt-2">
+                        {matchingTopRecords.books.map((b) => (
+                          <button
+                            key={b.bookKey}
+                            type="button"
+                            onClick={() => triggerDrilldown('library_all')}
+                            className="w-full flex items-center justify-between gap-2 text-[11px] text-[#5C4636] hover:bg-[#FAF5EE] px-1.5 py-1 rounded text-right cursor-pointer"
+                          >
+                            <span className="truncate">
+                              [کتاب] {b.tempBookId} · {b.title}
+                            </span>
+                            <span className="shrink-0 text-[#78604E]">
+                              {b.managerialStatusLabel}
+                            </span>
+                          </button>
+                        ))}
+                        {matchingTopRecords.martyrs.map((m) => (
+                          <button
+                            key={m.martyrKey}
+                            type="button"
+                            onClick={() => triggerDrilldown('martyrs_linked_all')}
+                            className="w-full flex items-center justify-between gap-2 text-[11px] text-[#5C4636] hover:bg-[#FAF5EE] px-1.5 py-1 rounded text-right cursor-pointer"
+                          >
+                            <span className="truncate">
+                              [شهید] {m.displayCode} · {m.fullName}
+                            </span>
+                            <span className="shrink-0 text-[#78604E]">
+                              {m.identityStatusLabel}
+                            </span>
+                          </button>
+                        ))}
+                        {matchingTopRecords.relations.map((r) => (
+                          <button
+                            key={r.linkId}
+                            type="button"
+                            onClick={() => triggerDrilldown('relations_active_all')}
+                            className="w-full flex items-center justify-between gap-2 text-[11px] text-[#5C4636] hover:bg-[#FAF5EE] px-1.5 py-1 rounded text-right cursor-pointer"
+                          >
+                            <span className="truncate">
+                              [ارتباط] {r.linkId} · {r.bookTitle} ↔ {r.martyrName}
+                            </span>
+                            <span className="shrink-0 text-[#78604E]">{r.certaintyLabel}</span>
+                          </button>
+                        ))}
+                        {matchingTopRecords.work.map((pv) => (
+                          <button
+                            key={pv.trackingId}
+                            type="button"
+                            onClick={() => triggerDrilldown('work_all')}
+                            className="w-full flex items-center justify-between gap-2 text-[11px] text-[#5C4636] hover:bg-[#FAF5EE] px-1.5 py-1 rounded text-right cursor-pointer"
+                          >
+                            <span className="truncate">
+                              [صف] {pv.trackingId} · {pv.issueSubject || pv.bookTitle}
+                            </span>
+                            <span className="shrink-0 text-[#78604E]">{pv.trackingStatus}</span>
+                          </button>
+                        ))}
+                        {matchingTopRecords.activities.map((log) => (
+                          <button
+                            key={log.id}
+                            type="button"
+                            onClick={() => triggerDrilldown('activity_logs')}
+                            className="w-full flex items-center justify-between gap-2 text-[11px] text-[#5C4636] hover:bg-[#FAF5EE] px-1.5 py-1 rounded text-right cursor-pointer"
+                          >
+                            <span className="truncate">
+                              [فعالیت] {log.actionType} · {log.summary}
+                            </span>
+                            <span className="shrink-0 text-[#78604E]">{log.targetId}</span>
+                          </button>
+                        ))}
+                        {matchingTopRecords.research.map((ex) => (
+                          <button
+                            key={ex.id}
+                            type="button"
+                            onClick={() => triggerDrilldown('research_outputs')}
+                            className="w-full flex items-center justify-between gap-2 text-[11px] text-[#5C4636] hover:bg-[#FAF5EE] px-1.5 py-1 rounded text-right cursor-pointer"
+                          >
+                            <span className="truncate">
+                              [پژوهش] {ex.passageTitle || ex.contentType} · {ex.bookTitleRaw}
+                            </span>
+                            <span className="shrink-0 text-[#78604E]">{ex.reviewStatus}</span>
+                          </button>
+                        ))}
+                        {matchingTopRecords.reports.map((rep) => (
+                          <button
+                            key={rep.reportId}
+                            type="button"
+                            onClick={() =>
+                              triggerDrilldown(
+                                rep.lifecycleStatus === 'final'
+                                  ? 'management_reports'
+                                  : 'management_reports_drafts'
+                              )
+                            }
+                            className="w-full flex items-center justify-between gap-2 text-[11px] text-[#5C4636] hover:bg-[#FAF5EE] px-1.5 py-1 rounded text-right cursor-pointer"
+                          >
+                            <span className="truncate">
+                              [گزارش] {rep.reportId} · {rep.title}
+                            </span>
+                            <span className="shrink-0 text-[#78604E]">
+                              {rep.lifecycleStatus === 'final' ? 'نهایی' : 'پیش‌نویس'}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              ) : (
+                <p className="text-[11px] text-[#78604E] tabular-nums">
+                  مجموع کل رکوردهای زنده قابل جستجو:{' '}
+                  {toPersianDigits(
+                    lib.totalTrackedBooksCount +
+                      martyrs.linkedMartyrsSummary.distinctNormalizedLinkedNamesCount +
+                      rels.totalRawLinkRows +
+                      workAnalytics.reviewQueueTotalCount +
+                      workAnalytics.activityLog.totalEntriesCount +
+                      workAnalytics.researchOutputs.totalExtractedNonRejectedCount +
+                      effectiveFinalizedRegistry.length
+                  )}{' '}
+                  رکورد
+                </p>
+              )}
             </div>
           </div>
 
@@ -1498,37 +1580,63 @@ export const StatisticsAndReportsRouteView: React.FC<
             aria-labelledby="stats-section-library-title"
             className="bg-white border border-[#E5D7C6] rounded-2xl p-5 sm:p-6 space-y-5"
           >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EFE4D6] pb-3.5">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-[#EFE4D6] pb-3.5">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-[#FAF5EE] border border-[#E5D7C6] text-[#6B3E26] flex items-center justify-center shrink-0">
                   <BookOpen className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="text-[11px] text-[#78604E]">بخش ۱ متناظر با کارت اول داشبورد</div>
+                  <div className="text-[11px] font-semibold text-[#78604E]">بخش اول</div>
                   <h3 id="stats-section-library-title" className="text-base sm:text-lg font-bold">
                     کتابخانه
                   </h3>
                 </div>
               </div>
 
-              {onSelectDrilldown && (
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => triggerDrilldown('library_all')}
-                    className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
-                  >
-                    فهرست کامل کتاب‌ها
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => triggerDrilldown('library_remaining')}
-                    className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
-                  >
-                    در حال بررسی و شروع‌نشده
-                  </button>
-                </div>
-              )}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                {onSelectDrilldown && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => triggerDrilldown('library_all')}
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
+                    >
+                      فهرست کامل کتاب‌ها
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => triggerDrilldown('library_remaining')}
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
+                    >
+                      در حال بررسی و شروع‌نشده
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleExportDetailedSection('library', 'excel')}
+                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>اکسل</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExportDetailedSection('library', 'word')}
+                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#5279A8] hover:bg-[#41638B] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>ورد</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExportDetailedSection('library', 'pdf')}
+                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#85729E] hover:bg-[#6E5C85] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>PDF</span>
+                </button>
+              </div>
             </div>
 
             {/* نمودار دوناتی زنده کتابخانه در ابتدای بخش */}
@@ -1551,7 +1659,7 @@ export const StatisticsAndReportsRouteView: React.FC<
                     label: 'تکمیل‌شده (پرونده و قفسه و ارتباط با شهید و بستن تیکت)',
                     count: libDet.completedCount,
                     percent: overview.libraryCard.completedPercent,
-                    color: '#15803D',
+                    color: '#4D8B68',
                     testId: 'stats-library-completed',
                     onClick: onSelectDrilldown
                       ? () => triggerDrilldown('library_completed')
@@ -1562,7 +1670,7 @@ export const StatisticsAndReportsRouteView: React.FC<
                     label: 'در حال بررسی / دارای ثبت اولیه یا تیکت باز',
                     count: libDet.inProgressCount,
                     percent: bookInProgressPct,
-                    color: '#1D4ED8',
+                    color: '#5279A8',
                     testId: 'stats-library-in-progress',
                     onClick: onSelectDrilldown
                       ? () => triggerDrilldown('library_in_progress')
@@ -1573,7 +1681,7 @@ export const StatisticsAndReportsRouteView: React.FC<
                     label: 'شروع‌نشده (بدون ثبت قفسه، ممیزی یا تیکت)',
                     count: libDet.notStartedCount,
                     percent: bookNotStartedPct,
-                    color: '#B91C1C',
+                    color: '#C06C6C',
                     testId: 'stats-library-not-started',
                     onClick: onSelectDrilldown
                       ? () => triggerDrilldown('library_not_started')
@@ -2034,44 +2142,70 @@ export const StatisticsAndReportsRouteView: React.FC<
             aria-labelledby="stats-section-martyrs-title"
             className="bg-white border border-[#E5D7C6] rounded-2xl p-5 sm:p-6 space-y-5"
           >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EFE4D6] pb-3.5">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-[#EFE4D6] pb-3.5">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-[#FAF5EE] border border-[#E5D7C6] text-[#6B3E26] flex items-center justify-center shrink-0">
                   <Users className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="text-[11px] text-[#78604E]">بخش ۲ متناظر با کارت دوم داشبورد</div>
+                  <div className="text-[11px] font-semibold text-[#78604E]">بخش دوم</div>
                   <h3 id="stats-section-martyrs-title" className="text-base sm:text-lg font-bold">
                     شهدا ـ احراز هویت و ارتباطات
                   </h3>
                 </div>
               </div>
 
-              {onSelectDrilldown && (
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => triggerDrilldown('martyrs_confirmed')}
-                    className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
-                  >
-                    شهدای احرازشده
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => triggerDrilldown('martyrs_needs_verification')}
-                    className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
-                  >
-                    نیازمند بررسی هویت
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => triggerDrilldown('relations_needs_review')}
-                    className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
-                  >
-                    ارتباطات در انتظار بررسی
-                  </button>
-                </div>
-              )}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                {onSelectDrilldown && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => triggerDrilldown('martyrs_confirmed')}
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
+                    >
+                      شهدای احرازشده
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => triggerDrilldown('martyrs_needs_verification')}
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
+                    >
+                      نیازمند بررسی هویت
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => triggerDrilldown('relations_needs_review')}
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
+                    >
+                      ارتباطات در انتظار بررسی
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleExportDetailedSection('martyrs', 'excel')}
+                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>اکسل</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExportDetailedSection('martyrs', 'word')}
+                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#5279A8] hover:bg-[#41638B] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>ورد</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExportDetailedSection('martyrs', 'pdf')}
+                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#85729E] hover:bg-[#6E5C85] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>PDF</span>
+                </button>
+              </div>
             </div>
 
             {/* نمودار دوناتی زنده احراز هویت شهدای مرتبط */}
@@ -2094,7 +2228,7 @@ export const StatisticsAndReportsRouteView: React.FC<
                     label: 'هویت احرازشده (شخص یکتای قطعی)',
                     count: overview.martyrsCard.confirmedIdentityCount,
                     percent: overview.martyrsCard.confirmedIdentityPercent,
-                    color: '#15803D',
+                    color: '#4D8B68',
                     testId: 'stats-martyrs-confirmed',
                     onClick: onSelectDrilldown
                       ? () => triggerDrilldown('martyrs_confirmed')
@@ -2105,7 +2239,7 @@ export const StatisticsAndReportsRouteView: React.FC<
                     label: 'نیازمند بررسی هویت / رفع ابهام هم‌نامی',
                     count: overview.martyrsCard.needsVerificationCount,
                     percent: overview.martyrsCard.needsVerificationPercent,
-                    color: '#B91C1C',
+                    color: '#C06C6C',
                     testId: 'stats-martyrs-needs-verification',
                     onClick: onSelectDrilldown
                       ? () => triggerDrilldown('martyrs_needs_verification')
@@ -2441,50 +2575,80 @@ export const StatisticsAndReportsRouteView: React.FC<
             aria-labelledby="stats-section-work-title"
             className="bg-white border border-[#E5D7C6] rounded-2xl p-5 sm:p-6 space-y-5"
           >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EFE4D6] pb-3.5">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-[#FAF5EE] border border-[#E5D7C6] text-[#6B3E26] flex items-center justify-center shrink-0">
-                  <ClipboardList className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="text-[11px] text-[#78604E]">
-                    بخش ۳ متناظر با کارت سوم داشبورد · صف پیگیری، تاریخچه فعالیت، پژوهش و گزارش‌های مدیریتی
+            <div className="flex flex-col gap-3 border-b border-[#EFE4D6] pb-3.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-[#FAF5EE] border border-[#E5D7C6] text-[#6B3E26] flex items-center justify-center shrink-0">
+                    <ClipboardList className="w-4 h-4" />
                   </div>
-                  <h3 id="stats-section-work-title" className="text-base sm:text-lg font-bold">
-                    وضعیت کار و خروجی‌ها
-                  </h3>
+                  <div>
+                    <div className="text-[11px] font-semibold text-[#78604E]">
+                      بخش سوم · صف پیگیری، تاریخچه فعالیت، پژوهش و گزارش‌های مدیریتی
+                    </div>
+                    <h3 id="stats-section-work-title" className="text-base sm:text-lg font-bold">
+                      وضعیت کار و خروجی‌ها
+                    </h3>
+                  </div>
+                </div>
+
+                {/* دکمه‌های خروجی مستقیم بخش سوم (اکسل / ورد / PDF) */}
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => handleExportDetailedSection('work', 'excel')}
+                    className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold inline-flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>اکسل</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExportDetailedSection('work', 'word')}
+                    className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#5279A8] hover:bg-[#41638B] text-white font-bold inline-flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>ورد</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExportDetailedSection('work', 'pdf')}
+                    className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#85729E] hover:bg-[#6E5C85] text-white font-bold inline-flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>PDF</span>
+                  </button>
                 </div>
               </div>
 
               {onSelectDrilldown && (
-                <div className="flex flex-wrap gap-2 text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                   <button
                     type="button"
                     onClick={() => triggerDrilldown('work_remaining')}
-                    className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
+                    className="min-h-[40px] px-3 py-2 rounded-xl bg-[#FAF5EE] border border-[#E5D7C6] hover:border-[#6B3E26] text-[#332218] font-bold flex items-center justify-center text-center cursor-pointer transition-colors"
                   >
                     صف باقیمانده
                   </button>
                   <button
                     type="button"
                     onClick={() => triggerDrilldown('activity_logs')}
-                    className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
+                    className="min-h-[40px] px-3 py-2 rounded-xl bg-[#FAF5EE] border border-[#E5D7C6] hover:border-[#6B3E26] text-[#332218] font-bold flex items-center justify-center text-center cursor-pointer transition-colors"
                   >
                     تاریخچه فعالیت
                   </button>
                   <button
                     type="button"
                     onClick={() => triggerDrilldown('research_outputs')}
-                    className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
+                    className="min-h-[40px] px-3 py-2 rounded-xl bg-[#FAF5EE] border border-[#E5D7C6] hover:border-[#6B3E26] text-[#332218] font-bold flex items-center justify-center text-center cursor-pointer transition-colors"
                   >
                     خروجی‌های پژوهشی
                   </button>
                   <button
                     type="button"
                     onClick={() => triggerDrilldown('management_reports')}
-                    className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
+                    className="min-h-[40px] px-3 py-2 rounded-xl bg-[#FAF5EE] border border-[#E5D7C6] hover:border-[#6B3E26] text-[#332218] font-bold flex items-center justify-center text-center cursor-pointer transition-colors"
                   >
-                    گزارش‌های مدیریتی
+                    گزارش‌ها
                   </button>
                 </div>
               )}
@@ -2510,7 +2674,7 @@ export const StatisticsAndReportsRouteView: React.FC<
                     label: 'موضوعات انجام‌شده در صف پیگیری',
                     count: overview.workAndOutputsCard.independentTopicsCompletedCount,
                     percent: overview.workAndOutputsCard.reviewQueueCompletionPercent,
-                    color: '#15803D',
+                    color: '#4D8B68',
                     testId: 'stats-work-completed',
                     onClick: onSelectDrilldown
                       ? () => triggerDrilldown('work_completed')
@@ -2521,7 +2685,7 @@ export const StatisticsAndReportsRouteView: React.FC<
                     label: 'موضوعات باقیمانده (شامل در جریان و نیازمند منبع)',
                     count: overview.workAndOutputsCard.independentTopicsRemainingCount,
                     percent: overview.workAndOutputsCard.reviewQueueRemainingPercent,
-                    color: '#1D4ED8',
+                    color: '#5279A8',
                     testId: 'stats-work-remaining',
                     onClick: onSelectDrilldown
                       ? () => triggerDrilldown('work_remaining')
@@ -2533,7 +2697,7 @@ export const StatisticsAndReportsRouteView: React.FC<
 
             {/* ۳-۱: صف پیگیری (PV) + تفکیک ۳ حوزه موضوعات مستقل */}
             <div className="space-y-3 tabular-nums">
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs items-stretch">
                 <button
                   type="button"
                   data-testid="stat-work-pv-total"
@@ -3050,13 +3214,13 @@ export const StatisticsAndReportsRouteView: React.FC<
                     placeholder="عنوان گزارش مدیریتی (اختیاری)..."
                     className="w-full min-h-[38px] px-2.5 py-1.5 rounded-lg border border-[#D8C5B0] bg-white text-xs text-[#332218]"
                   />
-                  <div className="flex flex-wrap gap-2 text-[11px]">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                     <button
                       type="button"
                       disabled={reportActionBusy}
                       data-testid="create-final-excel-report-btn"
                       onClick={() => void handleCreateRegistryReport('final_excel')}
-                      className="min-h-[36px] px-3 py-1.5 rounded-lg bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>ثبت و دریافت اکسل نهایی</span>
@@ -3064,9 +3228,27 @@ export const StatisticsAndReportsRouteView: React.FC<
                     <button
                       type="button"
                       disabled={reportActionBusy}
+                      onClick={() => handleExportDetailedSection('all', 'word')}
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#5279A8] hover:bg-[#41638B] text-white font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>دریافت گزارش ورد (Word)</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={reportActionBusy}
+                      onClick={() => handleExportDetailedSection('all', 'pdf')}
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#85729E] hover:bg-[#6E5C85] text-white font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>دریافت گزارش PDF / چاپ</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={reportActionBusy}
                       data-testid="create-final-json-report-btn"
                       onClick={() => void handleCreateRegistryReport('final_json')}
-                      className="min-h-[36px] px-3 py-1.5 rounded-lg border border-[#6B3E26] bg-white hover:bg-[#FAF5EE] text-[#6B3E26] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#6B3E26] bg-white hover:bg-[#FAF5EE] text-[#6B3E26] font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>ثبت بسته داده نهایی (JSON)</span>
@@ -3076,7 +3258,7 @@ export const StatisticsAndReportsRouteView: React.FC<
                       disabled={reportActionBusy}
                       data-testid="create-draft-report-btn"
                       onClick={() => void handleCreateRegistryReport('draft')}
-                      className="min-h-[36px] px-3 py-1.5 rounded-lg border border-[#D8C5B0] bg-white hover:bg-[#FAF5EE] text-[#5C4636] font-medium inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#D8C5B0] bg-white hover:bg-[#FAF5EE] text-[#5C4636] font-medium inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                     >
                       <FilePlus2 className="w-3.5 h-3.5" />
                       <span>ذخیره پیش‌نویس</span>
@@ -3090,7 +3272,7 @@ export const StatisticsAndReportsRouteView: React.FC<
                         disabled={reportActionBusy}
                         data-testid="append-version-latest-report-btn"
                         onClick={() => void handleAppendNewVersionToLatestReport()}
-                        className="min-h-[36px] px-3 py-1.5 rounded-lg border border-[#2E6F40] bg-[#F1F8F3] hover:bg-[#E4F2E8] text-[#2E6F40] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                        className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#4D8B68] bg-[#F1F8F3] hover:bg-[#E4F2E8] text-[#2E6F40] font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                       >
                         <RefreshCw className="w-3.5 h-3.5" />
                         <span>صدور نسخه جدید روی آخرین گزارش</span>
@@ -3137,7 +3319,7 @@ export const StatisticsAndReportsRouteView: React.FC<
                             type="button"
                             disabled={reportActionBusy}
                             onClick={() => void handleFinalizeDraft(rep.reportId)}
-                            className="min-h-[32px] px-2.5 py-1 rounded-md bg-[#2E6F40] hover:bg-[#235731] text-white text-[11px] font-bold cursor-pointer disabled:opacity-60"
+                            className="min-h-[32px] px-2.5 py-1 rounded-md bg-[#4D8B68] hover:bg-[#3D7254] text-white text-[11px] font-bold cursor-pointer disabled:opacity-60"
                           >
                             نهایی‌سازی
                           </button>
@@ -3148,6 +3330,135 @@ export const StatisticsAndReportsRouteView: React.FC<
                 )}
               </div>
             </div>
+          </section>
+
+          {/* ===================================================================== */}
+          {/* پنجره پرسش‌های آماری زنده (منتقل‌شده به پایین صفحه آمار تفصیلی)         */}
+          {/* ===================================================================== */}
+          <section
+            data-testid="statistics-statistical-queries"
+            className="bg-white border border-[#E5D7C6] rounded-2xl p-5 sm:p-6 space-y-4"
+          >
+            <div className="flex items-center gap-2 text-sm font-bold text-[#332218] border-b border-[#EFE4D6] pb-3">
+              <HelpCircle className="w-4 h-4 text-[#6B3E26]" />
+              <span>پرسش‌های آماری زنده (محاسبه مستقیم با عدد، واحد و مبنای شمارش)</span>
+            </div>
+
+            <form onSubmit={handleAskCustomQuestion} className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                data-testid="custom-statistical-question-input"
+                value={customQuestionInput}
+                onChange={(e) => setCustomQuestionInput(e.target.value)}
+                placeholder="پرسش آماری خود را بنویسید (مثلاً: چند کتاب تکمیل‌شده داریم؟ یا چند ارتباط تأیید کارشناسی شده؟)"
+                className="flex-1 min-h-[42px] px-3 py-2 rounded-lg border border-[#D8C5B0] bg-[#FFFDFA] text-xs sm:text-sm text-[#332218] placeholder:text-[#9C826B] focus:outline-none focus:ring-2 focus:ring-[#6B3E26]"
+              />
+              <button
+                type="submit"
+                data-testid="custom-statistical-question-submit"
+                className="min-h-[42px] px-4 py-2 rounded-lg bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs sm:text-sm font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>محاسبه پاسخ</span>
+              </button>
+            </form>
+
+            {customQuestionResult?.status === 'unclear' && (
+              <div
+                data-testid="custom-question-unclear-box"
+                className="rounded-lg bg-[#FDF5ED] border border-[#E5C9A8] p-2.5 text-xs text-[#8C4A19]"
+              >
+                {customQuestionResult.message}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-1.5">
+              {statisticalQueries.map((q) => {
+                const isSelected =
+                  !customQuestionResult && selectedPrebuiltQuery?.id === q.id;
+                return (
+                  <button
+                    key={q.id}
+                    type="button"
+                    data-testid={`stat-query-btn-${q.id}`}
+                    onClick={() => {
+                      setCustomQuestionResult(null);
+                      setSelectedQueryId(q.id);
+                    }}
+                    className={`text-right px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs border transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#6B3E26] border-[#6B3E26] text-white font-bold'
+                        : 'bg-[#FAF5EE] border-[#E5D7C6] text-[#5C4636] hover:border-[#6B3E26]'
+                    }`}
+                  >
+                    {q.question}
+                  </button>
+                );
+              })}
+            </div>
+
+            {activeAnswer && (
+              <div
+                data-testid="stat-query-answer-box"
+                className="rounded-lg bg-[#FFFDFA] border border-[#EFE4D6] p-3.5 space-y-2 tabular-nums"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-[#6B3E26]">
+                    بخش متناظر: {activeAnswer.targetSectionLabel}
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => scrollToSection(activeAnswer.targetSection)}
+                      className="text-[11px] text-[#78604E] hover:text-[#332218] hover:underline cursor-pointer"
+                    >
+                      رفتن به بخش
+                    </button>
+                    {onSelectDrilldown && (
+                      <button
+                        type="button"
+                        data-testid="stat-query-open-drilldown-btn"
+                        onClick={() => triggerDrilldown(activeAnswer.drilldownKey)}
+                        className="min-h-[32px] px-2.5 py-1 rounded-md bg-[#6B3E26] hover:bg-[#56311E] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>مشاهده فهرست</span>
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 rounded-lg bg-[#FAF5EE] border border-[#EFE4D6] p-2.5 text-xs">
+                  <div>
+                    <div className="text-[10px] text-[#78604E]">عدد شاخص</div>
+                    <div className="text-base font-bold text-[#332218]">
+                      {activeAnswer.countNumber !== null
+                        ? toPersianDigits(activeAnswer.countDisplay)
+                        : 'در دسترس نیست'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-[#78604E]">واحد شمارش</div>
+                    <div className="font-semibold text-[#332218]">
+                      {activeAnswer.countingUnit}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-[#78604E]">مبنای شمارش</div>
+                    <div className="text-[11px] text-[#5C4636] leading-snug">
+                      {activeAnswer.countingBasis}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-xs sm:text-sm font-bold text-[#332218]">
+                  {toPersianDigits(activeAnswer.headlineMetric)}
+                </div>
+                <p className="text-xs text-[#5C4636] leading-relaxed">
+                  {toPersianDigits(activeAnswer.explanation)}
+                </p>
+              </div>
+            )}
           </section>
         </>
       )}

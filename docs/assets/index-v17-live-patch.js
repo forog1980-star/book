@@ -14,7 +14,7 @@ import './index-BSaCAbhS.js';
       shortTitle: 'روایت و خاطرات',
       baselineCount: 580,
       allocatedLocationText: 'SH-01 و SH-02 (همه طبقات T01 تا T06)',
-      color: '#15803D',
+      color: '#4D8B68',
     },
     {
       code: 'M',
@@ -22,7 +22,7 @@ import './index-BSaCAbhS.js';
       shortTitle: 'متفرقه و متنوع',
       baselineCount: 121,
       allocatedLocationText: 'SH-03-T05 و SH-03-T06 (طبقات ۵ و ۶)',
-      color: '#1D4ED8',
+      color: '#5279A8',
     },
     {
       code: 'A',
@@ -30,7 +30,7 @@ import './index-BSaCAbhS.js';
       shortTitle: 'ادبیات و هنر',
       baselineCount: 76,
       allocatedLocationText: 'SH-03-T02 (قفسه ۳، طبقه ۲ از بالا)',
-      color: '#B91C1C',
+      color: '#C06C6C',
     },
     {
       code: 'P',
@@ -38,7 +38,7 @@ import './index-BSaCAbhS.js';
       shortTitle: 'پژوهش و تحلیل',
       baselineCount: 69,
       allocatedLocationText: 'SH-03-T03 و SH-03-T04 (طبقات ۳ و ۴)',
-      color: '#D97706',
+      color: '#CC9352',
     },
     {
       code: 'H',
@@ -46,7 +46,7 @@ import './index-BSaCAbhS.js';
       shortTitle: 'تاریخ و اسناد',
       baselineCount: 60,
       allocatedLocationText: 'SH-03-T01 (قفسه ۳، طبقه ۱ از بالا)',
-      color: '#6D28D9',
+      color: '#85729E',
     },
     {
       code: 'K',
@@ -54,11 +54,11 @@ import './index-BSaCAbhS.js';
       shortTitle: 'کودک و نوجوان',
       baselineCount: 36,
       allocatedLocationText: 'SH-04-T01 (قفسه ۴، طبقه ۱ از بالا)',
-      color: '#0F766E',
+      color: '#538E8A',
     },
   ];
 
-  // ۱. اعمال پالت رنگی آرشیوی و رنگ‌های پررنگ قرمز/آبی/سبز نمودارهای دونات در کل برنامه
+  // ۱. اعمال پالت رنگی آرشیوی ملایم و رفع بیرون‌زدگی دکمه‌های بازگشت در موبایل
   function injectArchivalPaletteStyles() {
     if (document.getElementById('markaz-v17-archival-styles')) return;
     const style = document.createElement('style');
@@ -77,31 +77,58 @@ import './index-BSaCAbhS.js';
       [data-testid="comprehensive-docx-report-banner"] {
         display: none !important;
       }
+      [data-testid="return-to-dashboard-book-dossier-btn"],
+      [data-testid="banner-return-to-martyr-dossier-btn"],
+      [data-testid="modal-return-to-martyr-dossier-btn"],
+      [data-testid="custom-modal-return-to-martyr-dossier-btn"] {
+        max-width: 100% !important;
+        white-space: normal !important;
+        word-break: break-word !important;
+        height: auto !important;
+        line-height: 1.45 !important;
+        text-align: right !important;
+      }
     `;
     document.head.appendChild(style);
   }
 
-  // ۲. به‌روزرسانی رنگ‌های نمودار دونات موجود به سبز، آبی و قرمز پررنگ
+  // ۲. ملایم‌سازی رنگ‌های نمودار دونات و نشانگرها (حذف حالت جیغ)
   function upgradeDonutColorsInDom() {
     const colorMap = {
-      '#2E6F40': '#15803D',
-      '#2e6f40': '#15803D',
-      '#B76E22': '#1D4ED8',
-      '#b76e22': '#1D4ED8',
-      '#A63A3A': '#B91C1C',
-      '#a63a3a': '#B91C1C',
+      '#2E6F40': '#4D8B68',
+      '#2e6f40': '#4D8B68',
+      '#15803D': '#4D8B68',
+      '#15803d': '#4D8B68',
+      '#B76E22': '#5279A8',
+      '#b76e22': '#5279A8',
+      '#1D4ED8': '#5279A8',
+      '#1d4ed8': '#5279A8',
+      '#A63A3A': '#C06C6C',
+      '#a63a3a': '#C06C6C',
+      '#B91C1C': '#C06C6C',
+      '#b91c1c': '#C06C6C',
+      '#D97706': '#CC9352',
+      '#d97706': '#CC9352',
+      '#6D28D9': '#85729E',
+      '#6d28d9': '#85729E',
+      '#0F766E': '#538E8A',
+      '#0f766e': '#538E8A',
     };
-    document.querySelectorAll('svg circle[stroke]').forEach((circle) => {
-      const s = circle.getAttribute('stroke');
+    document.querySelectorAll('svg circle[stroke], svg path[fill]').forEach((el) => {
+      const s = el.getAttribute('stroke');
       if (s && colorMap[s]) {
-        circle.setAttribute('stroke', colorMap[s]);
+        el.setAttribute('stroke', colorMap[s]);
+      }
+      const f = el.getAttribute('fill');
+      if (f && colorMap[f]) {
+        el.setAttribute('fill', colorMap[f]);
       }
     });
     document.querySelectorAll('span[style*="background-color"]').forEach((span) => {
       const bg = span.style.backgroundColor;
-      if (bg === 'rgb(46, 111, 64)') span.style.backgroundColor = '#15803D';
-      if (bg === 'rgb(183, 110, 34)') span.style.backgroundColor = '#1D4ED8';
-      if (bg === 'rgb(166, 58, 58)') span.style.backgroundColor = '#B91C1C';
+      if (bg === 'rgb(46, 111, 64)' || bg === 'rgb(21, 128, 61)') span.style.backgroundColor = '#4D8B68';
+      if (bg === 'rgb(183, 110, 34)' || bg === 'rgb(29, 78, 216)') span.style.backgroundColor = '#5279A8';
+      if (bg === 'rgb(166, 58, 58)' || bg === 'rgb(185, 28, 28)') span.style.backgroundColor = '#C06C6C';
     });
   }
 
@@ -234,7 +261,7 @@ import './index-BSaCAbhS.js';
       shortTitle: 'در انتظار تعیین گروه موضوعی',
       baselineCount: 38,
       allocatedLocationText: 'تطبیق رکوردبه‌رکورد در ممیزی قفسه',
-      color: '#64748B',
+      color: '#7C8B99',
       value: unsetVal,
       auditedCount: auditedCounts.UNSET || 0,
       percent: totalBooks > 0 ? Math.round((unsetVal / totalBooks) * 1000) / 10 : 0,
@@ -422,10 +449,59 @@ import './index-BSaCAbhS.js';
     renderCategoryDonutPanel(panel);
   }
 
+  function upgradeStatisticsLayoutAndLabels() {
+    const routeView = document.querySelector('[data-testid="executive-statistics-route-view"]');
+    if (!routeView) return;
+
+    // ۱. حذف جمله توضیحی زیر «ابزارهای مشترک دسترسی به سه بخش اصلی»
+    const sharedTools = routeView.querySelector('[data-testid="statistics-shared-tools"]');
+    if (sharedTools) {
+      sharedTools.querySelectorAll('p').forEach((p) => {
+        if ((p.textContent || '').includes('جستجوی یکپارچه ۸حوزه‌ای و پرسش‌های آماری زنده')) {
+          p.remove();
+        }
+      });
+    }
+
+    // ۲. انتقال «پرسش‌های آماری زنده» به پایین صفحه (بعد از بخش سوم)
+    const queriesPanel = routeView.querySelector('[data-testid="statistics-statistical-queries"]');
+    const workSection = document.getElementById('stats-section-work');
+    if (
+      queriesPanel &&
+      workSection &&
+      sharedTools &&
+      sharedTools.contains(queriesPanel)
+    ) {
+      queriesPanel.className =
+        'bg-white border border-[#E5D7C6] rounded-2xl p-5 sm:p-6 space-y-4';
+      workSection.insertAdjacentElement('afterend', queriesPanel);
+      const searchWrapper = sharedTools.querySelector('.lg\\:col-span-5');
+      if (searchWrapper) {
+        searchWrapper.classList.remove('lg:col-span-5');
+        searchWrapper.classList.add('lg:col-span-12');
+      }
+    }
+
+    // ۳. اصلاح عناوین «بخش ۱ متناظر با کارت اول» به «بخش اول / دوم / سوم»
+    routeView.querySelectorAll('div, span').forEach((el) => {
+      if (el.children.length > 0) return;
+      const txt = (el.textContent || '').trim();
+      if (txt === 'بخش ۱ متناظر با کارت اول داشبورد') {
+        el.textContent = 'بخش اول';
+      } else if (txt === 'بخش ۲ متناظر با کارت دوم داشبورد') {
+        el.textContent = 'بخش دوم';
+      } else if (txt.startsWith('بخش ۳ متناظر با کارت سوم داشبورد')) {
+        el.textContent =
+          'بخش سوم · صف پیگیری، تاریخچه فعالیت، پژوهش و گزارش‌های مدیریتی';
+      }
+    });
+  }
+
   function tick() {
     injectArchivalPaletteStyles();
     upgradeDonutColorsInDom();
     ensureCategoryDonutMounted();
+    upgradeStatisticsLayoutAndLabels();
   }
 
   if (document.readyState === 'loading') {

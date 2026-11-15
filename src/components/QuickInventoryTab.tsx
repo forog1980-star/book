@@ -1552,25 +1552,37 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       {onReturnToDashboardDossier && (
         <div
           data-testid="quick-inventory-dashboard-return-banner"
-          className="bg-[#FAF5EE] border-2 border-[#6B3E26] rounded-2xl p-3 sm:p-3.5 flex flex-wrap items-center justify-between gap-2.5 text-xs text-[#332218]"
+          className="bg-[#FAF5EE] border-2 border-[#6B3E26] rounded-2xl p-3 sm:p-3.5 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-2.5 text-xs text-[#332218]"
         >
-          <div className="space-y-0.5">
+          <div className="space-y-0.5 min-w-0 flex-1">
             <div className="font-bold text-[#6B3E26]">
               پرونده اصلی کتاب از داشبورد مدیریتی باز شد
             </div>
-            <div className="text-[11px] text-[#5C4636]">
-              پس از مشاهده یا ویرایش اطلاعات کتاب در بخش ۳، می‌توانید به همان پرونده خلاصه در داشبورد برگردید.
+            <div className="text-[11px] text-[#5C4636] leading-relaxed">
+              پس از مشاهده، ثبت شهید مرتبط یا تأیید نهایی کارشناس، می‌توانید به همان فهرست یا پرونده در داشبورد برگردید.
             </div>
           </div>
-          <button
-            type="button"
-            data-testid="return-to-dashboard-book-dossier-btn"
-            onClick={onReturnToDashboardDossier}
-            className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer shrink-0"
-          >
-            <ArrowRight className="w-4 h-4 shrink-0" />
-            <span>{returnToDashboardLabel || 'بازگشت به پرونده خلاصه کتاب در داشبورد'}</span>
-          </button>
+          <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 w-full sm:w-auto">
+            {selectedRow && (
+              <button
+                type="button"
+                onClick={() => handleApproveOutsideRecord(selectedRow.rowKey, selectedRow)}
+                className="min-h-[40px] px-3.5 py-2 rounded-xl bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>✓ تأیید نهایی کارشناس</span>
+              </button>
+            )}
+            <button
+              type="button"
+              data-testid="return-to-dashboard-book-dossier-btn"
+              onClick={onReturnToDashboardDossier}
+              className="w-full sm:w-auto max-w-full whitespace-normal break-words text-right leading-snug min-h-[40px] px-3.5 py-2 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-xs inline-flex items-center justify-center sm:justify-start gap-1.5 cursor-pointer"
+            >
+              <ArrowRight className="w-4 h-4 shrink-0" />
+              <span className="break-words">{returnToDashboardLabel || 'بازگشت به پرونده خلاصه کتاب در داشبورد'}</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -2315,42 +2327,46 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                   </span>
                                 </div>
 
-                                {/* دکمه‌های تأیید یا حذف کارشناس برای کتاب‌های خارج از فهرست یا نیازمند بررسی */}
-                                {(isOutsideBook ||
-                                  savedRec?.physical === 'review' ||
-                                  savedRec?.needsReview === true ||
-                                  savedRec?.copyStatus === 'pending_review') && (
-                                  <div
-                                    className="flex flex-wrap items-center justify-end gap-1.5 mt-2 pt-1.5 border-t border-slate-100"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    {(!savedRec ||
-                                      savedRec.physical !== 'verified' ||
-                                      savedRec.needsReview ||
-                                      savedRec.copyStatus === 'pending_review') && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleApproveOutsideRecord(row.rowKey, row)}
-                                        className="min-h-[30px] px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center justify-center cursor-pointer"
-                                      >
-                                        ✓ تأیید کارشناس
-                                      </button>
-                                    )}
-                                    {isOutsideBook && onDeleteAuditRecord && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          onDeleteAuditRecord(row.rowKey);
-                                        }}
-                                        className="min-h-[30px] px-2.5 py-1 rounded-lg text-rose-600 hover:bg-rose-100 border border-rose-200 bg-white text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer"
-                                        title="حذف این کتاب ثبت‌شده"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                        <span>حذف</span>
-                                      </button>
-                                    )}
-                                  </div>
-                                )}
+                                {/* دکمه‌های تأیید نهایی کارشناس یا حذف برای همه ردیف‌های کتاب */}
+                                <div
+                                  className="flex flex-wrap items-center justify-end gap-1.5 mt-2 pt-1.5 border-t border-slate-100"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {(!savedRec ||
+                                    savedRec.physical !== 'verified' ||
+                                    savedRec.needsReview ||
+                                    savedRec.copyStatus === 'pending_review') ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleApproveOutsideRecord(row.rowKey, row)}
+                                      className="min-h-[30px] px-3 py-1 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold text-[11px] flex items-center justify-center cursor-pointer shadow-2xs"
+                                    >
+                                      ✓ تأیید نهایی کارشناس
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleApproveOutsideRecord(row.rowKey, row)}
+                                      className="min-h-[28px] px-2.5 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-[10.5px] flex items-center justify-center cursor-pointer"
+                                      title="تأیید مجدد کارشناس برای این کتاب و ارتباطات"
+                                    >
+                                      ✓ تأییدشده کارشناس (ثبت مجدد)
+                                    </button>
+                                  )}
+                                  {isOutsideBook && onDeleteAuditRecord && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        onDeleteAuditRecord(row.rowKey);
+                                      }}
+                                      className="min-h-[30px] px-2.5 py-1 rounded-lg text-rose-600 hover:bg-rose-100 border border-rose-200 bg-white text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer"
+                                      title="حذف این کتاب ثبت‌شده"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                      <span>حذف</span>
+                                    </button>
+                                  )}
+                                </div>
 
                                 {/* نمایش شهدای مرتبط با این کتاب */}
                                 {rowLinks.length > 0 && (
@@ -2591,20 +2607,30 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                               </div>
 
                               <div className="space-y-1.5">
-                                <div className="flex items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
                                   <label className="text-xs font-bold text-[#8C3B2B]">
                                     نام شهید مرتبط با این کتاب (نام کامل شهید):
                                   </label>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setRelatedMartyrsInputs((prev) => [...prev, ''])
-                                    }
-                                    className="px-2.5 py-1 rounded-lg bg-[#8C3B2B] hover:bg-[#702D20] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <Plus className="w-3.5 h-3.5" />
-                                    <span>افزودن شهید دیگر</span>
-                                  </button>
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSaveCatalogBookRecord(row)}
+                                      className="px-2.5 py-1 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                                    >
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                      <span>ذخیره ارتباط شهید ✓</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setRelatedMartyrsInputs((prev) => [...prev, ''])
+                                      }
+                                      className="px-2.5 py-1 rounded-lg bg-[#8C3B2B] hover:bg-[#702D20] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                      <span>افزودن شهید دیگر</span>
+                                    </button>
+                                  </div>
                                 </div>
                                 <div className="space-y-1.5">
                                   {relatedMartyrsInputs.map((mName, mIdx) => {
@@ -2613,7 +2639,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                       : null;
                                     return (
                                       <div key={mIdx} className="space-y-1">
-                                        <div className="flex items-center gap-1.5">
+                                        <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5">
                                           <input
                                             type="text"
                                             value={mName}
@@ -2628,8 +2654,19 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                                 ? toPersianDigits(mIdx + 1)
                                                 : ''
                                             } (مثلاً: شهید مصطفی چمران)`}
-                                            className="flex-1 min-h-[36px] px-3 py-1 bg-[#FAF5EE] focus:bg-white border border-[#D8C2A7] rounded-lg text-xs text-slate-900 focus:outline-none focus:border-[#8C3B2B]"
+                                            className="flex-1 min-w-[160px] min-h-[36px] px-3 py-1 bg-[#FAF5EE] focus:bg-white border border-[#D8C2A7] rounded-lg text-xs text-slate-900 focus:outline-none focus:border-[#8C3B2B]"
                                           />
+                                          {mName.trim() !== '' && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleSaveCatalogBookRecord(row)}
+                                              className="min-h-[36px] px-2.5 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer shrink-0"
+                                              title="ذخیره و تأیید ارتباط این شهید با کتاب"
+                                            >
+                                              <CheckCircle2 className="w-3.5 h-3.5" />
+                                              <span>ذخیره ارتباط</span>
+                                            </button>
+                                          )}
                                           {(relatedMartyrsInputs.length > 1 || mName.trim() !== '') && (
                                             <button
                                               type="button"
@@ -2640,7 +2677,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                                     : ['']
                                                 )
                                               }
-                                              className="min-h-[36px] px-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
+                                              className="min-h-[36px] px-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer shrink-0"
                                               title="حذف این شهید"
                                             >
                                               ✕
@@ -2743,25 +2780,34 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleSaveCatalogBookRecord(row, nextRow)}
-                                className="sm:col-span-6 min-h-[44px] px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+                                className="sm:col-span-4 min-h-[44px] px-3 py-2 bg-[#4D8B68] hover:bg-[#3D7254] text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
                               >
-                                <span>ذخیره سریع و رفتن به کتاب بعدی</span>
+                                <span>ذخیره سریع و کتاب بعدی</span>
                                 <ArrowDown className="w-4 h-4 shrink-0" />
                               </button>
 
                               <button
                                 type="button"
                                 onClick={() => handleSaveCatalogBookRecord(row)}
-                                className="sm:col-span-4 min-h-[44px] px-4 py-2 bg-[#1f4e79] hover:bg-[#163a5c] text-white rounded-xl font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                                className="sm:col-span-3 min-h-[44px] px-3 py-2 bg-[#1f4e79] hover:bg-[#163a5c] text-white rounded-xl font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
                               >
                                 <CheckCircle2 className="w-4 h-4 shrink-0" />
-                                <span>ذخیره همین کتاب ✓</span>
+                                <span>ذخیره ارتباط و کتاب ✓</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleApproveOutsideRecord(row.rowKey, row)}
+                                className="sm:col-span-3 min-h-[44px] px-3 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                              >
+                                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                                <span>✓ تأیید نهایی کارشناس</span>
                               </button>
 
                               <button
                                 type="button"
                                 onClick={() => setSelectedRow(null)}
-                                className="sm:col-span-2 min-h-[44px] px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium text-xs flex items-center justify-center cursor-pointer whitespace-nowrap"
+                                className="sm:col-span-2 min-h-[44px] px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium text-xs flex items-center justify-center cursor-pointer"
                               >
                                 <span>بستن ✕</span>
                               </button>
@@ -3611,20 +3657,32 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
 
                         {/* فیلد شهید مرتبط در فرم کامل بخش ۳ (با دکمه + برای چند شهید) */}
                         <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3 space-y-2">
-                          <div className="flex items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
                             <label className="text-xs font-bold text-[#8C3B2B]">
                               شهید مرتبط با کتاب (نام کامل شهید — قابلیت افزودن چند شهید با +):
                             </label>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setRelatedMartyrsInputs((prev) => [...prev, ''])
-                              }
-                              className="px-2.5 py-1 rounded-lg bg-[#8C3B2B] hover:bg-[#702D20] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              <span>افزودن شهید دیگر</span>
-                            </button>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {selectedRow && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveCatalogBookRecord(selectedRow)}
+                                  className="px-2.5 py-1 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>ذخیره ارتباط شهید ✓</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setRelatedMartyrsInputs((prev) => [...prev, ''])
+                                }
+                                className="px-2.5 py-1 rounded-lg bg-[#8C3B2B] hover:bg-[#702D20] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>افزودن شهید دیگر</span>
+                              </button>
+                            </div>
                           </div>
                           <div className="space-y-1.5">
                             {relatedMartyrsInputs.map((mName, mIdx) => {
@@ -3633,7 +3691,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                 : null;
                               return (
                                 <div key={mIdx} className="space-y-1">
-                                  <div className="flex items-center gap-1.5">
+                                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5">
                                     <input
                                       type="text"
                                       value={mName}
@@ -3648,8 +3706,18 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                           ? toPersianDigits(mIdx + 1)
                                           : ''
                                       } (مثلاً: شهید مصطفی چمران)`}
-                                      className="flex-1 min-h-[38px] px-3 py-1.5 bg-white border border-[#D8C2A7] rounded-xl text-xs text-slate-900 focus:outline-none focus:border-[#8C3B2B]"
+                                      className="flex-1 min-w-[160px] min-h-[38px] px-3 py-1.5 bg-white border border-[#D8C2A7] rounded-xl text-xs text-slate-900 focus:outline-none focus:border-[#8C3B2B]"
                                     />
+                                    {mName.trim() !== '' && selectedRow && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveCatalogBookRecord(selectedRow)}
+                                        className="min-h-[38px] px-2.5 rounded-xl bg-[#4D8B68] hover:bg-[#3D7254] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer shrink-0"
+                                      >
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        <span>ذخیره ارتباط</span>
+                                      </button>
+                                    )}
                                     {(relatedMartyrsInputs.length > 1 || mName.trim() !== '') && (
                                       <button
                                         type="button"
@@ -3660,7 +3728,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                               : ['']
                                           )
                                         }
-                                        className="min-h-[38px] px-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
+                                        className="min-h-[38px] px-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer shrink-0"
                                         title="حذف این شهید"
                                       >
                                         ✕
@@ -3702,14 +3770,26 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                   </div>
 
                   {/* Primary Save Action Buttons */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 pt-1">
                     <button
                       type="submit"
-                      className="sm:col-span-2 min-h-[46px] px-5 py-2.5 bg-[#1f4e79] hover:bg-[#163a5b] text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                      className={`${
+                        selectedRow ? 'sm:col-span-5' : 'sm:col-span-8'
+                      } min-h-[46px] px-5 py-2.5 bg-[#1f4e79] hover:bg-[#163a5b] text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer`}
                     >
                       <CheckCircle2 className="w-4 h-4 shrink-0" />
-                      <span>ذخیره ثبت در حافظه دستگاه</span>
+                      <span>ذخیره ثبت و ارتباط در دستگاه</span>
                     </button>
+                    {selectedRow && (
+                      <button
+                        type="button"
+                        onClick={() => handleApproveOutsideRecord(selectedRow.rowKey, selectedRow)}
+                        className="sm:col-span-4 min-h-[46px] px-4 py-2.5 bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        <span>✓ تأیید نهایی کارشناس</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -3717,7 +3797,9 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                         setShowSection3Drawer(false);
                         setNotesValue('');
                       }}
-                      className="min-h-[46px] px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      className={`${
+                        selectedRow ? 'sm:col-span-3' : 'sm:col-span-4'
+                      } min-h-[46px] px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer`}
                     >
                       <RotateCcw className="w-4 h-4" />
                       <span>انصراف و بستن کشو</span>

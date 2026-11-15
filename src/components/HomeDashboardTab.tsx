@@ -655,7 +655,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
           sourceFile: 'ثبت کارشناس در پرونده کتاب',
           sourceSheet: isMulti ? 'چند شهید' : 'یک شهید',
           sourceExcelRow: '—',
-          reviewStatus: relCertainty,
+          reviewStatus: relCertainty === 'قطعی' ? 'تأییدشده کارشناسی' : relCertainty,
           reviewerNote:
             relReviewerNote.trim() ||
             (item.matched28k
@@ -666,7 +666,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       }
       onNotify(
         resolvedMartyrs.length === 1
-          ? `✅ ارتباط شهید «${resolvedMartyrs[0].canonicalName}» به پرونده کتاب «${selectedBookDossier.title}» اضافه شد.`
+          ? `✅ ارتباط شهید «${resolvedMartyrs[0].canonicalName}» در پرونده کتاب «${selectedBookDossier.title}» ذخیره و تأیید شد.`
           : `✅ ارتباط ${toPersianDigits(resolvedMartyrs.length)} شهید (${resolvedMartyrs
               .map((m) => m.canonicalName)
               .join('، ')}) به پرونده کتاب «${selectedBookDossier.title}» اضافه شد.`
@@ -677,6 +677,8 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
       const existingRel = selectedBookDossier.martyrRelations.find(
         (r) => r.linkId === editingRelationLinkId
       );
+      const effectiveStatus =
+        relCertainty === 'قطعی' ? 'تأییدشده کارشناسی' : relCertainty;
       if (onUpdateLink) {
         const updatedLink: BookMartyrLinkRecord = existingLink
           ? {
@@ -690,7 +692,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
               graveNumberRaw: item.number,
               pageReferenceRaw: relPageRef.trim(),
               sourceDescriptionRaw: relSourceDesc.trim(),
-              reviewStatus: relCertainty,
+              reviewStatus: effectiveStatus,
               reviewerNote: relReviewerNote.trim()
             }
           : {
@@ -711,7 +713,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
               sourceFile: existingRel?.sourceFile || 'ویرایش کارشناس در پرونده کتاب',
               sourceSheet: existingRel?.sourceSheet || 'یک شهید',
               sourceExcelRow: existingRel?.sourceExcelRow || '—',
-              reviewStatus: relCertainty,
+              reviewStatus: effectiveStatus,
               reviewerNote: relReviewerNote.trim()
             };
         const oldName =
@@ -724,13 +726,80 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
           setSelectedMartyrDossierName(item.canonicalName);
         }
         onNotify(
-          `✅ اطلاعات ارتباط شهید «${item.canonicalName}» در پرونده کتاب و کتابخانه به‌روزرسانی شد.`
+          `✅ اطلاعات ارتباط شهید «${item.canonicalName}» در پرونده کتاب و کتابخانه ذخیره و تأیید شد.`
         );
       }
     }
     setLastInteractedDossierId(selectedBookDossier.dossierId);
     setEditingRelationLinkId(null);
     setEditingOriginalMartyrName('');
+  };
+
+  // تأیید کارشناسی سریع یک ارتباط شهید و کتاب با یک کلیک
+  const handleQuickApproveMartyrRelation = (
+    bookDossier: UnifiedBookDossier,
+    rel: BookDossierMartyrRelation,
+    silent = false
+  ) => {
+    if (!onUpdateLink) return;
+    const existingLink = links.find((l) => l.id === rel.linkId);
+    const matched28k = findMartyrRecordIn28k(rel.martyrName);
+    const canonicalName = matched28k
+      ? matched28k.fullName
+      : rel.martyrName.replace(/^(شهیدان|شهید)\s+/g, '').trim();
+    const piece =
+      rel.gravePiece && rel.gravePiece !== '—'
+        ? rel.gravePiece
+        : matched28k?.gravePiece || '';
+    const row =
+      rel.graveRow && rel.graveRow !== '—'
+        ? rel.graveRow
+        : matched28k?.graveRow || '';
+    const number =
+      rel.graveNumber && rel.graveNumber !== '—'
+        ? rel.graveNumber
+        : matched28k?.graveNumber || '';
+
+    const updatedLink: BookMartyrLinkRecord = existingLink
+      ? {
+          ...existingLink,
+          tempBookId: bookDossier.bookId || existingLink.tempBookId,
+          bookTitleRaw: bookDossier.title || existingLink.bookTitleRaw,
+          martyrNameRaw: canonicalName,
+          rawNameInSource: `شهید ${canonicalName}`,
+          gravePieceRaw: piece || existingLink.gravePieceRaw,
+          graveRowRaw: row || existingLink.graveRowRaw,
+          graveNumberRaw: number || existingLink.graveNumberRaw,
+          reviewStatus: 'تأییدشده کارشناسی'
+        }
+      : {
+          id: rel.linkId,
+          tempBookId: bookDossier.bookId,
+          bookTitleRaw: bookDossier.title,
+          alternativeTitle: bookDossier.alternativeTitle || undefined,
+          publisherRaw:
+            bookDossier.publisher === 'ثبت‌نشده' ? '' : bookDossier.publisher,
+          martyrNameRaw: canonicalName,
+          rawNameInSource: `شهید ${canonicalName}`,
+          isGroupPhrase: false,
+          gravePieceRaw: piece,
+          graveRowRaw: row,
+          graveNumberRaw: number,
+          pageReferenceRaw:
+            rel.pageReference === 'کل کتاب / ثبت‌نشده' ? '' : rel.pageReference,
+          sourceDescriptionRaw: rel.sourceDescriptionRaw || '',
+          sourceFile: rel.sourceFile || 'تأیید کارشناس در پرونده کتاب',
+          sourceSheet: rel.sourceSheet || 'یک شهید',
+          sourceExcelRow: rel.sourceExcelRow || '—',
+          reviewStatus: 'تأییدشده کارشناسی',
+          reviewerNote: rel.reviewerNote || 'تأیید نهایی کارشناس'
+        };
+    onUpdateLink(updatedLink, rel.martyrName);
+    if (!silent) {
+      onNotify(
+        `✅ ارتباط شهید «${canonicalName}» با کتاب «${bookDossier.title}» تأیید نهایی کارشناس شد.`
+      );
+    }
   };
 
   // ساخت اطلاعات کامل پرونده اختصاصی شهید برای پنجره مودال شهید (`selectedMartyrDossierName`)
@@ -1871,7 +1940,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-1.5 pt-1.5 border-t border-[#EFE5D8]/70">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-1.5 border-t border-[#EFE5D8]/70">
                         <span className="min-h-[30px] px-2 py-1 rounded-lg bg-[#EDF6F0] text-[#1E4D2B] border border-[#A8D5B5] font-mono font-bold text-[11px] flex items-center justify-center truncate">
                           قفسه: {rec.location || 'ثبت‌نشده'}
                         </span>
@@ -1884,6 +1953,25 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                         >
                           {rec.source === 'outside-list' ? 'ثبت جدید' : 'کاتالوگ کتابخانه'}
                         </span>
+                        {onApproveOutsideBook && (
+                          <button
+                            type="button"
+                            onClick={() => onApproveOutsideBook(rec.key)}
+                            className={`min-h-[30px] px-2.5 py-1 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1 cursor-pointer transition-colors ${
+                              rec.expertApproved && rec.physical === 'verified'
+                                ? 'bg-[#E9F5EC] border border-[#96CFA8] text-[#1E5B32]'
+                                : 'bg-[#2E6F40] hover:bg-[#235732] text-white'
+                            }`}
+                            title="تأیید نهایی کارشناس برای این کتاب"
+                          >
+                            <Check className="w-3 h-3 shrink-0" />
+                            <span>
+                              {rec.expertApproved && rec.physical === 'verified'
+                                ? 'تأییدشده کارشناس'
+                                : 'تأیید نهایی کارشناس'}
+                            </span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => openBookDossierByTitleOrId(rec.tempBookId || rec.title)}
@@ -2221,22 +2309,36 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                         )}
 
                         <div className="flex items-center gap-1.5">
-                          {(activeStatGroupModal === 'new_books' || dossier.isNewRegistration) &&
-                            onApproveOutsideBook && (
-                              <button
-                                type="button"
-                                data-testid={`approve-new-book-row-${dossier.bookId}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onApproveOutsideBook(dossier.rowKey);
-                                }}
-                                className="flex-1 min-h-[32px] px-2.5 py-1 rounded-lg bg-[#2E6F40] hover:bg-[#235732] text-white font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors whitespace-nowrap shadow-2xs"
-                                title="تأیید نهایی کارشناس و خروج کتاب از فهرست ثبت‌های جدید"
-                              >
-                                <Check className="w-3.5 h-3.5 shrink-0" />
-                                <span>تأیید کارشناس</span>
-                              </button>
-                            )}
+                          {onApproveOutsideBook && (
+                            <button
+                              type="button"
+                              data-testid={`approve-new-book-row-${dossier.bookId}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onApproveOutsideBook(dossier.rowKey);
+                                dossier.martyrRelations.forEach((rel) =>
+                                  handleQuickApproveMartyrRelation(dossier, rel, true)
+                                );
+                              }}
+                              className={`flex-1 min-h-[32px] px-2.5 py-1 rounded-lg font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors whitespace-nowrap shadow-2xs ${
+                                !dossier.isNewRegistration &&
+                                dossier.physicalStatus === 'verified' &&
+                                auditRecords[dossier.rowKey]?.expertApproved
+                                  ? 'bg-[#E9F5EC] hover:bg-[#D8EDE0] border border-[#96CFA8] text-[#1E5B32]'
+                                  : 'bg-[#2E6F40] hover:bg-[#235732] text-white'
+                              }`}
+                              title="تأیید نهایی کارشناس برای کتاب و ارتباطات شهید"
+                            >
+                              <Check className="w-3.5 h-3.5 shrink-0" />
+                              <span>
+                                {!dossier.isNewRegistration &&
+                                dossier.physicalStatus === 'verified' &&
+                                auditRecords[dossier.rowKey]?.expertApproved
+                                  ? 'تأییدشده کارشناس'
+                                  : 'تأیید نهایی کارشناس'}
+                              </span>
+                            </button>
+                          )}
 
                           <button
                             type="button"
@@ -2309,26 +2411,26 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                 <span>مدیریت یکپارچه پرونده کتاب (بدون خروج از فهرست قبلی)</span>
               </div>
               <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                {(selectedBookDossier.isNewRegistration ||
-                  selectedBookDossier.physicalStatus !== 'verified' ||
-                  !auditRecords[selectedBookDossier.rowKey]?.expertApproved) &&
-                  onApproveOutsideBook && (
-                    <button
-                      type="button"
-                      data-testid="dossier-expert-approve-btn"
-                      onClick={() => {
-                        const targetRowKey = selectedBookDossier.rowKey;
-                        onApproveOutsideBook(targetRowKey);
-                        if (activeStatGroupModal === 'new_books') {
-                          setSelectedBookDossierId(null);
-                        }
-                      }}
-                      className="min-h-[36px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
-                    >
-                      <CheckCircle2 className="w-4 h-4 shrink-0" />
-                      <span>تأیید کارشناس (خروج از فهرست بررسی)</span>
-                    </button>
-                  )}
+                {onApproveOutsideBook && (
+                  <button
+                    type="button"
+                    data-testid="dossier-expert-approve-btn"
+                    onClick={() => {
+                      const targetRowKey = selectedBookDossier.rowKey;
+                      onApproveOutsideBook(targetRowKey);
+                      selectedBookDossier.martyrRelations.forEach((rel) =>
+                        handleQuickApproveMartyrRelation(selectedBookDossier, rel, true)
+                      );
+                      if (activeStatGroupModal === 'new_books') {
+                        setSelectedBookDossierId(null);
+                      }
+                    }}
+                    className="min-h-[36px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
+                  >
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>تأیید نهایی کارشناس (کتاب و ارتباطات)</span>
+                  </button>
+                )}
 
                 {!isEditingDossierBook ? (
                   <button
@@ -2685,25 +2787,25 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                       </div>
                     )}
                     <div className="flex flex-wrap items-center gap-2 pt-1">
-                      {(selectedBookDossier.isNewRegistration ||
-                        selectedBookDossier.physicalStatus !== 'verified' ||
-                        !auditRecords[selectedBookDossier.rowKey]?.expertApproved) &&
-                        onApproveOutsideBook && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const targetRowKey = selectedBookDossier.rowKey;
-                              onApproveOutsideBook(targetRowKey);
-                              if (activeStatGroupModal === 'new_books') {
-                                setSelectedBookDossierId(null);
-                              }
-                            }}
-                            className="px-3 py-1.5 rounded-lg bg-[#2E6F40] hover:bg-[#235732] text-white font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer shadow-2xs"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>تأیید کارشناس (خروج از فهرست بررسی / ثبت‌های جدید)</span>
-                          </button>
-                        )}
+                      {onApproveOutsideBook && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const targetRowKey = selectedBookDossier.rowKey;
+                            onApproveOutsideBook(targetRowKey);
+                            selectedBookDossier.martyrRelations.forEach((rel) =>
+                              handleQuickApproveMartyrRelation(selectedBookDossier, rel, true)
+                            );
+                            if (activeStatGroupModal === 'new_books') {
+                              setSelectedBookDossierId(null);
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-[#2E6F40] hover:bg-[#235732] text-white font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>تأیید نهایی کارشناس (تعیین‌تکلیف قطعی کتاب و ارتباطات)</span>
+                        </button>
+                      )}
                       {selectedBookDossier.isDetermined && onDeleteAuditRecord && (
                         <button
                           type="button"
@@ -2900,19 +3002,29 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                   onSubmit={handleSaveMartyrRelationInDossier}
                   className="bg-[#FAF5EE] border-2 border-[#6B3E26] rounded-xl p-3.5 space-y-3"
                 >
-                  <div className="flex items-center justify-between border-b border-[#E2D2BE] pb-2 font-bold text-xs text-[#332218]">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E2D2BE] pb-2 font-bold text-xs text-[#332218]">
                     <span>
                       {editingRelationLinkId === 'NEW'
                         ? 'افزودن ارتباط شهید جدید به این کتاب'
                         : 'ویرایش مشخصات و مستندات ارتباط شهید با کتاب'}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setEditingRelationLinkId(null)}
-                      className="text-[#6E5846] hover:text-[#332218] cursor-pointer"
-                    >
-                      بستن ✕
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="submit"
+                        data-testid="dossier-top-save-relation-btn"
+                        className="px-3 py-1 rounded-lg bg-[#2E6F40] hover:bg-[#235732] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>ذخیره و تأیید ارتباط شهید</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingRelationLinkId(null)}
+                        className="px-2.5 py-1 rounded-lg bg-white border border-[#D8C7B2] text-[#6E5846] hover:text-[#332218] text-[11px] cursor-pointer"
+                      >
+                        بستن ✕
+                      </button>
+                    </div>
                   </div>
 
                   {/* بخش نام شهید با قابلیت افزودن ۳، ۴، ۵ یا هر تعداد شهید در کادرهای جداگانه با دکمه + و تطبیق زنده با بانک ۲۸٬۳۶۸ شهید گلزار تهران */}
@@ -2923,36 +3035,55 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                           ? 'نام کامل شهید یا شهدای مرتبط با کتاب (هر شهید در یک کادر جداگانه): *'
                           : 'نام کامل شهید مرتبط: *'}
                       </label>
-                      {editingRelationLinkId === 'NEW' && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {editingRelationLinkId === 'NEW' && (
+                          <button
+                            type="button"
+                            data-testid="dossier-add-another-martyr-input-btn"
+                            onClick={() =>
+                              setRelAdditionalMartyrNames((prev) => [...prev, ''])
+                            }
+                            className="px-2.5 py-1 rounded-lg bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>＋ افزودن کادر شهید دیگر</span>
+                          </button>
+                        )}
                         <button
-                          type="button"
-                          data-testid="dossier-add-another-martyr-input-btn"
-                          onClick={() =>
-                            setRelAdditionalMartyrNames((prev) => [...prev, ''])
-                          }
-                          className="px-2.5 py-1 rounded-lg bg-[#2E6F40] hover:bg-[#235732] text-white font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                          type="submit"
+                          data-testid="dossier-inline-save-relation-btn"
+                          className="px-3 py-1 rounded-lg bg-[#2E6F40] hover:bg-[#235732] text-white font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer shadow-2xs"
                         >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>＋ افزودن کادر شهید دیگر</span>
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>ذخیره ارتباط</span>
                         </button>
-                      )}
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       {/* کادر شهید اول */}
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="w-5 h-5 rounded-md bg-[#FAF5EE] border border-[#D8C7B2] text-[#6B3E26] font-mono text-[10px] font-bold flex items-center justify-center shrink-0">
-                            {toPersianDigits(1)}
-                          </span>
-                          <input
-                            type="text"
-                            required
-                            value={relMartyrName}
-                            onChange={(e) => setRelMartyrName(e.target.value)}
-                            placeholder="مثلاً: شهید مصطفی چمران"
-                            className="w-full min-h-[36px] px-2.5 py-1 bg-[#FAF5EE] focus:bg-white border border-[#D8C7B2] rounded-lg font-bold"
-                          />
+                      <div className="space-y-1 sm:col-span-2">
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-1">
+                            <span className="w-5 h-5 rounded-md bg-[#FAF5EE] border border-[#D8C7B2] text-[#6B3E26] font-mono text-[10px] font-bold flex items-center justify-center shrink-0">
+                              {toPersianDigits(1)}
+                            </span>
+                            <input
+                              type="text"
+                              required
+                              value={relMartyrName}
+                              onChange={(e) => setRelMartyrName(e.target.value)}
+                              placeholder="مثلاً: شهید سید محمد کاظم دانش"
+                              className="w-full min-h-[38px] px-2.5 py-1 bg-[#FAF5EE] focus:bg-white border border-[#D8C7B2] rounded-lg font-bold"
+                            />
+                          </div>
+                          <button
+                            type="submit"
+                            className="min-h-[38px] px-3.5 py-1.5 rounded-lg bg-[#2E6F40] hover:bg-[#235732] text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>ذخیره و تأیید ارتباط شهید</span>
+                          </button>
                         </div>
                         {relMartyrName.trim().length >= 3 && (() => {
                           const gm = findMartyrRecordIn28k(relMartyrName);
@@ -3165,6 +3296,20 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                           <span className="px-2 py-0.5 rounded bg-white border border-[#D8C7B2] text-[10.5px] text-[#5C4636]">
                             {rel.sourceSheetCategory}
                           </span>
+                          {onUpdateLink && (
+                            <button
+                              type="button"
+                              data-testid={`dossier-approve-martyr-rel-${idx}`}
+                              onClick={() =>
+                                handleQuickApproveMartyrRelation(selectedBookDossier, rel)
+                              }
+                              className="px-2.5 py-0.5 rounded bg-[#2E6F40] hover:bg-[#235732] text-white font-bold text-[10.5px] inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                              title="تأیید نهایی کارشناس برای ارتباط این شهید با کتاب"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>تأیید کارشناس</span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => startEditMartyrRelation(rel)}
@@ -3400,6 +3545,17 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                        {onUpdateLink && (
+                          <button
+                            type="button"
+                            onClick={() => handleQuickApproveMartyrRelation(book, rel)}
+                            className="px-2.5 py-1.5 rounded-lg bg-[#2E6F40] hover:bg-[#235732] text-white font-bold text-[11px] inline-flex items-center gap-1 shrink-0 cursor-pointer"
+                            title="تأیید نهایی کارشناس برای ارتباط این شهید با کتاب"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>تأیید کارشناس</span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => {

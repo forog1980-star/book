@@ -1030,10 +1030,10 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
             type="button"
             data-testid="banner-return-to-martyr-dossier-btn"
             onClick={handleBackToSourceMartyrDossier}
-            className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer shrink-0"
+            className="w-full sm:w-auto max-w-full whitespace-normal break-words text-right leading-snug min-h-[38px] px-3.5 py-2 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-xs inline-flex items-center justify-center sm:justify-start gap-1.5 cursor-pointer"
           >
-            <ArrowRight className="w-4 h-4" />
-            <span>
+            <ArrowRight className="w-4 h-4 shrink-0" />
+            <span className="break-words">
               {activeCrossTabTarget.returnTarget === 'executive_dashboard'
                 ? activeCrossTabTarget.returnLabel || 'بازگشت به داشبورد مدیریتی'
                 : 'بازگشت به پرونده اختصاصی شهید'}
@@ -1856,9 +1856,9 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                     {martyrLinks.map((lnk) => (
                       <div
                         key={lnk.id}
-                        className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1"
+                        className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1.5"
                       >
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <strong className="text-slate-900 inline-flex items-center gap-1.5 flex-wrap">
                               <span>
@@ -1875,9 +1875,36 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                               )
                             </span>
                           </div>
-                          <span className="text-[10.5px] font-bold text-[#1F4E79] bg-blue-50 border border-blue-200 px-2 py-0.5 rounded shrink-0">
-                            {lnk.reviewStatus}
-                          </span>
+                          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                            <span
+                              className={`text-[10.5px] font-bold px-2 py-0.5 rounded border ${
+                                lnk.reviewStatus === 'تأییدشده کارشناسی'
+                                  ? 'text-emerald-800 bg-emerald-50 border-emerald-200'
+                                  : 'text-[#1F4E79] bg-blue-50 border-blue-200'
+                              }`}
+                            >
+                              {lnk.reviewStatus}
+                            </span>
+                            {lnk.reviewStatus !== 'تأییدشده کارشناسی' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onLinkMartyrToBook({
+                                    ...lnk,
+                                    reviewStatus: 'تأییدشده کارشناسی'
+                                  });
+                                  onNotify(
+                                    `ارتباط کتاب «${lnk.bookTitleRaw}» با شهید «${lnk.martyrNameRaw}» به تأیید نهایی کارشناس رسید.`,
+                                    'success'
+                                  );
+                                }}
+                                className="min-h-[26px] px-2.5 py-0.5 rounded-md bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold text-[10.5px] inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                <span>✓ تأیید نهایی کارشناس</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
                         {lnk.sourceDescriptionRaw && (
                           <div className="text-[11px] text-slate-700">
@@ -2007,10 +2034,10 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                 type="button"
                 data-testid="modal-return-to-martyr-dossier-btn"
                 onClick={handleBackToSourceMartyrDossier}
-                className="w-full min-h-[40px] px-3.5 py-2 bg-[#6B3E26] hover:bg-[#56311E] text-white rounded-xl font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors text-xs"
+                className="w-full max-w-full whitespace-normal break-words text-right leading-snug min-h-[40px] px-3.5 py-2 bg-[#6B3E26] hover:bg-[#56311E] text-white rounded-xl font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors text-xs"
               >
                 <ArrowRight className="w-4 h-4 shrink-0" />
-                <span>
+                <span className="break-words">
                   {activeCrossTabTarget.returnTarget === 'executive_dashboard'
                     ? activeCrossTabTarget.returnLabel || 'بازگشت به داشبورد مدیریتی'
                     : 'بازگشت به پرونده اختصاصی شهید'}
@@ -2529,10 +2556,10 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                 type="button"
                 data-testid="custom-modal-return-to-martyr-dossier-btn"
                 onClick={handleBackToSourceMartyrDossier}
-                className="w-full min-h-[40px] px-3.5 py-2 bg-[#6B3E26] hover:bg-[#56311E] text-white rounded-xl font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors text-xs"
+                className="w-full max-w-full whitespace-normal break-words text-right leading-snug min-h-[40px] px-3.5 py-2 bg-[#6B3E26] hover:bg-[#56311E] text-white rounded-xl font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors text-xs"
               >
                 <ArrowRight className="w-4 h-4 shrink-0" />
-                <span>
+                <span className="break-words">
                   {activeCrossTabTarget.returnTarget === 'executive_dashboard'
                     ? activeCrossTabTarget.returnLabel || 'بازگشت به داشبورد مدیریتی'
                     : 'بازگشت به پرونده اختصاصی شهید'}

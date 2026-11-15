@@ -207,7 +207,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                           label: 'تکمیل‌شده کامل',
                           count: libraryCard.completedCount,
                           percent: libraryCard.completedPercent,
-                          color: '#15803D',
+                          color: '#4D8B68',
                           testId: 'library_completed',
                           onClick: () => triggerDrilldown('library_completed'),
                         },
@@ -223,7 +223,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                                     100
                                 )
                               : 0,
-                          color: '#1D4ED8',
+                          color: '#5279A8',
                           testId: 'library_in_progress',
                           onClick: () => triggerDrilldown('library_in_progress'),
                         },
@@ -244,7 +244,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                                     )
                                 )
                               : 0,
-                          color: '#B91C1C',
+                          color: '#C06C6C',
                           testId: 'library_not_started',
                           onClick: () => triggerDrilldown('library_not_started'),
                         },
@@ -265,7 +265,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                     >
                       <span className="flex items-center gap-2 text-[#525046] min-w-0">
                         <span
-                          className="w-2.5 h-2.5 rounded-full bg-[#15803D] shrink-0"
+                          className="w-2.5 h-2.5 rounded-full bg-[#4D8B68] shrink-0"
                           aria-hidden="true"
                         />
                         <span className="truncate group-hover:text-[#353530]">
@@ -294,7 +294,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                     >
                       <span className="flex items-center gap-2 text-[#525046] min-w-0">
                         <span
-                          className="w-2.5 h-2.5 rounded-full bg-[#B91C1C] shrink-0"
+                          className="w-2.5 h-2.5 rounded-full bg-[#C06C6C] shrink-0"
                           aria-hidden="true"
                         />
                         <span className="truncate group-hover:text-[#353530]">
@@ -430,7 +430,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                           label: 'هویت احرازشده',
                           count: martyrsCard.confirmedIdentityCount,
                           percent: martyrsCard.confirmedIdentityPercent,
-                          color: '#15803D',
+                          color: '#4D8B68',
                           testId: 'martyrs_confirmed',
                           onClick: () => triggerDrilldown('martyrs_confirmed'),
                         },
@@ -439,7 +439,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                           label: 'نیازمند بررسی هویت',
                           count: martyrsCard.needsVerificationCount,
                           percent: martyrsCard.needsVerificationPercent,
-                          color: '#B91C1C',
+                          color: '#C06C6C',
                           testId: 'martyrs_needs_verification',
                           onClick: () => triggerDrilldown('martyrs_needs_verification'),
                         },
@@ -460,7 +460,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                     >
                       <span className="flex items-center gap-2 text-[#525046] min-w-0">
                         <span
-                          className="w-2.5 h-2.5 rounded-full bg-[#15803D] shrink-0"
+                          className="w-2.5 h-2.5 rounded-full bg-[#4D8B68] shrink-0"
                           aria-hidden="true"
                         />
                         <span className="truncate group-hover:text-[#353530]">
@@ -489,7 +489,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                     >
                       <span className="flex items-center gap-2 text-[#525046] min-w-0">
                         <span
-                          className="w-2.5 h-2.5 rounded-full bg-[#B91C1C] shrink-0"
+                          className="w-2.5 h-2.5 rounded-full bg-[#C06C6C] shrink-0"
                           aria-hidden="true"
                         />
                         <span className="truncate group-hover:text-[#353530]">
@@ -519,7 +519,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                       <span className="text-[#525046] truncate group-hover:text-[#353530]">
                         تأیید کارشناسی صریح ارتباط
                       </span>
-                      <span className="font-bold text-[#15803D] shrink-0 inline-flex items-center gap-1">
+                      <span className="font-bold text-[#4D8B68] shrink-0 inline-flex items-center gap-1">
                         <span>
                           {toPersianDigits(martyrsCard.expertConfirmedRelationsCount)} مورد
                         </span>
@@ -662,7 +662,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                           label: 'موضوعات انجام‌شده',
                           count: workAndOutputsCard.independentTopicsCompletedCount,
                           percent: workAndOutputsCard.reviewQueueCompletionPercent,
-                          color: '#15803D',
+                          color: '#4D8B68',
                           testId: 'work_completed',
                           onClick: () => triggerDrilldown('work_completed'),
                         },
@@ -671,7 +671,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                           label: 'موضوعات باقیمانده',
                           count: workAndOutputsCard.independentTopicsRemainingCount,
                           percent: workAndOutputsCard.reviewQueueRemainingPercent,
-                          color: '#1D4ED8',
+                          color: '#5279A8',
                           testId: 'work_remaining',
                           onClick: () => triggerDrilldown('work_remaining'),
                         },
@@ -691,7 +691,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                   >
                     <span className="flex items-center gap-2 text-[#525046] min-w-0">
                       <span
-                        className="w-2.5 h-2.5 rounded-full bg-[#15803D] shrink-0"
+                        className="w-2.5 h-2.5 rounded-full bg-[#4D8B68] shrink-0"
                         aria-hidden="true"
                       />
                       <span className="truncate group-hover:text-[#353530]">
@@ -743,7 +743,7 @@ export const ExecutiveOverviewCards: React.FC<ExecutiveOverviewCardsProps> = ({
                   >
                     <span className="flex items-center gap-2 text-[#525046] min-w-0">
                       <span
-                        className="w-2.5 h-2.5 rounded-full bg-[#1D4ED8] shrink-0"
+                        className="w-2.5 h-2.5 rounded-full bg-[#5279A8] shrink-0"
                         aria-hidden="true"
                       />
                       <span className="min-w-0">
