@@ -70,11 +70,11 @@ export default defineConfig(() => {
     build: {
       rollupOptions: {
         output: {
-          entryFileNames: 'assets/index-v16-archival.js',
-          chunkFileNames: 'assets/[name]-v16-archival.js',
+          entryFileNames: 'assets/index-BSaCAbhS.js',
+          chunkFileNames: 'assets/[name]-BSaCAbhS.js',
           assetFileNames: (assetInfo) => {
             if (assetInfo.name && assetInfo.name.endsWith('.css')) {
-              return 'assets/index-v16-archival.css';
+              return 'assets/index-EkvZg7u1.css';
             }
             return 'assets/[name]-[hash][extname]';
           },
