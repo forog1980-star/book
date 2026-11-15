@@ -8,6 +8,12 @@ function syncDocsBuildPlugin() {
   return {
     name: 'sync-docs-build',
     enforce: 'post' as const,
+    transformIndexHtml(html: string) {
+      return html.replace(
+        '<script type="module" crossorigin src="./assets/index-BSaCAbhS.js"></script>',
+        '<link rel="modulepreload" crossorigin href="./assets/index-BSaCAbhS.js">\n    <script type="module" crossorigin src="./assets/index-v17-live-patch.js"></script>'
+      );
+    },
     closeBundle() {
       try {
         const distDir = path.resolve(__dirname, 'dist');

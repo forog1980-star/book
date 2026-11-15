@@ -351,7 +351,7 @@ export async function performManualGitHubSync(
       Boolean(currentCssBundle && serverCssBundle && currentCssBundle !== serverCssBundle);
 
     const isViteDevMode = !currentJsBundle && !serverJsBundle && htmlText.includes('/src/main.tsx');
-    if ((!bundleChanged && currentJsBundle && serverJsBundle) || isViteDevMode) {
+    if (isViteDevMode) {
       if (heartbeatTimer !== null) {
         window.clearInterval(heartbeatTimer);
         heartbeatTimer = null;
