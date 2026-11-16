@@ -644,12 +644,12 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
             </h2>
           </div>
 
-          {/* Master Export Action Buttons — دو ردیف تراز در موبایل و ردیف منعطف در دسکتاپ بدون روی‌هم‌افتادگی */}
-          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-stretch sm:items-center gap-2 w-full lg:w-auto shrink-0">
+          {/* Master Export Action Buttons — هم‌تراز در یک خط بدون شکستگی */}
+          <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2 overflow-x-auto w-full lg:w-auto shrink-0">
             <button
               type="button"
               onClick={handleExportComprehensiveExcel}
-              className="col-span-2 sm:col-span-1 min-h-[42px] sm:min-h-[38px] px-3.5 py-2 sm:py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs transition-all whitespace-normal break-words text-center leading-snug cursor-pointer"
+              className="min-h-[38px] px-3 sm:px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 shadow-2xs transition-all whitespace-nowrap shrink-0 cursor-pointer"
             >
               <FileSpreadsheet className="w-4 h-4 shrink-0" />
               <span>دانلود اکسل جامع</span>
@@ -658,7 +658,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
             <button
               type="button"
               onClick={handleExportJson}
-              className="min-h-[42px] sm:min-h-[38px] px-3 py-2 sm:py-1.5 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs flex items-center justify-center gap-1.5 transition-all whitespace-normal break-words text-center leading-snug cursor-pointer"
+              className="min-h-[38px] px-3 py-1.5 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
             >
               <FileJson className="w-4 h-4 text-[#2B547E] shrink-0" />
               <span>خروجی JSON</span>
@@ -667,7 +667,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
             <button
               type="button"
               onClick={handleExportCsv}
-              className="min-h-[42px] sm:min-h-[38px] px-3 py-2 sm:py-1.5 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs flex items-center justify-center gap-1.5 transition-all whitespace-normal break-words text-center leading-snug cursor-pointer"
+              className="min-h-[38px] px-3 py-1.5 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Download className="w-4 h-4 text-[#2B547E] shrink-0" />
               <span>خروجی CSV</span>

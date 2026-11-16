@@ -1773,7 +1773,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
 
             <label className="w-full min-h-[44px] px-4 py-2 bg-[#1f4e79] hover:bg-[#173b5c] text-white font-semibold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-colors">
               <Upload className="w-4 h-4 shrink-0" />
-              <span>انتخاب و بارگذاری فایل اکسل جدید (.xlsx)</span>
+              <span>انتخاب و بارگذاری فایل اکسل جدید</span>
               <input
                 type="file"
                 accept=".xlsx,.xls,.csv,.json"
@@ -2247,11 +2247,11 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
             type="button"
             data-testid="quick-inventory-excel-export-btn"
             onClick={handleExportCurrentFilterExcel}
-            className="sm:col-span-3 w-full min-h-[42px] px-3.5 py-1.5 bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer whitespace-nowrap"
+            className="sm:col-span-3 w-full min-h-[42px] px-3.5 py-1.5 bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer whitespace-nowrap shrink-0"
             title="دریافت فایل اکسل از فهرست فعلی به تاریخ امروز"
           >
             <FileSpreadsheet className="w-4 h-4 shrink-0" />
-            <span>خروجی Excel ({toPersianDigits(allMatchingRows.length)})</span>
+            <span>خروجی Excel</span>
           </button>
         </div>
 

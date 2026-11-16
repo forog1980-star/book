@@ -1901,7 +1901,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
               </span>
             </button>
 
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="flex flex-nowrap items-center gap-2 shrink-0">
               <button
                 type="button"
                 data-testid="saved-shelf-excel-export-btn"
@@ -1920,10 +1920,10 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                     }
                   );
                 }}
-                className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+                className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
               >
                 <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                <span>خروجی Excel ({toPersianDigits(savedDeviceAuditRecords.length)})</span>
+                <span>خروجی Excel</span>
               </button>
             </div>
           </div>
@@ -2442,7 +2442,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                 <BookOpen className="w-4 h-4 shrink-0" />
                 <span>مدیریت یکپارچه پرونده کتاب (بدون خروج از فهرست قبلی)</span>
               </div>
-              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2 overflow-x-auto w-full sm:w-auto shrink-0">
                 {onApproveOutsideBook && (
                   <button
                     type="button"
@@ -2457,10 +2457,10 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                         setSelectedBookDossierId(null);
                       }
                     }}
-                    className="min-h-[36px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
+                    className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235732] text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap shrink-0"
                   >
                     <CheckCircle2 className="w-4 h-4 shrink-0" />
-                    <span>تأیید نهایی کارشناس (کتاب و ارتباطات)</span>
+                    <span>تأیید نهایی کارشناس</span>
                   </button>
                 )}
 
@@ -2469,16 +2469,16 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                     type="button"
                     data-testid="dossier-edit-book-btn"
                     onClick={() => startEditingBookDossier(selectedBookDossier)}
-                    className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
+                    className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap shrink-0"
                   >
                     <Edit3 className="w-3.5 h-3.5 shrink-0" />
-                    <span className="truncate">ویرایش مشخصات، وضعیت و قفسه کتاب</span>
+                    <span>ویرایش مشخصات و قفسه</span>
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={() => setIsEditingDossierBook(false)}
-                    className="min-h-[36px] px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-slate-700 font-bold text-xs flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap"
+                    className="min-h-[36px] px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-slate-700 font-bold text-xs inline-flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
                   >
                     <X className="w-3.5 h-3.5 shrink-0" />
                     <span>انصراف از ویرایش</span>
@@ -2503,10 +2503,10 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                       }
                     );
                   }}
-                  className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#1F4E79] hover:bg-[#163A5C] text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
+                  className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#1F4E79] hover:bg-[#163A5C] text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap shrink-0"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">خروجی Excel این کتاب</span>
+                  <span>خروجی Excel این کتاب</span>
                 </button>
               </div>
             </div>

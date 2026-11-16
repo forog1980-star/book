@@ -710,7 +710,7 @@ export const ComprehensiveDocViewer: React.FC<ComprehensiveDocViewerProps> = ({
             </div>
 
             {/* Export / Print Buttons */}
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto">
               <button
                 type="button"
                 onClick={() => {
@@ -721,55 +721,55 @@ export const ComprehensiveDocViewer: React.FC<ComprehensiveDocViewerProps> = ({
                     activeDoc.title
                   );
                   onNotify?.(
-                    'فایل استاندارد و قابل ویرایش Word (.docx) با موفقیت تولید و دانلود شد.'
+                    'فایل استاندارد و قابل ویرایش Word با موفقیت تولید و دانلود شد.'
                   );
                 }}
-                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#15803D] hover:bg-[#166534] text-white text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#15803D] hover:bg-[#166534] text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
               >
-                <Download className="w-3.5 h-3.5" />
-                <span>دانلود فایل Word (.docx) گزارش + پیوست‌ها</span>
+                <Download className="w-3.5 h-3.5 shrink-0" />
+                <span>دانلود فایل Word گزارش</span>
               </button>
 
               <button
                 type="button"
                 onClick={handlePrintPdf}
-                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#8C3B2B] hover:bg-[#702D20] text-white text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#8C3B2B] hover:bg-[#702D20] text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
               >
-                <Printer className="w-3.5 h-3.5" />
+                <Printer className="w-3.5 h-3.5 shrink-0" />
                 <span>چاپ / ذخیره PDF</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleDownloadPrintableHtmlPdf}
-                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#9E5A24] hover:bg-[#83491C] text-white text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#9E5A24] hover:bg-[#83491C] text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
               >
-                <FileText className="w-3.5 h-3.5" />
+                <FileText className="w-3.5 h-3.5 shrink-0" />
                 <span>دانلود فایل چاپی PDF</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleDownloadMarkdown}
-                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-[#332218] border border-[#E6D5C1] text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-[#332218] border border-[#E6D5C1] text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
               >
-                <Download className="w-3.5 h-3.5 text-[#8C3B2B]" />
-                <span>دانلود فایل متنی (.md)</span>
+                <Download className="w-3.5 h-3.5 text-[#8C3B2B] shrink-0" />
+                <span>دانلود فایل متنی</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleCopyFullText}
-                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-[#332218] border border-[#E6D5C1] text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-[#332218] border border-[#E6D5C1] text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
               >
                 {copied ? (
                   <>
-                    <Check className="w-3.5 h-3.5 text-emerald-700" />
+                    <Check className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
                     <span className="text-emerald-800">کپی شد</span>
                   </>
                 ) : (
                   <>
-                    <Copy className="w-3.5 h-3.5 text-[#8C3B2B]" />
+                    <Copy className="w-3.5 h-3.5 text-[#8C3B2B] shrink-0" />
                     <span>کپی کل متن</span>
                   </>
                 )}

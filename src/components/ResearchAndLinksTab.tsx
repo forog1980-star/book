@@ -1065,21 +1065,21 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                 تعداد رکوردهای منطبق: <strong className="text-slate-900 tabular-nums">{toPersianDigits(allFilteredLinks.length)}</strong> پیوند
               </div>
 
-              <div className="grid grid-cols-3 sm:flex items-center gap-2">
+              <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2 overflow-x-auto shrink-0">
                 <button
                   type="button"
                   data-testid="links-excel-export-btn"
                   onClick={exportLinksExcel}
-                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs whitespace-nowrap shrink-0"
                 >
                   <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                  <span>خروجی Excel ({toPersianDigits(allFilteredLinks.length)})</span>
+                  <span>خروجی Excel</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={exportLinksCsv}
-                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 >
                   <Download className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                   <span>خروجی CSV</span>
@@ -1088,7 +1088,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                 <button
                   type="button"
                   onClick={exportLinksJson}
-                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 >
                   <FileJson className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                   <span>خروجی JSON</span>
@@ -1465,32 +1465,32 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2 overflow-x-auto shrink-0">
                   <button
                     type="button"
                     onClick={exportExtractedExcel}
-                    className="min-h-[40px] px-3.5 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                    className="min-h-[38px] px-3.5 py-1.5 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    <FileSpreadsheet className="w-4 h-4" />
-                    <span>دانلود اکسل مطالب و صفحات (.xlsx)</span>
+                    <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                    <span>دانلود اکسل مطالب و صفحات</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={exportExtractedCsv}
-                    className="min-h-[40px] px-3.5 py-2 bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                    className="min-h-[38px] px-3 py-1.5 bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] rounded-xl text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    <Download className="w-4 h-4 text-[#6B3E26]" />
+                    <Download className="w-4 h-4 text-[#6B3E26] shrink-0" />
                     <span>خروجی CSV</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setShowAddExtracted((prev) => !prev)}
-                    className="min-h-[40px] px-4 py-2 bg-[#6B3E26] hover:bg-[#56311E] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                    className="min-h-[38px] px-3.5 py-1.5 bg-[#6B3E26] hover:bg-[#56311E] text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    <Plus className="w-4 h-4" />
-                    <span>{showAddExtracted ? 'بستن فرم ثبت مطلب' : '＋ ثبت مطلب و صفحه جدید'}</span>
+                    <Plus className="w-4 h-4 shrink-0" />
+                    <span>{showAddExtracted ? 'بستن فرم ثبت' : 'ثبت مطلب جدید'}</span>
                   </button>
                 </div>
               </div>
@@ -2284,23 +2284,23 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                   className="w-full min-h-[44px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#1f4e79]"
                 />
               </div>
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2 overflow-x-auto shrink-0">
                 <button
                   type="button"
                   data-testid="pending-reviews-excel-export-btn"
                   onClick={exportPendingReviewsExcel}
-                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs whitespace-nowrap shrink-0"
                 >
                   <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                  <span>خروجی Excel ({toPersianDigits(filteredPendingReviews.length)})</span>
+                  <span>خروجی Excel</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={exportPendingReviewsCsv}
-                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 >
-                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <Download className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                   <span>خروجی CSV</span>
                 </button>
               </div>
@@ -2682,32 +2682,32 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
               ))}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2 overflow-x-auto shrink-0">
               <button
                 type="button"
                 onClick={handleBulkApproveAndArchive16Groups}
-                className="min-h-[42px] px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-sm transition-all"
+                className="min-h-[38px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-sm transition-all cursor-pointer"
                 title="تأیید همه ۱۶ گروه و انتقال به پیوندها و پنهان‌سازی این پنجره"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>تأیید یکپارچه ۱۶ گروه و بایگانی این برگه</span>
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>تأیید یکپارچه ۱۶ گروه</span>
               </button>
 
               <button
                 type="button"
                 onClick={exportGroupsExcel}
-                className="min-h-[42px] px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                className="min-h-[38px] px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
               >
-                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                <span>خروجی اکسل ۱۶ گروه (.xlsx)</span>
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>خروجی اکسل ۱۶ گروه</span>
               </button>
 
               <button
                 type="button"
                 onClick={exportGroupsCsv}
-                className="min-h-[42px] px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                className="min-h-[38px] px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
               >
-                <Download className="w-4 h-4" />
+                <Download className="w-4 h-4 shrink-0" />
                 <span>خروجی CSV</span>
               </button>
             </div>
@@ -3191,22 +3191,22 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                   </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2 overflow-x-auto shrink-0">
                   <button
                     type="button"
                     onClick={handleExportWebsiteExcel}
-                    className="min-h-[42px] px-4 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white text-xs font-bold flex items-center gap-2 shadow-2xs cursor-pointer"
+                    className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-2xs whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    <FileSpreadsheet className="w-4 h-4" />
-                    <span>دانلود اکسل ویژه سایت (۳ شیت .xlsx)</span>
+                    <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                    <span>دانلود اکسل ویژه سایت</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={handleExportWebsiteJson}
-                    className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                    className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    <FileJson className="w-4 h-4 text-[#6B3E26]" />
+                    <FileJson className="w-4 h-4 text-[#6B3E26] shrink-0" />
                     <span>بسته JSON وب‌سایت</span>
                   </button>
                 </div>
@@ -3617,19 +3617,19 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
         return (
           <div className="bg-white border border-[#E2D2BE] rounded-2xl p-4 sm:p-5 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EFE4D6] pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EFE4D6] pb-3">
               <div>
                 <h3 className="text-base font-bold text-[#332218]">
-                  فایل «قطعات شهدا.xlsx» (شیت یک شهید و شیت چند شهید)
+                  فایل قطعات شهدا
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={handleExportGhatatExcel}
-                className="min-h-[40px] px-4 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs flex items-center gap-1.5 shrink-0 cursor-pointer"
+                className="min-h-[38px] px-4 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
               >
-                <FileSpreadsheet className="w-4 h-4" />
-                <span>دانلود اکسل قطعات شهدا (.xlsx)</span>
+                <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                <span>دانلود اکسل قطعات شهدا</span>
               </button>
             </div>
 

@@ -300,35 +300,35 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
                 گزارش جامع فنی داشبورد مدیریتی، آمار تفصیلی، ۴ گزارش پیوست و سند کتابخانه
               </h2>
               <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-[#B9B38A]/35 text-[#353530] border border-[#D8D1BB]">
-                فایل Word (.docx) قابل ویرایش + نسخه چاپی PDF
+                فایل Word قابل ویرایش + PDF
               </span>
             </div>
             <p className="text-xs text-[#525046] leading-relaxed">
-              دریافت مستقیم فایل استاندارد و قابل ویرایش Word (.docx) گزارش جامع فنی داشبورد مدیریتی و ۴ گزارش پیوست، به‌همراه دسترسی کامل به سند ۲۳ فصلی کتابخانه و گزارش‌های ۱۶گانه مرکز اسناد گلزار شهدای تهران.
+              دریافت مستقیم فایل استاندارد و قابل ویرایش Word گزارش جامع فنی داشبورد مدیریتی و ۴ گزارش پیوست، به‌همراه دسترسی کامل به سند ۲۳ فصلی کتابخانه و گزارش‌های ۱۶گانه مرکز اسناد گلزار شهدای تهران.
             </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto shrink-0">
           <button
             type="button"
             data-testid="backup-tab-download-docx-btn"
             onClick={() => {
               downloadComprehensiveDashboardDocx(executiveDashboardCompleteReportRaw);
               onNotify(
-                'فایل استاندارد و قابل ویرایش Word (.docx) گزارش جامع فنی و ۴ پیوست با موفقیت دانلود شد.'
+                'فایل استاندارد و قابل ویرایش Word گزارش جامع فنی و ۴ پیوست با موفقیت دانلود شد.'
               );
             }}
-            className="min-h-[44px] px-4 py-2.5 bg-[#15803D] hover:bg-[#166534] text-white text-xs sm:text-sm font-extrabold rounded-xl inline-flex items-center gap-2 transition-colors cursor-pointer"
+            className="min-h-[40px] px-3.5 py-2 bg-[#15803D] hover:bg-[#166534] text-white text-xs sm:text-sm font-extrabold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
           >
             <Download className="w-4 h-4 shrink-0" />
-            <span>دانلود فایل Word (.docx) گزارش جامع + پیوست‌ها</span>
+            <span>دانلود فایل Word گزارش جامع + پیوست‌ها</span>
           </button>
 
           <button
             type="button"
             onClick={handleOpenDoc}
-            className="min-h-[44px] px-4 py-2.5 bg-[#353530] hover:bg-[#4A493E] text-[#FBF8EC] text-xs sm:text-sm font-extrabold rounded-xl inline-flex items-center gap-2 transition-colors cursor-pointer"
+            className="min-h-[40px] px-3.5 py-2 bg-[#353530] hover:bg-[#4A493E] text-[#FBF8EC] text-xs sm:text-sm font-extrabold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
           >
             <FileText className="w-4 h-4 shrink-0 text-[#B9B38A]" />
             <span>مشاهده گزارش جامع و اسناد فنی</span>
@@ -681,9 +681,9 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
             className="min-h-[54px] p-4 bg-[#1f4e79] hover:bg-[#163a5b] text-white rounded-2xl text-right flex items-center justify-between gap-3 transition-colors cursor-pointer"
           >
             <div>
-              <div className="font-bold text-sm">خروجی تخصصی تغییرات قفسه (Excel)</div>
+              <div className="font-bold text-sm">خروجی تخصصی تغییرات قفسه</div>
               <div className="text-[11px] text-sky-100 mt-0.5">
-                فایل .xlsx مستقل از ثبت‌های قفسه (بدون تغییر فایل مرجع اصلی)
+                فایل اکسل مستقل از ثبت‌های قفسه بدون تغییر فایل مرجع
               </div>
             </div>
             <FileSpreadsheet className="w-5 h-5 shrink-0" />
@@ -867,7 +867,7 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
         <p className="text-xs text-slate-600 leading-relaxed">
           برای نصب مستقیم برنامه روی صفحه اصلی گوشی اندروید (جهت استفاده آفلاین کنار قفسه‌ها)، دریافت فایل تک‌صفحه‌ای ویندوز/موبایل یا دسترسی به لینک مستقیم گیت‌هاب از دکمه‌های زیر استفاده کنید:
         </p>
-        <div className="flex flex-wrap items-center gap-2.5 pt-1">
+        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pt-1">
           {!isInstalled && (
             <button
               type="button"
@@ -878,7 +878,7 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
                   setShowInstallGuideModal(true);
                 }
               }}
-              className="min-h-[42px] px-4 py-2 text-xs font-bold bg-[#2E7D5B] text-white hover:bg-[#236347] rounded-xl transition-colors inline-flex items-center gap-2 cursor-pointer"
+              className="min-h-[40px] px-3.5 py-1.5 text-xs font-bold bg-[#2E7D5B] text-white hover:bg-[#236347] rounded-xl transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Smartphone className="w-4 h-4 shrink-0" />
               <span>نصب روی گوشی اندروید</span>
@@ -888,10 +888,10 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
           <a
             href="./library-quick-inventory.html"
             download="library-quick-inventory.html"
-            className="min-h-[42px] px-4 py-2 text-xs font-bold bg-amber-100 text-amber-950 hover:bg-amber-200 border border-amber-300 rounded-xl transition-colors inline-flex items-center gap-2"
+            className="min-h-[40px] px-3.5 py-1.5 text-xs font-bold bg-amber-100 text-amber-950 hover:bg-amber-200 border border-amber-300 rounded-xl transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
           >
             <Download className="w-4 h-4 shrink-0" />
-            <span>دانلود نسخه تک‌فایل آفلاین (HTML)</span>
+            <span>دانلود نسخه تک‌فایل آفلاین HTML</span>
           </a>
 
           <a
@@ -901,10 +901,10 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
             onClick={(e) => {
               guardExternalInternetSearch(e, 'لینک مستقیم گیت‌هاب', onNotify);
             }}
-            className="min-h-[42px] px-4 py-2 text-xs font-bold bg-[#1f4e79] text-white hover:bg-[#163a5b] rounded-xl transition-colors inline-flex items-center gap-2"
+            className="min-h-[40px] px-3.5 py-1.5 text-xs font-bold bg-[#1f4e79] text-white hover:bg-[#163a5b] rounded-xl transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
           >
             <Download className="w-4 h-4 shrink-0" />
-            <span>لینک مستقیم موبایل (گیت‌هاب)</span>
+            <span>لینک مستقیم موبایل در گیت‌هاب</span>
           </a>
         </div>
       </div>

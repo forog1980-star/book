@@ -1609,23 +1609,23 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-nowrap items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={handleResetSearch}
-                className="min-h-[36px] px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl inline-flex items-center gap-1 transition-colors cursor-pointer"
+                className="min-h-[36px] px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
                 title="پاک‌سازی نتایج جست‌وجو"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
+                <RotateCcw className="w-3.5 h-3.5 shrink-0" />
                 <span>پاک‌سازی</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleExportResultsExcel}
-                className="min-h-[36px] px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                className="min-h-[36px] px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer shadow-xs"
               >
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-3.5 h-3.5 shrink-0" />
                 <span>خروجی Excel نتایج</span>
               </button>
             </div>

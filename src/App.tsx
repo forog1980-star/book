@@ -2417,46 +2417,44 @@ export default function App() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 text-[#991B1B] font-extrabold text-xs sm:text-sm">
                         <Download className="w-4 h-4 text-[#DC2626] shrink-0" />
-                        <span>
-                          خروجی کل اطلاعات نرم‌افزار (تمام کتاب‌ها، شهدا و ارتباط‌ها)
-                        </span>
+                        <span>خروجی کل اطلاعات نرم‌افزار</span>
                       </div>
                       <span className="px-2 py-0.5 rounded-md bg-[#DC2626] text-white text-[10px] font-bold shrink-0">
                         خروجی کل اطلاعات
                       </span>
                     </div>
                     <p className="text-[11px] text-[#7F1D1D] leading-5">
-                      شامل تمام اطلاعات بارگذاری‌شده در <strong>۳ شیت مجزا</strong> (کتاب‌ها، شهدا و ارتباطات) به‌همراه فایل پشتیبان جیسون (JSON).
+                      شامل کتاب‌ها، شهدا و ارتباطات در قالب فایل اکسل و پشتیبان کامل جیسون.
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-0.5">
+                    <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2 overflow-x-auto pt-0.5">
                       <button
                         type="button"
                         data-testid="emergency-export-both-btn"
                         onClick={handleEmergencyZeroToHundredBothDownload}
-                        className="min-h-[42px] px-3 py-2 text-xs font-extrabold rounded-xl bg-[#DC2626] hover:bg-[#B91C1B] text-white shadow-sm transition-colors flex items-center justify-center gap-1.5 text-center cursor-pointer"
+                        className="min-h-[38px] px-3 py-1.5 text-xs font-extrabold rounded-xl bg-[#DC2626] hover:bg-[#B91C1B] text-white shadow-sm transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                       >
                         <Download className="w-4 h-4 shrink-0" />
-                        <span>دانلود هم‌زمان اکسل و جیسون</span>
+                        <span>دانلود اکسل و جیسون</span>
                       </button>
 
                       <button
                         type="button"
                         data-testid="emergency-export-excel-btn"
                         onClick={handleEmergencyZeroToHundredExcelDownload}
-                        className="min-h-[42px] px-3 py-2 text-xs font-bold rounded-xl bg-white hover:bg-red-50 text-[#991B1B] border border-[#FCA5A5] transition-colors flex items-center justify-center gap-1.5 text-center cursor-pointer"
+                        className="min-h-[38px] px-3 py-1.5 text-xs font-bold rounded-xl bg-white hover:bg-red-50 text-[#991B1B] border border-[#FCA5A5] transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                       >
                         <FileSpreadsheet className="w-4 h-4 text-[#1E4D2B] shrink-0" />
-                        <span>خروجی اکسل (کتاب‌ها، شهدا، ارتباطات)</span>
+                        <span>خروجی اکسل</span>
                       </button>
 
                       <button
                         type="button"
                         data-testid="emergency-export-json-btn"
                         onClick={handleFullJsonBackupDownload}
-                        className="min-h-[42px] px-3 py-2 text-xs font-bold rounded-xl bg-white hover:bg-red-50 text-[#991B1B] border border-[#FCA5A5] transition-colors flex items-center justify-center gap-1.5 text-center cursor-pointer"
+                        className="min-h-[38px] px-3 py-1.5 text-xs font-bold rounded-xl bg-white hover:bg-red-50 text-[#991B1B] border border-[#FCA5A5] transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                       >
                         <DatabaseBackup className="w-4 h-4 text-[#991B1B] shrink-0" />
-                        <span>خروجی جیسون (JSON)</span>
+                        <span>خروجی جیسون</span>
                       </button>
                     </div>
                   </div>

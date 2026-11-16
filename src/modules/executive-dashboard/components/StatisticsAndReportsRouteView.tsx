@@ -3476,53 +3476,53 @@ export const StatisticsAndReportsRouteView: React.FC<
                     placeholder="عنوان گزارش مدیریتی (اختیاری)..."
                     className="w-full min-h-[38px] px-2.5 py-1.5 rounded-lg border border-[#D8C5B0] bg-white text-xs text-[#332218]"
                   />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                  <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto text-[11px]">
                     <button
                       type="button"
                       disabled={reportActionBusy}
                       data-testid="create-final-excel-report-btn"
                       onClick={() => openCentralExportModal('excel')}
-                      className="min-h-[40px] px-3 py-1.5 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
                     >
                       <Download className="w-3.5 h-3.5 shrink-0" />
-                      <span>دریافت خروجی اکسل (Excel)</span>
+                      <span>خروجی اکسل</span>
                     </button>
                     <button
                       type="button"
                       disabled={reportActionBusy}
                       data-testid="create-final-word-report-btn"
                       onClick={() => openCentralExportModal('word')}
-                      className="min-h-[40px] px-3 py-1.5 rounded-lg bg-[#5279A8] hover:bg-[#41638B] text-white font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#5279A8] hover:bg-[#41638B] text-white font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
                     >
                       <Download className="w-3.5 h-3.5 shrink-0" />
-                      <span>دریافت خروجی ورد (Word)</span>
+                      <span>خروجی ورد</span>
                     </button>
                     <button
                       type="button"
                       disabled={reportActionBusy}
                       data-testid="create-final-pdf-report-btn"
                       onClick={() => openCentralExportModal('pdf')}
-                      className="min-h-[40px] px-3 py-1.5 rounded-lg bg-[#85729E] hover:bg-[#6E5C85] text-white font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#85729E] hover:bg-[#6E5C85] text-white font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
                     >
                       <Download className="w-3.5 h-3.5 shrink-0" />
-                      <span>دریافت خروجی PDF</span>
+                      <span>خروجی PDF</span>
                     </button>
                     <button
                       type="button"
                       disabled={reportActionBusy}
                       data-testid="create-final-json-report-btn"
                       onClick={() => openCentralExportModal('json')}
-                      className="min-h-[40px] px-3 py-1.5 rounded-lg border border-[#6B3E26] bg-white hover:bg-[#FAF5EE] text-[#6B3E26] font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#6B3E26] bg-white hover:bg-[#FAF5EE] text-[#6B3E26] font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
                     >
                       <Download className="w-3.5 h-3.5 shrink-0" />
-                      <span>ثبت بسته داده نهایی (JSON)</span>
+                      <span>بسته JSON</span>
                     </button>
                     <button
                       type="button"
                       disabled={reportActionBusy}
                       data-testid="create-draft-report-btn"
                       onClick={() => void handleCreateRegistryReport('draft')}
-                      className="min-h-[40px] px-3 py-1.5 rounded-lg border border-[#D8C5B0] bg-white hover:bg-[#FAF5EE] text-[#5C4636] font-medium inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#D8C5B0] bg-white hover:bg-[#FAF5EE] text-[#5C4636] font-medium inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
                     >
                       <FilePlus2 className="w-3.5 h-3.5 shrink-0" />
                       <span>ذخیره پیش‌نویس</span>

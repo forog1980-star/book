@@ -203,23 +203,23 @@ export const ExecutiveDetailedReportsView: React.FC<ExecutiveDetailedReportsView
           </h2>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2 overflow-x-auto shrink-0">
           <button
             type="button"
             data-testid="dashboard-export-excel-btn"
             onClick={() => void onExportExcel()}
             disabled={isExportingExcel}
-            className="min-h-[44px] px-3.5 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#245932] disabled:opacity-60 text-white text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shrink-0"
+            className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#245932] disabled:opacity-60 text-white text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shrink-0"
           >
             <FileSpreadsheet className="w-4 h-4 shrink-0" />
-            <span>{isExportingExcel ? 'در حال تولید اکسل...' : 'اکسل مدیریتی (۵ شیت)'}</span>
+            <span>{isExportingExcel ? 'در حال تولید اکسل...' : 'اکسل مدیریتی'}</span>
           </button>
 
           <button
             type="button"
             data-testid="dashboard-export-json-btn"
             onClick={() => void onExportJson()}
-            className="min-h-[44px] px-3.5 py-2 rounded-xl bg-[#FAF5EE] hover:bg-[#EFE4D6] text-[#332218] border border-[#E2D2BE] text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shrink-0"
+            className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-[#FAF5EE] hover:bg-[#EFE4D6] text-[#332218] border border-[#E2D2BE] text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shrink-0"
           >
             <Download className="w-4 h-4 shrink-0" />
             <span>خروجی JSON مدیریتی</span>
@@ -229,7 +229,7 @@ export const ExecutiveDetailedReportsView: React.FC<ExecutiveDetailedReportsView
             type="button"
             data-testid="detailed-back-to-overview-btn"
             onClick={onBackToOverview}
-            className="min-h-[44px] px-3.5 py-2 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shrink-0"
+            className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shrink-0"
           >
             <ArrowRight className="w-4 h-4 shrink-0" />
             <span>بازگشت به داشبورد</span>
@@ -1085,23 +1085,23 @@ export const ExecutiveDetailedReportsView: React.FC<ExecutiveDetailedReportsView
               </span>{' '}
               ارائه می‌شوند.
             </p>
-            <div className="flex flex-wrap items-center gap-2.5 pt-1">
+            <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pt-1">
               <button
                 type="button"
                 onClick={() => void onExportExcel()}
                 disabled={isExportingExcel}
-                className="min-h-[44px] px-4 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#245932] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2 cursor-pointer"
+                className="min-h-[40px] px-4 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#245932] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
               >
-                <FileSpreadsheet className="w-4 h-4" />
-                <span>دانلود اکسل مدیریتی ۵ شیت</span>
+                <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                <span>دانلود اکسل مدیریتی</span>
               </button>
               <button
                 type="button"
                 onClick={() => void onExportJson()}
-                className="min-h-[44px] px-4 py-2 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2 cursor-pointer"
+                className="min-h-[40px] px-4 py-1.5 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
               >
-                <Download className="w-4 h-4" />
-                <span>دانلود JSON مدیریتی (V1)</span>
+                <Download className="w-4 h-4 shrink-0" />
+                <span>دانلود JSON مدیریتی</span>
               </button>
             </div>
           </div>
