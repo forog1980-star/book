@@ -3201,6 +3201,7 @@ export default function App() {
           <AllMartyrsDatabaseTab
             catalogRows={catalogRows}
             auditRecords={auditRecords}
+            bookCopies={bookCopies}
             links={indexedLinks}
             extractedItems={extractedItems}
             customMartyrs={customMartyrs}

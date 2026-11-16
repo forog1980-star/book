@@ -26,6 +26,7 @@ import {
   SlidersHorizontal
 } from 'lucide-react';
 import { DepositoryAndExportHub } from './DepositoryAndExportHub';
+import { BookLiveSearchPicker, buildLinkableBookOptions } from './BookLiveSearchPicker';
 import { ModalWindow } from './ModalWindow';
 import { registerInnerBackStep } from '../utils/navigationHistory';
 import {
@@ -135,7 +136,8 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
   // Add New Link Form State
   const [showAddLink, setShowAddLink] = useState(false);
-  const [selectedBookId, setSelectedBookId] = useState(catalogRows[0]?.tempBookId || 'BK-0001');
+  const [selectedBookId, setSelectedBookId] = useState('');
+  const [linkBookSearchQuery, setLinkBookSearchQuery] = useState('');
   const [martyrName, setMartyrName] = useState('');
   const [isGroupPhrase, setIsGroupPhrase] = useState(false);
   const [gravePiece, setGravePiece] = useState('');
@@ -148,6 +150,12 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
   // Add New Extracted Content Item Form State (extracted_items)
   const [showAddExtracted, setShowAddExtracted] = useState(false);
   const [exBookId, setExBookId] = useState(catalogRows[0]?.tempBookId || 'BK-0014');
+  const [exBookSearchQuery, setExBookSearchQuery] = useState('');
+
+  const linkableBooks = useMemo(
+    () => buildLinkableBookOptions(catalogRows, auditRecords, bookCopies),
+    [catalogRows, auditRecords, bookCopies]
+  );
   const [exMartyrName, setExMartyrName] = useState('');
   const [exGravePiece, setExGravePiece] = useState('');
   const [exPageRefRaw, setExPageRefRaw] = useState('');
@@ -362,12 +370,18 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
   const handleCreateLink = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedBookId) {
+      onNotify('لطفاً ابتدا کتاب مرجع را از طریق جست‌وجوی زنده انتخاب کنید.', 'warning');
+      return;
+    }
     if (!martyrName.trim()) {
       onNotify('نام شهید یا عبارت مرتبط ثبت‌شده در منبع را وارد کنید.', 'warning');
       return;
     }
 
-    const bookObj = catalogRows.find((b) => b.tempBookId === selectedBookId);
+    const bookObj =
+      linkableBooks.find((b) => b.tempBookId === selectedBookId) ||
+      catalogRows.find((b) => b.tempBookId === selectedBookId);
     requestActionConfirmation({
       title: 'تأیید نهایی ثبت ارتباط پژوهشی کتاب و شهید',
       message: `آیا از ثبت ارتباط پژوهشی میان کتاب «${bookObj?.titleRaw || selectedBookId}» و شهید «${martyrName.trim()}» اطمینان دارید؟`,
@@ -421,12 +435,18 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
   const handleCreateExtractedItem = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!exBookId) {
+      onNotify('لطفاً ابتدا کتاب مرجع را از طریق جست‌وجوی زنده انتخاب کنید.', 'warning');
+      return;
+    }
     if (!exMartyrName.trim() || !exPassageTitle.trim() || !exExtractedText.trim()) {
       onNotify('نام شهید، عنوان مطلب و متن/خلاصه پژوهشی استخراج‌شده الزامی است.', 'warning');
       return;
     }
 
-    const bookObj = catalogRows.find((b) => b.tempBookId === exBookId);
+    const bookObj =
+      linkableBooks.find((b) => b.tempBookId === exBookId) ||
+      catalogRows.find((b) => b.tempBookId === exBookId);
     requestActionConfirmation({
       title: 'تأیید نهایی ثبت مطلب و صفحه استخراج‌شده',
       message: `آیا از ثبت مطلب «${exPassageTitle.trim()}» برای شهید «${exMartyrName.trim()}» از کتاب «${bookObj?.titleRaw || exBookId}» اطمینان دارید؟`,
@@ -1097,19 +1117,19 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">کتاب مرجع (BK) *</label>
-                  <select
-                    value={selectedBookId}
-                    onChange={(e) => setSelectedBookId(e.target.value)}
-                    className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl"
-                  >
-                    {catalogRows.map((b) => (
-                      <option key={b.rowKey} value={b.tempBookId}>
-                        {b.tempBookId} — {b.titleRaw} ({b.publisherRaw})
-                      </option>
-                    ))}
-                  </select>
+                <div className="sm:col-span-2 lg:col-span-1">
+                  <BookLiveSearchPicker
+                    books={linkableBooks}
+                    selectedBookId={selectedBookId}
+                    onSelectBook={setSelectedBookId}
+                    query={linkBookSearchQuery}
+                    onQueryChange={setLinkBookSearchQuery}
+                    label="کتاب مرجع (جست‌وجوی زنده نام کتاب یا شماره قفسه) *"
+                    placeholder="نام کتاب، شماره قفسه (SH-01 / قفسه ۱) یا کد BK..."
+                    inputTestId="research-link-book-search-input"
+                    listTestId="research-link-book-options-list"
+                    bannerTestId="research-link-book-banner"
+                  />
                 </div>
 
                 <div>
@@ -1626,20 +1646,18 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="sm:col-span-2">
-                    <label className="block font-bold text-[#332218] mb-1">
-                      کتاب مرجع (از میان {toPersianDigits(catalogRows.length)} کتاب فهرست) *
-                    </label>
-                    <select
-                      value={exBookId}
-                      onChange={(e) => setExBookId(e.target.value)}
-                      className="w-full min-h-[42px] px-3 py-2 bg-white border border-[#D8C7B2] rounded-xl"
-                    >
-                      {catalogRows.map((b) => (
-                        <option key={b.tempBookId} value={b.tempBookId}>
-                          {b.tempBookId} — {b.titleRaw} ({b.publisherRaw || 'بدون ناشر'})
-                        </option>
-                      ))}
-                    </select>
+                    <BookLiveSearchPicker
+                      books={linkableBooks}
+                      selectedBookId={exBookId}
+                      onSelectBook={setExBookId}
+                      query={exBookSearchQuery}
+                      onQueryChange={setExBookSearchQuery}
+                      label="کتاب مرجع (جست‌وجوی زنده بر اساس نام کتاب یا شماره قفسه) *"
+                      placeholder="نام کتاب، شماره قفسه (SH-01 / قفسه ۱) یا کد BK..."
+                      inputTestId="extracted-book-search-input"
+                      listTestId="extracted-book-options-list"
+                      bannerTestId="extracted-book-banner"
+                    />
                   </div>
 
                   <div>

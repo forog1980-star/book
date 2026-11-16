@@ -14,10 +14,10 @@ import {
   BookOpen,
   RotateCcw,
   ExternalLink,
-  Globe,
-  X
+  Globe
 } from 'lucide-react';
 import {
+  BookCopyRecord,
   BookMartyrLinkRecord,
   CustomMartyrRecord,
   ExtractedContentItem,
@@ -26,6 +26,7 @@ import {
   normalizePersianText,
   toPersianDigits
 } from '../data/markazAsnadData';
+import { BookLiveSearchPicker, buildLinkableBookOptions } from './BookLiveSearchPicker';
 import { generateUniqueLinkId, generateUniqueMartyrId } from '../utils/idGenerator';
 import {
   doesLinkMatchMartyrRecord,
@@ -309,6 +310,7 @@ const PIECE_OPTIONS = [
 interface AllMartyrsDatabaseTabProps {
   catalogRows: ReferenceCatalogRow[];
   auditRecords?: Record<string, FieldAuditRecord>;
+  bookCopies?: BookCopyRecord[];
   links?: BookMartyrLinkRecord[];
   extractedItems?: ExtractedContentItem[];
   customMartyrs?: CustomMartyrRecord[];
@@ -332,6 +334,7 @@ let allMartyrsDatabasePromise: Promise<CachedAllMartyrsPayload> | null = null;
 export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
   catalogRows,
   auditRecords = {},
+  bookCopies = [],
   links = [],
   extractedItems = [],
   customMartyrs = [],
@@ -398,98 +401,22 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
   // Detail & Link Modal State
   const [inspectedRecord, setInspectedRecord] = useState<AllMartyrRecord | null>(null);
   const [linkingRecord, setLinkingRecord] = useState<AllMartyrRecord | null>(null);
-  const [selectedBookForLink, setSelectedBookForLink] = useState<string>(
-    catalogRows[0]?.tempBookId || 'BK-0001'
-  );
+  const [selectedBookForLink, setSelectedBookForLink] = useState<string>('');
   const [bookPickerQuery, setBookPickerQuery] = useState('');
   const [linkPageRef, setLinkPageRef] = useState('');
   const [linkNote, setLinkNote] = useState('');
 
-  const linkableBooks = useMemo(() => {
-    const auditByBookId = new Map<string, FieldAuditRecord>();
-    for (const rec of Object.values(auditRecords)) {
-      if (rec?.tempBookId) {
-        auditByBookId.set(rec.tempBookId, rec);
-      }
-    }
-
-    const list: Array<{
-      key: string;
-      tempBookId: string;
-      titleRaw: string;
-      publisherRaw: string;
-      authorRaw: string;
-      locationRaw: string;
-      source: 'catalog' | 'outside-list';
-      searchable: string;
-    }> = [];
-    const seenIds = new Set<string>();
-
-    for (const row of catalogRows) {
-      const ov = auditRecords[row.rowKey] || auditByBookId.get(row.tempBookId);
-      const titleRaw = (ov?.title || row.titleRaw || '').trim();
-      const publisherRaw = (ov?.publisher || row.publisherRaw || '').trim();
-      const authorRaw = (ov?.author || row.authorRaw || '').trim();
-      const locationRaw = (ov?.location || row.locationRaw || '').trim();
-      seenIds.add(row.tempBookId);
-      list.push({
-        key: row.rowKey,
-        tempBookId: row.tempBookId,
-        titleRaw,
-        publisherRaw,
-        authorRaw,
-        locationRaw,
-        source: 'catalog',
-        searchable: normalizePersianText(
-          `${row.tempBookId} ${titleRaw} ${publisherRaw} ${authorRaw} ${locationRaw}`
-        )
-      });
-    }
-
-    for (const rec of Object.values(auditRecords)) {
-      if (!rec?.tempBookId || seenIds.has(rec.tempBookId)) continue;
-      seenIds.add(rec.tempBookId);
-      const titleRaw = (rec.title || '').trim();
-      const publisherRaw = (rec.publisher || '').trim();
-      const authorRaw = (rec.author || '').trim();
-      const locationRaw = (rec.location || '').trim();
-      list.push({
-        key: rec.key,
-        tempBookId: rec.tempBookId,
-        titleRaw: titleRaw || rec.tempBookId,
-        publisherRaw,
-        authorRaw,
-        locationRaw,
-        source: rec.source === 'outside-list' ? 'outside-list' : 'catalog',
-        searchable: normalizePersianText(
-          `${rec.tempBookId} ${titleRaw} ${publisherRaw} ${authorRaw} ${locationRaw}`
-        )
-      });
-    }
-
-    return list;
-  }, [catalogRows, auditRecords]);
-
-  const filteredLinkableBooks = useMemo(() => {
-    const q = normalizePersianText(bookPickerQuery);
-    if (!q) return linkableBooks;
-    const words = q.split(/\s+/).filter(Boolean);
-    return linkableBooks.filter((b) => words.every((w) => b.searchable.includes(w)));
-  }, [linkableBooks, bookPickerQuery]);
-
-  const selectedBookMeta = useMemo(
-    () => linkableBooks.find((b) => b.tempBookId === selectedBookForLink) || linkableBooks[0] || null,
-    [linkableBooks, selectedBookForLink]
+  const linkableBooks = useMemo(
+    () => buildLinkableBookOptions(catalogRows, auditRecords, bookCopies),
+    [catalogRows, auditRecords, bookCopies]
   );
 
   useEffect(() => {
     if (linkingRecord) {
       setBookPickerQuery('');
-      if (!linkableBooks.some((b) => b.tempBookId === selectedBookForLink) && linkableBooks[0]) {
-        setSelectedBookForLink(linkableBooks[0].tempBookId);
-      }
+      setSelectedBookForLink('');
     }
-  }, [linkingRecord, linkableBooks, selectedBookForLink]);
+  }, [linkingRecord]);
 
   // Load 28,368 records from /data/golzar_martyrs.xlsx on mount (with module-level cache & chunked non-blocking parsing)
   useEffect(() => {
@@ -1042,6 +969,10 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
   const handleSaveMartyrBookLink = (e: React.FormEvent) => {
     e.preventDefault();
     if (!linkingRecord) return;
+    if (!selectedBookForLink) {
+      onNotify('لطفاً ابتدا کتاب مورد نظر را از طریق جست‌وجوی زنده پیدا و انتخاب کنید.', 'warning');
+      return;
+    }
     const bookObj =
       linkableBooks.find((b) => b.tempBookId === selectedBookForLink) ||
       catalogRows.find((b) => b.tempBookId === selectedBookForLink);
@@ -1572,108 +1503,15 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
           </div>
 
           <form onSubmit={handleSaveMartyrBookLink} className="space-y-3 text-xs">
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-1.5">
-                <label className="block font-bold text-slate-700">
-                  جست‌وجو و انتخاب کتاب از فهرست کتابخانه:
-                </label>
-                <span className="text-[11px] text-slate-500 tabular-nums">
-                  {toPersianDigits(filteredLinkableBooks.length)} از {toPersianDigits(linkableBooks.length)} کتاب
-                </span>
-              </div>
-
-              {selectedBookMeta && (
-                <div
-                  data-testid="selected-book-for-link-banner"
-                  className="rounded-xl bg-[#EDF6F0] border border-[#96CFA8] px-3 py-2 text-[#1E4D2B] flex flex-wrap items-center justify-between gap-2"
-                >
-                  <div className="min-w-0">
-                    <div className="font-bold break-words">
-                      انتخاب فعلی: {selectedBookMeta.titleRaw}
-                    </div>
-                    <div className="text-[11px] text-[#2E6F40] truncate">
-                      کد: <span className="font-mono" dir="ltr">{selectedBookMeta.tempBookId}</span>
-                      {selectedBookMeta.publisherRaw ? ` · ناشر: ${selectedBookMeta.publisherRaw}` : ''}
-                      {selectedBookMeta.locationRaw ? ` · قفسه: ${selectedBookMeta.locationRaw}` : ''}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  data-testid="link-book-search-input"
-                  value={bookPickerQuery}
-                  onChange={(e) => setBookPickerQuery(e.target.value)}
-                  placeholder="جست‌وجوی نام کتاب (مثلاً روزگار طیبه)، شناسه BK، کد قفسه یا ناشر..."
-                  className="w-full min-h-[40px] pr-9 pl-8 py-1.5 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1f4e79]/25 focus:border-[#1f4e79]"
-                />
-                {bookPickerQuery && (
-                  <button
-                    type="button"
-                    aria-label="پاک‌کردن جست‌وجوی کتاب"
-                    onClick={() => setBookPickerQuery('')}
-                    className="w-7 h-7 rounded-lg text-slate-500 hover:bg-slate-100 flex items-center justify-center absolute left-1.5 top-1/2 -translate-y-1/2 cursor-pointer"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
-              <div
-                data-testid="link-book-options-list"
-                className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/60 divide-y divide-slate-200/80"
-              >
-                {filteredLinkableBooks.length === 0 ? (
-                  <div className="p-4 text-center text-[11px] text-slate-500">
-                    هیچ کتابی با عبارت «{bookPickerQuery}» یافت نشد. لطفاً قسمتی از عنوان یا شناسه BK را بررسی کنید.
-                  </div>
-                ) : (
-                  filteredLinkableBooks.slice(0, 100).map((b) => {
-                    const isSelected = b.tempBookId === selectedBookForLink;
-                    return (
-                      <button
-                        key={b.key}
-                        type="button"
-                        data-testid={`link-book-option-${b.tempBookId}`}
-                        onClick={() => setSelectedBookForLink(b.tempBookId)}
-                        className={`w-full text-right px-3 py-2 transition-colors flex items-start justify-between gap-2 cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#EDF6F0] text-[#1E4D2B] font-bold'
-                            : 'bg-white hover:bg-[#FAF5EE] text-slate-800'
-                        }`}
-                      >
-                        <div className="min-w-0 space-y-0.5">
-                          <div className="font-bold break-words">{b.titleRaw}</div>
-                          <div className="text-[11px] text-slate-500 truncate">
-                            {b.publisherRaw || 'ناشر ثبت‌نشده'}
-                            {b.authorRaw ? ` · ${b.authorRaw}` : ''}
-                            {b.locationRaw ? ` · قفسه ${b.locationRaw}` : ''}
-                          </div>
-                        </div>
-                        <span
-                          className={`px-2 py-0.5 rounded-md text-[10.5px] font-mono shrink-0 ${
-                            isSelected
-                              ? 'bg-[#2E6F40] text-white'
-                              : 'bg-slate-100 text-slate-600'
-                          }`}
-                          dir="ltr"
-                        >
-                          {b.tempBookId}
-                        </span>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-              {filteredLinkableBooks.length > 100 && (
-                <div className="text-[10.5px] text-slate-500">
-                  ۱۰۰ کتاب اول نمایش داده شده است؛ برای یافتن سریع‌تر نام کتاب را در کادر بالا تایپ کنید.
-                </div>
-              )}
-            </div>
+            <BookLiveSearchPicker
+              books={linkableBooks}
+              selectedBookId={selectedBookForLink}
+              onSelectBook={setSelectedBookForLink}
+              query={bookPickerQuery}
+              onQueryChange={setBookPickerQuery}
+              label="جست‌وجوی زنده و انتخاب کتاب (نام کتاب یا شماره قفسه):"
+              placeholder="بخشی از نام کتاب (مثلاً روزگار طیبه)، شماره قفسه (مثلاً SH-01 یا قفسه ۱) یا کد BK..."
+            />
 
             <div>
               <label className="block font-bold text-slate-700 mb-1">
