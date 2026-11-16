@@ -78,6 +78,7 @@ import {
   findMartyrRecordIn28k,
   splitMartyrNamesInput
 } from '../utils/martyrsCrossMatchEngine';
+import { GolzartehComprehensiveProfilePanel } from '../modules/golzarteh-profile';
 
 interface HomeDashboardTabProps {
   catalogRows: ReferenceCatalogRow[];
@@ -3490,56 +3491,54 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
         </ModalWindow>
       )}
 
-      {/* پنجره ۲.۵: پرونده اختصاصی شهید (با کلیک روی نام هر شهید از داخل پرونده کتاب یا جست‌وجو) */}
-      {selectedMartyrDossierData && (
+      {/* پنجره ۲.۵: پرونده اختصاصی و جامع شهید (با کلیک روی نام هر شهید از داخل پرونده کتاب یا جست‌وجو) */}
+      {selectedMartyrDossierData && (() => {
+        const localDossierKey =
+          selectedMartyrDossierData.personId !== 'پرونده پژوهشی شهید'
+            ? selectedMartyrDossierData.personId
+            : `dossier:${compactPersianForMatch(selectedMartyrDossierData.fullName)}`;
+
+        return (
         <ModalWindow
           onClose={() => setSelectedMartyrDossierName(null)}
-          title={`پرونده اختصاصی شهید: ${selectedMartyrDossierData.fullName}`}
-          maxWidthClass="max-w-2xl"
+          title={`پروفایل جامع شهید: ${selectedMartyrDossierData.fullName}`}
+          maxWidthClass="max-w-3xl"
         >
           <div className="space-y-4 text-xs text-[#332218]">
-            {/* مشخصات هویتی و مزار شهید */}
-            <div className="bg-[#FAF5EE] border border-[#D8C7B2] rounded-xl p-3.5 space-y-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E2D2BE] pb-2">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-base font-bold text-[#332218]">
-                      {selectedMartyrDossierData.fullName}
-                    </h3>
-                    {selectedMartyrDossierData.isTehranMartyr && <TehranMartyrBadge size="md" />}
-                  </div>
-                  <div className="text-[11px] text-[#6E5846] mt-0.5">
-                    شناسه پرونده: {selectedMartyrDossierData.personId}
-                  </div>
+            {/* سربرگ خلاصه پرونده شهید */}
+            <div className="bg-[#FAF5EE] border border-[#D8C7B2] rounded-xl p-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-base font-bold text-[#332218]">
+                    {selectedMartyrDossierData.fullName}
+                  </h3>
+                  {selectedMartyrDossierData.isTehranMartyr && <TehranMartyrBadge size="md" />}
                 </div>
-                <span className="px-2.5 py-1 rounded-lg bg-white border border-[#D8C7B2] font-bold text-[#6B3E26]">
-                  {selectedMartyrDossierData.graveStatus}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 bg-white border border-[#E2D2BE] rounded-lg p-2.5 text-center">
-                <div>
-                  <span className="text-[11px] text-[#6E5846] block">قطعه مزار</span>
-                  <strong className="text-sm font-bold text-[#332218]">
-                    {toPersianDigits(selectedMartyrDossierData.piece)}
-                  </strong>
-                </div>
-                <div>
-                  <span className="text-[11px] text-[#6E5846] block">ردیف مزار</span>
-                  <strong className="text-sm font-bold text-[#332218]">
-                    {toPersianDigits(selectedMartyrDossierData.row)}
-                  </strong>
-                </div>
-                <div>
-                  <span className="text-[11px] text-[#6E5846] block">شماره مزار</span>
-                  <strong className="text-sm font-bold text-[#332218]">
-                    {toPersianDigits(selectedMartyrDossierData.number)}
-                  </strong>
+                <div className="text-[11px] text-[#6E5846] mt-0.5">
+                  شناسه پرونده: {selectedMartyrDossierData.personId}
                 </div>
               </div>
+              <span className="px-2.5 py-1 rounded-lg bg-white border border-[#D8C7B2] font-bold text-[#6B3E26]">
+                {selectedMartyrDossierData.graveStatus}
+              </span>
             </div>
 
-            {/* فهرست کتاب‌های مرتبط با این شهید */}
+            <GolzartehComprehensiveProfilePanel
+              input={{
+                localKey: localDossierKey,
+                fullName: selectedMartyrDossierData.fullName,
+                gravePiece:
+                  selectedMartyrDossierData.piece !== '—' ? selectedMartyrDossierData.piece : '',
+                graveRow:
+                  selectedMartyrDossierData.row !== '—' ? selectedMartyrDossierData.row : '',
+                graveNumber:
+                  selectedMartyrDossierData.number !== '—' ? selectedMartyrDossierData.number : '',
+                graveSourceLabel: 'پرونده پژوهشی و بانک کتابخانه',
+                extractedItems,
+                bookLinks: links
+              }}
+              onNotify={(msg, type) => onNotify(msg, type)}
+              renderBottomActionSlot={
             <div className="bg-white border border-[#D8C7B2] rounded-xl p-3.5 space-y-2.5">
               <div className="font-bold text-sm text-[#332218] flex items-center justify-between border-b border-[#EFE5D8] pb-2">
                 <span>
@@ -3624,6 +3623,8 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                 </div>
               )}
             </div>
+              }
+            />
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-[#EFE5D8]">
               <button
@@ -3686,7 +3687,8 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             </div>
           </div>
         </ModalWindow>
-      )}
+        );
+      })()}
 
       {/* پنجره ۳: نمایش تمیز و خوانای اطلاعات ثبت‌شده در فایل اکسل اولیه فقط برای همان کتاب */}
       {selectedBookDossier && showOriginalExcelModal && (

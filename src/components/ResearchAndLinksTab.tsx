@@ -30,6 +30,10 @@ import { BookLiveSearchPicker, buildLinkableBookOptions } from './BookLiveSearch
 import { ModalWindow } from './ModalWindow';
 import { registerInnerBackStep } from '../utils/navigationHistory';
 import {
+  loadGolzartehDataset,
+  resolveComprehensiveMartyrProfile
+} from '../modules/golzarteh-profile';
+import {
   BookCopyRecord,
   BookMartyrLinkRecord,
   ExtractedContentItem,
@@ -3102,8 +3106,9 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
           onNotify(`فایل اکسل ۳ شیت ویژه انتشار در سایت («${fileName}») دانلود شد.`);
         };
 
-        // ۲. خروجی JSON استاندارد وب‌سایت
-        const handleExportWebsiteJson = () => {
+        // ۲. خروجی JSON استاندارد وب‌سایت (مجهز به شناسه رسمی و تطبیق چندشاخصی golzarteh.ir)
+        const handleExportWebsiteJson = async () => {
+          await loadGolzartehDataset();
           const payload = {
             schema_version: 'golzarteh-publish-package-v2.0',
             target_website: 'https://golzarteh.ir',
@@ -3112,24 +3117,47 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
             martyrs_with_books_count: allMartyrPublishProfiles.length,
             total_book_martyr_links_count: publishableLinks.length,
             total_extracted_passages_count: filteredPublishableExtracts.length,
-            martyr_profiles: allMartyrPublishProfiles.map((p, idx) => ({
-              public_martyr_code: `${externalIdPrefix}SH-${String(idx + 1).padStart(4, '0')}`,
-              martyr_name: p.martyrName,
-              grave_address: {
-                piece: p.gravePiece,
-                row: p.graveRow,
-                number: p.graveNumber
-              },
-              linked_books: p.books,
-              extracted_passages: p.passages.map((it) => ({
-                passage_id: it.id,
-                book_title: it.bookTitleRaw,
-                page_reference: it.pageReferenceRaw,
-                content_type: it.contentType,
-                title: it.passageTitle,
-                text: it.extractedText
-              }))
-            }))
+            martyr_profiles: allMartyrPublishProfiles.map((p, idx) => {
+              const resolved = resolveComprehensiveMartyrProfile({
+                localKey: `pub:${idx + 1}`,
+                fullName: p.martyrName,
+                gravePiece: p.gravePiece !== '—' ? p.gravePiece : '',
+                graveRow: p.graveRow !== '—' ? p.graveRow : '',
+                graveNumber: p.graveNumber !== '—' ? p.graveNumber : '',
+                extractedItems,
+                bookLinks: links
+              });
+              return {
+                public_martyr_code: `${externalIdPrefix}SH-${String(idx + 1).padStart(4, '0')}`,
+                golzarteh_id: resolved.golzartehMatch?.gid || null,
+                golzar_info_code: resolved.golzartehMatch?.golzarInfoCode || null,
+                unique_code: resolved.golzartehMatch?.uniqueCode || null,
+                golzarteh_url: resolved.golzartehUrl || null,
+                match_score: resolved.golzartehMatch?.matchScore || 0,
+                match_basis: resolved.golzartehMatch?.matchBasis || null,
+                tomb_mismatch: resolved.tombMismatch,
+                martyr_name: p.martyrName,
+                father_name: resolved.fatherName || null,
+                grave_address: {
+                  piece: p.gravePiece,
+                  row: p.graveRow,
+                  number: p.graveNumber
+                },
+                official_golzarteh_grave: resolved.officialGrave,
+                biography: resolved.biography || null,
+                will_text: resolved.willText || null,
+                gallery_photos: resolved.photos,
+                linked_books: p.books,
+                extracted_passages: p.passages.map((it) => ({
+                  passage_id: it.id,
+                  book_title: it.bookTitleRaw,
+                  page_reference: it.pageReferenceRaw,
+                  content_type: it.contentType,
+                  title: it.passageTitle,
+                  text: it.extractedText
+                }))
+              };
+            })
           };
           const blob = new Blob([JSON.stringify(payload, null, 2)], {
             type: 'application/json;charset=utf-8'

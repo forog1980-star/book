@@ -41,7 +41,9 @@ const PRECACHE_ASSETS = [
   './fonts/Vazirmatn-variable.woff2',
   './data/library_books.json',
   './data/golzar_martyrs.xlsx',
-  './data/sooreh_mehr_book_martyr_research.json'
+  './data/sooreh_mehr_book_martyr_research.json',
+  './data/golzarteh_index.json',
+  './data/golzarteh_profiles.json'
 ];
 
 async function getPersistedLock() {

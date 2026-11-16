@@ -45,6 +45,10 @@ import { openStandardExcelExportModal } from '../modules/excel-export';
 import { TehranMartyrBadge } from './TehranMartyrBadge';
 import { evaluateMartyrTehranStatus } from '../utils/martyrsCrossMatchEngine';
 import { guardExternalInternetSearch } from '../utils/githubSyncService';
+import {
+  GolzartehComprehensiveProfilePanel,
+  loadGolzartehDataset
+} from '../modules/golzarteh-profile';
 
 export interface NormalizedDate {
   day: string;
@@ -555,6 +559,7 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
       }
     }
     void loadAllMartyrs();
+    void loadGolzartehDataset();
     return () => {
       cancelled = true;
     };
@@ -1734,7 +1739,7 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                       onClick={() => setInspectedRecord(rec)}
                       className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl flex items-center justify-center transition-colors cursor-pointer"
                     >
-                      جزئیات کامل
+                      پروفایل جامع شهید
                     </button>
                     <button
                       type="button"
@@ -1752,8 +1757,130 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
         </div>
       )}
 
-      {/* Full Martyr Detail Modal */}
-      {inspectedRecord && (
+      {/* Full Martyr Comprehensive Profile Modal */}
+      {inspectedRecord && (() => {
+        const inspectedFullName =
+          [inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' ') ||
+          'شهید گمنام';
+        const inspectedIdx = activeResults.findIndex((r) => r.id === inspectedRecord.id);
+        const martyrLinks = getMartyrLinkedBooks(inspectedRecord);
+        const confirmedM = martyrLinks.filter(
+          (l) => l.reviewStatus.includes('تأیید') || l.reviewStatus.includes('پژوهش اصلی')
+        );
+        const pendingM = martyrLinks.filter(
+          (l) => !l.reviewStatus.includes('تأیید') && !l.reviewStatus.includes('پژوهش اصلی')
+        );
+        const mName = cleanText(inspectedFullName);
+        const martyrExtracts = extractedItems.filter((ex) => {
+          if (mName && cleanText(ex.martyrNameRaw).includes(mName)) return true;
+          return martyrLinks.some(
+            (lnk) =>
+              lnk.tempBookId &&
+              ex.tempBookId === lnk.tempBookId &&
+              cleanText(ex.martyrNameRaw) === cleanText(lnk.martyrNameRaw)
+          );
+        });
+
+        const linkedBooksSlot = (
+          <div className="space-y-2.5 bg-white border border-[#E2D2BE] rounded-xl p-3.5">
+            <div className="flex items-center justify-between border-b border-[#EFE5D8] pb-2">
+              <span className="font-bold text-[#1F4E79] flex items-center gap-1.5 text-xs">
+                <BookOpen className="w-4 h-4" />
+                <span>
+                  کتاب‌ها و مطالب پژوهشی مرتبط ({toPersianDigits(confirmedM.length)} بررسی/تأییدشده ·{' '}
+                  {toPersianDigits(pendingM.length)} نیازمند بررسی):
+                </span>
+              </span>
+            </div>
+
+            {martyrLinks.length === 0 && martyrExtracts.length === 0 ? (
+              <div className="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-xl">
+                هنوز کتابی در فهرست فعلی به این شهید متصل نشده است. می‌توانید از دکمه «جست‌وجوی هوشمند کتاب‌های جدید» یا «اتصال به کتاب» استفاده کنید.
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {martyrLinks.map((lnk) => (
+                  <div
+                    key={lnk.id}
+                    className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1.5"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <strong className="text-slate-900 inline-flex items-center gap-1.5 flex-wrap">
+                          <span>
+                            کتاب «{lnk.bookTitleRaw}»{' '}
+                            {lnk.tempBookId ? `(${lnk.tempBookId})` : ''}
+                          </span>
+                          <TehranMartyrBadge size="xs" />
+                        </strong>
+                        <span className="text-slate-600 mr-1.5">
+                          ({lnk.publisherRaw || 'سوره مهر'} · صفحه:{' '}
+                          <strong className="text-[#8C3B2B]">
+                            {toPersianDigits(lnk.pageReferenceRaw || 'ثبت‌نشده')}
+                          </strong>
+                          )
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                        <span
+                          className={`text-[10.5px] font-bold px-2 py-0.5 rounded border ${
+                            lnk.reviewStatus === 'تأییدشده کارشناسی'
+                              ? 'text-emerald-800 bg-emerald-50 border-emerald-200'
+                              : 'text-[#1F4E79] bg-blue-50 border-blue-200'
+                          }`}
+                        >
+                          {lnk.reviewStatus}
+                        </span>
+                        {lnk.reviewStatus !== 'تأییدشده کارشناسی' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onLinkMartyrToBook({
+                                ...lnk,
+                                reviewStatus: 'تأییدشده کارشناسی'
+                              });
+                              onNotify(
+                                `ارتباط کتاب «${lnk.bookTitleRaw}» با شهید «${lnk.martyrNameRaw}» به تأیید نهایی کارشناس رسید.`,
+                                'success'
+                              );
+                            }}
+                            className="min-h-[26px] px-2.5 py-0.5 rounded-md bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold text-[10.5px] inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <CheckCircle2 className="w-3 h-3 shrink-0" />
+                            <span>✓ تأیید نهایی کارشناس</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {lnk.sourceDescriptionRaw && (
+                      <div className="text-[11px] text-slate-700">
+                        شرح و موضوع در پژوهش: {lnk.sourceDescriptionRaw}
+                      </div>
+                    )}
+                    <div className="text-[10px] text-slate-500">
+                      منبع: {lnk.sourceFile} ({lnk.sourceSheet} · ردیف {toPersianDigits(lnk.sourceExcelRow)})
+                    </div>
+                  </div>
+                ))}
+                {martyrExtracts.map((ex) => (
+                  <div
+                    key={ex.id}
+                    className="bg-emerald-50/70 border border-emerald-200 rounded-lg p-2 space-y-0.5"
+                  >
+                    <div className="font-bold text-[#2E7D5B]">
+                      [{ex.contentType}] {ex.passageTitle} (صفحه {toPersianDigits(ex.pageReferenceRaw)})
+                    </div>
+                    <div className="text-[11px] text-slate-700">
+                      {ex.extractedText}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+
+        return (
         <ModalWindow
           onClose={() => {
             if (activeCrossTabTarget && activeResults.length <= 1 && onReturnToMartyrDossier) {
@@ -1762,196 +1889,65 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
               setInspectedRecord(null);
             }
           }}
-          title={`پرونده بانک جامع شهدا: ${
-            [inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' ') ||
-            'شهید گمنام'
-          }`}
-          maxWidthClass="max-w-lg"
+          title={`پروفایل جامع شهید: ${inspectedFullName}`}
+          maxWidthClass="max-w-3xl"
         >
-          <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
-            <div>
-              <span className="text-slate-500 block text-[11px]">پرونده بانک جامع شهدا</span>
-              <h3 className="text-base font-bold text-slate-900 mt-0.5 flex items-center gap-1.5 flex-wrap">
-                <span>
-                  {[inspectedRecord.first_name, inspectedRecord.last_name]
-                    .filter(Boolean)
-                    .join(' ') || 'شهید گمنام'}
-                </span>
-                {inspectedRecord.record_type !== 'non_martyr' && <TehranMartyrBadge size="sm" />}
-              </h3>
-            </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
+            <h3 className="text-base font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+              <span>{inspectedFullName}</span>
+              {inspectedRecord.record_type !== 'non_martyr' && <TehranMartyrBadge size="sm" />}
+            </h3>
+            <span className="text-[11px] text-slate-500 tabular-nums">
+              شناسه بانک: {inspectedRecord.id}
+            </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5">
-            <div className="bg-slate-50 p-2.5 rounded-xl">
-              <span className="text-slate-500 block">نام پدر</span>
-              <strong className="text-slate-900">{inspectedRecord.father_name || '—'}</strong>
-            </div>
-            <div className="bg-slate-50 p-2.5 rounded-xl">
-              <span className="text-slate-500 block">تاریخ تولد</span>
-              <strong className="text-slate-900 tabular-nums">
-                {toPersianDigits(inspectedRecord.birth_date.display || '—')}
-              </strong>
-            </div>
-            <div className="bg-slate-50 p-2.5 rounded-xl">
-              <span className="text-slate-500 block">تاریخ شهادت</span>
-              <strong className="text-slate-900 tabular-nums">
-                {toPersianDigits(inspectedRecord.death_date.display || '—')}
-              </strong>
-            </div>
-            <div className="bg-slate-50 p-2.5 rounded-xl">
-              <span className="text-slate-500 block">سن در زمان شهادت</span>
-              <strong className="text-slate-900 tabular-nums">
-                {toPersianDigits(inspectedRecord.age_display || '—')}
-              </strong>
-            </div>
-            <div className="bg-slate-50 p-2.5 rounded-xl">
-              <span className="text-slate-500 block">عملیات / دسته‌بندی</span>
-              <strong className="text-slate-900">
-                {[inspectedRecord.martyrdom_operation, inspectedRecord.martyrdom_category]
-                  .filter(Boolean)
-                  .join(' · ') || '—'}
-              </strong>
-            </div>
-            <div className="bg-slate-50 p-2.5 rounded-xl">
-              <span className="text-slate-500 block">منطقه / محل شهادت</span>
-              <strong className="text-slate-900">
-                {inspectedRecord.martyrdom_location || '—'}
-              </strong>
-            </div>
-            <div className="col-span-2 bg-[#edf4fa] p-3 rounded-xl text-[#162b3b]">
-              <span className="text-slate-500 block">مختصات مزار در بهشت زهرا (س):</span>
-              <strong className="text-sm font-bold block mt-0.5 tabular-nums">
-                {inspectedRecord.source === 'outside'
-                  ? 'قطعات عمومی خارج از گلزار'
-                  : `قطعه ${toPersianDigits(inspectedRecord.grave_piece || '—')}`}{' '}
-                · ردیف {toPersianDigits(inspectedRecord.grave_row || '—')} · شماره{' '}
-                {toPersianDigits(inspectedRecord.grave_number || '—')}
-              </strong>
-            </div>
-          </div>
-
-          {/* Linked Books & Extracted Research Passages for this Martyr */}
-          {(() => {
-            const martyrLinks = getMartyrLinkedBooks(inspectedRecord);
-            const confirmedM = martyrLinks.filter(
-              (l) => l.reviewStatus.includes('تأیید') || l.reviewStatus.includes('پژوهش اصلی')
-            );
-            const pendingM = martyrLinks.filter(
-              (l) => !l.reviewStatus.includes('تأیید') && !l.reviewStatus.includes('پژوهش اصلی')
-            );
-            const mName = cleanText(
-              [inspectedRecord.first_name, inspectedRecord.last_name].filter(Boolean).join(' ')
-            );
-            const martyrExtracts = extractedItems.filter((ex) => {
-              if (mName && cleanText(ex.martyrNameRaw).includes(mName)) return true;
-              return martyrLinks.some(
-                (lnk) =>
-                  lnk.tempBookId &&
-                  ex.tempBookId === lnk.tempBookId &&
-                  cleanText(ex.martyrNameRaw) === cleanText(lnk.martyrNameRaw)
-              );
-            });
-
-            return (
-              <div className="space-y-2.5 border-t border-slate-200 pt-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#1F4E79] flex items-center gap-1">
-                    <BookOpen className="w-4 h-4" />
-                    <span>
-                      کتاب‌ها و مطالب پژوهشی مرتبط ({toPersianDigits(confirmedM.length)} بررسی/تأییدشده ·{' '}
-                      {toPersianDigits(pendingM.length)} نیازمند بررسی):
-                    </span>
-                  </span>
-                </div>
-
-                {martyrLinks.length === 0 && martyrExtracts.length === 0 ? (
-                  <div className="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-xl">
-                    هنوز کتابی در فهرست فعلی به این شهید متصل نشده است. می‌توانید از دکمه «جست‌وجوی هوشمند کتاب‌های جدید» یا «اتصال به کتاب» استفاده کنید.
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    {martyrLinks.map((lnk) => (
-                      <div
-                        key={lnk.id}
-                        className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1.5"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <strong className="text-slate-900 inline-flex items-center gap-1.5 flex-wrap">
-                              <span>
-                                کتاب «{lnk.bookTitleRaw}»{' '}
-                                {lnk.tempBookId ? `(${lnk.tempBookId})` : ''}
-                              </span>
-                              <TehranMartyrBadge size="xs" />
-                            </strong>
-                            <span className="text-slate-600 mr-1.5">
-                              ({lnk.publisherRaw || 'سوره مهر'} · صفحه:{' '}
-                              <strong className="text-[#8C3B2B]">
-                                {toPersianDigits(lnk.pageReferenceRaw || 'ثبت‌نشده')}
-                              </strong>
-                              )
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                            <span
-                              className={`text-[10.5px] font-bold px-2 py-0.5 rounded border ${
-                                lnk.reviewStatus === 'تأییدشده کارشناسی'
-                                  ? 'text-emerald-800 bg-emerald-50 border-emerald-200'
-                                  : 'text-[#1F4E79] bg-blue-50 border-blue-200'
-                              }`}
-                            >
-                              {lnk.reviewStatus}
-                            </span>
-                            {lnk.reviewStatus !== 'تأییدشده کارشناسی' && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  onLinkMartyrToBook({
-                                    ...lnk,
-                                    reviewStatus: 'تأییدشده کارشناسی'
-                                  });
-                                  onNotify(
-                                    `ارتباط کتاب «${lnk.bookTitleRaw}» با شهید «${lnk.martyrNameRaw}» به تأیید نهایی کارشناس رسید.`,
-                                    'success'
-                                  );
-                                }}
-                                className="min-h-[26px] px-2.5 py-0.5 rounded-md bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold text-[10.5px] inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <CheckCircle2 className="w-3 h-3 shrink-0" />
-                                <span>✓ تأیید نهایی کارشناس</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        {lnk.sourceDescriptionRaw && (
-                          <div className="text-[11px] text-slate-700">
-                            شرح و موضوع در پژوهش: {lnk.sourceDescriptionRaw}
-                          </div>
-                        )}
-                        <div className="text-[10px] text-slate-500">
-                          منبع: {lnk.sourceFile} ({lnk.sourceSheet} · ردیف {toPersianDigits(lnk.sourceExcelRow)})
-                        </div>
-                      </div>
-                    ))}
-                    {martyrExtracts.map((ex) => (
-                      <div
-                        key={ex.id}
-                        className="bg-emerald-50/70 border border-emerald-200 rounded-lg p-2 space-y-0.5"
-                      >
-                        <div className="font-bold text-[#2E7D5B]">
-                          [{ex.contentType}] {ex.passageTitle} (صفحه {toPersianDigits(ex.pageReferenceRaw)})
-                        </div>
-                        <div className="text-[11px] text-slate-700">
-                          {ex.extractedText}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+          <GolzartehComprehensiveProfilePanel
+            input={{
+              localKey: inspectedRecord.id,
+              firstName: inspectedRecord.first_name,
+              lastName: inspectedRecord.last_name,
+              fullName: inspectedFullName,
+              fatherName: inspectedRecord.father_name,
+              birthDateDisplay: inspectedRecord.birth_date.display,
+              martyrdomDateDisplay: inspectedRecord.death_date.display,
+              ageDisplay: inspectedRecord.age_display,
+              operation: [inspectedRecord.martyrdom_operation, inspectedRecord.martyrdom_category]
+                .filter(Boolean)
+                .join(' · '),
+              martyrdomLocation: inspectedRecord.martyrdom_location,
+              gravePiece:
+                inspectedRecord.source === 'outside'
+                  ? 'قطعات عمومی'
+                  : inspectedRecord.grave_piece,
+              graveRow: inspectedRecord.grave_row,
+              graveNumber: inspectedRecord.grave_number,
+              graveSourceLabel:
+                inspectedRecord.source === 'outside'
+                  ? 'قطعات عمومی بهشت زهرا'
+                  : 'بانک جامع کتابخانه',
+              extractedItems,
+              bookLinks: links
+            }}
+            browseNav={
+              inspectedIdx >= 0 && activeResults.length > 1
+                ? {
+                    currentIndex: inspectedIdx,
+                    totalCount: activeResults.length,
+                    onPrev:
+                      inspectedIdx > 0
+                        ? () => setInspectedRecord(activeResults[inspectedIdx - 1])
+                        : undefined,
+                    onNext:
+                      inspectedIdx < activeResults.length - 1
+                        ? () => setInspectedRecord(activeResults[inspectedIdx + 1])
+                        : undefined
+                  }
+                : undefined
+            }
+            onNotify={onNotify}
+            renderBottomActionSlot={linkedBooksSlot}
+          />
 
           {/* جست‌وجوی مستقیم اینترنتی و پایگاه‌های کتابشناسی آنلاین */}
           <div className="bg-[#FAF3EA] border border-[#E6D5C1] rounded-xl p-3 space-y-2">
@@ -2064,7 +2060,8 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
             )}
           </div>
         </ModalWindow>
-      )}
+        );
+      })()}
 
       {/* New Custom Martyr Registration Modal (Section 7.3) */}
       {showNewMartyrModal && (

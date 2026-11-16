@@ -27,6 +27,11 @@ async function syncReleaseDirs() {
     'aistudio',
   ]);
 
+  const distDataDir = join(distRoot, 'data');
+  const distDataFiles = (await readdir(distDataDir).catch(() => []))
+    .filter((f) => !f.startsWith('.'))
+    .map((f) => `data/${f}`);
+
   const syncedRelPaths = [
     'index.html',
     'manifest.webmanifest',
@@ -34,11 +39,13 @@ async function syncReleaseDirs() {
     'fonts/Vazirmatn-variable.woff2',
     ...bundleRefs,
     ...hashedFontFiles,
+    ...distDataFiles,
   ];
 
   for (const targetDir of syncTargets) {
     await mkdir(join(targetDir, 'assets'), { recursive: true });
     await mkdir(join(targetDir, 'fonts'), { recursive: true });
+    await mkdir(join(targetDir, 'data'), { recursive: true });
 
     // Remove stale hashed index-*.js / index-*.css bundles from target assets/
     const targetAssetsDir = join(targetDir, 'assets');

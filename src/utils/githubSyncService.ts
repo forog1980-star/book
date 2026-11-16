@@ -207,6 +207,26 @@ function validateDataAssetSemantics(relUrl: string, bytes: ArrayBuffer): boolean
     }
   }
 
+  if (relUrl.endsWith('golzarteh_index.json')) {
+    try {
+      const text = new TextDecoder('utf-8').decode(bytes);
+      const parsed = JSON.parse(text);
+      return Boolean(parsed && typeof parsed === 'object' && Array.isArray(parsed.rows));
+    } catch {
+      return false;
+    }
+  }
+
+  if (relUrl.endsWith('golzarteh_profiles.json')) {
+    try {
+      const text = new TextDecoder('utf-8').decode(bytes);
+      const parsed = JSON.parse(text);
+      return Boolean(parsed && typeof parsed === 'object' && parsed.profilesByGid && typeof parsed.profilesByGid === 'object');
+    } catch {
+      return false;
+    }
+  }
+
   if (relUrl.endsWith('.xlsx')) {
     if (bytes.byteLength < 10000) return false;
     const header = new Uint8Array(bytes.slice(0, 4));
@@ -399,7 +419,9 @@ export async function performManualGitHubSync(
       './fonts/Vazirmatn-variable.woff2',
       './data/library_books.json',
       './data/golzar_martyrs.xlsx',
-      './data/sooreh_mehr_book_martyr_research.json'
+      './data/sooreh_mehr_book_martyr_research.json',
+      './data/golzarteh_index.json',
+      './data/golzarteh_profiles.json'
     ]);
 
     for (const m of scriptMatches) {
