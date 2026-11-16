@@ -47,6 +47,10 @@ import {
 import { requestActionConfirmation } from '../utils/confirmDialogService';
 import { TehranMartyrBadge } from './TehranMartyrBadge';
 import {
+  BookTitleDuplicateAutocomplete,
+  findMatchingCatalogBooksForTitle
+} from './BookTitleDuplicateAutocomplete';
+import {
   evaluateMartyrTehranStatus,
   findMartyrRecordIn28k,
   splitMartyrNamesInput
@@ -80,6 +84,11 @@ interface QuickInventoryTabProps {
     nonce?: number;
   } | null;
   onClearInitialDirectBookTarget?: () => void;
+  externalShelfFilterRequest?: {
+    shelf: ShelfCode;
+    nonce: number;
+  } | null;
+  onClearExternalShelfFilter?: () => void;
   returnToDashboardLabel?: string;
   onReturnToDashboardDossier?: () => void;
   onWorkbookLoaded: (
@@ -130,6 +139,8 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
   onClearInitialSearchQuery,
   initialDirectBookTarget,
   onClearInitialDirectBookTarget,
+  externalShelfFilterRequest,
+  onClearExternalShelfFilter,
   returnToDashboardLabel,
   onReturnToDashboardDossier,
   onWorkbookLoaded,
@@ -299,6 +310,17 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       }
     }
   }, [initialSearchQuery, onClearInitialSearchQuery]);
+
+  // اعمال فیلتر قفسه ارسالی از ویجت هشدار ظرفیت بالای ۸۰٪
+  useEffect(() => {
+    if (!externalShelfFilterRequest) return;
+    setShelfFilter(externalShelfFilterRequest.shelf);
+    setShowAdvancedColumnFilters(true);
+    setShowBooksListDrawer(true);
+    setSelectedRow(null);
+    setVisibleLimit(24);
+    onClearExternalShelfFilter?.();
+  }, [externalShelfFilterRequest, onClearExternalShelfFilter]);
 
   // بازشدن مستقیم پرونده اصلی یک کتاب هنگام انتقال از «داشبورد مدیریتی مرکز اسناد»
   useEffect(() => {
@@ -1423,11 +1445,26 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     const chosenLevel = (outsideLevel || levelValue || 'T01') as LevelCode;
     const locationCode = `${chosenShelf}-${chosenLevel}`;
 
+    const exactDuplicate = findMatchingCatalogBooksForTitle(
+      cleanTitle,
+      catalogRows,
+      auditRecords,
+      bookCopies,
+      3
+    ).find((m) => m.isExactTitleMatch);
+
     requestActionConfirmation({
       variant: 'confirm',
       title: 'پرسش دوم: تأیید نهایی ثبت کتاب جدید (خارج از فهرست)',
-      message: `آیا از ثبت نهایی کتاب جدید «${cleanTitle}» در محل ${locationCode} اطمینان دارید؟`,
+      message: exactDuplicate
+        ? `کتابی با عنوان مشابه «${exactDuplicate.titleRaw}» (${exactDuplicate.tempBookId}) در فهرست موجود است. آیا باز هم مایل به ثبت کتاب جدید «${cleanTitle}» در محل ${locationCode} هستید؟`
+        : `آیا از ثبت نهایی کتاب جدید «${cleanTitle}» در محل ${locationCode} اطمینان دارید؟`,
       details: [
+        ...(exactDuplicate
+          ? [
+              `⚠️ هشدار احتمال تکرار: کتاب «${exactDuplicate.titleRaw}» (${exactDuplicate.tempBookId}) هم‌اکنون در سامانه موجود است.`
+            ]
+          : []),
         `عنوان کتاب: ${cleanTitle}`,
         `نویسنده: ${outsideAuthor.trim() || 'ثبت‌نشده'} · ناشر: ${outsidePublisher.trim() || 'ثبت‌نشده'}`,
         `گروه موضوعی: ${chosenCat}`,
@@ -2978,6 +3015,28 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                       onChange={(e) => setOutsideTitle(e.target.value)}
                       placeholder="عنوان کامل روی جلد کتاب را وارد کنید..."
                       className="w-full min-h-[42px] px-3 py-2 bg-[#F5F7FA] focus:bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-[#8C3B2B]"
+                    />
+                    <BookTitleDuplicateAutocomplete
+                      titleQuery={outsideTitle}
+                      catalogRows={catalogRows}
+                      auditRecords={auditRecords}
+                      bookCopies={bookCopies}
+                      actionLabel="انتخاب از کاتالوگ (جلوگیری از تکرار)"
+                      testIdPrefix="outside-book-autocomplete"
+                      onSelectSuggestion={(suggestion) => {
+                        if (suggestion.catalogRow) {
+                          handleSelectRow(suggestion.catalogRow, true);
+                          setOutsideTitle('');
+                          onNotify(
+                            `کتاب «${suggestion.titleRaw}» (${suggestion.tempBookId}) از کاتالوگ مرجع انتخاب شد تا نسخه/قفسه آن تکمیل گردد و کتاب تکراری ثبت نشود.`
+                          );
+                        } else {
+                          onNotify(
+                            `کتاب «${suggestion.titleRaw}» (${suggestion.tempBookId}) پیش‌تر در سامانه ثبت شده است.`,
+                            'warning'
+                          );
+                        }
+                      }}
                     />
                   </div>
                   <div>

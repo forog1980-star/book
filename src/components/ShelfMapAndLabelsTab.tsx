@@ -1,27 +1,81 @@
-import React, { useState } from 'react';
-import { Printer, X, BookOpen, ChevronLeft } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Printer, X, BookOpen, ChevronLeft, AlertTriangle } from 'lucide-react';
 import {
+  BookCopyRecord,
   FieldAuditRecord,
   LEVELS,
+  ReferenceCatalogRow,
   SHELVES,
   SUBJECT_CATEGORIES,
+  ShelfCode,
   getAllocatedCategoryForSlot,
   toPersianDigits
 } from '../data/markazAsnadData';
+import {
+  DEFAULT_SHELF_CAPACITIES,
+  ShelfCapacityMap,
+  analyzeShelfCapacities
+} from '../utils/shelfCapacityAnalyzer';
 
 interface ShelfMapAndLabelsTabProps {
   auditRecords: Record<string, FieldAuditRecord>;
+  catalogRows?: ReferenceCatalogRow[];
+  bookCopies?: BookCopyRecord[];
+  capacities?: ShelfCapacityMap;
+  focusedShelfRequest?: {
+    shelf: ShelfCode;
+    locationCode?: string;
+    nonce: number;
+  } | null;
+  onClearFocusedShelfRequest?: () => void;
   onOpenBookDossier?: (record: FieldAuditRecord) => void;
 }
 
 export const ShelfMapAndLabelsTab: React.FC<ShelfMapAndLabelsTabProps> = ({
   auditRecords,
+  catalogRows = [],
+  bookCopies = [],
+  capacities = DEFAULT_SHELF_CAPACITIES,
+  focusedShelfRequest,
+  onClearFocusedShelfRequest,
   onOpenBookDossier
 }) => {
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [highlightedShelf, setHighlightedShelf] = useState<ShelfCode | null>(null);
   const [showPrintableLabels, setShowPrintableLabels] = useState(false);
 
   const recordsList = Object.values(auditRecords);
+
+  const capacityAnalysis = useMemo(
+    () =>
+      analyzeShelfCapacities({
+        catalogRows,
+        auditRecords,
+        bookCopies,
+        capacities
+      }),
+    [catalogRows, auditRecords, bookCopies, capacities]
+  );
+
+  const shelfStatusByCode = useMemo(() => {
+    const map = new Map(capacityAnalysis.shelves.map((s) => [s.shelf, s]));
+    return map;
+  }, [capacityAnalysis]);
+
+  useEffect(() => {
+    if (!focusedShelfRequest) return;
+    setShowPrintableLabels(false);
+    setHighlightedShelf(focusedShelfRequest.shelf);
+    if (focusedShelfRequest.locationCode) {
+      setSelectedSlot(focusedShelfRequest.locationCode);
+    } else {
+      setTimeout(() => {
+        const el = document.getElementById(`shelf-map-card-${focusedShelfRequest.shelf}`);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 60);
+    }
+    onClearFocusedShelfRequest?.();
+  }, [focusedShelfRequest, onClearFocusedShelfRequest]);
 
   // Count registered books per SH-xx-Txx slot
   const slotCounts: Record<string, FieldAuditRecord[]> = {};
@@ -118,19 +172,79 @@ export const ShelfMapAndLabelsTab: React.FC<ShelfMapAndLabelsTabProps> = ({
         <>
           {/* Interactive 4 Shelves × 6 Levels (24 Slots) Visual Matrix */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {SHELVES.map((shelf) => (
+            {SHELVES.map((shelf) => {
+              const shelfStat = shelfStatusByCode.get(shelf.code);
+              const isShelfOver80 = Boolean(shelfStat?.isOverWarningThreshold);
+              const isShelfCritical = shelfStat?.severity === 'critical';
+              const isShelfFocused = highlightedShelf === shelf.code;
+              const pctText = shelfStat
+                ? toPersianDigits(
+                    Number.isInteger(shelfStat.fillPercent)
+                      ? String(shelfStat.fillPercent)
+                      : shelfStat.fillPercent.toFixed(1)
+                  )
+                : '۰';
+
+              return (
               <div
+                id={`shelf-map-card-${shelf.code}`}
                 key={shelf.code}
-                className="bg-white border border-slate-200 rounded-2xl overflow-hidden flex flex-col"
+                className={`bg-white rounded-2xl overflow-hidden flex flex-col transition-all ${
+                  isShelfFocused
+                    ? 'border-2 border-[#1f4e79] ring-2 ring-[#1f4e79]/15'
+                    : isShelfCritical
+                    ? 'border-2 border-rose-400'
+                    : isShelfOver80
+                    ? 'border-2 border-amber-400'
+                    : 'border border-slate-200'
+                }`}
               >
-                <div className="bg-[#1f4e79] text-white px-4 py-3">
-                  <div className="flex items-center justify-between">
+                <div
+                  className={`px-4 py-3 text-white ${
+                    isShelfCritical
+                      ? 'bg-rose-800'
+                      : isShelfOver80
+                      ? 'bg-amber-800'
+                      : 'bg-[#1f4e79]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
                     <span className="font-mono font-bold text-base" dir="ltr">
                       {shelf.code}
                     </span>
-                    <span className="text-xs bg-white/15 px-2 py-0.5 rounded-md">۶ طبقه</span>
+                    <div className="flex items-center gap-1.5 text-xs tabular-nums">
+                      {isShelfOver80 && (
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-200 shrink-0" aria-hidden="true" />
+                      )}
+                      <span className="font-bold">{pctText}٪ پر</span>
+                    </div>
                   </div>
-                  <p className="text-[11px] text-sky-100 mt-1">{shelf.summary}</p>
+                  <p className="text-[11px] text-white/90 mt-1">{shelf.summary}</p>
+                  {shelfStat && (
+                    <div className="mt-2 space-y-1">
+                      <div className="w-full h-1.5 rounded-full bg-white/20 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${
+                            isShelfCritical
+                              ? 'bg-rose-200'
+                              : isShelfOver80
+                              ? 'bg-amber-200'
+                              : 'bg-emerald-300'
+                          }`}
+                          style={{
+                            width: `${Math.min(100, Math.max(0, shelfStat.fillPercent))}%`
+                          }}
+                        />
+                      </div>
+                      <div className="text-[10.5px] text-white/90 tabular-nums flex items-center justify-between">
+                        <span>
+                          {toPersianDigits(shelfStat.occupiedVolumesCount)} /{' '}
+                          {toPersianDigits(shelfStat.capacity)} جلد
+                        </span>
+                        {isShelfOver80 && <span className="font-bold">هشدار بالای ۸۰٪</span>}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-3 space-y-2 flex-1">
@@ -138,6 +252,18 @@ export const ShelfMapAndLabelsTab: React.FC<ShelfMapAndLabelsTabProps> = ({
                     const locCode = `${shelf.code}-${level.code}`;
                     const alloc = getAllocatedCategoryForSlot(shelf.code, level.code);
                     const count = (slotCounts[locCode] || []).length;
+                    const levelStat = shelfStat?.levels.find((l) => l.level === level.code);
+                    const lvVols = levelStat?.occupiedVolumesCount ?? count;
+                    const lvCap = levelStat?.capacity ?? 50;
+                    const lvOver80 = Boolean(levelStat?.isOverWarningThreshold);
+                    const lvCritical = levelStat?.severity === 'critical';
+                    const lvPctText = levelStat
+                      ? toPersianDigits(
+                          Number.isInteger(levelStat.fillPercent)
+                            ? String(levelStat.fillPercent)
+                            : levelStat.fillPercent.toFixed(0)
+                        )
+                      : '۰';
                     const isSelected = selectedSlot === locCode;
 
                     return (
@@ -145,16 +271,20 @@ export const ShelfMapAndLabelsTab: React.FC<ShelfMapAndLabelsTabProps> = ({
                         key={locCode}
                         type="button"
                         onClick={() => setSelectedSlot(isSelected ? null : locCode)}
-                        className={`w-full text-right p-3 rounded-xl border transition-all flex items-center justify-between gap-2 ${
+                        className={`w-full text-right p-3 rounded-xl border transition-all flex items-center justify-between gap-2 cursor-pointer ${
                           isSelected
                             ? 'border-2 border-[#1f4e79] bg-[#f2f7fb]'
+                            : lvCritical
+                            ? 'border-rose-300 bg-rose-50/70 hover:bg-rose-50'
+                            : lvOver80
+                            ? 'border-amber-300 bg-amber-50/70 hover:bg-amber-50'
                             : alloc.categoryCode === 'FREE'
                             ? 'border-dashed border-slate-300 bg-slate-50/60 hover:bg-slate-100'
                             : 'border-slate-200 bg-white hover:bg-slate-50'
                         }`}
                       >
-                        <div>
-                          <div className="flex items-center gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-mono font-bold text-xs text-[#1f4e79]" dir="ltr">
                               {locCode}
                             </span>
@@ -162,28 +292,47 @@ export const ShelfMapAndLabelsTab: React.FC<ShelfMapAndLabelsTabProps> = ({
                               (طبقه {toPersianDigits(level.number)} از بالا)
                             </span>
                           </div>
-                          <div className="text-xs font-semibold text-slate-800 mt-0.5">
+                          <div className="text-xs font-semibold text-slate-800 mt-0.5 truncate">
                             {alloc.title}
                           </div>
                         </div>
 
-                        <div className="text-left shrink-0">
+                        <div className="text-left shrink-0 space-y-0.5">
                           <span
-                            className={`inline-block px-2 py-1 rounded-lg text-xs font-bold tabular-nums ${
-                              count > 0
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold tabular-nums ${
+                              lvCritical
+                                ? 'bg-rose-100 text-rose-800'
+                                : lvOver80
+                                ? 'bg-amber-100 text-amber-900'
+                                : lvVols > 0
                                 ? 'bg-emerald-100 text-emerald-800'
                                 : 'bg-slate-100 text-slate-500'
                             }`}
                           >
-                            {toPersianDigits(count)} کتاب
+                            {lvOver80 && <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />}
+                            <span>
+                              {toPersianDigits(lvVols)}/{toPersianDigits(lvCap)} جلد
+                            </span>
                           </span>
+                          <div
+                            className={`text-[10.5px] font-bold tabular-nums text-center ${
+                              lvCritical
+                                ? 'text-rose-700'
+                                : lvOver80
+                                ? 'text-amber-800'
+                                : 'text-slate-500'
+                            }`}
+                          >
+                            {lvPctText}٪
+                          </div>
                         </div>
                       </button>
                     );
                   })}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* پنجره فوری کتاب‌های طبقه انتخاب‌شده + لینک مستقیم به پرونده کتاب در کتابخانه */}

@@ -24,6 +24,11 @@ import {
   Download
 } from 'lucide-react';
 import { ModalWindow } from './ModalWindow';
+import {
+  BookTitleDuplicateAutocomplete,
+  DuplicateCatalogSuggestion,
+  findMatchingCatalogBooksForTitle
+} from './BookTitleDuplicateAutocomplete';
 import { downloadComprehensiveDashboardDocx } from '../utils/docxReportDownloader';
 import executiveDashboardCompleteReportRaw from '../../TECHNICAL_REPORT_EXECUTIVE_DASHBOARD_COMPLETE.md?raw';
 import {
@@ -1164,11 +1169,26 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
     }
     const loc = `${previewShelf}-${previewLevel}`;
 
+    const exactVoiceDup = findMatchingCatalogBooksForTitle(
+      previewTitle.trim(),
+      catalogRows,
+      auditRecords,
+      bookCopies,
+      3
+    ).find((m) => m.isExactTitleMatch);
+
     requestActionConfirmation({
       variant: 'confirm',
       title: 'پرسش دوم: تأیید نهایی ثبت صوتی کتاب',
-      message: `آیا از ثبت نهایی کتاب «${previewTitle.trim()}» در محل ${loc} اطمینان دارید؟`,
+      message: exactVoiceDup
+        ? `کتابی با عنوان مشابه «${exactVoiceDup.titleRaw}» (${exactVoiceDup.tempBookId}) در کاتالوگ موجود است. آیا باز هم مایل به ثبت کتاب جدید «${previewTitle.trim()}» در محل ${loc} هستید؟`
+        : `آیا از ثبت نهایی کتاب «${previewTitle.trim()}» در محل ${loc} اطمینان دارید؟`,
       details: [
+        ...(exactVoiceDup
+          ? [
+              `⚠️ هشدار احتمال تکرار: کتاب «${exactVoiceDup.titleRaw}» (${exactVoiceDup.tempBookId}) هم‌اکنون در کاتالوگ وجود دارد.`
+            ]
+          : []),
         `عنوان کتاب: ${previewTitle.trim()}`,
         `نویسنده: ${previewAuthor.trim() || 'ثبت‌نشده'} · ناشر: ${previewPublisher.trim() || 'ثبت‌نشده'}`,
         `دسته موضوعی: ${previewCategory}`,
@@ -1244,11 +1264,26 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
     }
     const loc = `${quickShelf}-${quickLevel}`;
 
+    const exactQuickDup = findMatchingCatalogBooksForTitle(
+      quickTitle.trim(),
+      catalogRows,
+      auditRecords,
+      bookCopies,
+      3
+    ).find((m) => m.isExactTitleMatch);
+
     requestActionConfirmation({
       variant: 'confirm',
       title: 'پرسش دوم: تأیید نهایی ثبت کتاب جدید',
-      message: `آیا از ثبت نهایی کتاب «${quickTitle.trim()}» در محل ${loc} اطمینان دارید؟`,
+      message: exactQuickDup
+        ? `کتابی با عنوان مشابه «${exactQuickDup.titleRaw}» (${exactQuickDup.tempBookId}) در کاتالوگ موجود است. آیا باز هم مایل به ثبت کتاب جدید «${quickTitle.trim()}» در محل ${loc} هستید؟`
+        : `آیا از ثبت نهایی کتاب «${quickTitle.trim()}» در محل ${loc} اطمینان دارید؟`,
       details: [
+        ...(exactQuickDup
+          ? [
+              `⚠️ هشدار احتمال تکرار: کتاب «${exactQuickDup.titleRaw}» (${exactQuickDup.tempBookId}) هم‌اکنون در کاتالوگ وجود دارد.`
+            ]
+          : []),
         `عنوان کتاب: ${quickTitle.trim()}`,
         `نویسنده: ${quickAuthor.trim() || 'ثبت‌نشده'} · ناشر: ${quickPublisher.trim() || 'ثبت‌نشده'}`,
         `دسته موضوعی: ${quickCategory}`,
@@ -3817,7 +3852,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
 
             <form onSubmit={handleConfirmVoiceBookSave} className="space-y-3 pt-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
+                <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-[#253247] mb-1">
                     عنوان کتاب *
                   </label>
@@ -3827,6 +3862,33 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                     value={previewTitle}
                     onChange={(e) => setPreviewTitle(e.target.value)}
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white"
+                  />
+                  <BookTitleDuplicateAutocomplete
+                    titleQuery={previewTitle}
+                    catalogRows={catalogRows}
+                    auditRecords={auditRecords}
+                    bookCopies={bookCopies}
+                    actionLabel="مشاهده پرونده موجود"
+                    testIdPrefix="voice-book-autocomplete"
+                    onSelectSuggestion={(suggestion: DuplicateCatalogSuggestion) => {
+                      const matched = allDossiers.find(
+                        (d) => d.bookId === suggestion.tempBookId || d.rowKey === suggestion.key
+                      );
+                      if (matched) {
+                        setShowVoiceModal(false);
+                        setIsEditingDossierBook(false);
+                        setEditingRelationLinkId(null);
+                        setSelectedBookDossierId(matched.dossierId);
+                        onNotify(
+                          `پرونده کتاب موجود «${suggestion.titleRaw}» (${suggestion.tempBookId}) باز شد تا از ثبت تکراری جلوگیری شود.`
+                        );
+                      } else {
+                        onNotify(
+                          `کتاب «${suggestion.titleRaw}» (${suggestion.tempBookId}) در کاتالوگ موجود است.`,
+                          'warning'
+                        );
+                      }
+                    }}
                   />
                 </div>
                 <div>
@@ -3962,6 +4024,33 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                 onChange={(e) => setQuickTitle(e.target.value)}
                 placeholder="نام دقیق کتاب..."
                 className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl"
+              />
+              <BookTitleDuplicateAutocomplete
+                titleQuery={quickTitle}
+                catalogRows={catalogRows}
+                auditRecords={auditRecords}
+                bookCopies={bookCopies}
+                actionLabel="مشاهده پرونده موجود"
+                testIdPrefix="quick-book-autocomplete"
+                onSelectSuggestion={(suggestion: DuplicateCatalogSuggestion) => {
+                  const matched = allDossiers.find(
+                    (d) => d.bookId === suggestion.tempBookId || d.rowKey === suggestion.key
+                  );
+                  if (matched) {
+                    setShowQuickBookModal(false);
+                    setIsEditingDossierBook(false);
+                    setEditingRelationLinkId(null);
+                    setSelectedBookDossierId(matched.dossierId);
+                    onNotify(
+                      `پرونده کتاب موجود «${suggestion.titleRaw}» (${suggestion.tempBookId}) باز شد تا از ثبت تکراری جلوگیری شود.`
+                    );
+                  } else {
+                    onNotify(
+                      `کتاب «${suggestion.titleRaw}» (${suggestion.tempBookId}) در کاتالوگ موجود است.`,
+                      'warning'
+                    );
+                  }
+                }}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">

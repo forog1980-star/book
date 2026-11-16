@@ -644,12 +644,12 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
             </h2>
           </div>
 
-          {/* Master Export Action Buttons — دو ردیف تراز در موبایل و یک ردیف در نمایشگرهای بزرگ‌تر */}
-          <div className="grid grid-cols-2 sm:flex sm:flex-nowrap items-center gap-2 w-full lg:w-auto shrink-0">
+          {/* Master Export Action Buttons — دو ردیف تراز در موبایل و ردیف منعطف در دسکتاپ بدون روی‌هم‌افتادگی */}
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-stretch sm:items-center gap-2 w-full lg:w-auto shrink-0">
             <button
               type="button"
               onClick={handleExportComprehensiveExcel}
-              className="col-span-2 sm:col-span-1 min-h-[42px] sm:min-h-[38px] px-3.5 py-2 sm:py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs transition-all sm:whitespace-nowrap cursor-pointer"
+              className="col-span-2 sm:col-span-1 min-h-[42px] sm:min-h-[38px] px-3.5 py-2 sm:py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs transition-all whitespace-normal break-words text-center leading-snug cursor-pointer"
             >
               <FileSpreadsheet className="w-4 h-4 shrink-0" />
               <span>دانلود اکسل جامع</span>
@@ -658,7 +658,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
             <button
               type="button"
               onClick={handleExportJson}
-              className="min-h-[42px] sm:min-h-[38px] px-3 py-2 sm:py-1.5 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs flex items-center justify-center gap-1.5 transition-all sm:whitespace-nowrap cursor-pointer"
+              className="min-h-[42px] sm:min-h-[38px] px-3 py-2 sm:py-1.5 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs flex items-center justify-center gap-1.5 transition-all whitespace-normal break-words text-center leading-snug cursor-pointer"
             >
               <FileJson className="w-4 h-4 text-[#2B547E] shrink-0" />
               <span>خروجی JSON</span>
@@ -667,7 +667,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
             <button
               type="button"
               onClick={handleExportCsv}
-              className="min-h-[42px] sm:min-h-[38px] px-3 py-2 sm:py-1.5 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs flex items-center justify-center gap-1.5 transition-all sm:whitespace-nowrap cursor-pointer"
+              className="min-h-[42px] sm:min-h-[38px] px-3 py-2 sm:py-1.5 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs flex items-center justify-center gap-1.5 transition-all whitespace-normal break-words text-center leading-snug cursor-pointer"
             >
               <Download className="w-4 h-4 text-[#2B547E] shrink-0" />
               <span>خروجی CSV</span>
@@ -705,26 +705,28 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
 
       {/* Main Control & Perspective Switcher Bar */}
       <div className="bg-white border border-[#E2D2BE] rounded-2xl p-3.5 sm:p-4 space-y-3">
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-          {/* 2-Way View Switcher Tabs — چیدمان عمودی تراز در موبایل و دو ستون هم‌اندازه در نمایشگرهای بزرگ‌تر */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 p-1.5 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs font-bold gap-1.5 w-full xl:w-auto">
+        <div className="grid grid-cols-1 2xl:grid-cols-12 items-stretch 2xl:items-center gap-3">
+          {/* 2-Way View Switcher Tabs — چیدمان Grid با شکست خودکار ۲ تا ۳ خطی برای جلوگیری کامل از هم‌پوشانی در موبایل و دسکتاپ */}
+          <div className="2xl:col-span-7 grid grid-cols-1 sm:grid-cols-2 p-1.5 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs font-bold gap-2 w-full min-w-0">
             <button
               type="button"
               onClick={() => {
                 setActiveView('martyr_centric');
                 setCurrentPage(1);
               }}
-              className={`min-h-[44px] sm:min-h-[40px] px-3 py-2 rounded-lg transition-colors flex items-center justify-between sm:justify-center gap-2 text-right sm:text-center cursor-pointer ${
+              className={`min-h-[46px] px-3 py-2 rounded-lg transition-colors flex items-center justify-between gap-2.5 text-right whitespace-normal break-words min-w-0 cursor-pointer ${
                 activeView === 'martyr_centric'
                   ? 'bg-[#6B3E26] text-white shadow-2xs'
                   : 'text-[#5C4033] hover:text-[#332218]'
               }`}
             >
-              <span className="flex items-center gap-1.5 min-w-0">
-                <Users className="w-4 h-4 shrink-0" />
-                <span className="leading-snug">بر پایه نام شهید (شهید ← کتاب)</span>
+              <span className="flex items-start sm:items-center gap-2 min-w-0 flex-1">
+                <Users className="w-4 h-4 shrink-0 mt-0.5 sm:mt-0" />
+                <span className="leading-relaxed break-words whitespace-normal">
+                  بر پایه نام شهید (شهید ← کتاب)
+                </span>
               </span>
-              <span className="px-2 py-0.5 rounded text-[11px] bg-black/15 tabular-nums shrink-0">
+              <span className="px-2 py-0.5 rounded-md text-[11px] bg-black/15 tabular-nums shrink-0">
                 {toPersianDigits(filteredMartyrRows.length)}
               </span>
             </button>
@@ -735,37 +737,39 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                 setActiveView('book_centric');
                 setCurrentPage(1);
               }}
-              className={`min-h-[44px] sm:min-h-[40px] px-3 py-2 rounded-lg transition-colors flex items-center justify-between sm:justify-center gap-2 text-right sm:text-center cursor-pointer ${
+              className={`min-h-[46px] px-3 py-2 rounded-lg transition-colors flex items-center justify-between gap-2.5 text-right whitespace-normal break-words min-w-0 cursor-pointer ${
                 activeView === 'book_centric'
                   ? 'bg-[#6B3E26] text-white shadow-2xs'
                   : 'text-[#5C4033] hover:text-[#332218]'
               }`}
             >
-              <span className="flex items-center gap-1.5 min-w-0">
-                <BookOpen className="w-4 h-4 shrink-0" />
-                <span className="leading-snug">بر پایه عنوان کتاب (کتاب ← شهدا)</span>
+              <span className="flex items-start sm:items-center gap-2 min-w-0 flex-1">
+                <BookOpen className="w-4 h-4 shrink-0 mt-0.5 sm:mt-0" />
+                <span className="leading-relaxed break-words whitespace-normal">
+                  بر پایه عنوان کتاب (کتاب ← شهدا)
+                </span>
               </span>
-              <span className="px-2 py-0.5 rounded text-[11px] bg-black/15 tabular-nums shrink-0">
+              <span className="px-2 py-0.5 rounded-md text-[11px] bg-black/15 tabular-nums shrink-0">
                 {toPersianDigits(filteredBookRows.length)}
               </span>
             </button>
           </div>
 
-          {/* Quick Filter Buttons — چیدمان خوانا و بدون تداخل در موبایل، تک‌ردیفه در دسکتاپ */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 xl:flex xl:flex-nowrap items-stretch xl:items-center gap-2 text-xs w-full xl:w-auto">
+          {/* Quick Filter Buttons — چیدمان Grid واکنش‌گرا با قابلیت چندخطی بدون هم‌پوشانی */}
+          <div className="2xl:col-span-5 grid grid-cols-1 md:grid-cols-3 items-stretch gap-2 text-xs w-full min-w-0">
             <button
               type="button"
               onClick={() => {
                 setSourceSheetFilter('all');
                 setCurrentPage(1);
               }}
-              className={`min-h-[42px] sm:min-h-[40px] px-3 py-2 rounded-xl border font-bold transition-colors flex items-center justify-between sm:justify-center gap-1.5 xl:whitespace-nowrap cursor-pointer ${
+              className={`min-h-[44px] px-3 py-2 rounded-xl border font-bold transition-colors flex items-center justify-between md:justify-center gap-2 text-right md:text-center whitespace-normal break-words min-w-0 cursor-pointer ${
                 sourceSheetFilter === 'all'
                   ? 'bg-[#6B3E26] text-white border-[#6B3E26]'
                   : 'bg-[#FAF5EE] text-[#5C4033] border-[#E2D2BE] hover:bg-[#F3E9DC]'
               }`}
             >
-              <span>همه پیوندها</span>
+              <span className="leading-relaxed break-words">همه پیوندها</span>
               <span className="tabular-nums underline decoration-current/50 shrink-0">
                 ({toPersianDigits(allMartyrRows.length)})
               </span>
@@ -776,13 +780,13 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                 setSourceSheetFilter('ghatat_one');
                 setCurrentPage(1);
               }}
-              className={`min-h-[42px] sm:min-h-[40px] px-3 py-2 rounded-xl border font-bold transition-colors flex items-center justify-between sm:justify-center gap-1.5 xl:whitespace-nowrap cursor-pointer ${
+              className={`min-h-[44px] px-3 py-2 rounded-xl border font-bold transition-colors flex items-center justify-between md:justify-center gap-2 text-right md:text-center whitespace-normal break-words min-w-0 cursor-pointer ${
                 sourceSheetFilter === 'ghatat_one'
                   ? 'bg-[#6B3E26] text-white border-[#6B3E26]'
                   : 'bg-[#FAF5EE] text-[#5C4033] border-[#E2D2BE] hover:bg-[#F3E9DC]'
               }`}
             >
-              <span>قطعات شهدا: یک شهید</span>
+              <span className="leading-relaxed break-words">قطعات شهدا: یک شهید</span>
               <span className="tabular-nums underline decoration-current/50 shrink-0">
                 ({toPersianDigits(stats.ghatatOneCount)})
               </span>
@@ -793,13 +797,13 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                 setSourceSheetFilter('ghatat_multi');
                 setCurrentPage(1);
               }}
-              className={`min-h-[42px] sm:min-h-[40px] px-3 py-2 rounded-xl border font-bold transition-colors flex items-center justify-between sm:justify-center gap-1.5 xl:whitespace-nowrap cursor-pointer ${
+              className={`min-h-[44px] px-3 py-2 rounded-xl border font-bold transition-colors flex items-center justify-between md:justify-center gap-2 text-right md:text-center whitespace-normal break-words min-w-0 cursor-pointer ${
                 sourceSheetFilter === 'ghatat_multi'
                   ? 'bg-[#6B3E26] text-white border-[#6B3E26]'
                   : 'bg-[#FAF5EE] text-[#5C4033] border-[#E2D2BE] hover:bg-[#F3E9DC]'
               }`}
             >
-              <span>قطعات شهدا: چند شهید</span>
+              <span className="leading-relaxed break-words">قطعات شهدا: چند شهید</span>
               <span className="tabular-nums underline decoration-current/50 shrink-0">
                 ({toPersianDigits(stats.ghatatMultiCount)})
               </span>
@@ -969,28 +973,28 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                     <td className="sticky right-0 z-10 bg-white group-hover:bg-[#FAF5EE] py-2.5 px-1.5 sm:px-2 w-[44px] min-w-[44px] max-w-[44px] sm:w-[52px] sm:min-w-[52px] sm:max-w-[52px] text-center text-[#78604E] font-mono border-b border-l border-[#EFE4D6]">
                       {toPersianDigits(startRowNumber + idx)}
                     </td>
-                    <td className="sticky right-[44px] sm:right-[52px] z-10 bg-white group-hover:bg-[#FAF5EE] py-2.5 px-2.5 sm:px-3 min-w-[130px] max-w-[148px] sm:min-w-[160px] sm:max-w-[195px] font-bold text-[#332218] border-b border-l border-[#E2D2BE] shadow-[-3px_0_6px_-3px_rgba(51,34,24,0.1)]">
+                    <td className="sticky right-[44px] sm:right-[52px] z-10 bg-white group-hover:bg-[#FAF5EE] py-2.5 px-2.5 sm:px-3 min-w-[130px] max-w-[148px] sm:min-w-[160px] sm:max-w-[195px] font-bold text-[#332218] border-b border-l border-[#E2D2BE] shadow-[-3px_0_6px_-3px_rgba(51,34,24,0.1)] whitespace-normal break-words leading-relaxed">
                       <span className="inline-flex items-center gap-1.5 flex-wrap">
-                        <span>{row.martyrName}</span>
+                        <span className="break-words">{row.martyrName}</span>
                         {row.isTehranMartyr && <TehranMartyrBadge size="xs" />}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-[#5C4033] tabular-nums border-b border-[#EFE4D6]">
+                    <td className="py-2.5 px-3 text-[#5C4033] tabular-nums border-b border-[#EFE4D6] whitespace-normal break-words leading-relaxed">
                       قطعه {toPersianDigits(row.gravePiece)}
                       {row.graveRow !== '—' && ` · ر.${toPersianDigits(row.graveRow)}`}
                       {row.graveNumber !== '—' && ` · ش.${toPersianDigits(row.graveNumber)}`}
                     </td>
-                    <td className="py-2.5 px-3 font-bold text-[#6B3E26] border-b border-[#EFE4D6]">
+                    <td className="py-2.5 px-3 font-bold text-[#6B3E26] border-b border-[#EFE4D6] whitespace-normal break-words leading-relaxed">
                       <span className="inline-flex items-center gap-1.5 flex-wrap">
-                        <span>{row.bookTitle}</span>
+                        <span className="break-words">{row.bookTitle}</span>
                         {row.isTehranMartyr && <TehranMartyrBadge size="xs" />}
                         <span className="font-mono text-[10.5px] text-[#78604E] font-normal" dir="ltr">
                           ({row.bookId})
                         </span>
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-[#5C4033] border-b border-[#EFE4D6]">{row.publisher}</td>
-                    <td className="py-2.5 px-3 text-[#332218] leading-snug border-b border-[#EFE4D6]">{row.relationSubject}</td>
+                    <td className="py-2.5 px-3 text-[#5C4033] border-b border-[#EFE4D6] whitespace-normal break-words leading-relaxed">{row.publisher}</td>
+                    <td className="py-2.5 px-3 text-[#332218] leading-relaxed border-b border-[#EFE4D6] whitespace-normal break-words">{row.relationSubject}</td>
                     <td className="py-2.5 px-3 text-[#332218] font-mono text-[11px] tabular-nums border-b border-[#EFE4D6]">
                       {toPersianDigits(row.pageReference)}
                     </td>
@@ -1052,16 +1056,16 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                     <td className="sticky right-0 z-10 bg-white group-hover:bg-[#FAF5EE] py-2.5 px-1.5 sm:px-2 w-[44px] min-w-[44px] max-w-[44px] sm:w-[52px] sm:min-w-[52px] sm:max-w-[52px] text-center text-[#78604E] font-mono border-b border-l border-[#EFE4D6]">
                       {toPersianDigits(startRowNumber + idx)}
                     </td>
-                    <td className="sticky right-[44px] sm:right-[52px] z-10 bg-white group-hover:bg-[#FAF5EE] py-2.5 px-2.5 sm:px-3 min-w-[140px] max-w-[160px] sm:min-w-[175px] sm:max-w-[215px] font-bold text-[#332218] border-b border-l border-[#E2D2BE] shadow-[-3px_0_6px_-3px_rgba(51,34,24,0.1)]">
+                    <td className="sticky right-[44px] sm:right-[52px] z-10 bg-white group-hover:bg-[#FAF5EE] py-2.5 px-2.5 sm:px-3 min-w-[140px] max-w-[160px] sm:min-w-[175px] sm:max-w-[215px] font-bold text-[#332218] border-b border-l border-[#E2D2BE] shadow-[-3px_0_6px_-3px_rgba(51,34,24,0.1)] whitespace-normal break-words leading-relaxed">
                       <span className="inline-flex items-center gap-1.5 flex-wrap">
-                        <span>{row.bookTitle}</span>
+                        <span className="break-words">{row.bookTitle}</span>
                         {row.hasTehranMartyr && <TehranMartyrBadge size="xs" />}
                       </span>
                     </td>
                     <td className="py-2.5 px-3 font-mono font-bold text-[#6B3E26] border-b border-[#EFE4D6]" dir="ltr">
                       {row.bookId}
                     </td>
-                    <td className="py-2.5 px-3 text-[#5C4033] border-b border-[#EFE4D6]">
+                    <td className="py-2.5 px-3 text-[#5C4033] border-b border-[#EFE4D6] whitespace-normal break-words leading-relaxed">
                       <div>{row.author}</div>
                       <div className="text-[10.5px] text-[#78604E]">{row.publisher}</div>
                     </td>
@@ -1071,7 +1075,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                     <td className="py-2.5 px-3 text-center font-bold text-[#6B3E26] tabular-nums border-b border-[#EFE4D6]">
                       {toPersianDigits(row.linkedMartyrsCount)} شهید
                     </td>
-                    <td className="py-2.5 px-3 text-[#332218] leading-relaxed border-b border-[#EFE4D6]">
+                    <td className="py-2.5 px-3 text-[#332218] leading-relaxed border-b border-[#EFE4D6] whitespace-normal break-words">
                       {row.martyrsListSummary}
                     </td>
                   </tr>

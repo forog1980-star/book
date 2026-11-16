@@ -62,6 +62,7 @@ import {
 import { HomeDashboardTab } from './components/HomeDashboardTab';
 import { QuickInventoryTab } from './components/QuickInventoryTab';
 import { ShelfMapAndLabelsTab } from './components/ShelfMapAndLabelsTab';
+import { ShelfCapacityAlertWidget } from './components/ShelfCapacityAlertWidget';
 import { AllMartyrsDatabaseTab } from './components/AllMartyrsDatabaseTab';
 import { SmartBookSearchTab } from './components/SmartBookSearchTab';
 import { ResearchAndLinksTab } from './components/ResearchAndLinksTab';
@@ -142,6 +143,11 @@ import {
   type ExecutiveDashboardReadiness,
   type ExecutiveDashboardViewState
 } from './modules/executive-dashboard';
+import {
+  loadSavedShelfCapacities,
+  saveShelfCapacities,
+  type ShelfCapacityMap
+} from './utils/shelfCapacityAnalyzer';
 
 // عنوان و شناسه اختصاصی پایگاه داده در حافظه گوشی و مرورگر: book
 export const BOOK_STORAGE_NAMESPACE = 'book';
@@ -223,6 +229,18 @@ export default function App() {
   const [isSyncingGitHub, setIsSyncingGitHub] = useState<boolean>(false);
   const [showControlMenu, setShowControlMenu] = useState<boolean>(false);
   const [lastGitHubSyncFa, setLastGitHubSyncFa] = useState<string>(() => getLastGitHubSyncTimeFa());
+  const [shelfCapacities, setShelfCapacities] = useState<ShelfCapacityMap>(() =>
+    loadSavedShelfCapacities()
+  );
+  const [libraryShelfFilterRequest, setLibraryShelfFilterRequest] = useState<{
+    shelf: ShelfCode;
+    nonce: number;
+  } | null>(null);
+  const [shelfMapFocusRequest, setShelfMapFocusRequest] = useState<{
+    shelf: ShelfCode;
+    locationCode?: string;
+    nonce: number;
+  } | null>(null);
 
   // پشته تاریخچه مراحل برای بازگشت دو مرحله‌ای (اول بازگشت به مرحله قبل، سپس با دو بار کلیک خروج از برنامه)
   const navHistoryRef = React.useRef<
@@ -3061,6 +3079,27 @@ export default function App() {
               </div>
             </div>
 
+            <ShelfCapacityAlertWidget
+              catalogRows={catalogRows}
+              auditRecords={auditRecords}
+              bookCopies={bookCopies}
+              capacities={shelfCapacities}
+              onUpdateCapacities={(next) => {
+                setShelfCapacities(next);
+                saveShelfCapacities(next);
+                showNotify('ظرفیت استاندارد قفسه‌ها ذخیره شد و پایش خودکار به‌روز گردید.');
+              }}
+              activeSubView={librarySubView}
+              onFilterShelfInCatalog={(shelf) => {
+                setLibrarySubView('catalog');
+                setLibraryShelfFilterRequest({ shelf, nonce: Date.now() });
+              }}
+              onInspectShelfOnMap={(shelf, locationCode) => {
+                setLibrarySubView('shelves');
+                setShelfMapFocusRequest({ shelf, locationCode, nonce: Date.now() });
+              }}
+            />
+
             {librarySubView === 'catalog' ? (
               <QuickInventoryTab
                 catalogRows={catalogRows}
@@ -3076,6 +3115,8 @@ export default function App() {
                 onClearInitialSearchQuery={() => setLibraryInitialSearchQuery('')}
                 initialDirectBookTarget={libraryDirectBookTarget}
                 onClearInitialDirectBookTarget={() => setLibraryDirectBookTarget(null)}
+                externalShelfFilterRequest={libraryShelfFilterRequest}
+                onClearExternalShelfFilter={() => setLibraryShelfFilterRequest(null)}
                 returnToDashboardLabel={
                   libraryReturnToDashboardDossier
                     ? dashboardReturnLabel || 'بازگشت به داشبورد مدیریتی'
@@ -3183,6 +3224,11 @@ export default function App() {
             ) : (
               <ShelfMapAndLabelsTab
                 auditRecords={auditRecords}
+                catalogRows={catalogRows}
+                bookCopies={bookCopies}
+                capacities={shelfCapacities}
+                focusedShelfRequest={shelfMapFocusRequest}
+                onClearFocusedShelfRequest={() => setShelfMapFocusRequest(null)}
                 onOpenBookDossier={(rec) => {
                   setLibraryDirectBookTarget({
                     rowKey: rec.key,
