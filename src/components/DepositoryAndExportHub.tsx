@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Download,
@@ -108,10 +108,15 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
   const [activeView, setActiveView] = useState<'martyr_centric' | 'book_centric'>('martyr_centric');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<DepositoryStatusFilter>('all');
-  const [sourceSheetFilter, setSourceSheetFilter] = useState<'all' | 'ghatat_one' | 'ghatat_multi' | 'sooreh'>('all');
+  const [sourceSheetFilter, setSourceSheetFilter] = useState<'all' | 'ghatat_one' | 'ghatat_multi'>('all');
   const [exportScope, setExportScope] = useState<'filtered' | 'all'>('filtered');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number | 'all'>(50);
+
+  const topScrollRef = useRef<HTMLDivElement | null>(null);
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
+  const [tableScrollWidth, setTableScrollWidth] = useState<number>(960);
+  const isSyncingScrollRef = useRef<boolean>(false);
 
   // شمارش پویا (داینامیک) کل کتاب‌های سامانه (فهرست اکسل + ثبت‌های جدید)
   const totalSystemBooksCount = useMemo(() => {
@@ -221,7 +226,6 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
     allMartyrRows.forEach((m) => {
       if (sourceSheetFilter === 'ghatat_one' && m.sourceSheet !== 'یک شهید') return;
       if (sourceSheetFilter === 'ghatat_multi' && m.sourceSheet !== 'چند شهید') return;
-      if (sourceSheetFilter === 'sooreh' && (m.sourceSheet === 'یک شهید' || m.sourceSheet === 'چند شهید')) return;
 
       const entry = bookToMartyrs.get(m.bookId) || { martyrs: [], verifiedCount: 0 };
       entry.martyrs.push({
@@ -325,9 +329,6 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
     return allMartyrRows.filter((r) => {
       if (sourceSheetFilter === 'ghatat_one' && r.sourceSheet !== 'یک شهید') return false;
       if (sourceSheetFilter === 'ghatat_multi' && r.sourceSheet !== 'چند شهید') return false;
-      if (sourceSheetFilter === 'sooreh' && (r.sourceSheet === 'یک شهید' || r.sourceSheet === 'چند شهید')) {
-        return false;
-      }
 
       const cat = classifyMartyrRowStatus(r);
       if (statusFilter === 'verified_only' && cat !== 'verified' && cat !== 'researched_main') {
@@ -435,6 +436,40 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
   }, [filteredBookRows, pageSize, safePage]);
 
   const startRowNumber = pageSize === 'all' ? 1 : (safePage - 1) * pageSize + 1;
+
+  useEffect(() => {
+    const tableEl = tableScrollRef.current;
+    if (!tableEl) return;
+    const updateWidth = () => {
+      setTableScrollWidth(tableEl.scrollWidth);
+    };
+    updateWidth();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateWidth) : null;
+    observer?.observe(tableEl);
+    const inner = tableEl.firstElementChild;
+    if (inner && observer) observer.observe(inner);
+    window.addEventListener('resize', updateWidth);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateWidth);
+    };
+  }, [activeView, visibleMartyrRows.length, visibleBookRows.length, pageSize]);
+
+  const handleSyncHorizontalScroll = (source: 'top' | 'table') => {
+    if (isSyncingScrollRef.current) return;
+    const topEl = topScrollRef.current;
+    const tableEl = tableScrollRef.current;
+    if (!topEl || !tableEl) return;
+    isSyncingScrollRef.current = true;
+    if (source === 'top') {
+      tableEl.scrollLeft = topEl.scrollLeft;
+    } else {
+      topEl.scrollLeft = tableEl.scrollLeft;
+    }
+    requestAnimationFrame(() => {
+      isSyncingScrollRef.current = false;
+    });
+  };
 
   // ================= EXPORT ENGINES =================
 
@@ -597,71 +632,71 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Depository Header Banner — آبی ملایم و روشن، بدون توضیحات اضافی و تنها با ۲ کادر اصلی */}
-      <div className="depository-soft-blue rounded-2xl p-5 shadow-2xs space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1">
+      {/* Depository Header Banner — آبی ملایم و روشن، بدون توضیحات اضافی و با ابعاد تراز */}
+      <div className="depository-soft-blue rounded-2xl p-3.5 sm:p-4 shadow-2xs space-y-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="space-y-0.5">
             <div className="text-xs font-bold text-[#2B547E]">
               انبار جامع پیوندهای کتاب و شهید
             </div>
-            <h2 className="text-lg sm:text-xl font-bold text-[#1E3A5F] tracking-tight">
+            <h2 className="text-base sm:text-lg font-bold text-[#1E3A5F] tracking-tight">
               خروجی دوسویه اسناد: ارتباط شهید به کتاب و کتاب به شهید
             </h2>
           </div>
 
-          {/* Master Export Action Buttons */}
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* Master Export Action Buttons — دو ردیف تراز در موبایل و یک ردیف در نمایشگرهای بزرگ‌تر */}
+          <div className="grid grid-cols-2 sm:flex sm:flex-nowrap items-center gap-2 w-full lg:w-auto shrink-0">
             <button
               type="button"
               onClick={handleExportComprehensiveExcel}
-              className="min-h-[42px] px-4 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs flex items-center gap-2 shadow-2xs transition-all cursor-pointer"
+              className="col-span-2 sm:col-span-1 min-h-[42px] sm:min-h-[38px] px-3.5 py-2 sm:py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs transition-all sm:whitespace-nowrap cursor-pointer"
             >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>دانلود اکسل جامع (۴ شیت .xlsx)</span>
+              <FileSpreadsheet className="w-4 h-4 shrink-0" />
+              <span>دانلود اکسل جامع</span>
             </button>
 
             <button
               type="button"
               onClick={handleExportJson}
-              className="min-h-[42px] px-3.5 py-2 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+              className="min-h-[42px] sm:min-h-[38px] px-3 py-2 sm:py-1.5 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs flex items-center justify-center gap-1.5 transition-all sm:whitespace-nowrap cursor-pointer"
             >
-              <FileJson className="w-4 h-4 text-[#2B547E]" />
+              <FileJson className="w-4 h-4 text-[#2B547E] shrink-0" />
               <span>خروجی JSON</span>
             </button>
 
             <button
               type="button"
               onClick={handleExportCsv}
-              className="min-h-[42px] px-3.5 py-2 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+              className="min-h-[42px] sm:min-h-[38px] px-3 py-2 sm:py-1.5 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs flex items-center justify-center gap-1.5 transition-all sm:whitespace-nowrap cursor-pointer"
             >
-              <Download className="w-4 h-4 text-[#2B547E]" />
+              <Download className="w-4 h-4 text-[#2B547E] shrink-0" />
               <span>خروجی CSV</span>
             </button>
           </div>
         </div>
 
         {/* فقط ۲ کادر کلیدی درخواستی: شهدای دارای کتاب مرتبط و کتاب‌های متصل به شهدا */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs border-t border-[#C5D9ED]">
-          <div className="bg-white/95 border border-[#C5D9ED] rounded-xl p-3.5 flex items-center justify-between">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 text-xs border-t border-[#C5D9ED]">
+          <div className="bg-white/95 border border-[#C5D9ED] rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-2">
             <div>
               <div className="text-[#4A698C] text-xs font-bold">شهدای دارای کتاب مرتبط</div>
               <div className="text-[11px] text-[#4A698C] mt-0.5">
                 در مجموع {toPersianDigits(stats.totalLinks)} پیوند ثبت‌شده کتاب و شهید
               </div>
             </div>
-            <div className="text-xl font-bold tabular-nums text-[#1E3A5F]">
+            <div className="text-lg sm:text-xl font-bold tabular-nums text-[#1E3A5F] shrink-0">
               {toPersianDigits(stats.uniqueMartyrs)} شهید
             </div>
           </div>
 
-          <div className="bg-white/95 border border-[#C5D9ED] rounded-xl p-3.5 flex items-center justify-between">
+          <div className="bg-white/95 border border-[#C5D9ED] rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-2">
             <div>
               <div className="text-[#4A698C] text-xs font-bold">کتاب‌های متصل به شهدا</div>
               <div className="text-[11px] text-[#4A698C] mt-0.5">
                 از مجموع {toPersianDigits(totalSystemBooksCount)} کتاب ثبت‌شده در سامانه
               </div>
             </div>
-            <div className="text-xl font-bold tabular-nums text-[#1E3A5F]">
+            <div className="text-lg sm:text-xl font-bold tabular-nums text-[#1E3A5F] shrink-0">
               {toPersianDigits(stats.booksWithLinks)} کتاب
             </div>
           </div>
@@ -669,25 +704,27 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
       </div>
 
       {/* Main Control & Perspective Switcher Bar */}
-      <div className="bg-white border border-[#E2D2BE] rounded-2xl p-4 space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          {/* 2-Way View Switcher Tabs */}
-          <div className="inline-flex p-1 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs font-bold shrink-0">
+      <div className="bg-white border border-[#E2D2BE] rounded-2xl p-3.5 sm:p-4 space-y-3">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+          {/* 2-Way View Switcher Tabs — چیدمان عمودی تراز در موبایل و دو ستون هم‌اندازه در نمایشگرهای بزرگ‌تر */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 p-1.5 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs font-bold gap-1.5 w-full xl:w-auto">
             <button
               type="button"
               onClick={() => {
                 setActiveView('martyr_centric');
                 setCurrentPage(1);
               }}
-              className={`min-h-[40px] px-4 py-2 rounded-lg transition-colors flex items-center gap-2 cursor-pointer ${
+              className={`min-h-[44px] sm:min-h-[40px] px-3 py-2 rounded-lg transition-colors flex items-center justify-between sm:justify-center gap-2 text-right sm:text-center cursor-pointer ${
                 activeView === 'martyr_centric'
                   ? 'bg-[#6B3E26] text-white shadow-2xs'
                   : 'text-[#5C4033] hover:text-[#332218]'
               }`}
             >
-              <Users className="w-4 h-4" />
-              <span>بر پایه نام شهید (شهید ← کتاب)</span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] bg-black/15 tabular-nums">
+              <span className="flex items-center gap-1.5 min-w-0">
+                <Users className="w-4 h-4 shrink-0" />
+                <span className="leading-snug">بر پایه نام شهید (شهید ← کتاب)</span>
+              </span>
+              <span className="px-2 py-0.5 rounded text-[11px] bg-black/15 tabular-nums shrink-0">
                 {toPersianDigits(filteredMartyrRows.length)}
               </span>
             </button>
@@ -698,35 +735,40 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                 setActiveView('book_centric');
                 setCurrentPage(1);
               }}
-              className={`min-h-[40px] px-4 py-2 rounded-lg transition-colors flex items-center gap-2 cursor-pointer ${
+              className={`min-h-[44px] sm:min-h-[40px] px-3 py-2 rounded-lg transition-colors flex items-center justify-between sm:justify-center gap-2 text-right sm:text-center cursor-pointer ${
                 activeView === 'book_centric'
                   ? 'bg-[#6B3E26] text-white shadow-2xs'
                   : 'text-[#5C4033] hover:text-[#332218]'
               }`}
             >
-              <BookOpen className="w-4 h-4" />
-              <span>بر پایه عنوان کتاب (کتاب ← شهدا)</span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] bg-black/15 tabular-nums">
+              <span className="flex items-center gap-1.5 min-w-0">
+                <BookOpen className="w-4 h-4 shrink-0" />
+                <span className="leading-snug">بر پایه عنوان کتاب (کتاب ← شهدا)</span>
+              </span>
+              <span className="px-2 py-0.5 rounded text-[11px] bg-black/15 tabular-nums shrink-0">
                 {toPersianDigits(filteredBookRows.length)}
               </span>
             </button>
           </div>
 
-          {/* Quick Filter Buttons for قطعات شهدا sheets */}
-          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          {/* Quick Filter Buttons — چیدمان خوانا و بدون تداخل در موبایل، تک‌ردیفه در دسکتاپ */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 xl:flex xl:flex-nowrap items-stretch xl:items-center gap-2 text-xs w-full xl:w-auto">
             <button
               type="button"
               onClick={() => {
                 setSourceSheetFilter('all');
                 setCurrentPage(1);
               }}
-              className={`px-3 py-1.5 rounded-lg border font-bold transition-colors cursor-pointer ${
+              className={`min-h-[42px] sm:min-h-[40px] px-3 py-2 rounded-xl border font-bold transition-colors flex items-center justify-between sm:justify-center gap-1.5 xl:whitespace-nowrap cursor-pointer ${
                 sourceSheetFilter === 'all'
                   ? 'bg-[#6B3E26] text-white border-[#6B3E26]'
                   : 'bg-[#FAF5EE] text-[#5C4033] border-[#E2D2BE] hover:bg-[#F3E9DC]'
               }`}
             >
-              همه پیوندها ({toPersianDigits(allMartyrRows.length)})
+              <span>همه پیوندها</span>
+              <span className="tabular-nums underline decoration-current/50 shrink-0">
+                ({toPersianDigits(allMartyrRows.length)})
+              </span>
             </button>
             <button
               type="button"
@@ -734,13 +776,16 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                 setSourceSheetFilter('ghatat_one');
                 setCurrentPage(1);
               }}
-              className={`px-3 py-1.5 rounded-lg border font-bold transition-colors cursor-pointer ${
+              className={`min-h-[42px] sm:min-h-[40px] px-3 py-2 rounded-xl border font-bold transition-colors flex items-center justify-between sm:justify-center gap-1.5 xl:whitespace-nowrap cursor-pointer ${
                 sourceSheetFilter === 'ghatat_one'
                   ? 'bg-[#6B3E26] text-white border-[#6B3E26]'
                   : 'bg-[#FAF5EE] text-[#5C4033] border-[#E2D2BE] hover:bg-[#F3E9DC]'
               }`}
             >
-              قطعات شهدا: یک شهید ({toPersianDigits(stats.ghatatOneCount)})
+              <span>قطعات شهدا: یک شهید</span>
+              <span className="tabular-nums underline decoration-current/50 shrink-0">
+                ({toPersianDigits(stats.ghatatOneCount)})
+              </span>
             </button>
             <button
               type="button"
@@ -748,34 +793,23 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                 setSourceSheetFilter('ghatat_multi');
                 setCurrentPage(1);
               }}
-              className={`px-3 py-1.5 rounded-lg border font-bold transition-colors cursor-pointer ${
+              className={`min-h-[42px] sm:min-h-[40px] px-3 py-2 rounded-xl border font-bold transition-colors flex items-center justify-between sm:justify-center gap-1.5 xl:whitespace-nowrap cursor-pointer ${
                 sourceSheetFilter === 'ghatat_multi'
                   ? 'bg-[#6B3E26] text-white border-[#6B3E26]'
                   : 'bg-[#FAF5EE] text-[#5C4033] border-[#E2D2BE] hover:bg-[#F3E9DC]'
               }`}
             >
-              قطعات شهدا: چند شهید ({toPersianDigits(stats.ghatatMultiCount)})
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setSourceSheetFilter('sooreh');
-                setCurrentPage(1);
-              }}
-              className={`px-3 py-1.5 rounded-lg border font-bold transition-colors cursor-pointer ${
-                sourceSheetFilter === 'sooreh'
-                  ? 'bg-[#6B3E26] text-white border-[#6B3E26]'
-                  : 'bg-[#FAF5EE] text-[#5C4033] border-[#E2D2BE] hover:bg-[#F3E9DC]'
-              }`}
-            >
-              پژوهش سوره مهر ({toPersianDigits(allMartyrRows.length - stats.ghatatOneCount - stats.ghatatMultiCount)})
+              <span>قطعات شهدا: چند شهید</span>
+              <span className="tabular-nums underline decoration-current/50 shrink-0">
+                ({toPersianDigits(stats.ghatatMultiCount)})
+              </span>
             </button>
           </div>
         </div>
 
-        {/* Filter and Search Bar */}
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 pt-1 text-xs">
-          <div className="sm:col-span-6 relative">
+        {/* Filter and Search Bar — واکنش‌گرا و کاملاً تراز در موبایل، تبلت و دسکتاپ */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 pt-1 text-xs">
+          <div className="sm:col-span-2 lg:col-span-6 relative">
             <Search className="w-4 h-4 text-[#78604E] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="search"
@@ -789,18 +823,18 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                   ? 'جست‌وجوی نام شهید، قطعه مزار، عنوان کتاب (مثلاً آخرین نامه، با مرام) یا ناشر...'
                   : 'جست‌وجوی عنوان کتاب، نویسنده، ناشر یا اسامی شهدا...'
               }
-              className="w-full min-h-[40px] pr-10 pl-3 py-2 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl focus:bg-white focus:outline-none focus:border-[#6B3E26]"
+              className="w-full min-h-[44px] pr-10 pl-3 py-2 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl focus:bg-white focus:outline-none focus:border-[#6B3E26]"
             />
           </div>
 
-          <div className="sm:col-span-3">
+          <div className="lg:col-span-3">
             <select
               value={statusFilter}
               onChange={(e) => {
                 setStatusFilter(e.target.value as DepositoryStatusFilter);
                 setCurrentPage(1);
               }}
-              className="w-full min-h-[40px] px-3 py-2 bg-white border border-[#E2D2BE] rounded-xl text-[#332218] font-medium"
+              className="w-full min-h-[44px] px-3 py-2 bg-white border border-[#E2D2BE] rounded-xl text-[#332218] font-medium"
             >
               <option value="all">
                 همه پیوندهای دارای نام شهید ({toPersianDigits(stats.totalLinks)})
@@ -820,23 +854,23 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
             </select>
           </div>
 
-          <div className="sm:col-span-3 flex items-center gap-2">
+          <div className="lg:col-span-3 flex items-center">
             {activeView === 'martyr_centric' ? (
               <button
                 type="button"
                 onClick={handleExportMartyrExcel}
-                className="w-full min-h-[40px] px-3 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
               >
-                <FileSpreadsheet className="w-4 h-4" />
+                <FileSpreadsheet className="w-4 h-4 shrink-0" />
                 <span>اکسل بر پایه نام شهید</span>
               </button>
             ) : (
               <button
                 type="button"
                 onClick={handleExportBookExcel}
-                className="w-full min-h-[40px] px-3 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
               >
-                <FileSpreadsheet className="w-4 h-4" />
+                <FileSpreadsheet className="w-4 h-4 shrink-0" />
                 <span>اکسل بر پایه کتاب‌ها</span>
               </button>
             )}
@@ -845,11 +879,11 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
       </div>
 
       {/* Live Data Depository Table Preview */}
-      <div className="bg-white border border-[#E2D2BE] rounded-2xl overflow-hidden shadow-2xs">
-        <div className="p-3.5 bg-[#FAF5EE] border-b border-[#E2D2BE] flex flex-wrap items-center justify-between gap-2 text-xs">
+      <div className="bg-white border border-[#E2D2BE] rounded-2xl overflow-x-clip shadow-2xs">
+        <div className="p-3.5 bg-[#FAF5EE] border-b border-[#E2D2BE] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs rounded-t-2xl">
           <div className="font-bold text-[#332218] flex items-center gap-2">
-            <Layers className="w-4 h-4 text-[#6B3E26]" />
-            <span>
+            <Layers className="w-4 h-4 text-[#6B3E26] shrink-0" />
+            <span className="leading-relaxed">
               فهرست ارتباطات کتاب و شهید (
               {activeView === 'martyr_centric'
                 ? `نمایش ${toPersianDigits(visibleMartyrRows.length)} از ${toPersianDigits(filteredMartyrRows.length)} رکورد شهید–کتاب`
@@ -858,8 +892,8 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-[#78604E]">تعداد نمایش در هر صفحه:</span>
+          <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
+            <span className="text-[11px] text-[#78604E] shrink-0">تعداد نمایش در هر صفحه:</span>
             <select
               value={String(pageSize)}
               onChange={(e) => {
@@ -867,7 +901,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                 setPageSize(val === 'all' ? 'all' : Number(val));
                 setCurrentPage(1);
               }}
-              className="px-2.5 py-1 rounded-lg bg-white border border-[#D8C7B2] text-[#332218] font-bold text-xs cursor-pointer"
+              className="min-h-[38px] px-2.5 py-1 rounded-lg bg-white border border-[#D8C7B2] text-[#332218] font-bold text-xs cursor-pointer"
             >
               <option value="50">۵۰ ردیف در صفحه</option>
               <option value="100">۱۰۰ ردیف در صفحه</option>
@@ -877,40 +911,76 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
           </div>
         </div>
 
+        {/* نوار اسکرول افقی چسبان بالای جدول (هم‌زمان و دوطرفه با جدول) */}
+        <div className="sticky top-0 z-30 bg-[#FAF5EE] border-b border-[#E2D2BE] px-3 py-1.5 flex items-center gap-2.5">
+          <span className="text-[10.5px] font-bold text-[#6B3E26] whitespace-nowrap shrink-0">
+            اسکرول افقی ستون‌ها:
+          </span>
+          <div
+            ref={topScrollRef}
+            onScroll={() => handleSyncHorizontalScroll('top')}
+            dir="rtl"
+            className="flex-1 min-w-0 h-4 overflow-x-auto overflow-y-hidden rounded-full bg-[#EFE4D6]/60 [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-[#EFE4D6] [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#8C6D53] [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-[#6B3E26]"
+          >
+            <div style={{ width: `${tableScrollWidth}px` }} className="h-[1px]" />
+          </div>
+        </div>
+
         {/* View 1: Martyr-Centric Table */}
         {activeView === 'martyr_centric' ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-right border-collapse">
-              <thead>
-                <tr className="bg-[#F6EFE6] text-[#332218] border-b border-[#E2D2BE] font-bold">
-                  <th className="py-2.5 px-3 w-12 text-center">ردیف</th>
-                  <th className="py-2.5 px-3 min-w-[140px]">نام و نام خانوادگی شهید</th>
-                  <th className="py-2.5 px-3 min-w-[100px]">قطعه / ردیف / شماره</th>
-                  <th className="py-2.5 px-3 min-w-[180px]">عنوان کتاب مرتبط</th>
-                  <th className="py-2.5 px-3 min-w-[120px]">انتشارات</th>
-                  <th className="py-2.5 px-3 min-w-[160px]">توضیحات کتاب در منبع</th>
-                  <th className="py-2.5 px-3 min-w-[90px]">ارجاع صفحه</th>
-                  <th className="py-2.5 px-3 min-w-[110px]">شیت منبع</th>
+          <div
+            ref={tableScrollRef}
+            onScroll={() => handleSyncHorizontalScroll('table')}
+            dir="rtl"
+            className="overflow-auto max-h-[72vh]"
+          >
+            <table className="w-full text-xs text-right border-separate border-spacing-0">
+              <thead className="sticky top-0 z-20">
+                <tr className="bg-[#F6EFE6] text-[#332218] font-bold">
+                  <th className="sticky right-0 z-30 bg-[#F6EFE6] py-2.5 px-1.5 sm:px-2 w-[44px] min-w-[44px] max-w-[44px] sm:w-[52px] sm:min-w-[52px] sm:max-w-[52px] text-center border-b border-l border-[#E2D2BE]">
+                    ردیف
+                  </th>
+                  <th className="sticky right-[44px] sm:right-[52px] z-30 bg-[#F6EFE6] py-2.5 px-2.5 sm:px-3 min-w-[130px] max-w-[148px] sm:min-w-[160px] sm:max-w-[195px] border-b border-l border-[#D8C7B2] shadow-[-3px_0_6px_-3px_rgba(51,34,24,0.12)]">
+                    نام و نام خانوادگی شهید
+                  </th>
+                  <th className="py-2.5 px-3 min-w-[110px] border-b border-[#E2D2BE] bg-[#F6EFE6]">
+                    قطعه / ردیف / شماره
+                  </th>
+                  <th className="py-2.5 px-3 min-w-[180px] border-b border-[#E2D2BE] bg-[#F6EFE6]">
+                    عنوان کتاب مرتبط
+                  </th>
+                  <th className="py-2.5 px-3 min-w-[120px] border-b border-[#E2D2BE] bg-[#F6EFE6]">
+                    انتشارات
+                  </th>
+                  <th className="py-2.5 px-3 min-w-[170px] border-b border-[#E2D2BE] bg-[#F6EFE6]">
+                    توضیحات کتاب در منبع
+                  </th>
+                  <th className="py-2.5 px-3 min-w-[95px] border-b border-[#E2D2BE] bg-[#F6EFE6]">
+                    ارجاع صفحه
+                  </th>
+                  <th className="py-2.5 px-3 min-w-[120px] border-b border-[#E2D2BE] bg-[#F6EFE6]">
+                    شیت منبع
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#EFE4D6]">
+              <tbody>
                 {visibleMartyrRows.map((row, idx) => (
-                  <tr key={row.id} className="hover:bg-[#FAF5EE] transition-colors">
-                    <td className="py-2.5 px-3 text-center text-[#78604E] font-mono">
+                  <tr key={row.id} className="group hover:bg-[#FAF5EE] transition-colors">
+                    <td className="sticky right-0 z-10 bg-white group-hover:bg-[#FAF5EE] py-2.5 px-1.5 sm:px-2 w-[44px] min-w-[44px] max-w-[44px] sm:w-[52px] sm:min-w-[52px] sm:max-w-[52px] text-center text-[#78604E] font-mono border-b border-l border-[#EFE4D6]">
                       {toPersianDigits(startRowNumber + idx)}
                     </td>
-                    <td className="py-2.5 px-3 font-bold text-[#332218]">
+                    <td className="sticky right-[44px] sm:right-[52px] z-10 bg-white group-hover:bg-[#FAF5EE] py-2.5 px-2.5 sm:px-3 min-w-[130px] max-w-[148px] sm:min-w-[160px] sm:max-w-[195px] font-bold text-[#332218] border-b border-l border-[#E2D2BE] shadow-[-3px_0_6px_-3px_rgba(51,34,24,0.1)]">
                       <span className="inline-flex items-center gap-1.5 flex-wrap">
                         <span>{row.martyrName}</span>
                         {row.isTehranMartyr && <TehranMartyrBadge size="xs" />}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-[#5C4033] tabular-nums">
+                    <td className="py-2.5 px-3 text-[#5C4033] tabular-nums border-b border-[#EFE4D6]">
                       قطعه {toPersianDigits(row.gravePiece)}
                       {row.graveRow !== '—' && ` · ر.${toPersianDigits(row.graveRow)}`}
                       {row.graveNumber !== '—' && ` · ش.${toPersianDigits(row.graveNumber)}`}
                     </td>
-                    <td className="py-2.5 px-3 font-bold text-[#6B3E26]">
+                    <td className="py-2.5 px-3 font-bold text-[#6B3E26] border-b border-[#EFE4D6]">
                       <span className="inline-flex items-center gap-1.5 flex-wrap">
                         <span>{row.bookTitle}</span>
                         {row.isTehranMartyr && <TehranMartyrBadge size="xs" />}
@@ -919,12 +989,12 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                         </span>
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-[#5C4033]">{row.publisher}</td>
-                    <td className="py-2.5 px-3 text-[#332218] leading-snug">{row.relationSubject}</td>
-                    <td className="py-2.5 px-3 text-[#332218] font-mono text-[11px] tabular-nums">
+                    <td className="py-2.5 px-3 text-[#5C4033] border-b border-[#EFE4D6]">{row.publisher}</td>
+                    <td className="py-2.5 px-3 text-[#332218] leading-snug border-b border-[#EFE4D6]">{row.relationSubject}</td>
+                    <td className="py-2.5 px-3 text-[#332218] font-mono text-[11px] tabular-nums border-b border-[#EFE4D6]">
                       {toPersianDigits(row.pageReference)}
                     </td>
-                    <td className="py-2.5 px-3 text-[#78604E] text-[11px]">
+                    <td className="py-2.5 px-3 text-[#78604E] text-[11px] border-b border-[#EFE4D6]">
                       {row.sourceSheet === 'یک شهید'
                         ? 'قطعات شهدا (یک شهید)'
                         : row.sourceSheet === 'چند شهید'
@@ -943,46 +1013,65 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
             )}
           </div>
         ) : (
-          /* View 2: Book-Centric Table */
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-right border-collapse">
-              <thead>
-                <tr className="bg-[#F6EFE6] text-[#332218] border-b border-[#E2D2BE] font-bold">
-                  <th className="py-2.5 px-3 w-12 text-center">ردیف</th>
-                  <th className="py-2.5 px-3 min-w-[80px]">کد مخزن</th>
-                  <th className="py-2.5 px-3 min-w-[200px]">عنوان کتاب</th>
-                  <th className="py-2.5 px-3 min-w-[120px]">نویسنده / ناشر</th>
-                  <th className="py-2.5 px-3 min-w-[110px]">موقعیت قفسه</th>
-                  <th className="py-2.5 px-3 min-w-[100px] text-center">تعداد شهدا</th>
-                  <th className="py-2.5 px-3 min-w-[280px]">شهدای مرتبط (نام، قطعه و صفحه)</th>
+          /* View 2: Book-Centric Table — ردیف و عنوان کتاب ثابت هنگام اسکرول افقی */
+          <div
+            ref={tableScrollRef}
+            onScroll={() => handleSyncHorizontalScroll('table')}
+            dir="rtl"
+            className="overflow-auto max-h-[72vh]"
+          >
+            <table className="w-full text-xs text-right border-separate border-spacing-0">
+              <thead className="sticky top-0 z-20">
+                <tr className="bg-[#F6EFE6] text-[#332218] font-bold">
+                  <th className="sticky right-0 z-30 bg-[#F6EFE6] py-2.5 px-1.5 sm:px-2 w-[44px] min-w-[44px] max-w-[44px] sm:w-[52px] sm:min-w-[52px] sm:max-w-[52px] text-center border-b border-l border-[#E2D2BE]">
+                    ردیف
+                  </th>
+                  <th className="sticky right-[44px] sm:right-[52px] z-30 bg-[#F6EFE6] py-2.5 px-2.5 sm:px-3 min-w-[140px] max-w-[160px] sm:min-w-[175px] sm:max-w-[215px] border-b border-l border-[#D8C7B2] shadow-[-3px_0_6px_-3px_rgba(51,34,24,0.12)]">
+                    عنوان کتاب
+                  </th>
+                  <th className="py-2.5 px-3 min-w-[85px] border-b border-[#E2D2BE] bg-[#F6EFE6]">
+                    کد مخزن
+                  </th>
+                  <th className="py-2.5 px-3 min-w-[130px] border-b border-[#E2D2BE] bg-[#F6EFE6]">
+                    نویسنده / ناشر
+                  </th>
+                  <th className="py-2.5 px-3 min-w-[110px] border-b border-[#E2D2BE] bg-[#F6EFE6]">
+                    موقعیت قفسه
+                  </th>
+                  <th className="py-2.5 px-3 min-w-[95px] text-center border-b border-[#E2D2BE] bg-[#F6EFE6]">
+                    تعداد شهدا
+                  </th>
+                  <th className="py-2.5 px-3 min-w-[280px] border-b border-[#E2D2BE] bg-[#F6EFE6]">
+                    شهدای مرتبط (نام، قطعه و صفحه)
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#EFE4D6]">
+              <tbody>
                 {visibleBookRows.map((row, idx) => (
-                  <tr key={row.bookId} className="hover:bg-[#FAF5EE] transition-colors">
-                    <td className="py-2.5 px-3 text-center text-[#78604E] font-mono">
+                  <tr key={row.bookId} className="group hover:bg-[#FAF5EE] transition-colors">
+                    <td className="sticky right-0 z-10 bg-white group-hover:bg-[#FAF5EE] py-2.5 px-1.5 sm:px-2 w-[44px] min-w-[44px] max-w-[44px] sm:w-[52px] sm:min-w-[52px] sm:max-w-[52px] text-center text-[#78604E] font-mono border-b border-l border-[#EFE4D6]">
                       {toPersianDigits(startRowNumber + idx)}
                     </td>
-                    <td className="py-2.5 px-3 font-mono font-bold text-[#6B3E26]" dir="ltr">
-                      {row.bookId}
-                    </td>
-                    <td className="py-2.5 px-3 font-bold text-[#332218]">
+                    <td className="sticky right-[44px] sm:right-[52px] z-10 bg-white group-hover:bg-[#FAF5EE] py-2.5 px-2.5 sm:px-3 min-w-[140px] max-w-[160px] sm:min-w-[175px] sm:max-w-[215px] font-bold text-[#332218] border-b border-l border-[#E2D2BE] shadow-[-3px_0_6px_-3px_rgba(51,34,24,0.1)]">
                       <span className="inline-flex items-center gap-1.5 flex-wrap">
                         <span>{row.bookTitle}</span>
                         {row.hasTehranMartyr && <TehranMartyrBadge size="xs" />}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-[#5C4033]">
+                    <td className="py-2.5 px-3 font-mono font-bold text-[#6B3E26] border-b border-[#EFE4D6]" dir="ltr">
+                      {row.bookId}
+                    </td>
+                    <td className="py-2.5 px-3 text-[#5C4033] border-b border-[#EFE4D6]">
                       <div>{row.author}</div>
                       <div className="text-[10.5px] text-[#78604E]">{row.publisher}</div>
                     </td>
-                    <td className="py-2.5 px-3 text-[#5C4033] font-mono text-[11px]">
+                    <td className="py-2.5 px-3 text-[#5C4033] font-mono text-[11px] border-b border-[#EFE4D6]">
                       {row.locationCode}
                     </td>
-                    <td className="py-2.5 px-3 text-center font-bold text-[#6B3E26] tabular-nums">
+                    <td className="py-2.5 px-3 text-center font-bold text-[#6B3E26] tabular-nums border-b border-[#EFE4D6]">
                       {toPersianDigits(row.linkedMartyrsCount)} شهید
                     </td>
-                    <td className="py-2.5 px-3 text-[#332218] leading-relaxed">
+                    <td className="py-2.5 px-3 text-[#332218] leading-relaxed border-b border-[#EFE4D6]">
                       {row.martyrsListSummary}
                     </td>
                   </tr>
@@ -998,9 +1087,9 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
           </div>
         )}
 
-        {/* نوار صفحه‌بندی کامل (صفحه ۱، ۲، ۳ ... + ادامه اسامی + نمایش یکجای همه موارد) */}
+        {/* نوار صفحه‌بندی ساده (فقط صفحه قبل، صفحه بعد و نمایش یکجای همه) */}
         {totalActiveItems > 0 && (
-          <div className="p-3.5 bg-[#FAF5EE] border-t border-[#E2D2BE] flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="p-3.5 bg-[#FAF5EE] border-t border-[#E2D2BE] flex flex-wrap items-center justify-between gap-3 text-xs rounded-b-2xl">
             <div className="text-[#5C4033] font-medium">
               {pageSize === 'all' ? (
                 <span>
@@ -1017,40 +1106,25 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-2">
               {pageSize !== 'all' && totalPages > 1 && (
                 <>
                   <button
                     type="button"
                     disabled={safePage <= 1}
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    className="px-3 py-1.5 rounded-lg bg-white border border-[#D8C7B2] text-[#332218] font-bold disabled:opacity-40 hover:bg-[#F3E9DC] cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-lg bg-white border border-[#D8C7B2] text-[#332218] font-bold disabled:opacity-40 hover:bg-[#F3E9DC] cursor-pointer"
                   >
                     → صفحه قبل
                   </button>
-
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
-                    <button
-                      key={pageNum}
-                      type="button"
-                      onClick={() => setCurrentPage(pageNum)}
-                      className={`min-w-[34px] px-2.5 py-1.5 rounded-lg border font-bold tabular-nums cursor-pointer ${
-                        safePage === pageNum
-                          ? 'bg-[#6B3E26] text-white border-[#6B3E26]'
-                          : 'bg-white text-[#332218] border-[#D8C7B2] hover:bg-[#F3E9DC]'
-                      }`}
-                    >
-                      {toPersianDigits(pageNum)}
-                    </button>
-                  ))}
 
                   <button
                     type="button"
                     disabled={safePage >= totalPages}
                     onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                    className="px-3 py-1.5 rounded-lg bg-[#6B3E26] text-white font-bold disabled:opacity-40 hover:bg-[#56311E] cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-lg bg-[#6B3E26] text-white font-bold disabled:opacity-40 hover:bg-[#56311E] cursor-pointer"
                   >
-                    صفحه بعد (ادامه اسامی) ←
+                    صفحه بعد ←
                   </button>
                 </>
               )}
@@ -1062,7 +1136,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                     setPageSize('all');
                     setCurrentPage(1);
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-white border border-[#6B3E26] text-[#6B3E26] font-bold hover:bg-[#F3E9DC] cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-lg bg-white border border-[#6B3E26] text-[#6B3E26] font-bold hover:bg-[#F3E9DC] cursor-pointer"
                 >
                   نمایش یکجای همه ({toPersianDigits(totalActiveItems)} مورد)
                 </button>
@@ -1074,7 +1148,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                       setPageSize(50);
                       setCurrentPage(1);
                     }}
-                    className="px-3 py-1.5 rounded-lg bg-white border border-[#D8C7B2] text-[#5C4033] font-bold hover:bg-[#F3E9DC] cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-lg bg-white border border-[#D8C7B2] text-[#5C4033] font-bold hover:bg-[#F3E9DC] cursor-pointer"
                   >
                     بازگشت به نمایش صفحه‌بندی (۵۰تایی)
                   </button>
