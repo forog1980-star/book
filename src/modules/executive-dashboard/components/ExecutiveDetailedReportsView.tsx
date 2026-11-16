@@ -597,7 +597,7 @@ export const ExecutiveDetailedReportsView: React.FC<ExecutiveDetailedReportsView
               </h3>
               <div className="text-xs text-[#5C4636] space-y-1.5 tabular-nums leading-relaxed">
                 <div>
-                  رکوردهای پایه بدون مهر زمان (کاتالوگ، پیوندها، صف PV، بانک گلزار):{' '}
+                  رکوردهای پایه بدون مهر زمان (فهرست کتابخانه، پیوندها، صف PV، بانک گلزار):{' '}
                   <strong className="text-[#332218]">
                     {toPersianDigits(
                       summary.temporalAudit.structurallyDatelessSources.totalDatelessRecordsCount

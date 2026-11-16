@@ -1708,7 +1708,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             </span>
           </div>
           <div className="text-[11px] text-[#6E5846] border-t border-[#EFE5D8] pt-2 leading-relaxed">
-            پایه پژوهشی: {toPersianDigits(statsComposition.baseResearchCount)} · کاتالوگ تعیین‌تکلیف‌شده:{' '}
+            پایه پژوهشی: {toPersianDigits(statsComposition.baseResearchCount)} · فهرست کتابخانه تعیین‌تکلیف‌شده:{' '}
             {toPersianDigits(statsComposition.determinedCatalogWithoutMartyrCount)} · ثبت جدید:{' '}
             {toPersianDigits(statsComposition.newCount)}
           </div>
@@ -1764,7 +1764,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             </span>
           </div>
           <div className="text-[11px] text-[#6E5846] border-t border-[#EFE5D8] pt-2">
-            پژوهشی: {toPersianDigits(statsComposition.determinedInResearchCount)} · کاتالوگ:{' '}
+            پژوهشی: {toPersianDigits(statsComposition.determinedInResearchCount)} · فهرست کتابخانه:{' '}
             {toPersianDigits(statsComposition.determinedCatalogWithoutMartyrCount)} · ثبت جدید:{' '}
             {toPersianDigits(statsComposition.newCount)}
           </div>
@@ -1951,7 +1951,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                               : 'bg-[#FAF5EE] border border-[#E2D2BE] text-[#6B3E26]'
                           }`}
                         >
-                          {rec.source === 'outside-list' ? 'ثبت جدید' : 'کاتالوگ کتابخانه'}
+                          {rec.source === 'outside-list' ? 'ثبت جدید' : 'فهرست کتابخانه'}
                         </span>
                         {onApproveOutsideBook && (
                           <button
@@ -2052,7 +2052,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                   </div>
                 </div>
                 <div className="bg-white border border-[#E2D2BE] rounded-lg px-2.5 py-2 flex flex-col justify-between min-h-[54px]">
-                  <div className="text-[10.5px] text-[#5C4636]">۲. کاتالوگ تعیین‌تکلیف‌شده در قفسه</div>
+                  <div className="text-[10.5px] text-[#5C4636]">۲. فهرست کتابخانه تعیین‌تکلیف‌شده در قفسه</div>
                   <div className="font-mono font-bold text-sm text-[#332218] mt-1" data-testid="stat-breakdown-catalog">
                     {toPersianDigits(statsComposition.determinedCatalogWithoutMartyrCount)} عنوان
                   </div>

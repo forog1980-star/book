@@ -44,7 +44,7 @@ export const BookSummaryDossierModal: React.FC<BookSummaryDossierModalProps> = (
                 {book.tempBookId}
               </span>
               <span aria-hidden="true">·</span>
-              <span>{book.source === 'catalog' ? 'کاتالوگ اصلی' : 'ثبت خارج از فهرست'}</span>
+              <span>{book.source === 'catalog' ? 'فهرست اصلی کتابخانه' : 'ثبت خارج از فهرست'}</span>
               <span aria-hidden="true">·</span>
               <span className="font-semibold text-[#332218]">{book.managerialStatusLabel}</span>
             </div>

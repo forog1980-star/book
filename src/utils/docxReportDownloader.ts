@@ -2,7 +2,7 @@
  * موتور تولید مستقیم فایل استاندارد و قابل ویرایش Microsoft Word (.docx - OpenXML) در مرورگر
  * - بدون وابستگی به شبکه یا Service Worker (جلوگیری ۱۰۰٪ از ذخیره اشتباهی index.html به‌جای فایل Word)
  * - ساختار کامل ZIP (PK\x03\x04) با محاسبه دقیق CRC-32 و روابط استاندارد rIdHeader1 / rIdFooter1
- * - پشتیبانی کامل از نوشتار راست‌به‌چپ فارسی (<w:bidi/> و <w:rtl/>)، فونت B Zar / Vazirmatn و جدول‌های رنگی
+ * - پشتیبانی کامل از نوشتار راست‌به‌چپ فارسی (<w:bidi/> و <w:rtl/>)، فونت یکپارچه Vazirmatn، تراز راست استاندارد و شکست صفحه بین بخش‌ها
  */
 
 function escapeXml(str: string): string {
@@ -131,26 +131,26 @@ function buildZipArchive(entries: ZipEntryInput[]): Uint8Array {
   return result;
 }
 
-function rPrXml(font = 'B Zar', sizeHalfPt = 24, bold = false, color = '353530'): string {
+function rPrXml(font = 'Vazirmatn', sizeHalfPt = 24, bold = false, color = '353530'): string {
   const bTag = bold ? '<w:b/><w:bCs/>' : '';
-  return `<w:rPr><w:rFonts w:ascii="${font}" w:hAnsi="${font}" w:cs="${font}"/>${bTag}<w:color w:val="${color}"/><w:sz w:val="${sizeHalfPt}"/><w:szCs w:val="${sizeHalfPt}"/><w:rtl/></w:rPr>`;
+  return `<w:rPr><w:rFonts w:ascii="${font}" w:hAnsi="${font}" w:cs="${font}"/>${bTag}<w:color w:val="${color}"/><w:sz w:val="${sizeHalfPt}"/><w:szCs w:val="${sizeHalfPt}"/><w:rtl/><w:lang w:val="fa-IR" w:bidi="fa-IR"/></w:rPr>`;
 }
 
 function renderInlineRunsXml(lineText: string, sizeHalfPt = 24, baseColor = '353530'): string {
   const cleaned = lineText.replace(/`/g, '');
   const parts = cleaned.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
   if (parts.length === 0) {
-    return `<w:r>${rPrXml('B Zar', sizeHalfPt, false, baseColor)}<w:t xml:space="preserve"></w:t></w:r>`;
+    return `<w:r>${rPrXml('Vazirmatn', sizeHalfPt, false, baseColor)}<w:t xml:space="preserve"></w:t></w:r>`;
   }
   return parts
     .map((part) => {
       if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
         const inner = part.slice(2, -2);
-        return `<w:r>${rPrXml('B Zar', sizeHalfPt, true, '353530')}<w:t xml:space="preserve">${escapeXml(
+        return `<w:r>${rPrXml('Vazirmatn', sizeHalfPt, true, '353530')}<w:t xml:space="preserve">${escapeXml(
           inner
         )}</w:t></w:r>`;
       }
-      return `<w:r>${rPrXml('B Zar', sizeHalfPt, false, baseColor)}<w:t xml:space="preserve">${escapeXml(
+      return `<w:r>${rPrXml('Vazirmatn', sizeHalfPt, false, baseColor)}<w:t xml:space="preserve">${escapeXml(
         part
       )}</w:t></w:r>`;
     })
@@ -197,7 +197,7 @@ function buildWordTableXml(rows: string[][]): string {
           `<w:p><w:pPr><w:bidi/><w:spacing w:before="40" w:after="40"/><w:jc w:val="${
             isHeader ? 'center' : 'right'
           }"/></w:pPr>` +
-          `<w:r>${rPrXml('B Zar', isHeader ? 22 : 21, isHeader || cIdx === 0, textColor)}<w:t xml:space="preserve">${escapeXml(
+          `<w:r>${rPrXml('Vazirmatn', isHeader ? 22 : 21, isHeader || cIdx === 0, textColor)}<w:t xml:space="preserve">${escapeXml(
             cellText
           )}</w:t></w:r></w:p>` +
           `</w:tc>`
@@ -207,7 +207,7 @@ function buildWordTableXml(rows: string[][]): string {
     })
     .join('');
 
-  return `<w:tbl>${tblPr}<w:tblGrid>${gridCols}</w:tblGrid>${trsXml}</w:tbl><w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr></w:p>`;
+  return `<w:tbl>${tblPr}<w:tblGrid>${gridCols}</w:tblGrid>${trsXml}</w:tbl><w:p><w:pPr><w:bidi/><w:spacing w:before="60" w:after="60"/></w:pPr></w:p>`;
 }
 
 function convertMarkdownToDocumentBodyXml(markdown: string, docTitle: string): string {
@@ -217,7 +217,7 @@ function convertMarkdownToDocumentBodyXml(markdown: string, docTitle: string): s
   // سرصفحه عنوان سند در ابتدای فایل
   xmlParts.push(
     `<w:p><w:pPr><w:pStyle w:val="Title"/><w:bidi/><w:jc w:val="center"/><w:spacing w:before="180" w:after="140"/></w:pPr>` +
-      `<w:r>${rPrXml('B Zar', 36, true, '353530')}<w:t xml:space="preserve">${escapeXml(
+      `<w:r>${rPrXml('Vazirmatn', 34, true, '353530')}<w:t xml:space="preserve">${escapeXml(
         docTitle
       )}</w:t></w:r></w:p>`
   );
@@ -228,6 +228,13 @@ function convertMarkdownToDocumentBodyXml(markdown: string, docTitle: string): s
     const trimmed = rawLine.trim();
 
     if (!trimmed || trimmed === '---') {
+      i++;
+      continue;
+    }
+
+    // شکست صفحه صریح بین بخش‌های گزارش
+    if (/^<!--\s*PAGE_BREAK\s*-->$/.test(trimmed) || trimmed === '\f') {
+      xmlParts.push('<w:p><w:pPr><w:bidi/></w:pPr><w:r><w:br w:type="page"/></w:r></w:p>');
       i++;
       continue;
     }
@@ -243,8 +250,8 @@ function convertMarkdownToDocumentBodyXml(markdown: string, docTitle: string): s
       if (i < lines.length) i++;
       if (codeLines.length > 0) {
         xmlParts.push(
-          `<w:p><w:pPr><w:bidi/><w:shd w:val="clear" w:color="auto" w:fill="F0EBD9"/><w:spacing w:before="60" w:after="80"/></w:pPr>` +
-            `<w:r>${rPrXml('B Zar', 20, false, '353530')}<w:t xml:space="preserve">${escapeXml(
+          `<w:p><w:pPr><w:bidi/><w:jc w:val="right"/><w:shd w:val="clear" w:color="auto" w:fill="F0EBD9"/><w:spacing w:before="60" w:after="80"/></w:pPr>` +
+            `<w:r>${rPrXml('Vazirmatn', 20, false, '353530')}<w:t xml:space="preserve">${escapeXml(
               codeLines.join(' | ')
             )}</w:t></w:r></w:p>`
         );
@@ -281,7 +288,7 @@ function convertMarkdownToDocumentBodyXml(markdown: string, docTitle: string): s
         `<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:keepNext/><w:bidi/>` +
           `<w:pBdr><w:bottom w:val="single" w:sz="12" w:space="6" w:color="B9B38A"/></w:pBdr>` +
           `<w:spacing w:before="280" w:after="120"/><w:jc w:val="right"/></w:pPr>` +
-          `<w:r>${rPrXml('B Zar', 32, true, '353530')}<w:t xml:space="preserve">${escapeXml(
+          `<w:r>${rPrXml('Vazirmatn', 30, true, '353530')}<w:t xml:space="preserve">${escapeXml(
             text
           )}</w:t></w:r></w:p>`
       );
@@ -294,8 +301,8 @@ function convertMarkdownToDocumentBodyXml(markdown: string, docTitle: string): s
       xmlParts.push(
         `<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:keepNext/><w:bidi/>` +
           `<w:pBdr><w:bottom w:val="single" w:sz="10" w:space="4" w:color="D8D1BB"/></w:pBdr>` +
-          `<w:spacing w:before="240" w:after="100"/><w:jc w:val="right"/></w:pPr>` +
-          `<w:r>${rPrXml('B Zar', 28, true, '353530')}<w:t xml:space="preserve">${escapeXml(
+          `<w:spacing w:before="220" w:after="100"/><w:jc w:val="right"/></w:pPr>` +
+          `<w:r>${rPrXml('Vazirmatn', 27, true, '353530')}<w:t xml:space="preserve">${escapeXml(
             text
           )}</w:t></w:r></w:p>`
       );
@@ -307,8 +314,8 @@ function convertMarkdownToDocumentBodyXml(markdown: string, docTitle: string): s
       const text = trimmed.replace(/^#{3,4}\s+/, '').replace(/\*\*/g, '');
       xmlParts.push(
         `<w:p><w:pPr><w:pStyle w:val="Heading2"/><w:keepNext/><w:bidi/>` +
-          `<w:spacing w:before="180" w:after="80"/><w:jc w:val="right"/></w:pPr>` +
-          `<w:r>${rPrXml('B Zar', 25, true, '525046')}<w:t xml:space="preserve">${escapeXml(
+          `<w:spacing w:before="160" w:after="80"/><w:jc w:val="right"/></w:pPr>` +
+          `<w:r>${rPrXml('Vazirmatn', 24, true, '525046')}<w:t xml:space="preserve">${escapeXml(
             text
           )}</w:t></w:r></w:p>`
       );
@@ -323,8 +330,8 @@ function convertMarkdownToDocumentBodyXml(markdown: string, docTitle: string): s
         `<w:p><w:pPr><w:bidi/>` +
           `<w:pBdr><w:right w:val="single" w:sz="18" w:space="8" w:color="B9B38A"/></w:pBdr>` +
           `<w:shd w:val="clear" w:color="auto" w:fill="FBF8EC"/>` +
-          `<w:ind w:left="160" w:right="160"/><w:spacing w:before="100" w:after="100" w:line="320" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr>` +
-          `${renderInlineRunsXml(text, 23, '353530')}</w:p>`
+          `<w:ind w:left="160" w:right="160"/><w:spacing w:before="100" w:after="100" w:line="320" w:lineRule="auto"/><w:jc w:val="right"/></w:pPr>` +
+          `${renderInlineRunsXml(text, 22, '353530')}</w:p>`
       );
       i++;
       continue;
@@ -334,9 +341,9 @@ function convertMarkdownToDocumentBodyXml(markdown: string, docTitle: string): s
     if (/^([-*•]|\d+[.)])\s+/.test(trimmed)) {
       const cleanBullet = trimmed.replace(/^([-*•]|\d+[.)])\s+/, '');
       xmlParts.push(
-        `<w:p><w:pPr><w:bidi/><w:ind w:right="240"/><w:spacing w:before="40" w:after="80" w:line="320" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr>` +
-          `<w:r>${rPrXml('B Zar', 24, true, '353530')}<w:t xml:space="preserve">• </w:t></w:r>` +
-          `${renderInlineRunsXml(cleanBullet, 24, '353530')}</w:p>`
+        `<w:p><w:pPr><w:bidi/><w:ind w:right="240"/><w:spacing w:before="40" w:after="80" w:line="320" w:lineRule="auto"/><w:jc w:val="right"/></w:pPr>` +
+          `<w:r>${rPrXml('Vazirmatn', 23, true, '353530')}<w:t xml:space="preserve">• </w:t></w:r>` +
+          `${renderInlineRunsXml(cleanBullet, 23, '353530')}</w:p>`
       );
       i++;
       continue;
@@ -344,8 +351,8 @@ function convertMarkdownToDocumentBodyXml(markdown: string, docTitle: string): s
 
     // پاراگراف معمولی
     xmlParts.push(
-      `<w:p><w:pPr><w:bidi/><w:spacing w:before="60" w:after="100" w:line="330" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr>` +
-        `${renderInlineRunsXml(trimmed, 24, '353530')}</w:p>`
+      `<w:p><w:pPr><w:bidi/><w:spacing w:before="60" w:after="100" w:line="330" w:lineRule="auto"/><w:jc w:val="right"/></w:pPr>` +
+        `${renderInlineRunsXml(trimmed, 23, '353530')}</w:p>`
     );
     i++;
   }
@@ -408,21 +415,22 @@ export function buildValidDocxUint8Array(
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
     '<w:docDefaults>' +
-    '<w:rPrDefault><w:rPr><w:rFonts w:ascii="B Zar" w:hAnsi="B Zar" w:cs="B Zar"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:lang w:val="en-US" w:bidi="fa-IR"/></w:rPr></w:rPrDefault>' +
-    '<w:pPrDefault><w:pPr><w:bidi/><w:spacing w:after="120" w:line="320" w:lineRule="auto"/></w:pPr></w:pPrDefault>' +
+    '<w:rPrDefault><w:rPr><w:rFonts w:ascii="Vazirmatn" w:hAnsi="Vazirmatn" w:cs="Vazirmatn"/><w:sz w:val="23"/><w:szCs w:val="23"/><w:rtl/><w:lang w:val="fa-IR" w:eastAsia="fa-IR" w:bidi="fa-IR"/></w:rPr></w:rPrDefault>' +
+    '<w:pPrDefault><w:pPr><w:bidi/><w:jc w:val="right"/><w:spacing w:after="120" w:line="320" w:lineRule="auto"/></w:pPr></w:pPrDefault>' +
     '</w:docDefaults>' +
-    '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:bidi/></w:pPr></w:style>' +
+    '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:bidi/><w:jc w:val="right"/></w:pPr></w:style>' +
     '<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:pPr><w:bidi/><w:jc w:val="center"/></w:pPr></w:style>' +
     '<w:style w:type="paragraph" w:styleId="Subtitle"><w:name w:val="Subtitle"/><w:basedOn w:val="Normal"/><w:pPr><w:bidi/><w:jc w:val="center"/></w:pPr></w:style>' +
-    '<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:bidi/></w:pPr></w:style>' +
-    '<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:bidi/></w:pPr></w:style>' +
-    '<w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:bidi/></w:pPr></w:style>' +
+    '<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:bidi/><w:jc w:val="right"/></w:pPr></w:style>' +
+    '<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:bidi/><w:jc w:val="right"/></w:pPr></w:style>' +
+    '<w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:bidi/><w:jc w:val="right"/></w:pPr></w:style>' +
     '</w:styles>';
 
   const settingsXml =
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
     '<w:zoom w:percent="100"/>' +
+    '<w:themeFontLang w:val="fa-IR" w:bidi="fa-IR"/>' +
     '<w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>' +
     '</w:settings>';
 
@@ -430,7 +438,7 @@ export function buildValidDocxUint8Array(
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
     '<w:p><w:pPr><w:bidi/><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="4" w:color="D8D1BB"/></w:pBdr><w:jc w:val="center"/></w:pPr>' +
-    `<w:r>${rPrXml('B Zar', 18, false, '6E6A5C')}<w:t xml:space="preserve">مرکز اسناد گلزار شهدای تهران — ${escapeXml(
+    `<w:r>${rPrXml('Vazirmatn', 18, false, '6E6A5C')}<w:t xml:space="preserve">مرکز اسناد گلزار شهدای تهران — ${escapeXml(
       docTitle
     )}</w:t></w:r></w:p></w:hdr>`;
 
@@ -438,9 +446,9 @@ export function buildValidDocxUint8Array(
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
     '<w:p><w:pPr><w:bidi/><w:pBdr><w:top w:val="single" w:sz="6" w:space="4" w:color="D8D1BB"/></w:pBdr><w:jc w:val="center"/></w:pPr>' +
-    `<w:r>${rPrXml('B Zar', 18, false, '6E6A5C')}<w:t xml:space="preserve">صفحه </w:t></w:r>` +
+    `<w:r>${rPrXml('Vazirmatn', 18, false, '6E6A5C')}<w:t xml:space="preserve">صفحه </w:t></w:r>` +
     '<w:fldSimple w:instr="PAGE"/>' +
-    `<w:r>${rPrXml('B Zar', 18, false, '6E6A5C')}<w:t xml:space="preserve"> از </w:t></w:r>` +
+    `<w:r>${rPrXml('Vazirmatn', 18, false, '6E6A5C')}<w:t xml:space="preserve"> از </w:t></w:r>` +
     '<w:fldSimple w:instr="NUMPAGES"/>' +
     '</w:p></w:ftr>';
 

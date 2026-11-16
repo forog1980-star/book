@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
   BookOpen,
+  Calculator,
+  Check,
   CheckCircle2,
   ChevronLeft,
   ClipboardList,
@@ -64,8 +66,45 @@ import type {
   FinalizedReportRegistryRecord,
   UnifiedSearchDomainScope,
 } from '../types';
+import type { ExcelSheetKey } from '../../excel-export';
 import { OverviewDonutChart } from './OverviewDonutChart';
 import { downloadComprehensiveDashboardDocx } from '../../../utils/docxReportDownloader';
+import {
+  downloadExecutiveSectionsPdf,
+  type PdfReportSection,
+} from '../../../utils/pdfReportDownloader';
+
+type ExportSectionKey = 'library' | 'martyrs' | 'work';
+type PendingExportFormat = 'excel' | 'word' | 'pdf' | 'json';
+
+const EXPORT_SECTION_META: Array<{
+  key: ExportSectionKey;
+  title: string;
+  description: string;
+}> = [
+  {
+    key: 'library',
+    title: '۱. وضعیت کتابخانه و گروه‌های موضوعی',
+    description: 'وضعیت تکمیل کتاب‌ها، قفسه‌گذاری، تأیید کارشناسی و پراکندگی گروه‌های موضوعی',
+  },
+  {
+    key: 'martyrs',
+    title: '۲. وضعیت شهدا، احراز هویت و ارتباطات',
+    description: 'آمار شهدای مرتبط، وضعیت احراز هویت، تهرانی/غیرتهرانی و پیوندهای کتاب و شهید',
+  },
+  {
+    key: 'work',
+    title: '۳. وضعیت کار و خروجی‌ها',
+    description: 'صف پیگیری، موضوعات کاری مستقل، تاریخچه فعالیت، خروجی‌های پژوهشی و گزارش‌های مدیریتی',
+  },
+];
+
+const EXPORT_FORMAT_LABELS: Record<PendingExportFormat, string> = {
+  excel: 'اکسل (Excel)',
+  word: 'ورد (Word)',
+  pdf: 'فایل PDF استاندارد',
+  json: 'بسته داده (JSON)',
+};
 
 const SUBJECT_CATEGORY_COLORS: Record<string, string> = {
   R: '#4D8B68',
@@ -254,10 +293,20 @@ export const StatisticsAndReportsRouteView: React.FC<
   const [activityDateFrom, setActivityDateFrom] = useState('');
   const [activityDateTo, setActivityDateTo] = useState('');
 
-  // وضعیت مدیریت گزارش‌های نهایی محلی
+  // وضعیت مدیریت گزارش‌های نهایی محلی و پنجره متمرکز خروجی
   const [newReportTitle, setNewReportTitle] = useState('');
   const [reportActionBusy, setReportActionBusy] = useState(false);
   const [reportPersistError, setReportPersistError] = useState<string | null>(null);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [pendingExportFormat, setPendingExportFormat] = useState<PendingExportFormat>('word');
+  const [selectedExportSections, setSelectedExportSections] = useState<
+    Record<ExportSectionKey, boolean>
+  >({
+    library: true,
+    martyrs: true,
+    work: true,
+  });
+  const [isWorkBasisModalOpen, setIsWorkBasisModalOpen] = useState(false);
   const [categoryViewMode, setCategoryViewMode] = useState<'live_collection' | 'audited_records'>(
     'live_collection'
   );
@@ -969,123 +1018,515 @@ export const StatisticsAndReportsRouteView: React.FC<
     .slice(0, 5);
 
   const interactiveRowClass = (disabled?: boolean) =>
-    `w-full py-2 px-2.5 flex items-center justify-between gap-2 text-right rounded-lg transition-colors ${
+    `w-full min-w-0 py-2 px-2.5 flex items-center justify-between gap-2 text-right rounded-lg transition-colors ${
       disabled
         ? 'opacity-75 cursor-default'
         : 'hover:bg-[#FAF5EE] active:bg-[#F3E4D2]/70 cursor-pointer group'
     }`;
 
-  const handleExportDetailedSection = (
-    targetSection: 'all' | 'library' | 'martyrs' | 'work',
-    format: 'excel' | 'word' | 'pdf'
-  ) => {
-    const sectionTitles: Record<'all' | 'library' | 'martyrs' | 'work', string> = {
-      all: 'گزارش جامع آمار و گزارش‌های تفصیلی (بخش‌های اول، دوم و سوم)',
-      library: 'گزارش تفصیلی بخش اول: کتابخانه و گروه‌های موضوعی',
-      martyrs: 'گزارش تفصیلی بخش دوم: شهدا، احراز هویت و ارتباطات',
-      work: 'گزارش تفصیلی بخش سوم: وضعیت کار، صف پیگیری، تاریخچه فعالیت و خروجی‌ها',
-    };
-    const filePrefixes: Record<'all' | 'library' | 'martyrs' | 'work', string> = {
-      all: 'گزارش_جامع_آمار_تفصیلی_مرکز_اسناد',
-      library: 'گزارش_بخش_اول_کتابخانه',
-      martyrs: 'گزارش_بخش_دوم_شهدا_و_ارتباطات',
-      work: 'گزارش_بخش_سوم_وضعیت_کار_و_خروجیها',
-    };
+  const checkedSectionKeys = (['library', 'martyrs', 'work'] as const).filter(
+    (k) => selectedExportSections[k]
+  );
+  const isAllSectionsSelected = checkedSectionKeys.length === 3;
 
-    const reportTitle = sectionTitles[targetSection];
-    const filePrefix = filePrefixes[targetSection];
+  const openCentralExportModal = (format: PendingExportFormat) => {
+    setPendingExportFormat(format);
+    setIsExportModalOpen(true);
+  };
 
-    if (format === 'excel') {
-      const excelRes = exportExecutiveManagementExcel(effectiveInputs, {
-        reportTitle,
-        fileNamePrefix: filePrefix,
-      });
-      if (!excelRes.ok) {
-        onNotify?.(excelRes.error || 'تولید فایل اکسل با خطا مواجه شد.', 'warning');
+  const toggleExportSection = (key: ExportSectionKey) => {
+    setSelectedExportSections((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const selectAllComprehensiveSections = () => {
+    setSelectedExportSections({
+      library: true,
+      martyrs: true,
+      work: true,
+    });
+  };
+
+  const buildSectionMarkdownBlock = (key: ExportSectionKey): string => {
+    if (key === 'library') {
+      return [
+        '## بخش اول: وضعیت کتابخانه و گروه‌های موضوعی',
+        '',
+        '| شاخص کتابخانه | مقدار |',
+        '| --- | --- |',
+        `| کل کتاب‌های تحت پایش | ${toPersianDigits(libDet.totalTrackedBooksCount)} کتاب |`,
+        `| تکمیل‌شده قطعی | ${toPersianDigits(libDet.completedCount)} کتاب (${toPersianDigits(overview.libraryCard.completedPercent)}٪) |`,
+        `| در حال بررسی | ${toPersianDigits(libDet.inProgressCount)} کتاب |`,
+        `| شروع‌نشده | ${toPersianDigits(libDet.notStartedCount)} کتاب |`,
+        `| کارشده / دارای ثبت فعالیت | ${toPersianDigits(libDet.workedOrRegisteredCount)} کتاب |`,
+        `| تأیید موجودی قفسه | ${toPersianDigits(libDet.shelfVerifiedPresentCount)} کتاب |`,
+        `| تأییدشده کارشناسی | ${toPersianDigits(libDet.expertApprovedCount)} کتاب |`,
+        `| دارای ارتباط ثبت‌شده با شهید | ${toPersianDigits(libDet.hasRegisteredMartyrLinkCount)} کتاب |`,
+        `| بررسی‌شده و فاقد ارتباط با شهید | ${toPersianDigits(libDet.reviewedWithoutMartyrLinkCount)} کتاب |`,
+        '',
+        '### پراکندگی کتاب‌ها در گروه‌های موضوعی',
+        '',
+        '| کد گروه | عنوان گروه موضوعی | تعداد کتاب | سهم درصدی | جانمایی قفسه |',
+        '| --- | --- | --- | --- | --- |',
+        ...liveCategoryAnalytics.items.map(
+          (cat) =>
+            `| ${cat.code} | ${cat.name} | ${toPersianDigits(cat.value)} | ${toPersianDigits(cat.percent)}٪ | ${cat.allocatedLocationText} |`
+        ),
+      ].join('\n');
+    }
+
+    if (key === 'martyrs') {
+      return [
+        '## بخش دوم: وضعیت شهدا، احراز هویت و ارتباطات',
+        '',
+        '| شاخص شهدا و ارتباطات | مقدار |',
+        '| --- | --- |',
+        `| شهدای مرتبط با کتاب‌ها | ${toPersianDigits(martyrsDet.linkedMartyrsCount)} شناسه شهید |`,
+        `| هویت احرازشده | ${toPersianDigits(martyrsDet.confirmedIdentityCount)} شناسه شهید (${toPersianDigits(overview.martyrsCard.confirmedIdentityPercent)}٪) |`,
+        `| نیازمند بررسی هویت | ${toPersianDigits(martyrsDet.needsIdentityVerificationCount)} شناسه شهید |`,
+        `| شهدای تهرانی مرتبط | ${toPersianDigits(martyrsDet.tehranLinkedCount)} شناسه شهید |`,
+        `| شهدای غیرتهرانی / یادبود مرتبط | ${toPersianDigits(martyrsDet.nonTehranLinkedCount)} شناسه شهید |`,
+        `| کل ارتباطات فعال متمایز (کتاب و شهید) | ${toPersianDigits(relSplit.totalActiveDistinctPairsCount)} زوج (${toPersianDigits(rels.totalRawLinkRows)} ردیف خام) |`,
+        `| تأیید کارشناسی صریح ارتباط | ${toPersianDigits(relSplit.explicitExpertConfirmedDistinctCount)} زوج |`,
+        `| قطعی طبق برچسب منبع | ${toPersianDigits(relSplit.definiteBySourceLabelDistinctCount)} زوج |`,
+        `| احتمالی | ${toPersianDigits(relSplit.probableDistinctCount)} زوج |`,
+        `| نیازمند بررسی / گروهی | ${toPersianDigits(relSplit.needsReviewDistinctCount)} زوج |`,
+      ].join('\n');
+    }
+
+    return [
+      '## بخش سوم: وضعیت کار، موضوعات مستقل و خروجی‌ها',
+      '',
+      '| شاخص وضعیت کار و خروجی‌ها | مقدار |',
+      '| --- | --- |',
+      `| کل پرونده‌های صف پیگیری | ${toPersianDigits(workAnalytics.reviewQueueTotalCount)} پرونده (${toPersianDigits(topics.totalTopicsCount)} موضوع مستقل) |`,
+      `| موضوعات انجام‌شده در صف پیگیری | ${toPersianDigits(topics.completedTopicsCount)} موضوع (${toPersianDigits(overview.workAndOutputsCard.reviewQueueCompletionPercent)}٪) |`,
+      `| پرونده‌ها و موضوعات باقیمانده صف | ${toPersianDigits(workAnalytics.reviewQueueRemainingCount)} پرونده (${toPersianDigits(topics.remainingTopicsCount)} موضوع) |`,
+      `| پرونده‌های نیازمند منبع | ${toPersianDigits(workAnalytics.reviewQueueNeedsSourceCount)} پرونده |`,
+      `| فعالیت‌های ثبت‌شده در تاریخچه | ${toPersianDigits(workAnalytics.activityLog.totalEntriesCount)} رویداد |`,
+      `| مطالب پژوهشی استخراج‌شده غیرردشده | ${toPersianDigits(workAnalytics.researchOutputs.totalExtractedNonRejectedCount)} مورد |`,
+      `| خروجی پژوهشی نهایی و مستقل | ${toPersianDigits(workAnalytics.researchOutputs.finalIndependentOutputsCount)} خروجی |`,
+      `| گزارش‌های مدیریتی نهایی و مستقل | ${toPersianDigits(workAnalytics.managementReports.finalIndependentReportsCount)} گزارش |`,
+      '',
+      '### تفکیک موضوعات کاری مستقل بین حوزه‌ها',
+      '',
+      '| حوزه | موضوعات کل صف | انجام‌شده | باقیمانده صف | باقی‌مانده خارج از صف |',
+      '| --- | --- | --- | --- | --- |',
+      `| ${dom.library.label} | ${toPersianDigits(dom.library.pvTopicsTotal)} | ${toPersianDigits(dom.library.pvTopicsCompleted)} | ${toPersianDigits(dom.library.pvTopicsRemaining)} | ${toPersianDigits(dom.library.additionalOpenBacklogCount)} |`,
+      `| ${dom.martyrs.label} | ${toPersianDigits(dom.martyrs.pvTopicsTotal)} | ${toPersianDigits(dom.martyrs.pvTopicsCompleted)} | ${toPersianDigits(dom.martyrs.pvTopicsRemaining)} | ${toPersianDigits(dom.martyrs.additionalOpenBacklogCount)} |`,
+      `| ${dom.relations.label} | ${toPersianDigits(dom.relations.pvTopicsTotal)} | ${toPersianDigits(dom.relations.pvTopicsCompleted)} | ${toPersianDigits(dom.relations.pvTopicsRemaining)} | ${toPersianDigits(dom.relations.additionalOpenBacklogCount)} |`,
+    ].join('\n');
+  };
+
+  const buildPdfSectionObject = (key: ExportSectionKey): PdfReportSection => {
+    if (key === 'library') {
+      return {
+        id: 'library',
+        title: 'بخش اول: وضعیت کتابخانه و گروه‌های موضوعی',
+        subtitle: `پایش ${toPersianDigits(libDet.totalTrackedBooksCount)} کتاب در کتابخانه و فهرست ثبت‌های جدید`,
+        metrics: [
+          {
+            label: 'کل کتاب‌های تحت پایش',
+            value: `${toPersianDigits(libDet.totalTrackedBooksCount)} کتاب`,
+          },
+          {
+            label: 'تکمیل‌شده قطعی',
+            value: `${toPersianDigits(libDet.completedCount)} کتاب (${toPersianDigits(overview.libraryCard.completedPercent)}٪)`,
+          },
+          {
+            label: 'در حال بررسی',
+            value: `${toPersianDigits(libDet.inProgressCount)} کتاب`,
+          },
+          {
+            label: 'شروع‌نشده',
+            value: `${toPersianDigits(libDet.notStartedCount)} کتاب`,
+          },
+          {
+            label: 'تأیید موجودی قفسه',
+            value: `${toPersianDigits(libDet.shelfVerifiedPresentCount)} کتاب`,
+          },
+          {
+            label: 'تأییدشده کارشناسی',
+            value: `${toPersianDigits(libDet.expertApprovedCount)} کتاب`,
+          },
+        ],
+        table: {
+          title: 'توزیع کتاب‌ها در گروه‌های موضوعی',
+          headers: ['گروه موضوعی', 'کد', 'تعداد کتاب', 'سهم', 'جانمایی قفسه'],
+          colWidthsRatio: [0.3, 0.1, 0.16, 0.12, 0.32],
+          rows: liveCategoryAnalytics.items.map((cat) => [
+            cat.name,
+            cat.code,
+            `${toPersianDigits(cat.value)} کتاب`,
+            `${toPersianDigits(cat.percent)}٪`,
+            cat.allocatedLocationText,
+          ]),
+        },
+        bullets: [
+          `دارای ارتباط ثبت‌شده با شهید: ${toPersianDigits(libDet.hasRegisteredMartyrLinkCount)} کتاب`,
+          `بررسی‌شده و فاقد ارتباط با شهید: ${toPersianDigits(libDet.reviewedWithoutMartyrLinkCount)} کتاب`,
+          `عناوین یکتای فهرست کتابخانه: ${toPersianDigits(lib.exactUniqueCatalogTitlesCount)} عنوان · نسخه‌های فیزیکی ثبت‌شده: ${toPersianDigits(lib.registeredPhysicalCopiesCount)} نسخه`,
+        ],
+      };
+    }
+
+    if (key === 'martyrs') {
+      return {
+        id: 'martyrs',
+        title: 'بخش دوم: وضعیت شهدا، احراز هویت و ارتباطات',
+        subtitle: `تحلیل ${toPersianDigits(martyrsDet.linkedMartyrsCount)} شناسه شهید مرتبط و ${toPersianDigits(relSplit.totalActiveDistinctPairsCount)} زوج ارتباط فعال`,
+        metrics: [
+          {
+            label: 'شهدای مرتبط با کتاب‌ها',
+            value: `${toPersianDigits(martyrsDet.linkedMartyrsCount)} شهید`,
+          },
+          {
+            label: 'هویت احرازشده',
+            value: `${toPersianDigits(martyrsDet.confirmedIdentityCount)} (${toPersianDigits(overview.martyrsCard.confirmedIdentityPercent)}٪)`,
+          },
+          {
+            label: 'نیازمند بررسی هویت',
+            value: `${toPersianDigits(martyrsDet.needsIdentityVerificationCount)} شهید`,
+          },
+          {
+            label: 'شهدای تهرانی مرتبط',
+            value: `${toPersianDigits(martyrsDet.tehranLinkedCount)} شهید`,
+          },
+          {
+            label: 'کل ارتباطات فعال متمایز',
+            value: `${toPersianDigits(relSplit.totalActiveDistinctPairsCount)} زوج`,
+          },
+          {
+            label: 'تأیید کارشناسی صریح',
+            value: `${toPersianDigits(relSplit.explicitExpertConfirmedDistinctCount)} زوج`,
+          },
+        ],
+        table: {
+          title: 'تفکیک وضعیت ارتباطات کتاب و شهید',
+          headers: ['وضعیت ارتباط', 'تعداد زوج متمایز', 'تعداد ردیف خام'],
+          colWidthsRatio: [0.5, 0.25, 0.25],
+          rows: [
+            [
+              'کل ارتباطات فعال متمایز',
+              `${toPersianDigits(relSplit.totalActiveDistinctPairsCount)} زوج`,
+              `${toPersianDigits(rels.totalRawLinkRows)} ردیف`,
+            ],
+            [
+              'تأیید کارشناسی صریح',
+              `${toPersianDigits(relSplit.explicitExpertConfirmedDistinctCount)} زوج`,
+              `${toPersianDigits(relSplit.explicitExpertConfirmedRawCount)} ردیف`,
+            ],
+            [
+              'قطعی طبق برچسب منبع / مزار',
+              `${toPersianDigits(relSplit.definiteBySourceLabelDistinctCount)} زوج`,
+              `${toPersianDigits(relSplit.definiteBySourceLabelRawCount)} ردیف`,
+            ],
+            [
+              'احتمالی',
+              `${toPersianDigits(relSplit.probableDistinctCount)} زوج`,
+              `${toPersianDigits(relSplit.probableRawCount)} ردیف`,
+            ],
+            [
+              'نیازمند بررسی / گروهی',
+              `${toPersianDigits(relSplit.needsReviewDistinctCount)} زوج`,
+              `${toPersianDigits(relSplit.needsReviewRawCount)} ردیف`,
+            ],
+          ],
+        },
+        bullets: [
+          `شهدای غیرتهرانی / یادبود مرتبط: ${toPersianDigits(martyrsDet.nonTehranLinkedCount)} شناسه شهید`,
+          `دارای تک‌ارتباط کتاب: ${toPersianDigits(martyrsDet.singleBookLinkedCount)} شهید · دارای چند ارتباط کتاب: ${toPersianDigits(martyrsDet.multiBookLinkedCount)} شهید`,
+          `هم‌نام مشکوک یا اختلاف مزار: ${toPersianDigits(martyrsDet.homonymSuspectsCount)} مورد`,
+        ],
+      };
+    }
+
+    return {
+      id: 'work',
+      title: 'بخش سوم: وضعیت کار، موضوعات مستقل و خروجی‌ها',
+      subtitle: `${toPersianDigits(workAnalytics.reviewQueueTotalCount)} پرونده صف (${toPersianDigits(topics.totalTopicsCount)} موضوع مستقل) و خروجی‌های نهایی`,
+      metrics: [
+        {
+          label: 'کل پرونده‌های صف',
+          value: `${toPersianDigits(workAnalytics.reviewQueueTotalCount)} پرونده`,
+          hint: `${toPersianDigits(topics.totalTopicsCount)} موضوع مستقل`,
+        },
+        {
+          label: 'موضوعات انجام‌شده',
+          value: `${toPersianDigits(topics.completedTopicsCount)} موضوع (${toPersianDigits(overview.workAndOutputsCard.reviewQueueCompletionPercent)}٪)`,
+        },
+        {
+          label: 'باقیمانده در صف',
+          value: `${toPersianDigits(workAnalytics.reviewQueueRemainingCount)} پرونده`,
+          hint: `${toPersianDigits(topics.remainingTopicsCount)} موضوع`,
+        },
+        {
+          label: 'مطالب استخراج‌شده غیرردشده',
+          value: `${toPersianDigits(workAnalytics.researchOutputs.totalExtractedNonRejectedCount)} مورد`,
+        },
+        {
+          label: 'خروجی پژوهشی نهایی مستقل',
+          value: `${toPersianDigits(workAnalytics.researchOutputs.finalIndependentOutputsCount)} خروجی`,
+        },
+        {
+          label: 'گزارش‌های مدیریتی نهایی',
+          value: `${toPersianDigits(workAnalytics.managementReports.finalIndependentReportsCount)} گزارش`,
+        },
+      ],
+      table: {
+        title: 'تفکیک موضوعات کاری مستقل در صف پیگیری',
+        headers: ['حوزه کاری', 'کل موضوعات', 'انجام‌شده', 'باقیمانده صف', 'خارج از صف'],
+        colWidthsRatio: [0.32, 0.17, 0.17, 0.17, 0.17],
+        rows: [
+          [
+            dom.library.label,
+            toPersianDigits(dom.library.pvTopicsTotal),
+            toPersianDigits(dom.library.pvTopicsCompleted),
+            toPersianDigits(dom.library.pvTopicsRemaining),
+            toPersianDigits(dom.library.additionalOpenBacklogCount),
+          ],
+          [
+            dom.martyrs.label,
+            toPersianDigits(dom.martyrs.pvTopicsTotal),
+            toPersianDigits(dom.martyrs.pvTopicsCompleted),
+            toPersianDigits(dom.martyrs.pvTopicsRemaining),
+            toPersianDigits(dom.martyrs.additionalOpenBacklogCount),
+          ],
+          [
+            dom.relations.label,
+            toPersianDigits(dom.relations.pvTopicsTotal),
+            toPersianDigits(dom.relations.pvTopicsCompleted),
+            toPersianDigits(dom.relations.pvTopicsRemaining),
+            toPersianDigits(dom.relations.additionalOpenBacklogCount),
+          ],
+        ],
+      },
+      bullets: [
+        `پرونده‌های نیازمند منبع: ${toPersianDigits(workAnalytics.reviewQueueNeedsSourceCount)} پرونده · بسته یا رد با دلیل: ${toPersianDigits(workAnalytics.reviewQueueClosedOrRejectedWithReasonCount)} پرونده`,
+        `فعالیت‌های ثبت‌شده در تاریخچه: ${toPersianDigits(workAnalytics.activityLog.totalEntriesCount)} رویداد`,
+        `پیش‌نویس‌ها و نسخه‌های تجمیع‌شده پژوهش: ${toPersianDigits(workAnalytics.researchOutputs.draftsAndIncompleteCount)} پیش‌نویس و ${toPersianDigits(workAnalytics.researchOutputs.duplicateVersionsCollapsedCount)} نسخه تکراری تجمیع‌شده`,
+      ],
+      notes: [
+        `مبنای اختلاف ${toPersianDigits(topics.totalTopicsCount)} موضوع مستقل با ${toPersianDigits(workAnalytics.reviewQueueTotalCount)} پرونده صف، وجود ${toPersianDigits(topics.compoundRecordsCount)} پرونده چندموضوعی (جداشده با «؛») است.`,
+      ],
+    };
+  };
+
+  const executeSelectedExport = async () => {
+    if (reportActionBusy) return;
+    if (checkedSectionKeys.length === 0) {
+      onNotify?.('لطفاً حداقل یکی از بخش‌ها یا گزینه «گزارش جامع» را انتخاب کنید.', 'warning');
+      return;
+    }
+
+    setReportActionBusy(true);
+    setReportPersistError(null);
+    try {
+      const tsIso = new Date().toISOString();
+      const tsDisplay = nowPersianDateTimeLabel();
+      const sectionNamesMap: Record<ExportSectionKey, string> = {
+        library: 'کتابخانه',
+        martyrs: 'شهدا و ارتباطات',
+        work: 'وضعیت کار و خروجی‌ها',
+      };
+      const sectionsLabel = isAllSectionsSelected
+        ? 'گزارش جامع (همه ۳ بخش)'
+        : checkedSectionKeys.map((k) => sectionNamesMap[k]).join(' + ');
+
+      const defaultTitle = isAllSectionsSelected
+        ? `گزارش جامع مدیریتی مرکز اسناد (${tsDisplay})`
+        : `گزارش ${sectionsLabel} (${tsDisplay})`;
+      const reportTitle = newReportTitle.trim() || defaultTitle;
+      const filePrefix = isAllSectionsSelected
+        ? 'گزارش_جامع_مرکز_اسناد'
+        : `گزارش_${checkedSectionKeys.join('_')}`;
+
+      if (pendingExportFormat === 'excel') {
+        const sheetList: ExcelSheetKey[] = [];
+        if (selectedExportSections.library) {
+          sheetList.push('main_books');
+        }
+        if (selectedExportSections.martyrs) {
+          sheetList.push('book_martyr_relations', 'related_martyrs');
+        }
+        if (selectedExportSections.work) {
+          sheetList.push('subjects_and_pages', 'extracted_passages');
+        }
+        const excelRes = exportExecutiveManagementExcel(effectiveInputs, {
+          reportTitle,
+          fileNamePrefix: filePrefix,
+          selectedSheets: isAllSectionsSelected ? undefined : sheetList,
+          appliedFilterLabel: sectionsLabel,
+        });
+        if (!excelRes.ok) {
+          const errMsg = excelRes.error || 'تولید فایل اکسل با خطا مواجه شد.';
+          setReportPersistError(errMsg);
+          onNotify?.(errMsg, 'warning');
+          return;
+        }
+        const exportId = `EXP-${Date.now()}`;
+        const nextHistory = appendExportHistoryRecordPure(effectiveExportHistory, {
+          exportId,
+          fileName: excelRes.fileName,
+          fileType: 'excel',
+          exportScope: 'dashboard_management',
+          timestampIso: tsIso,
+          timestampDisplay: tsDisplay,
+          recordCount: excelRes.totalRowsExported,
+          appliedFiltersSummary: sectionsLabel,
+          status: 'success',
+        });
+        const histRes = await saveExecutiveExportHistory(nextHistory);
+        if (histRes.ok) {
+          setLoadedExportHistory(nextHistory);
+        }
+
+        const { records, savedRecord } = upsertRegistryReportPure(
+          effectiveFinalizedRegistry,
+          {
+            category: 'management_report',
+            title: reportTitle,
+            lifecycleStatus: 'final',
+            scope: 'dashboard_management',
+            appliedFiltersSummary: sectionsLabel,
+            timestampIso: tsIso,
+            timestampDisplay: tsDisplay,
+            initialVersion: {
+              exportedAtIso: tsIso,
+              exportedAtDisplay: tsDisplay,
+              fileName: excelRes.fileName,
+              fileType: 'excel',
+              recordCount: excelRes.totalRowsExported,
+              relatedExportId: exportId,
+            },
+          }
+        );
+        const saveRes = await saveFinalizedReportsRegistry(records);
+        if (!saveRes.ok) {
+          const errMsg = saveRes.error
+            ? `خطا در ذخیره گزارش اکسل نهایی (${savedRecord.reportId}) در دفتر کل محلی: ${saveRes.error}`
+            : `ذخیره گزارش اکسل نهایی (${savedRecord.reportId}) در دفتر کل محلی ناموفق بود؛ وضعیت آمار تغییر نکرد.`;
+          setReportPersistError(errMsg);
+          onNotify?.(errMsg, 'warning');
+          return;
+        }
+        setLoadedFinalizedRegistry(records);
+        setNewReportTitle('');
+        setIsExportModalOpen(false);
+        onNotify?.(
+          `فایل اکسل «${sectionsLabel}» (${savedRecord.reportId}) صادر و در دفتر کل محلی ثبت شد.`,
+          'success'
+        );
         return;
       }
-      onNotify?.(`فایل اکسل «${reportTitle}» با موفقیت دانلود شد.`, 'success');
-      return;
-    }
 
-    if (format === 'word') {
-      const tsDisplay = nowPersianDateTimeLabel();
-      const lines: string[] = [
-        `# ${reportTitle}`,
-        `تاریخ و زمان صدور: ${tsDisplay}`,
-        '',
-      ];
-
-      if (targetSection === 'all' || targetSection === 'library') {
-        lines.push(
-          '## بخش اول: کتابخانه و گروه‌های موضوعی',
-          `- کل کتاب‌های تحت پایش: ${toPersianDigits(libDet.totalTrackedBooksCount)} کتاب`,
-          `- تکمیل‌شده کامل: ${toPersianDigits(libDet.completedCount)} کتاب (${toPersianDigits(overview.libraryCard.completedPercent)}٪)`,
-          `- در حال بررسی: ${toPersianDigits(libDet.inProgressCount)} کتاب`,
-          `- شروع‌نشده: ${toPersianDigits(libDet.notStartedCount)} کتاب`,
-          `- دارای ثبت قفسه یا بررسی اولیه: ${toPersianDigits(libDet.workedOrRegisteredCount)} کتاب`,
-          `- تأیید موجودی قفسه: ${toPersianDigits(libDet.shelfVerifiedPresentCount)} کتاب`,
-          `- تأییدشده کارشناسی: ${toPersianDigits(libDet.expertApprovedCount)} کتاب`,
-          `- دارای ارتباط ثبت‌شده با شهید: ${toPersianDigits(libDet.hasRegisteredMartyrLinkCount)} کتاب`,
+      if (pendingExportFormat === 'word') {
+        const blocks = checkedSectionKeys.map((key) => buildSectionMarkdownBlock(key));
+        const markdown = [
+          `# ${reportTitle}`,
+          `تاریخ و زمان صدور: ${tsDisplay}`,
+          `بخش‌های انتخاب‌شده: ${sectionsLabel}`,
           '',
-          '### پراکندگی کتاب‌ها در گروه‌های موضوعی (Categories)',
-          '| کد گروه | عنوان گروه موضوعی | تعداد کتاب | سهم درصدی | جانمایی قفسه |',
-          '| --- | --- | --- | --- | --- |',
-          ...liveCategoryAnalytics.items.map(
-            (cat) =>
-              `| ${cat.code} | ${cat.name} | ${toPersianDigits(cat.value)} | ${toPersianDigits(cat.percent)}٪ | ${cat.allocatedLocationText} |`
-          ),
-          ''
+          blocks.join('\n\n<!-- PAGE_BREAK -->\n\n'),
+        ].join('\n');
+        downloadComprehensiveDashboardDocx(markdown, `${filePrefix}.docx`, reportTitle);
+        setNewReportTitle('');
+        setIsExportModalOpen(false);
+        onNotify?.(
+          `فایل استاندارد Word (.docx) برای «${sectionsLabel}» با تفکیک صفحه هر بخش دانلود شد.`,
+          'success'
         );
+        return;
       }
 
-      if (targetSection === 'all' || targetSection === 'martyrs') {
-        lines.push(
-          '## بخش دوم: شهدا ـ احراز هویت و ارتباطات',
-          `- شهدای مرتبط با کتاب‌ها: ${toPersianDigits(martyrsDet.linkedMartyrsCount)} شناسه شهید`,
-          `- هویت احرازشده: ${toPersianDigits(martyrsDet.confirmedIdentityCount)} شناسه شهید (${toPersianDigits(overview.martyrsCard.confirmedIdentityPercent)}٪)`,
-          `- نیازمند بررسی هویت: ${toPersianDigits(martyrsDet.needsIdentityVerificationCount)} شناسه شهید`,
-          `- تهرانی مرتبط: ${toPersianDigits(martyrsDet.tehranLinkedCount)} شناسه شهید`,
-          `- غیرتهرانی / یادبود مرتبط: ${toPersianDigits(martyrsDet.nonTehranLinkedCount)} شناسه شهید`,
-          `- کل ارتباطات فعال متمایز (کتاب و شهید): ${toPersianDigits(relSplit.totalActiveDistinctPairsCount)} زوج (${toPersianDigits(rels.totalRawLinkRows)} ردیف خام)`,
-          `- تأیید کارشناسی صریح ارتباط: ${toPersianDigits(relSplit.explicitExpertConfirmedDistinctCount)} زوج`,
-          `- قطعی طبق برچسب منبع: ${toPersianDigits(relSplit.definiteBySourceLabelDistinctCount)} زوج`,
-          `- نیازمند بررسی / گروهی: ${toPersianDigits(relSplit.needsReviewDistinctCount)} زوج`,
-          ''
+      if (pendingExportFormat === 'pdf') {
+        const pdfSections = checkedSectionKeys.map((key) => buildPdfSectionObject(key));
+        const pdfRes = await downloadExecutiveSectionsPdf({
+          fileName: `${filePrefix}.pdf`,
+          docTitle: reportTitle,
+          issuedAtDisplay: tsDisplay,
+          sections: pdfSections,
+        });
+        if (!pdfRes.ok) {
+          onNotify?.(pdfRes.error || 'تولید فایل PDF با خطا مواجه شد.', 'warning');
+          return;
+        }
+        setNewReportTitle('');
+        setIsExportModalOpen(false);
+        onNotify?.(
+          `فایل استاندارد PDF (${toPersianDigits(pdfRes.pagesCount)} صفحه) برای «${sectionsLabel}» دانلود شد.`,
+          'success'
         );
+        return;
       }
 
-      if (targetSection === 'all' || targetSection === 'work') {
-        lines.push(
-          '## بخش سوم: وضعیت کار و خروجی‌ها',
-          `- کل پرونده‌های صف پیگیری: ${toPersianDigits(workAnalytics.reviewQueueTotalCount)} پرونده (${toPersianDigits(topics.totalTopicsCount)} موضوع مستقل)`,
-          `- انجام‌شده در صف پیگیری: ${toPersianDigits(workAnalytics.reviewQueueCompletedCount)} پرونده (${toPersianDigits(overview.workAndOutputsCard.reviewQueueCompletionPercent)}٪)`,
-          `- باقیمانده در صف پیگیری: ${toPersianDigits(workAnalytics.reviewQueueRemainingCount)} پرونده`,
-          `- نیازمند منبع: ${toPersianDigits(workAnalytics.reviewQueueNeedsSourceCount)} پرونده`,
-          `- فعالیت‌های ثبت‌شده در تاریخچه: ${toPersianDigits(workAnalytics.activityLog.totalEntriesCount)} رویداد`,
-          `- مطالب پژوهشی استخراج‌شده غیرردشده: ${toPersianDigits(workAnalytics.researchOutputs.totalExtractedNonRejectedCount)} مورد`,
-          `- خروجی پژوهشی نهایی و مستقل: ${toPersianDigits(workAnalytics.researchOutputs.finalIndependentOutputsCount)} خروجی`,
-          `- گزارش‌های مدیریتی نهایی و مستقل: ${toPersianDigits(workAnalytics.managementReports.finalIndependentReportsCount)} گزارش`,
-          ''
-        );
+      const jsonRes = downloadExecutiveDashboardJsonV1(effectiveInputs, {
+        projection,
+        appliedFilterNote: sectionsLabel,
+      });
+      if (!jsonRes.ok) {
+        const errMsg = jsonRes.error || 'تولید بسته داده JSON با خطا مواجه شد.';
+        setReportPersistError(errMsg);
+        onNotify?.(errMsg, 'warning');
+        return;
+      }
+      const exportId = `EXP-${Date.now()}`;
+      const nextHistory = appendExportHistoryRecordPure(effectiveExportHistory, {
+        exportId,
+        fileName: jsonRes.fileName,
+        fileType: 'json',
+        exportScope: 'dashboard_management',
+        timestampIso: tsIso,
+        timestampDisplay: tsDisplay,
+        recordCount: projection.books.length,
+        appliedFiltersSummary: sectionsLabel,
+        status: 'success',
+      });
+      const histRes = await saveExecutiveExportHistory(nextHistory);
+      if (histRes.ok) {
+        setLoadedExportHistory(nextHistory);
       }
 
-      downloadComprehensiveDashboardDocx(lines.join('\n'), `${filePrefix}.docx`, reportTitle);
-      onNotify?.(`فایل ورد (Word) «${reportTitle}» با موفقیت دانلود شد.`, 'success');
-      return;
-    }
-
-    if (format === 'pdf') {
-      if (targetSection !== 'all') {
-        scrollToSection(targetSection);
+      const { records, savedRecord } = upsertRegistryReportPure(
+        effectiveFinalizedRegistry,
+        {
+          category: 'management_report',
+          title: reportTitle,
+          lifecycleStatus: 'final',
+          scope: 'dashboard_management',
+          appliedFiltersSummary: sectionsLabel,
+          timestampIso: tsIso,
+          timestampDisplay: tsDisplay,
+          initialVersion: {
+            exportedAtIso: tsIso,
+            exportedAtDisplay: tsDisplay,
+            fileName: jsonRes.fileName,
+            fileType: 'json',
+            recordCount: projection.books.length,
+            relatedExportId: exportId,
+          },
+        }
+      );
+      const saveRes = await saveFinalizedReportsRegistry(records);
+      if (!saveRes.ok) {
+        const errMsg = saveRes.error
+          ? `خطا در ذخیره بسته داده نهایی JSON (${savedRecord.reportId}) در دفتر کل محلی: ${saveRes.error}`
+          : `ذخیره بسته داده نهایی JSON (${savedRecord.reportId}) در دفتر کل محلی ناموفق بود؛ وضعیت آمار تغییر نکرد.`;
+        setReportPersistError(errMsg);
+        onNotify?.(errMsg, 'warning');
+        return;
       }
+      setLoadedFinalizedRegistry(records);
+      setNewReportTitle('');
+      setIsExportModalOpen(false);
       onNotify?.(
-        `پنجره چاپ و ذخیره PDF برای «${reportTitle}» باز شد (در مقصد چاپ گزینه Save as PDF را انتخاب کنید).`,
+        `بسته داده نهایی (${savedRecord.reportId}) برای «${sectionsLabel}» صادر و ثبت شد.`,
         'success'
       );
-      window.setTimeout(() => {
-        window.print();
-      }, 150);
+    } finally {
+      setReportActionBusy(false);
     }
   };
 
@@ -1095,54 +1536,25 @@ export const StatisticsAndReportsRouteView: React.FC<
       className="max-w-6xl mx-auto px-3 sm:px-6 pt-3 pb-14 space-y-6 text-[#332218]"
     >
       {/* سرصفحه مسیر مستقل آمار و گزارش‌ها */}
-      <header className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 border-b border-[#E5D7C6] pb-4">
-        <div className="space-y-1">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-[#E5D7C6] pb-4">
+        <div className="space-y-1 min-w-0">
           <div className="text-xs text-[#78604E]">
-            مرکز اسناد و کتابخانه · آمار زنده، نمودارهای تعاملی و گزارش‌های تفصیلی سه‌محوره
+            مرکز اسناد و کتابخانه · آمار زنده و گزارش‌های مدیریتی
           </div>
           <h2 className="text-xl sm:text-2xl font-bold text-[#332218]">
             آمار و گزارش‌های تفصیلی
           </h2>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            data-testid="top-export-excel-btn"
-            onClick={() => handleExportDetailedSection('all', 'excel')}
-            className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#4D8B68] hover:bg-[#3D7254] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
-          >
-            <Download className="w-3.5 h-3.5 shrink-0" />
-            <span>خروجی اکسل (Excel)</span>
-          </button>
-          <button
-            type="button"
-            data-testid="top-export-word-btn"
-            onClick={() => handleExportDetailedSection('all', 'word')}
-            className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#5279A8] hover:bg-[#41638B] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
-          >
-            <Download className="w-3.5 h-3.5 shrink-0" />
-            <span>خروجی ورد (Word)</span>
-          </button>
-          <button
-            type="button"
-            data-testid="top-export-pdf-btn"
-            onClick={() => handleExportDetailedSection('all', 'pdf')}
-            className="min-h-[42px] px-3.5 py-2 rounded-xl bg-[#85729E] hover:bg-[#6E5C85] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
-          >
-            <Download className="w-3.5 h-3.5 shrink-0" />
-            <span>خروجی PDF / چاپ</span>
-          </button>
-          <button
-            type="button"
-            data-testid="back-to-dashboard-btn"
-            onClick={onBackToDashboard}
-            className="min-h-[42px] px-4 py-2 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs sm:text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer transition-colors shrink-0"
-          >
-            <ArrowRight className="w-4 h-4 shrink-0" />
-            <span>بازگشت به داشبورد</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          data-testid="back-to-dashboard-btn"
+          onClick={onBackToDashboard}
+          className="w-full sm:w-auto min-h-[42px] px-4 py-2 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs sm:text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer transition-colors shrink-0"
+        >
+          <ArrowRight className="w-4 h-4 shrink-0" />
+          <span>بازگشت به داشبورد</span>
+        </button>
       </header>
 
       {/* وضعیت بارگذاری اولیه بدون نمایش عدد ۰ جعلی */}
@@ -1253,86 +1665,26 @@ export const StatisticsAndReportsRouteView: React.FC<
               </div>
             </div>
 
-            {/* جستجوی یکپارچه ۸حوزه‌ای (تمام‌عرض در بالای صفحه؛ پرسش‌های آماری زنده به پایین صفحه منتقل شد) */}
+            {/* جستجوی یکپارچه ۸حوزه‌ای */}
             <div className="bg-white border border-[#E5D7C6] rounded-xl p-3.5 sm:p-4 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <label
                   htmlFor="statistics-unified-search-input"
                   className="flex items-center gap-1.5 text-xs font-bold text-[#332218]"
                 >
-                  <Search className="w-4 h-4 text-[#6B3E26]" />
+                  <Search className="w-4 h-4 text-[#6B3E26] shrink-0" />
                   <span>جستجوی یکپارچه در ۸ حوزه داده‌ای</span>
                 </label>
-
-                <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                  <span className="text-[#78604E] ml-1">خروجی مستقیم بخش انتخابی:</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleExportDetailedSection(
-                        searchScope === 'books'
-                          ? 'library'
-                          : searchScope === 'martyrs' || searchScope === 'relations'
-                          ? 'martyrs'
-                          : searchScope === 'work' ||
-                            searchScope === 'activity' ||
-                            searchScope === 'research' ||
-                            searchScope === 'reports'
-                          ? 'work'
-                          : 'all',
-                        'excel'
-                      )
-                    }
-                    className="px-2.5 py-1 rounded-md bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    <Download className="w-3 h-3" />
-                    <span>اکسل</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleExportDetailedSection(
-                        searchScope === 'books'
-                          ? 'library'
-                          : searchScope === 'martyrs' || searchScope === 'relations'
-                          ? 'martyrs'
-                          : searchScope === 'work' ||
-                            searchScope === 'activity' ||
-                            searchScope === 'research' ||
-                            searchScope === 'reports'
-                          ? 'work'
-                          : 'all',
-                        'word'
-                      )
-                    }
-                    className="px-2.5 py-1 rounded-md bg-[#5279A8] hover:bg-[#41638B] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    <Download className="w-3 h-3" />
-                    <span>ورد (Word)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleExportDetailedSection(
-                        searchScope === 'books'
-                          ? 'library'
-                          : searchScope === 'martyrs' || searchScope === 'relations'
-                          ? 'martyrs'
-                          : searchScope === 'work' ||
-                            searchScope === 'activity' ||
-                            searchScope === 'research' ||
-                            searchScope === 'reports'
-                          ? 'work'
-                          : 'all',
-                        'pdf'
-                      )
-                    }
-                    className="px-2.5 py-1 rounded-md bg-[#85729E] hover:bg-[#6E5C85] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    <Download className="w-3 h-3" />
-                    <span>PDF</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById('stat-work-final-reports-panel');
+                    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }}
+                  className="text-[11px] font-bold text-[#6B3E26] hover:underline cursor-pointer"
+                >
+                  دریافت خروجی‌ها در انتهای صفحه ↓
+                </button>
               </div>
 
               <div className="flex flex-wrap gap-1.5">
@@ -1593,49 +1945,25 @@ export const StatisticsAndReportsRouteView: React.FC<
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 text-xs">
+              <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2 text-xs">
                 {onSelectDrilldown && (
                   <>
                     <button
                       type="button"
                       onClick={() => triggerDrilldown('library_all')}
-                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer text-center"
                     >
                       فهرست کامل کتاب‌ها
                     </button>
                     <button
                       type="button"
                       onClick={() => triggerDrilldown('library_remaining')}
-                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer text-center"
                     >
                       در حال بررسی و شروع‌نشده
                     </button>
                   </>
                 )}
-                <button
-                  type="button"
-                  onClick={() => handleExportDetailedSection('library', 'excel')}
-                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>اکسل</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExportDetailedSection('library', 'word')}
-                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#5279A8] hover:bg-[#41638B] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>ورد</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExportDetailedSection('library', 'pdf')}
-                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#85729E] hover:bg-[#6E5C85] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>PDF</span>
-                </button>
               </div>
             </div>
 
@@ -1828,10 +2156,6 @@ export const StatisticsAndReportsRouteView: React.FC<
                       </span>
                     </div>
                   </div>
-
-                  <div className="mt-2 text-[11px] text-[#5C4636] text-center">
-                    با اشاره یا کلیک روی هر بخش، جزئیات و فهرست کتاب‌های همان گروه موضوعی نمایش داده می‌شود.
-                  </div>
                 </div>
 
                 {/* جدول و راهنمای تعاملی گروه‌های موضوعی */}
@@ -1915,7 +2239,7 @@ export const StatisticsAndReportsRouteView: React.FC<
                   {(liveCategoryAnalytics.booksByCategoryCode.get(selectedCategoryCode) || [])
                     .length === 0 ? (
                     <p className="text-[#5C4636]">
-                      در حال حاضر سهم این گروه بر پایه شمارش فیزیکی قفسه‌ها در شیت «توضیحات دسته» نمایش داده شده است. با ثبت قفسه یا گروه موضوعی برای هر کتاب در بخش «کتابخانه»، نام آن کتاب به‌صورت زنده در این فهرست قرار می‌گیرد.
+                      هنوز کتابی در پرونده‌های تفکیکی این گروه ثبت نشده است.
                     </p>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -2116,19 +2440,16 @@ export const StatisticsAndReportsRouteView: React.FC<
               </div>
             </div>
 
-            <div className="rounded-xl bg-[#FAF5EE] border border-[#EFE4D6] p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs text-[#5C4636] tabular-nums">
+            <div className="rounded-xl bg-[#FAF5EE] border border-[#EFE4D6] p-3.5 flex flex-wrap items-center justify-between gap-2 text-xs text-[#5C4636] tabular-nums leading-relaxed">
               <span>
-                عناوین یکتای کاتالوگ: <strong>{toPersianDigits(lib.exactUniqueCatalogTitlesCount)}</strong> · گروه‌های تشابه عنوان:{' '}
+                عناوین یکتای فهرست کتابخانه: <strong>{toPersianDigits(lib.exactUniqueCatalogTitlesCount)}</strong> · گروه‌های تشابه عنوان:{' '}
                 <strong>{toPersianDigits(lib.similarTitleGroups.length)}</strong> · نسخه‌های فیزیکی CP:{' '}
-                <strong>{toPersianDigits(lib.registeredPhysicalCopiesCount)}</strong> · افراز مدیریتی بدون هم‌پوشانی (تکمیل بدون تیکت / تیکت باز / بررسی‌نشده):{' '}
+                <strong>{toPersianDigits(lib.registeredPhysicalCopiesCount)}</strong> · تفکیک وضعیت کتاب‌ها (تکمیل / تیکت باز / بررسی‌نشده):{' '}
                 <strong>
                   {toPersianDigits(part.completedWithoutOpenTicketCount)} /{' '}
                   {toPersianDigits(part.openBookTicketCount)} /{' '}
                   {toPersianDigits(part.unreviewedCount)}
                 </strong>
-              </span>
-              <span className="text-[11px] text-[#78604E]">
-                «فاقد ارتباط ثبت‌شده» لزوماً به معنای «بررسی‌شده و فاقد ارتباط با شهید» نیست.
               </span>
             </div>
           </section>
@@ -2155,56 +2476,32 @@ export const StatisticsAndReportsRouteView: React.FC<
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 text-xs">
+              <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2 text-xs">
                 {onSelectDrilldown && (
                   <>
                     <button
                       type="button"
                       onClick={() => triggerDrilldown('martyrs_confirmed')}
-                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer text-center"
                     >
                       شهدای احرازشده
                     </button>
                     <button
                       type="button"
                       onClick={() => triggerDrilldown('martyrs_needs_verification')}
-                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer text-center"
                     >
                       نیازمند بررسی هویت
                     </button>
                     <button
                       type="button"
                       onClick={() => triggerDrilldown('relations_needs_review')}
-                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer"
+                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#E5D7C6] hover:bg-[#FAF5EE] text-[#332218] font-medium cursor-pointer text-center"
                     >
                       ارتباطات در انتظار بررسی
                     </button>
                   </>
                 )}
-                <button
-                  type="button"
-                  onClick={() => handleExportDetailedSection('martyrs', 'excel')}
-                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>اکسل</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExportDetailedSection('martyrs', 'word')}
-                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#5279A8] hover:bg-[#41638B] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>ورد</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExportDetailedSection('martyrs', 'pdf')}
-                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#85729E] hover:bg-[#6E5C85] text-white font-bold inline-flex items-center gap-1 cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>PDF</span>
-                </button>
               </div>
             </div>
 
@@ -2441,17 +2738,13 @@ export const StatisticsAndReportsRouteView: React.FC<
                 data-testid="statistics-relations-subblock"
                 className="rounded-xl border border-[#EFE4D6] p-4 space-y-2 text-xs sm:text-sm"
               >
-                <div className="flex items-center justify-between pb-2 border-b border-[#F2E9DE]">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[#F2E9DE]">
                   <h4 className="text-sm font-bold text-[#332218]">
                     ارتباط کتاب و شهید
                   </h4>
                   <span className="text-[11px] text-[#78604E]">
                     واحد: زوج کتاب و شهید ({toPersianDigits(rels.totalRawLinkRows)} ردیف خام)
                   </span>
-                </div>
-
-                <div className="rounded-lg bg-[#FAF5EE] border border-[#EFE4D6] p-2.5 text-[11px] text-[#5C4636] leading-relaxed">
-                  برچسب «قطعی» یا پژوهش اولیه در فایل منبع به‌صورت خودکار به «تأیید کارشناسی صریح» تبدیل نمی‌شود و این دو وضعیت کاملاً جداگانه گزارش می‌شوند.
                 </div>
 
                 <div className="space-y-1">
@@ -2577,11 +2870,11 @@ export const StatisticsAndReportsRouteView: React.FC<
           >
             <div className="flex flex-col gap-3 border-b border-[#EFE4D6] pb-3.5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2.5 min-w-0">
                   <div className="w-9 h-9 rounded-xl bg-[#FAF5EE] border border-[#E5D7C6] text-[#6B3E26] flex items-center justify-center shrink-0">
                     <ClipboardList className="w-4 h-4" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-[11px] font-semibold text-[#78604E]">
                       بخش سوم · صف پیگیری، تاریخچه فعالیت، پژوهش و گزارش‌های مدیریتی
                     </div>
@@ -2591,33 +2884,16 @@ export const StatisticsAndReportsRouteView: React.FC<
                   </div>
                 </div>
 
-                {/* دکمه‌های خروجی مستقیم بخش سوم (اکسل / ورد / PDF) */}
-                <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => handleExportDetailedSection('work', 'excel')}
-                    className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold inline-flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>اکسل</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExportDetailedSection('work', 'word')}
-                    className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#5279A8] hover:bg-[#41638B] text-white font-bold inline-flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>ورد</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExportDetailedSection('work', 'pdf')}
-                    className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#85729E] hover:bg-[#6E5C85] text-white font-bold inline-flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>PDF</span>
-                  </button>
-                </div>
+                {/* دکمه فشرده مبنای محاسبه ارقام */}
+                <button
+                  type="button"
+                  data-testid="open-work-calculation-basis-btn"
+                  onClick={() => setIsWorkBasisModalOpen(true)}
+                  className="w-full sm:w-auto min-h-[38px] px-3.5 py-1.5 rounded-lg bg-[#FAF5EE] border border-[#E5D7C6] hover:border-[#6B3E26] text-[#6B3E26] text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors shrink-0"
+                >
+                  <Calculator className="w-3.5 h-3.5 shrink-0" />
+                  <span>مبنای محاسبه ارقام</span>
+                </button>
               </div>
 
               {onSelectDrilldown && (
@@ -2789,14 +3065,9 @@ export const StatisticsAndReportsRouteView: React.FC<
                 className="rounded-xl border border-[#EFE4D6] p-4 space-y-3"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h4 className="text-sm font-bold text-[#332218]">
-                      تفکیک موضوعات کاری مستقل بین کتابخانه، شهدا و ارتباطات
-                    </h4>
-                    <p className="text-[11px] text-[#78604E] mt-0.5">
-                      موضوعات مرکب جداشده با «؛» در {toPersianDigits(topics.compoundRecordsCount)} پرونده صف به‌صورت مستقل شمرده شده‌اند تا هیچ کاری پنهان نماند.
-                    </p>
-                  </div>
+                  <h4 className="text-sm font-bold text-[#332218]">
+                    تفکیک موضوعات کاری مستقل بین کتابخانه، شهدا و ارتباطات
+                  </h4>
                   <span className="text-xs font-bold text-[#6B3E26]">
                     جمع موضوعات صف: {toPersianDigits(topics.totalTopicsCount)}
                   </span>
@@ -2854,15 +3125,10 @@ export const StatisticsAndReportsRouteView: React.FC<
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#F2E9DE] pb-2.5">
                 <div className="flex items-center gap-2">
-                  <History className="w-4 h-4 text-[#6B3E26]" />
-                  <div>
-                    <h4 className="text-sm font-bold text-[#332218]">
-                      فعالیت‌های ثبت‌شده در تاریخچه ({toPersianDigits(workAnalytics.activityLog.totalEntriesCount)} رویداد)
-                    </h4>
-                    <p className="text-[11px] text-[#78604E]">
-                      مستقل از صف پیگیری؛ ثبت قفسه یا یادداشت تیکت‌های PV را خودکار نمی‌بندد و درصد صف را تغییر نمی‌دهد.
-                    </p>
-                  </div>
+                  <History className="w-4 h-4 text-[#6B3E26] shrink-0" />
+                  <h4 className="text-sm font-bold text-[#332218]">
+                    فعالیت‌های ثبت‌شده در تاریخچه ({toPersianDigits(workAnalytics.activityLog.totalEntriesCount)} رویداد)
+                  </h4>
                 </div>
 
                 {onSelectDrilldown && (
@@ -3135,27 +3401,20 @@ export const StatisticsAndReportsRouteView: React.FC<
                     </strong>
                   </button>
                 </div>
-
-                <div className="pt-2 border-t border-[#F2E9DE] text-[11px] text-[#78604E]">
-                  نسخه‌های تکراری تجمیع‌شده: {toPersianDigits(workAnalytics.researchOutputs.duplicateVersionsCollapsedCount)} نسخه · پیش‌نویس و موارد بررسی‌نشده در شمارش خروجی نهایی مستقل وارد نمی‌شوند.
-                </div>
               </div>
 
-              {/* گزارش‌های مدیریتی نهایی و مستقل */}
+              {/* گزارش‌های مدیریتی نهایی و مستقل (مرکز یکپارچه تمام خروجی‌ها) */}
               <div
+                id="stat-work-final-reports-panel"
                 data-testid="stat-work-final-reports"
+                data-registry-key="book_executive_finalized_reports_v1"
                 className="rounded-xl border border-[#EFE4D6] p-4 space-y-3"
               >
-                <div className="flex items-center justify-between border-b border-[#F2E9DE] pb-2">
-                  <div>
-                    <h4 className="text-sm font-bold text-[#332218]">
-                      گزارش‌های مدیریتی (دفتر کل محلی نهایی)
-                    </h4>
-                    <div className="text-[11px] text-[#78604E]">
-                      منبع مستقل: book_executive_finalized_reports_v1
-                    </div>
-                  </div>
-                  <span className="text-lg font-bold text-[#6B3E26]">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#F2E9DE] pb-2">
+                  <h4 className="text-sm font-bold text-[#332218]">
+                    گزارش‌های مدیریتی (دفتر کل محلی نهایی)
+                  </h4>
+                  <span className="text-base sm:text-lg font-bold text-[#6B3E26]">
                     {toPersianDigits(workAnalytics.managementReports.finalIndependentReportsCount)} گزارش نهایی
                   </span>
                 </div>
@@ -3168,7 +3427,7 @@ export const StatisticsAndReportsRouteView: React.FC<
                     className={interactiveRowClass(!onSelectDrilldown)}
                   >
                     <span className="text-[#332218] font-medium">گزارش‌های مدیریتی نهایی و مستقل</span>
-                    <strong className="text-[#6B3E26] inline-flex items-center gap-1">
+                    <strong className="text-[#6B3E26] inline-flex items-center gap-1 shrink-0">
                       {toPersianDigits(workAnalytics.managementReports.finalIndependentReportsCount)} گزارش
                       <ChevronLeft className="w-3.5 h-3.5 text-[#6B3E26]" />
                     </strong>
@@ -3181,13 +3440,13 @@ export const StatisticsAndReportsRouteView: React.FC<
                     className={interactiveRowClass(!onSelectDrilldown)}
                   >
                     <span className="text-[#9C541C]">پیش‌نویس‌های کنارگذشته‌شده از آمار نهایی</span>
-                    <strong className="text-[#9C541C] inline-flex items-center gap-1">
+                    <strong className="text-[#9C541C] inline-flex items-center gap-1 shrink-0">
                       {toPersianDigits(workAnalytics.managementReports.registryDraftsCount)} پیش‌نویس
                       <ChevronLeft className="w-3.5 h-3.5 text-[#9C541C]" />
                     </strong>
                   </button>
 
-                  <div className="py-1.5 px-2.5 flex items-center justify-between text-xs text-[#5C4636]">
+                  <div className="py-1.5 px-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-[#5C4636]">
                     <span>تفکیک فرمت گزارش‌های نهایی (اکسل / بسته داده)</span>
                     <strong>
                       {toPersianDigits(workAnalytics.managementReports.byFileType.excel)} اکسل ·{' '}
@@ -3195,7 +3454,7 @@ export const StatisticsAndReportsRouteView: React.FC<
                     </strong>
                   </div>
 
-                  <div className="py-1.5 px-2.5 flex items-center justify-between text-xs text-[#5C4636]">
+                  <div className="py-1.5 px-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-[#5C4636]">
                     <span>نسخه‌های ثبت‌شده / دریافت‌های خام تاریخچه</span>
                     <strong>
                       {toPersianDigits(workAnalytics.managementReports.registryTotalVersionsCount)} نسخه ·{' '}
@@ -3204,8 +3463,11 @@ export const StatisticsAndReportsRouteView: React.FC<
                   </div>
                 </div>
 
-                {/* ابزار ایجاد گزارش نهایی، پیش‌نویس یا نسخه جدید روی گزارش موجود */}
+                {/* مرکز متمرکز صدور خروجی‌های سامانه */}
                 <div className="rounded-lg bg-[#FAF5EE] border border-[#EFE4D6] p-3 space-y-2.5">
+                  <div className="text-xs font-bold text-[#6B3E26]">
+                    مرکز صدور و دریافت خروجی‌های گزارش مدیریتی
+                  </div>
                   <input
                     type="text"
                     data-testid="new-report-title-input"
@@ -3219,38 +3481,40 @@ export const StatisticsAndReportsRouteView: React.FC<
                       type="button"
                       disabled={reportActionBusy}
                       data-testid="create-final-excel-report-btn"
-                      onClick={() => void handleCreateRegistryReport('final_excel')}
-                      className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#6B3E26] hover:bg-[#56311E] text-white font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                      onClick={() => openCentralExportModal('excel')}
+                      className="min-h-[40px] px-3 py-1.5 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                     >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>ثبت و دریافت اکسل نهایی</span>
+                      <Download className="w-3.5 h-3.5 shrink-0" />
+                      <span>دریافت خروجی اکسل (Excel)</span>
                     </button>
                     <button
                       type="button"
                       disabled={reportActionBusy}
-                      onClick={() => handleExportDetailedSection('all', 'word')}
-                      className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#5279A8] hover:bg-[#41638B] text-white font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                      data-testid="create-final-word-report-btn"
+                      onClick={() => openCentralExportModal('word')}
+                      className="min-h-[40px] px-3 py-1.5 rounded-lg bg-[#5279A8] hover:bg-[#41638B] text-white font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                     >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>دریافت گزارش ورد (Word)</span>
+                      <Download className="w-3.5 h-3.5 shrink-0" />
+                      <span>دریافت خروجی ورد (Word)</span>
                     </button>
                     <button
                       type="button"
                       disabled={reportActionBusy}
-                      onClick={() => handleExportDetailedSection('all', 'pdf')}
-                      className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#85729E] hover:bg-[#6E5C85] text-white font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                      data-testid="create-final-pdf-report-btn"
+                      onClick={() => openCentralExportModal('pdf')}
+                      className="min-h-[40px] px-3 py-1.5 rounded-lg bg-[#85729E] hover:bg-[#6E5C85] text-white font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                     >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>دریافت گزارش PDF / چاپ</span>
+                      <Download className="w-3.5 h-3.5 shrink-0" />
+                      <span>دریافت خروجی PDF</span>
                     </button>
                     <button
                       type="button"
                       disabled={reportActionBusy}
                       data-testid="create-final-json-report-btn"
-                      onClick={() => void handleCreateRegistryReport('final_json')}
-                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#6B3E26] bg-white hover:bg-[#FAF5EE] text-[#6B3E26] font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                      onClick={() => openCentralExportModal('json')}
+                      className="min-h-[40px] px-3 py-1.5 rounded-lg border border-[#6B3E26] bg-white hover:bg-[#FAF5EE] text-[#6B3E26] font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                     >
-                      <Download className="w-3.5 h-3.5" />
+                      <Download className="w-3.5 h-3.5 shrink-0" />
                       <span>ثبت بسته داده نهایی (JSON)</span>
                     </button>
                     <button
@@ -3258,9 +3522,9 @@ export const StatisticsAndReportsRouteView: React.FC<
                       disabled={reportActionBusy}
                       data-testid="create-draft-report-btn"
                       onClick={() => void handleCreateRegistryReport('draft')}
-                      className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#D8C5B0] bg-white hover:bg-[#FAF5EE] text-[#5C4636] font-medium inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                      className="min-h-[40px] px-3 py-1.5 rounded-lg border border-[#D8C5B0] bg-white hover:bg-[#FAF5EE] text-[#5C4636] font-medium inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                     >
-                      <FilePlus2 className="w-3.5 h-3.5" />
+                      <FilePlus2 className="w-3.5 h-3.5 shrink-0" />
                       <span>ذخیره پیش‌نویس</span>
                     </button>
                     {effectiveFinalizedRegistry.some(
@@ -3272,9 +3536,9 @@ export const StatisticsAndReportsRouteView: React.FC<
                         disabled={reportActionBusy}
                         data-testid="append-version-latest-report-btn"
                         onClick={() => void handleAppendNewVersionToLatestReport()}
-                        className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#4D8B68] bg-[#F1F8F3] hover:bg-[#E4F2E8] text-[#2E6F40] font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                        className="min-h-[40px] px-3 py-1.5 rounded-lg border border-[#4D8B68] bg-[#F1F8F3] hover:bg-[#E4F2E8] text-[#2E6F40] font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                       >
-                        <RefreshCw className="w-3.5 h-3.5" />
+                        <RefreshCw className="w-3.5 h-3.5 shrink-0" />
                         <span>صدور نسخه جدید روی آخرین گزارش</span>
                       </button>
                     )}
@@ -3461,6 +3725,203 @@ export const StatisticsAndReportsRouteView: React.FC<
             )}
           </section>
         </>
+      )}
+
+      {/* پنجره انتخاب بخش‌های گزارش هنگام دریافت خروجی (اکسل / ورد / PDF / JSON) */}
+      {isExportModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="انتخاب بخش‌های گزارش خروجی"
+          data-testid="export-section-picker-modal"
+          className="fixed inset-0 z-50 bg-[#231710]/55 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => !reportActionBusy && setIsExportModalOpen(false)}
+        >
+          <div
+            className="w-full sm:max-w-lg max-h-[90dvh] bg-[#FDF8F2] border border-[#E2D2BE] rounded-t-3xl sm:rounded-2xl shadow-xl flex flex-col overflow-hidden text-[#332218]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 sm:px-5 py-3.5 bg-white border-b border-[#E2D2BE] flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold text-[#78604E]">
+                  فرمت انتخابی: {EXPORT_FORMAT_LABELS[pendingExportFormat]}
+                </div>
+                <h3 className="text-sm sm:text-base font-bold text-[#332218]">
+                  کدام بخش‌ها در خروجی لحاظ شوند؟
+                </h3>
+              </div>
+              <button
+                type="button"
+                disabled={reportActionBusy}
+                onClick={() => setIsExportModalOpen(false)}
+                aria-label="بستن پنجره انتخاب خروجی"
+                className="min-h-[40px] min-w-[40px] rounded-xl bg-[#FAF5EE] hover:bg-[#EFE4D6] text-[#332218] inline-flex items-center justify-center border border-[#E2D2BE] cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-3 text-xs">
+              <button
+                type="button"
+                data-testid="export-select-comprehensive-btn"
+                onClick={selectAllComprehensiveSections}
+                className={`w-full min-h-[42px] px-3.5 py-2 rounded-xl border font-bold flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                  isAllSectionsSelected
+                    ? 'bg-[#6B3E26] border-[#6B3E26] text-white'
+                    : 'bg-white border-[#D8C5B0] text-[#6B3E26] hover:bg-[#FAF5EE]'
+                }`}
+              >
+                <span>گزارش جامع (انتخاب همه ۳ بخش)</span>
+                <span className="inline-flex items-center gap-1 text-[11px]">
+                  {isAllSectionsSelected && <Check className="w-4 h-4" />}
+                  <span>{isAllSectionsSelected ? 'انتخاب‌شده' : 'انتخاب همه'}</span>
+                </span>
+              </button>
+
+              <div className="space-y-2">
+                {EXPORT_SECTION_META.map((sec) => {
+                  const checked = selectedExportSections[sec.key];
+                  return (
+                    <label
+                      key={sec.key}
+                      data-testid={`export-checkbox-${sec.key}`}
+                      className={`w-full rounded-xl border p-3 flex items-start gap-2.5 cursor-pointer transition-colors ${
+                        checked
+                          ? 'bg-white border-[#6B3E26] shadow-2xs'
+                          : 'bg-[#FAF5EE] border-[#E5D7C6] opacity-85 hover:opacity-100'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleExportSection(sec.key)}
+                        className="mt-0.5 w-4 h-4 accent-[#6B3E26] shrink-0 cursor-pointer"
+                      />
+                      <div className="min-w-0 space-y-0.5">
+                        <div className="font-bold text-[#332218]">{sec.title}</div>
+                        <div className="text-[11px] text-[#6E5846] leading-snug">
+                          {sec.description}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="pt-1">
+                <label className="block text-[11px] font-bold text-[#5C4636] mb-1">
+                  عنوان فایل و گزارش (اختیاری):
+                </label>
+                <input
+                  type="text"
+                  value={newReportTitle}
+                  onChange={(e) => setNewReportTitle(e.target.value)}
+                  placeholder="در صورت خالی بودن، عنوان خودکار درج می‌شود..."
+                  className="w-full min-h-[38px] px-3 py-1.5 rounded-lg border border-[#D8C5B0] bg-white text-xs text-[#332218]"
+                />
+              </div>
+            </div>
+
+            <div className="px-4 sm:px-5 py-3 bg-white border-t border-[#E2D2BE] grid grid-cols-2 gap-2 text-xs">
+              <button
+                type="button"
+                disabled={reportActionBusy}
+                onClick={() => setIsExportModalOpen(false)}
+                className="min-h-[42px] px-3 py-2 rounded-xl border border-[#D8C5B0] bg-[#FAF5EE] hover:bg-[#EFE4D6] text-[#332218] font-bold cursor-pointer"
+              >
+                انصراف
+              </button>
+              <button
+                type="button"
+                disabled={reportActionBusy || checkedSectionKeys.length === 0}
+                data-testid="confirm-central-export-btn"
+                onClick={() => void executeSelectedExport()}
+                className="min-h-[42px] px-3 py-2 rounded-xl bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Download className="w-4 h-4 shrink-0" />
+                <span>
+                  {reportActionBusy
+                    ? 'در حال تولید...'
+                    : `صدور ${EXPORT_FORMAT_LABELS[pendingExportFormat]}`}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* پنجره شفاف‌سازی مبنای محاسبه ارقام بخش سوم */}
+      {isWorkBasisModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="مبنای محاسبه ارقام وضعیت کار و خروجی‌ها"
+          data-testid="work-calculation-basis-modal"
+          className="fixed inset-0 z-50 bg-[#231710]/55 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setIsWorkBasisModalOpen(false)}
+        >
+          <div
+            className="w-full sm:max-w-lg max-h-[90dvh] bg-[#FDF8F2] border border-[#E2D2BE] rounded-t-3xl sm:rounded-2xl shadow-xl flex flex-col overflow-hidden text-[#332218]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 sm:px-5 py-3.5 bg-white border-b border-[#E2D2BE] flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <Calculator className="w-4 h-4 text-[#6B3E26] shrink-0" />
+                <h3 className="text-sm sm:text-base font-bold text-[#332218]">
+                  مبنای محاسبه ارقام وضعیت کار و خروجی‌ها
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsWorkBasisModalOpen(false)}
+                aria-label="بستن پنجره مبنای محاسبه"
+                className="min-h-[40px] min-w-[40px] rounded-xl bg-[#FAF5EE] hover:bg-[#EFE4D6] text-[#332218] inline-flex items-center justify-center border border-[#E2D2BE] cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-3 text-xs leading-relaxed">
+              <div className="bg-white border border-[#E5D7C6] rounded-xl p-3 space-y-1">
+                <div className="font-bold text-[#6B3E26]">
+                  ۱. تفکیک پرونده‌های صف ({toPersianDigits(workAnalytics.reviewQueueTotalCount)}) به موضوعات مستقل ({toPersianDigits(topics.totalTopicsCount)})
+                </div>
+                <p className="text-[#5C4636]">
+                  در صف پیگیری، {toPersianDigits(topics.compoundRecordsCount)} پرونده دارای چند موضوع کاری جداشده با علامت «؛» هستند؛ بنابراین هر موضوع به‌صورت مستقل شمرده می‌شود تا هیچ کار بازی در زیرمجموعه یک پرونده پنهان نماند.
+                </p>
+              </div>
+
+              <div className="bg-white border border-[#E5D7C6] rounded-xl p-3 space-y-1">
+                <div className="font-bold text-[#2E6F40]">
+                  ۲. مطالب استخراج‌شده ({toPersianDigits(workAnalytics.researchOutputs.totalExtractedNonRejectedCount)}) در برابر خروجی پژوهشی نهایی ({toPersianDigits(workAnalytics.researchOutputs.finalIndependentOutputsCount)})
+                </div>
+                <p className="text-[#5C4636]">
+                  رقم اول شامل تمام بندهای استخراج‌شده غیرردشده است. برای محاسبه خروجی پژوهشی نهایی مستقل، پیش‌نویس‌ها کنار گذاشته شده و {toPersianDigits(workAnalytics.researchOutputs.duplicateVersionsCollapsedCount)} نسخه تکراریِ متعلق به یک سند تجمیع می‌شوند.
+                </p>
+              </div>
+
+              <div className="bg-white border border-[#E5D7C6] rounded-xl p-3 space-y-1">
+                <div className="font-bold text-[#332218]">
+                  ۳. گزارش‌های مدیریتی مستقل و تاریخچه فعالیت
+                </div>
+                <p className="text-[#5C4636]">
+                  گزارش‌های مدیریتی از دفتر کل محلی مستقل (شناسه: <span dir="ltr" className="font-mono">book_executive_finalized_reports_v1</span>) خوانده می‌شوند؛ نسخه‌های متعدد یک گزارش به‌عنوان یک گزارش نهایی یکتا محاسبه شده و پیش‌نویس‌ها وارد شمارش نهایی نمی‌شوند. تاریخچه فعالیت نیز به‌طور مستقل رویدادهای واقعی کاربر را ثبت می‌کند.
+                </p>
+              </div>
+            </div>
+
+            <div className="px-4 sm:px-5 py-3 bg-white border-t border-[#E2D2BE] flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsWorkBasisModalOpen(false)}
+                className="min-h-[38px] px-4 py-1.5 rounded-xl bg-[#6B3E26] hover:bg-[#56311E] text-white text-xs font-bold cursor-pointer"
+              >
+                بستن
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
