@@ -1,5 +1,5 @@
-export const OFFLINE_SW_CACHE_NAME = 'markaz-asnad-main-book-v15';
-export const OFFLINE_SW_SCRIPT_URL = './sw.js?v=15';
+export const OFFLINE_SW_CACHE_NAME = 'markaz-asnad-main-book-v16';
+export const OFFLINE_SW_SCRIPT_URL = './sw.js?v=16';
 export const LAST_GITHUB_SYNC_STORAGE_KEY = 'markaz_last_github_sync_fa';
 
 export interface GitHubSyncResult {
@@ -265,7 +265,7 @@ export async function performManualGitHubSync(
           leaseDurationMs: 45000
         });
 
-        if (lockRes && !lockRes.ok) {
+        if (lockRes && !lockRes.ok && lockRes.error !== 'VERSION_MISMATCH') {
           window.clearTimeout(timeoutId);
           return {
             ok: false,
@@ -276,21 +276,23 @@ export async function performManualGitHubSync(
           };
         }
 
-        if (lockRes && lockRes.candidateCacheName) {
-          stagingCacheName = lockRes.candidateCacheName;
-        }
-        lockAcquired = true;
-
-        // راه‌اندازی ضربان قلب تمدید Lease در طول واکشی منابع سنگین
-        heartbeatTimer = window.setInterval(() => {
-          if (swTargetWorker && lockAcquired) {
-            sendSwMessage(swTargetWorker, {
-              type: 'RENEW_UPDATE_LEASE',
-              operationId,
-              additionalMs: 30000
-            }).catch(() => {});
+        if (lockRes && lockRes.ok) {
+          if (lockRes.candidateCacheName) {
+            stagingCacheName = lockRes.candidateCacheName;
           }
-        }, 8000);
+          lockAcquired = true;
+
+          // راه‌اندازی ضربان قلب تمدید Lease در طول واکشی منابع سنگین
+          heartbeatTimer = window.setInterval(() => {
+            if (swTargetWorker && lockAcquired) {
+              sendSwMessage(swTargetWorker, {
+                type: 'RENEW_UPDATE_LEASE',
+                operationId,
+                additionalMs: 30000
+              }).catch(() => {});
+            }
+          }, 8000);
+        }
       }
     }
 
@@ -550,9 +552,9 @@ export async function performManualGitHubSync(
     // مرحله ۳: بررسی و به‌روزرسانی چرخه Service Worker
     let swUpdatedAndActivated = false;
     if ('serviceWorker' in navigator) {
-      const reg =
-        (await navigator.serviceWorker.getRegistration()) ||
-        (await navigator.serviceWorker.register(OFFLINE_SW_SCRIPT_URL, { updateViaCache: 'none' }));
+      const reg = await navigator.serviceWorker.register(OFFLINE_SW_SCRIPT_URL, {
+        updateViaCache: 'none'
+      });
 
       await reg.update();
 
@@ -586,6 +588,12 @@ export async function performManualGitHubSync(
         reg.waiting.postMessage({ type: 'SKIP_WAITING' });
         swUpdatedAndActivated = await controllerChangedPromise;
       }
+
+      const refreshedReg = await navigator.serviceWorker.getRegistration();
+      swTargetWorker =
+        navigator.serviceWorker.controller ||
+        refreshedReg?.active ||
+        swTargetWorker;
     }
 
     // مرحله ۴: تأیید پس از FINALIZE از مسیر عادی Service Worker و رول‌بک در صورت شکست

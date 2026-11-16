@@ -533,8 +533,8 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
           notes: editBookNotes.trim(),
           relatedMartyrs: existingAudit?.relatedMartyrs,
           excludedMartyrs: existingAudit?.excludedMartyrs,
-          expertApproved: existingAudit?.expertApproved,
-          needsReview: existingAudit?.needsReview,
+          expertApproved: editBookPhysical === 'verified',
+          needsReview: editBookPhysical === 'review',
           backupSourceSheet: existingAudit?.backupSourceSheet || catRow?.backupSourceSheet,
           backupSourceRow: existingAudit?.backupSourceRow || catRow?.backupSourceRow,
           updatedAt: new Date().toISOString()

@@ -3,7 +3,7 @@ import App from './App.tsx';
 import './index.css';
 
 // در اجرای عادی برنامه، هیچ پاک‌سازی کش یا درخواست خودکار بروزرسانی اجرا نمی‌شود.
-// تنها در اولین اجرا که هنوز Service Worker فعالی ثبت نشده است، ثبت اولیه (?v=15) انجام می‌گیرد.
+// تنها در اولین اجرا که هنوز Service Worker فعالی ثبت نشده است، ثبت اولیه (?v=16) انجام می‌گیرد.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
@@ -12,7 +12,7 @@ if ('serviceWorker' in navigator) {
         if (existingReg && existingReg.active) {
           return existingReg;
         }
-        return navigator.serviceWorker.register('./sw.js?v=15');
+        return navigator.serviceWorker.register('./sw.js?v=16');
       })
       .catch(() => {
         // Service worker registration optional in dev iframe

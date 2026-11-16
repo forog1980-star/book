@@ -867,13 +867,30 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
     linkRecord?: BookMartyrLinkRecord;
     existingSuggestion?: SmartSearchSuggestion;
   } => {
-    const normTarget = normalizePersianText(targetName.replace(/^شهید\s+/, ''));
+    const cleanMartyrKey = (raw: string) =>
+      normalizePersianText(
+        raw.replace(
+          /^(?:(?:شهید|سردار|امیر|حاج|آیت‌الله|آیت\s*الله|دکتر|سید|حجت‌الاسلام|حجت\s*الاسلام)\s+)+/g,
+          ''
+        )
+      );
+    const normTarget = cleanMartyrKey(targetName);
+    const normTargetCompact = normTarget.replace(/\s+/g, '');
+    const isSameMartyrName = (rawCandidate: string) => {
+      const normCand = cleanMartyrKey(rawCandidate);
+      const compactCand = normCand.replace(/\s+/g, '');
+      if (!normTarget || !normCand) return false;
+      return (
+        normCand.includes(normTarget) ||
+        normTarget.includes(normCand) ||
+        (normTargetCompact.length >= 4 &&
+          (compactCand.includes(normTargetCompact) || normTargetCompact.includes(compactCand)))
+      );
+    };
     const normTitle = normalizePersianText(bookTitle);
 
     const matchedLink = links.find((lnk) => {
-      const normLnkMartyr = normalizePersianText(lnk.martyrNameRaw.replace(/^شهید\s+/, ''));
-      const martyrMatches = normLnkMartyr.includes(normTarget) || normTarget.includes(normLnkMartyr);
-      if (!martyrMatches) return false;
+      if (!isSameMartyrName(lnk.martyrNameRaw)) return false;
       if (catalogBookId && lnk.tempBookId && lnk.tempBookId === catalogBookId) return true;
       const normLnkTitle = normalizePersianText(lnk.bookTitleRaw);
       return normLnkTitle.includes(normTitle) || normTitle.includes(normLnkTitle);
@@ -891,10 +908,28 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
       };
     }
 
+    const excludedInAudit = Object.values(auditRecords).find((rec) => {
+      if (!rec.excludedMartyrs || rec.excludedMartyrs.length === 0) return false;
+      const sameBook =
+        (catalogBookId && rec.tempBookId === catalogBookId) ||
+        (normTitle &&
+          (normalizePersianText(rec.title).includes(normTitle) ||
+            normTitle.includes(normalizePersianText(rec.title))));
+      if (!sameBook) return false;
+      return rec.excludedMartyrs.some((ex) => isSameMartyrName(ex));
+    });
+
+    if (excludedInAudit) {
+      return {
+        status: 'rejected',
+        reason: 'نام شهید قبلاً در بررسی کارشناسی کتابخانه از این کتاب حذف/مستثنی شده است.',
+        reviewedBy: excludedInAudit.checkedBy || 'کارشناس کتابخانه',
+        reviewedAt: ''
+      };
+    }
+
     const approvedInSuggestions = smartSuggestions.find((s) => {
-      const normSugMartyr = normalizePersianText(s.martyrName.replace(/^شهید\s+/, ''));
-      const martyrMatches = normSugMartyr.includes(normTarget) || normTarget.includes(normSugMartyr);
-      if (!martyrMatches) return false;
+      if (!isSameMartyrName(s.martyrName)) return false;
       const normSugTitle = normalizePersianText(s.bookTitle);
       const titleMatches =
         (catalogBookId && s.matchedCatalogBookId === catalogBookId) ||
@@ -914,9 +949,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
     }
 
     const rejectedInSuggestions = smartSuggestions.find((s) => {
-      const normSugMartyr = normalizePersianText(s.martyrName.replace(/^شهید\s+/, ''));
-      const martyrMatches = normSugMartyr.includes(normTarget) || normTarget.includes(normSugMartyr);
-      if (!martyrMatches) return false;
+      if (!isSameMartyrName(s.martyrName)) return false;
       const normSugTitle = normalizePersianText(s.bookTitle);
       const titleMatches =
         (catalogBookId && s.matchedCatalogBookId === catalogBookId) ||
@@ -948,9 +981,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
     ];
 
     const matchInHistory = combinedRejected.find((rh) => {
-      const normRhMartyr = normalizePersianText(rh.martyrName.replace(/^شهید\s+/, ''));
-      const martyrMatches = normRhMartyr.includes(normTarget) || normTarget.includes(normRhMartyr);
-      if (!martyrMatches) return false;
+      if (!isSameMartyrName(rh.martyrName)) return false;
       if (catalogBookId && rh.catalogBookId && rh.catalogBookId === catalogBookId) return true;
       const normRhTitle = normalizePersianText(rh.bookTitle);
       return normRhTitle.includes(normTitle) || normTitle.includes(normRhTitle);
@@ -966,9 +997,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
     }
 
     const pendingInSuggestions = smartSuggestions.find((s) => {
-      const normSugMartyr = normalizePersianText(s.martyrName.replace(/^شهید\s+/, ''));
-      const martyrMatches = normSugMartyr.includes(normTarget) || normTarget.includes(normSugMartyr);
-      if (!martyrMatches) return false;
+      if (!isSameMartyrName(s.martyrName)) return false;
       const normSugTitle = normalizePersianText(s.bookTitle);
       const titleMatches =
         (catalogBookId && s.matchedCatalogBookId === catalogBookId) ||
@@ -1791,7 +1820,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
 
         const prior = checkBookMartyrPriorStatus(rawName, matched.titleRaw, matched.tempBookId);
 
-        if (prior.status === 'in_queue' || prior.status === 'approved') {
+        if (prior.status === 'in_queue' || prior.status === 'approved' || prior.status === 'rejected') {
           alreadyPresent++;
           continue;
         }

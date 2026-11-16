@@ -1,9 +1,14 @@
 // Service Worker اختصاصی سامانه اصلی مرکز اسناد (مسیر /book/)
-// نسخه کش ایزوله و اتمیک: markaz-asnad-main-book-v15
+// نسخه کش ایزوله و اتمیک: markaz-asnad-main-book-v16
 
 const CACHE_PREFIX = 'markaz-asnad-main-book-';
 const LEGACY_CACHE_PREFIX = 'markaz-asnad-pwa-';
-const CACHE_NAME = `${CACHE_PREFIX}v15`;
+const CACHE_NAME = `${CACHE_PREFIX}v16`;
+
+function getCacheVersionNumber(cacheName) {
+  const match = String(cacheName || '').match(/-v(\d+)$/);
+  return match ? Number(match[1]) : 0;
+}
 
 // کش کنترلی و پایدار اختصاصی جهت ذخیره قفل عملیات و پیوند هویت تب‌ها در برابر Restart شدن Worker
 const CONTROL_CACHE_NAME = 'markaz-asnad-sw-control-v1';
@@ -152,7 +157,7 @@ async function installAppShellAtomically() {
   const cache = await caches.open(CACHE_NAME);
   try {
     const htmlResp = await fetch('./index.html', {
-      cache: 'no-cache',
+      cache: 'no-store',
       credentials: 'same-origin'
     });
     if (!htmlResp || !htmlResp.ok) {
@@ -169,7 +174,7 @@ async function installAppShellAtomically() {
 
     for (const cssUrl of cssUrls) {
       const cssResp = await fetch(cssUrl, {
-        cache: 'no-cache',
+        cache: 'no-store',
         credentials: 'same-origin'
       });
       if (!cssResp || !cssResp.ok) {
@@ -180,6 +185,27 @@ async function installAppShellAtomically() {
 
     const appShellAssets = collectAppShellAssets(htmlText, cssTexts);
     await cache.addAll(appShellAssets);
+
+    // نوسازی اجباری دارایی‌های متغیر با no-store تا کش HTTP موبایل باعث ماندگاری نسخه قبلی نشود
+    await cache.put('./', htmlResp.clone());
+    await cache.put('./index.html', htmlResp.clone());
+    for (const asset of appShellAssets) {
+      if (asset === './' || asset === './index.html') continue;
+      if (
+        asset.startsWith('./assets/') ||
+        asset.startsWith('./data/') ||
+        asset === './manifest.webmanifest'
+      ) {
+        const freshResp = await fetch(asset, {
+          cache: 'no-store',
+          credentials: 'same-origin'
+        });
+        if (!freshResp || !freshResp.ok) {
+          throw new Error(`Failed to fetch fresh asset with no-store: ${asset}`);
+        }
+        await cache.put(asset, freshResp);
+      }
+    }
 
     // راستی‌آزمایی وجود تمام منابع ضروری در کش نسخه جدید پیش از اجازه تکمیل نصب
     for (const asset of appShellAssets) {
@@ -233,16 +259,6 @@ self.addEventListener('message', (event) => {
           }
 
           const currentActive = await getActiveWorkingCacheName();
-          if (data.expectedActiveCacheName && data.expectedActiveCacheName !== currentActive) {
-            if (port) {
-              port.postMessage({
-                ok: false,
-                error: 'VERSION_MISMATCH',
-                currentActive
-              });
-            }
-            return;
-          }
 
           const leaseMs = Number(data.leaseDurationMs) || 25000;
           const candidateCacheName = `${CACHE_PREFIX}candidate-${data.operationId}`;
@@ -323,7 +339,13 @@ self.addEventListener('message', (event) => {
       withLockMutex(async () => {
         const port = event.ports && event.ports[0];
         try {
-          const newCache = data.newCacheName || CACHE_NAME;
+          const requestedCache = data.newCacheName || CACHE_NAME;
+          const hasOwnCache = await caches.has(CACHE_NAME);
+          const newCache =
+            hasOwnCache &&
+            getCacheVersionNumber(CACHE_NAME) > getCacheVersionNumber(requestedCache)
+              ? CACHE_NAME
+              : requestedCache;
           await setActiveWorkingCacheName(newCache);
           await clearPersistedLock();
           if (port) port.postMessage({ ok: true, activeCacheName: newCache });
@@ -379,7 +401,15 @@ self.addEventListener('message', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
-      const activeWorking = await getActiveWorkingCacheName();
+      let activeWorking = await getActiveWorkingCacheName();
+      if (
+        !activeWorking ||
+        !activeWorking.startsWith(CACHE_PREFIX) ||
+        getCacheVersionNumber(CACHE_NAME) > getCacheVersionNumber(activeWorking)
+      ) {
+        activeWorking = CACHE_NAME;
+        await setActiveWorkingCacheName(CACHE_NAME);
+      }
       const allKeys = await caches.keys();
       const activeClients = await self.clients.matchAll({ type: 'window' });
 

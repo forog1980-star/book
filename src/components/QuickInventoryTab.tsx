@@ -1354,10 +1354,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       location: locationCode,
       physical: physicalStatus,
       needsReview: effectiveNeedsReview,
-      expertApproved:
-        physicalStatus === 'verified' && !effectiveNeedsReview
-          ? true
-          : existingRec?.expertApproved,
+      expertApproved: physicalStatus === 'verified' && !effectiveNeedsReview,
       copyStatus:
         physicalStatus === 'not_found'
           ? 'missing'
@@ -1675,7 +1672,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
             {selectedRow && (
               <button
                 type="button"
-                onClick={() => handleApproveOutsideRecord(selectedRow.rowKey, selectedRow)}
+                onClick={() => handleApproveOutsideRecord(selectedRow.rowKey, selectedRow, true)}
                 className="min-h-[40px] px-3.5 py-2 rounded-xl bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <CheckCircle2 className="w-4 h-4 shrink-0" />
@@ -2420,7 +2417,13 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                   {!isExpertVerified ? (
                                     <button
                                       type="button"
-                                      onClick={() => handleApproveOutsideRecord(row.rowKey, row)}
+                                      onClick={() =>
+                                        handleApproveOutsideRecord(
+                                          row.rowKey,
+                                          row,
+                                          selectedRow?.rowKey === row.rowKey
+                                        )
+                                      }
                                       className="min-h-[30px] px-3 py-1 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold text-[11px] flex items-center justify-center cursor-pointer shadow-2xs"
                                     >
                                       ✓ تأیید نهایی کارشناس
@@ -3800,7 +3803,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                     {selectedRow && (
                       <button
                         type="button"
-                        onClick={() => handleApproveOutsideRecord(selectedRow.rowKey, selectedRow)}
+                        onClick={() => handleApproveOutsideRecord(selectedRow.rowKey, selectedRow, true)}
                         className="sm:col-span-4 min-h-[46px] px-4 py-2.5 bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                       >
                         <CheckCircle2 className="w-4 h-4 shrink-0" />

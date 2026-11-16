@@ -1513,9 +1513,17 @@ export default function App() {
       .replace(/⚠️\s*نیازمند بررسی:?\s*تشابه نام با[^|]*/g, '')
       .trim();
 
-    const isExpertApprovedSave =
-      Boolean(record.expertApproved) ||
-      (record.physical === 'verified' && !record.needsReview && record.copyStatus !== 'pending_review');
+    const explicitlyUnapproved =
+      record.expertApproved === false ||
+      record.physical !== 'verified' ||
+      Boolean(record.needsReview) ||
+      record.copyStatus === 'pending_review';
+
+    const resolvedExpertApproved =
+      !explicitlyUnapproved &&
+      Boolean(record.expertApproved ?? prevAudit?.expertApproved ?? record.physical === 'verified');
+
+    const isExpertApprovedSave = !explicitlyUnapproved && resolvedExpertApproved;
 
     // محاسبه شهدای حذف‌شده یا جایگزین‌شده در صورتی که کاربر لیست relatedMartyrs را از فرم کتابخانه ارسال کرده باشد
     const explicitMartyrsPassed = Array.isArray(record.relatedMartyrs);
@@ -1639,7 +1647,7 @@ export default function App() {
       ...record,
       tempBookId: effectiveBookId,
       title: effectiveTitle,
-      expertApproved: record.expertApproved ?? prevAudit?.expertApproved,
+      expertApproved: resolvedExpertApproved,
       relatedMartyrs: extractedMartyrsFromRecord,
       excludedMartyrs: nextExcludedMartyrs.length > 0 ? nextExcludedMartyrs : undefined,
       needsReview: isExpertApprovedSave ? false : Boolean(record.needsReview || hasNewSimilarity),
@@ -1792,7 +1800,7 @@ export default function App() {
       );
 
       const matchedBookLinkIds = new Set(
-        links
+        [...links, ...indexedLinks]
           .filter(
             (l) =>
               l.tempBookId === record.tempBookId ||
@@ -3222,7 +3230,51 @@ export default function App() {
                     b.publisherRaw
                   )} `.includes(` ${normMartyr} `)
                 );
-                if (matchedBooks.length > 0) {
+                const cleanNormMartyr = normalizePersianText(
+                  newMartyr.fullName.replace(
+                    /^(?:(?:شهید|سردار|امیر|حاج|آیت‌الله|آیت\s*الله|دکتر|سید|حجت‌الاسلام|حجت\s*الاسلام)\s+)+/g,
+                    ''
+                  )
+                );
+                const booksToQueue = matchedBooks.filter((mb) => {
+                  const normMbTitle = normalizePersianText(mb.titleRaw);
+                  const alreadyInQueue = smartSuggestions.some(
+                    (s) =>
+                      normalizePersianText(s.martyrName.replace(/^شهید\s+/, '')).includes(
+                        cleanNormMartyr || normMartyr
+                      ) &&
+                      (s.matchedCatalogBookId === mb.tempBookId ||
+                        normalizePersianText(s.bookTitle) === normMbTitle)
+                  );
+                  if (alreadyInQueue) return false;
+                  const alreadyLinked = indexedLinks.some(
+                    (l) =>
+                      normalizePersianText(l.martyrNameRaw.replace(/^شهید\s+/, '')).includes(
+                        cleanNormMartyr || normMartyr
+                      ) &&
+                      (l.tempBookId === mb.tempBookId ||
+                        normalizePersianText(l.bookTitleRaw) === normMbTitle)
+                  );
+                  if (alreadyLinked) return false;
+                  const alreadyRejected = rejectedSuggestionsArchive.some(
+                    (r) =>
+                      normalizePersianText(r.martyrName.replace(/^شهید\s+/, '')).includes(
+                        cleanNormMartyr || normMartyr
+                      ) &&
+                      (r.bookId === mb.tempBookId ||
+                        normalizePersianText(r.bookTitle) === normMbTitle)
+                  );
+                  if (alreadyRejected) return false;
+                  const auditRec = auditRecords[mb.rowKey];
+                  const isExcluded = (auditRec?.excludedMartyrs || []).some((ex) =>
+                    normalizePersianText(ex.replace(/^شهید\s+/, '')).includes(
+                      cleanNormMartyr || normMartyr
+                    )
+                  );
+                  return !isExcluded;
+                });
+
+                if (booksToQueue.length > 0) {
                   const nowFa = new Intl.DateTimeFormat('fa-IR', {
                     year: 'numeric',
                     month: '2-digit',
@@ -3234,10 +3286,12 @@ export default function App() {
                   setSmartSuggestions((prev) => {
                     const next = [...prev];
                     const localTracker: { id: string }[] = [...next];
-                    for (const mb of matchedBooks) {
+                    for (const mb of booksToQueue) {
                       const alreadyInQueue = next.some(
                         (s) =>
-                          normalizePersianText(s.martyrName.replace(/^شهید\s+/, '')).includes(normMartyr) &&
+                          normalizePersianText(s.martyrName.replace(/^شهید\s+/, '')).includes(
+                            cleanNormMartyr || normMartyr
+                          ) &&
                           (s.matchedCatalogBookId === mb.tempBookId ||
                             normalizePersianText(s.bookTitle) === normalizePersianText(mb.titleRaw))
                       );
@@ -3261,7 +3315,8 @@ export default function App() {
                         fipa: mb.fipaRaw || '—',
                         subjectCategory: mb.categoryRaw || SUBJECT_CATEGORIES[0].label,
                         publisherDescription:
-                          mb.descriptionRaw || `کتاب موجود در کتابخانه دارای تشابه با نام شهید «${newMartyr.fullName}»`,
+                          mb.descriptionRaw ||
+                          `کتاب موجود در کتابخانه دارای تشابه با نام شهید «${newMartyr.fullName}»`,
                         sourcePriority: 1,
                         sourceName: 'مقابله خودکار پرونده شهید جدید با مخزن کتابخانه',
                         sourceUrl: '',
@@ -3284,7 +3339,7 @@ export default function App() {
 
                   showNotify(
                     `⚠️ مقابله خودکار انجام شد: برای شهید «${newMartyr.fullName}» تعداد ${toPersianDigits(
-                      matchedBooks.length
+                      booksToQueue.length
                     )} کتاب مرتبط در کتابخانه یافت شد و با علامت «نیازمند بررسی» به صف بررسی کارشناس اضافه گردید.`
                   );
                 }
@@ -3695,6 +3750,7 @@ export default function App() {
               );
             }}
             onUpdateLinkStatus={(linkId, status, note) => {
+              const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
               const targetLink =
                 links.find((l) => l.id === linkId) || indexedLinks.find((l) => l.id === linkId);
               setLinks((prev) => {
@@ -3709,19 +3765,76 @@ export default function App() {
                 }
                 return prev;
               });
-              if (targetLink && isApprovedLinkStatus(status)) {
+              if (targetLink) {
                 const normM = normalizePersianText(targetLink.martyrNameRaw.replace(/^شهید\s+/, ''));
                 const normB = normalizePersianText(targetLink.bookTitleRaw);
-                setPendingReviews((prev) =>
-                  prev.map((pv) =>
-                    classifyPendingReviewStatus(pv.trackingStatus) !== 'resolved' &&
-                    (pv.mainRecordId === linkId ||
-                      (normalizePersianText(pv.nameOrPhrase.replace(/^شهید\s+/, '')) === normM &&
-                        normalizePersianText(pv.bookTitle) === normB))
-                      ? { ...pv, trackingStatus: 'بررسی‌شده' }
-                      : pv
-                  )
-                );
+                if (isApprovedLinkStatus(status)) {
+                  setPendingReviews((prev) =>
+                    prev.map((pv) =>
+                      classifyPendingReviewStatus(pv.trackingStatus) !== 'resolved' &&
+                      (pv.mainRecordId === linkId ||
+                        (normalizePersianText(pv.nameOrPhrase.replace(/^شهید\s+/, '')) === normM &&
+                          normalizePersianText(pv.bookTitle) === normB))
+                        ? { ...pv, trackingStatus: 'بررسی‌شده' }
+                        : pv
+                    )
+                  );
+                  setSmartSuggestions((prev) =>
+                    prev.map((s) =>
+                      s.id === `SUG-LINK-${linkId}` ||
+                      (s.reviewStatus === 'در صف بررسی کارشناس' &&
+                        normalizePersianText(s.martyrName.replace(/^شهید\s+/, '')) === normM &&
+                        (s.matchedCatalogBookId === targetLink.tempBookId ||
+                          normalizePersianText(s.bookTitle) === normB))
+                        ? {
+                            ...s,
+                            reviewStatus: 'تأییدشده و افزوده‌شده به پرونده',
+                            reviewedBy: getRoleDisplayName(activeUserRole),
+                            reviewedAt: nowFa,
+                            reviewerNote: note || s.reviewerNote || 'تأیید کارشناسی ارتباط'
+                          }
+                        : s
+                    )
+                  );
+                } else if (status.includes('رد')) {
+                  setSmartSuggestions((prev) =>
+                    prev.map((s) =>
+                      s.id === `SUG-LINK-${linkId}` ||
+                      (s.reviewStatus === 'در صف بررسی کارشناس' &&
+                        normalizePersianText(s.martyrName.replace(/^شهید\s+/, '')) === normM &&
+                        (s.matchedCatalogBookId === targetLink.tempBookId ||
+                          normalizePersianText(s.bookTitle) === normB))
+                        ? {
+                            ...s,
+                            reviewStatus: 'ردشده با ثبت دلیل',
+                            reviewedBy: getRoleDisplayName(activeUserRole),
+                            reviewedAt: nowFa,
+                            reviewerNote: note || 'رد کارشناسی ارتباط'
+                          }
+                        : s
+                    )
+                  );
+                  setRejectedSuggestionsArchive((prev) => {
+                    const key = `${targetLink.martyrNameRaw}::${targetLink.bookTitleRaw}`;
+                    const filtered = prev.filter(
+                      (r) => `${r.martyrName}::${r.bookTitle}` !== key && r.id !== linkId
+                    );
+                    return [
+                      {
+                        id: linkId,
+                        martyrId: '',
+                        martyrName: targetLink.martyrNameRaw,
+                        bookTitle: targetLink.bookTitleRaw,
+                        bookId: targetLink.tempBookId || undefined,
+                        rejectedBy: getRoleDisplayName(activeUserRole),
+                        rejectedAt: nowFa,
+                        rejectionReason: note || 'رد کارشناسی ارتباط',
+                        updatedAt: Date.now()
+                      },
+                      ...filtered
+                    ];
+                  });
+                }
               }
               markSessionModification();
               appendAuditLog(
@@ -3755,6 +3868,7 @@ export default function App() {
               );
             }}
             onUpdateLinkStatus={(linkId, status, note) => {
+              const nowFa = new Intl.DateTimeFormat('fa-IR').format(new Date());
               const targetLink =
                 links.find((l) => l.id === linkId) || indexedLinks.find((l) => l.id === linkId);
               setLinks((prev) => {
@@ -3769,19 +3883,76 @@ export default function App() {
                 }
                 return prev;
               });
-              if (targetLink && isApprovedLinkStatus(status)) {
+              if (targetLink) {
                 const normM = normalizePersianText(targetLink.martyrNameRaw.replace(/^شهید\s+/, ''));
                 const normB = normalizePersianText(targetLink.bookTitleRaw);
-                setPendingReviews((prev) =>
-                  prev.map((pv) =>
-                    classifyPendingReviewStatus(pv.trackingStatus) !== 'resolved' &&
-                    (pv.mainRecordId === linkId ||
-                      (normalizePersianText(pv.nameOrPhrase.replace(/^شهید\s+/, '')) === normM &&
-                        normalizePersianText(pv.bookTitle) === normB))
-                      ? { ...pv, trackingStatus: 'بررسی‌شده' }
-                      : pv
-                  )
-                );
+                if (isApprovedLinkStatus(status)) {
+                  setPendingReviews((prev) =>
+                    prev.map((pv) =>
+                      classifyPendingReviewStatus(pv.trackingStatus) !== 'resolved' &&
+                      (pv.mainRecordId === linkId ||
+                        (normalizePersianText(pv.nameOrPhrase.replace(/^شهید\s+/, '')) === normM &&
+                          normalizePersianText(pv.bookTitle) === normB))
+                        ? { ...pv, trackingStatus: 'بررسی‌شده' }
+                        : pv
+                    )
+                  );
+                  setSmartSuggestions((prev) =>
+                    prev.map((s) =>
+                      s.id === `SUG-LINK-${linkId}` ||
+                      (s.reviewStatus === 'در صف بررسی کارشناس' &&
+                        normalizePersianText(s.martyrName.replace(/^شهید\s+/, '')) === normM &&
+                        (s.matchedCatalogBookId === targetLink.tempBookId ||
+                          normalizePersianText(s.bookTitle) === normB))
+                        ? {
+                            ...s,
+                            reviewStatus: 'تأییدشده و افزوده‌شده به پرونده',
+                            reviewedBy: getRoleDisplayName(activeUserRole),
+                            reviewedAt: nowFa,
+                            reviewerNote: note || s.reviewerNote || 'تأیید کارشناسی پژوهش'
+                          }
+                        : s
+                    )
+                  );
+                } else if (status.includes('رد')) {
+                  setSmartSuggestions((prev) =>
+                    prev.map((s) =>
+                      s.id === `SUG-LINK-${linkId}` ||
+                      (s.reviewStatus === 'در صف بررسی کارشناس' &&
+                        normalizePersianText(s.martyrName.replace(/^شهید\s+/, '')) === normM &&
+                        (s.matchedCatalogBookId === targetLink.tempBookId ||
+                          normalizePersianText(s.bookTitle) === normB))
+                        ? {
+                            ...s,
+                            reviewStatus: 'ردشده با ثبت دلیل',
+                            reviewedBy: getRoleDisplayName(activeUserRole),
+                            reviewedAt: nowFa,
+                            reviewerNote: note || 'رد کارشناسی پژوهش'
+                          }
+                        : s
+                    )
+                  );
+                  setRejectedSuggestionsArchive((prev) => {
+                    const key = `${targetLink.martyrNameRaw}::${targetLink.bookTitleRaw}`;
+                    const filtered = prev.filter(
+                      (r) => `${r.martyrName}::${r.bookTitle}` !== key && r.id !== linkId
+                    );
+                    return [
+                      {
+                        id: linkId,
+                        martyrId: '',
+                        martyrName: targetLink.martyrNameRaw,
+                        bookTitle: targetLink.bookTitleRaw,
+                        bookId: targetLink.tempBookId || undefined,
+                        rejectedBy: getRoleDisplayName(activeUserRole),
+                        rejectedAt: nowFa,
+                        rejectionReason: note || 'رد کارشناسی پژوهش',
+                        updatedAt: Date.now()
+                      },
+                      ...filtered
+                    ];
+                  });
+                }
               }
               markSessionModification();
               appendAuditLog(
