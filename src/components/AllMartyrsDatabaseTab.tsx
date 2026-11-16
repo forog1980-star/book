@@ -1396,7 +1396,7 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
           {/* نوار دسترسی سریع به شهدای دارای کتاب در پژوهش سوره مهر و کارپوشه */}
           <div className="flex flex-wrap items-center justify-between gap-2 bg-[#FAF2E8] border border-[#E6D5C1] rounded-xl px-3 py-2 text-xs">
             <span className="text-[#755C48] font-medium">
-              جست‌وجوی دوطرفه فعال است: می‌توانید نام شهید (مثل «جعفر جنگروی»، «محسن وزوایی»، «علی سمندریان») یا عنوان کتاب (مثل «یک محسن عزیز»، «یادداشت های ناتمام») را جست‌وجو کنید.
+              جست‌وجوی دوطرفه فعال است: می‌توانید نام شهید (مثل جعفر جنگروی، محسن وزوایی، علی سمندریان) یا عنوان کتاب (مثل یک محسن عزیز، یادداشت های ناتمام) را جست‌وجو کنید.
             </span>
             <button
               type="button"

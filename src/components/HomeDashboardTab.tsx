@@ -1780,10 +1780,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                 <Layers className="w-4 h-4" />
               </span>
               <div className="min-w-0">
-                <div className="text-xs sm:text-sm font-bold text-[#353530]">پشتیبانی و گزارش‌ها</div>
-                <div className="text-[11px] text-[#525046]">
-                  پشتیبان کامل JSON، خروجی‌های اکسل، گزارش جامع فنی داشبورد (Word) و گزارش‌های ۱۶گانه
-                </div>
+                <div className="text-xs sm:text-sm font-bold text-[#353530]">پشتیبانی و گزارش</div>
               </div>
             </div>
 
@@ -1802,7 +1799,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             <div className="flex items-center gap-2 text-xs font-bold text-[#353530] min-w-0">
               <FileText className="w-4 h-4 text-[#353530] shrink-0" />
               <span>
-                گزارش جامع فنی داشبورد مدیریتی، آمار تفصیلی و ۴ گزارش پیوست (نسخه استاندارد Word و متن کامل)
+                گزارش جامع مدیریتی و آمار تفصیلی وضعیت کتابخانه، شهدا، صف بررسی و گزارش‌های عملکردی
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -1812,13 +1809,13 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                 onClick={() => {
                   downloadComprehensiveDashboardDocx(executiveDashboardCompleteReportRaw);
                   onNotify(
-                    'فایل استاندارد و قابل ویرایش Word (.docx) گزارش جامع فنی و ۴ پیوست با موفقیت دانلود شد.'
+                    'فایل ورد گزارش جامع مدیریتی و پیوست‌ها با موفقیت دانلود شد.'
                   );
                 }}
                 className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#15803D] hover:bg-[#166534] text-white text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5 shrink-0" />
-                <span>دانلود فایل Word (.docx) گزارش جامع + پیوست‌ها</span>
+                <span>دانلود فایل ورد گزارش جامع و پیوست‌ها</span>
               </button>
 
               {onOpenComprehensiveDoc && (
@@ -1856,7 +1853,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                   </span>
                 </h3>
                 <p className="text-[11px] text-[#6E5846] mt-0.5">
-                  شامل تمام کتاب‌های تعیین‌تکلیف‌شده در قفسه‌ها و ثبت‌های جدید ذخیره‌شده روی این دستگاه (برای مشاهده یا بستن کلیک کنید)
+                  شامل تمام کتاب‌های تعیین‌تکلیف‌شده در قفسه‌ها و ثبت‌های جدید ذخیره‌شده روی این دستگاه
                 </p>
               </div>
               <span className="px-2.5 py-1.5 rounded-xl bg-[#FAF5EE] border border-[#D8C7B2] text-[#6B3E26] text-[11px] font-bold inline-flex items-center gap-1 shrink-0">
@@ -2008,7 +2005,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                 انتقال و نگهداری اطلاعات کتابخانه
               </h3>
               <p className="text-[11px] text-[#6E5846] mt-0.5">
-                خروجی کامل JSON، ورود و ادغام امن فایل بین رایانه و گوشی و نقاط بازیابی خودکار (برای باز و بسته کردن کلیک کنید)
+                خروجی کامل JSON، ورود و ادغام امن فایل بین رایانه و گوشی و نقاط بازیابی خودکار
               </p>
             </div>
             <span className="px-2.5 py-1.5 rounded-xl bg-[#FAF5EE] border border-[#D8C7B2] text-[#6B3E26] text-[11px] font-bold inline-flex items-center gap-1 shrink-0">

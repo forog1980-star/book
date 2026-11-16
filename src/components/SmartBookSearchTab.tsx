@@ -540,6 +540,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
   const [pilotTotalMatchesInScope, setPilotTotalMatchesInScope] = useState<number>(0);
   const [pilotFoundCount, setPilotFoundCount] = useState<number>(0);
   const [pilotDuplicatePrevented, setPilotDuplicatePrevented] = useState<number>(0);
+  const [pilotRemainingCount, setPilotRemainingCount] = useState<number>(0);
 
   // ویرایش / رد در صف بررسی
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1645,6 +1646,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
 
       let newlyAdded = 0;
       let alreadyPresent = 0;
+      let remainingUnqueued = 0;
       let firstNewSugId = '';
 
       for (const m of autoMatches) {
@@ -1654,7 +1656,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
           continue;
         }
         if (newlyAdded >= 60) {
-          alreadyPresent++;
+          remainingUnqueued++;
           continue;
         }
 
@@ -1703,19 +1705,35 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
       setPilotTotalMatchesInScope(autoMatches.length);
       setPilotFoundCount(newlyAdded);
       setPilotDuplicatePrevented(alreadyPresent);
+      setPilotRemainingCount(remainingUnqueued);
       setPilotStatus('completed');
       if (firstNewSugId) {
         setHighlightedSuggestionId(firstNewSugId);
       }
 
-      onNotify(
-        `مقابله انبوه انجام شد: در این محدوده مجموعاً ${toPersianDigits(
-          autoMatches.length
-        )} تطابق کتاب و شهید شناسایی شد (${toPersianDigits(newlyAdded)} مورد جدید به صف اضافه شد و ${toPersianDigits(
-          alreadyPresent
-        )} مورد از قبل در صف/پرونده موجود بود). برای مشاهده فهرست روی عدد کتاب‌های منطبق کلیک کنید.`,
-        autoMatches.length > 0 ? 'success' : undefined
-      );
+      if (autoMatches.length === 0) {
+        onNotify('در این محدوده تطابق جدیدی با فهرست کتاب‌ها یافت نشد.');
+      } else if (newlyAdded === 0 && remainingUnqueued === 0) {
+        onNotify(
+          `این محدوده قبلاً بررسی شده است: هر ${toPersianDigits(
+            autoMatches.length
+          )} مورد منطبق از قبل در صف بررسی یا پرونده ثبت شده‌اند و مورد جدیدی باقی نمانده است.`,
+          'success'
+        );
+      } else {
+        onNotify(
+          `مقابله انبوه انجام شد: از ${toPersianDigits(
+            autoMatches.length
+          )} تطابق، ${toPersianDigits(newlyAdded)} مورد جدید به صف اضافه شد و ${toPersianDigits(
+            alreadyPresent
+          )} مورد از قبل در صف یا پرونده موجود بود${
+            remainingUnqueued > 0
+              ? ` (${toPersianDigits(remainingUnqueued)} مورد دیگر برای مرحله بعد باقی مانده است)`
+              : ' (کل موارد این محدوده ثبت شد)'
+          }.`,
+          'success'
+        );
+      }
       return;
     }
 
@@ -1871,6 +1889,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
     setPilotTotalMatchesInScope(collectedMatches.length);
     setPilotFoundCount(newlyAdded);
     setPilotDuplicatePrevented(alreadyPresent);
+    setPilotRemainingCount(0);
     setPilotStatus('completed');
 
     onNotify(
@@ -2237,26 +2256,6 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
             </button>
           </div>
 
-          {/* لینک کلیک‌پذیر (Hyperlink) برای باز کردن پنجره اختصاصی موارد نیازمند بررسی */}
-          {sourceStats.needsReviewBooksCount > 0 && (
-            <button
-              type="button"
-              onMouseEnter={() =>
-                showHoverHint('کلیک کنید تا فهرست کامل موارد نیازمند بررسی را در یک پنجره ببینید')
-              }
-              onMouseLeave={handleTargetMouseLeave}
-              onClick={() => {
-                dismissHoverHint();
-                setShowNeedsReviewModal(true);
-              }}
-              className="px-3 py-1 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-400 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs underline decoration-amber-700/60 underline-offset-4"
-            >
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-800 shrink-0" />
-              <span>
-                {toPersianDigits(sourceStats.needsReviewBooksCount)} مورد نیازمند بررسی (مشاهده در پنجره)
-              </span>
-            </button>
-          )}
         </div>
 
         {/* کادر جست‌وجوی دوطرفه + لیست کشویی منابع با آمار دقیق + دکمه پاک‌سازی */}
@@ -3076,8 +3075,9 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                 }}
                 className="rounded-lg p-1 transition-colors bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 cursor-pointer"
               >
-                <div className="text-[#2E7D5B] text-[10.5px] font-bold">
-                  کل کتاب منطبق (مشاهده 👁️)
+                <div className="text-[#2E7D5B] text-[10.5px] font-bold inline-flex items-center justify-center gap-1">
+                  <span>کل کتاب منطبق</span>
+                  <Eye className="w-3.5 h-3.5 shrink-0" />
                 </div>
                 <div className="font-bold text-[#2E7D5B] tabular-nums mt-0.5 underline decoration-emerald-600/60">
                   {toPersianDigits(pilotTotalMatchesInScope)} مورد ({toPersianDigits(pilotFoundCount)} جدید)
@@ -3085,33 +3085,23 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
               </button>
 
               <div>
-                <div className="text-[#697586] text-[10.5px]">از قبل در صف/پرونده</div>
+                <div className="text-[#697586] text-[10.5px]">موجود در صف یا پرونده</div>
                 <div className="font-bold text-[#C58A2B] tabular-nums mt-0.5">
                   {toPersianDigits(pilotDuplicatePrevented)} مورد
                 </div>
               </div>
             </div>
 
-            {lastBulkMatchedList.length > 0 && (
-              <button
-                type="button"
-                onMouseEnter={() =>
-                  showHoverHint(
-                    'کلیک کنید تا فهرست کامل کتاب‌های منطبق در این محدوده را در یک پنجره ببینید'
-                  )
-                }
-                onMouseLeave={handleTargetMouseLeave}
-                onClick={() => {
-                  dismissHoverHint();
-                  setShowBulkMatchesModal(true);
-                }}
-                className="w-full py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
-              >
-                <Eye className="w-4 h-4 text-emerald-700" />
+            {pilotStatus === 'completed' && pilotTotalMatchesInScope > 0 && (
+              <div className="px-3 py-2 rounded-xl bg-[#FAF5EE] border border-[#E2D2BE] text-[11px] text-[#5C4636] flex flex-wrap items-center justify-between gap-2 leading-relaxed">
                 <span>
-                  مشاهده فهرست کامل {toPersianDigits(lastBulkMatchedList.length)} کتاب تطبیق‌یافته در این محدوده ({toPersianDigits(pilotFoundCount)} افزوده‌شده جدید)
+                  {pilotFoundCount === 0 && pilotRemainingCount === 0
+                    ? `این محدوده قبلاً به‌طور کامل جست‌وجو شده و تمام ${toPersianDigits(pilotTotalMatchesInScope)} مورد در صف بررسی یا پرونده ثبت شده‌اند؛ مورد جدیدی باقی نمانده است.`
+                    : pilotRemainingCount > 0
+                    ? `در این نوبت ${toPersianDigits(pilotFoundCount)} مورد جدید به صف اضافه شد و ${toPersianDigits(pilotRemainingCount)} مورد جدید دیگر برای اجرای بعدی باقی مانده است.`
+                    : `این محدوده به‌طور کامل بررسی شد و تمام موارد جدید (${toPersianDigits(pilotFoundCount)} مورد) به صف اضافه گردید.`}
                 </span>
-              </button>
+              </div>
             )}
           </div>
 
@@ -3139,6 +3129,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                 setPilotTotalMatchesInScope(0);
                 setPilotFoundCount(0);
                 setPilotDuplicatePrevented(0);
+                setPilotRemainingCount(0);
                 setLastBulkMatchedList([]);
                 setBulkLoadedNames([]);
                 setBulkLoadedFileName('');

@@ -2391,7 +2391,7 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* بخش ویژه قرمزرنگ: خروجی اضطراری ۰ تا ۱۰۰ کل اطلاعات نرم‌افزار (اکسل ۳ شیته + جیسون کامل) */}
+                  {/* بخش ویژه قرمزرنگ: خروجی کل اطلاعات نرم‌افزار */}
                   <div
                     data-testid="emergency-full-export-box"
                     className="bg-[#FEF2F2] border-2 border-[#DC2626] rounded-xl p-3 space-y-2.5 shadow-xs"
@@ -2400,15 +2400,15 @@ export default function App() {
                       <div className="flex items-center gap-1.5 text-[#991B1B] font-extrabold text-xs sm:text-sm">
                         <Download className="w-4 h-4 text-[#DC2626] shrink-0" />
                         <span>
-                          خروجی از کل اطلاعات نرم‌افزار در مورد تمام شهدا، اسامی شهدایی که هست و کتاب‌هایی که تا حالا کار شده (بانک کامل ۰ تا ۱۰۰ — کارشده و کارنشده)
+                          خروجی کل اطلاعات نرم‌افزار (تمام کتاب‌ها، شهدا و ارتباط‌ها)
                         </span>
                       </div>
                       <span className="px-2 py-0.5 rounded-md bg-[#DC2626] text-white text-[10px] font-bold shrink-0">
-                        خروجی اضطراری ۰ تا ۱۰۰
+                        خروجی کل اطلاعات
                       </span>
                     </div>
                     <p className="text-[11px] text-[#7F1D1D] leading-5">
-                      شامل تمام اطلاعات بارگذاری‌شده در نرم‌افزار طبق فیلدهای جستجو و جدول‌بندی‌شده در <strong>۳ شیت مجزا</strong>: ۱) شیت کل کتاب‌ها (کارشده و کارنشده)، ۲) شیت اسامی شهدا، ۳) شیت اسامی شهدا و کتاب‌های مرتبط با تمام فیلدهای متصل — به‌همراه فایل پشتیبان کامل جیسون (JSON).
+                      شامل تمام اطلاعات بارگذاری‌شده در <strong>۳ شیت مجزا</strong> (کتاب‌ها، شهدا و ارتباطات) به‌همراه فایل پشتیبان جیسون (JSON).
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-0.5">
                       <button
@@ -2418,7 +2418,7 @@ export default function App() {
                         className="min-h-[42px] px-3 py-2 text-xs font-extrabold rounded-xl bg-[#DC2626] hover:bg-[#B91C1B] text-white shadow-sm transition-colors flex items-center justify-center gap-1.5 text-center cursor-pointer"
                       >
                         <Download className="w-4 h-4 shrink-0" />
-                        <span>خروجی اضطراری کامل (دانلود هم‌زمان اکسل + جیسون ۰ تا ۱۰۰)</span>
+                        <span>دانلود هم‌زمان اکسل و جیسون</span>
                       </button>
 
                       <button
@@ -2428,7 +2428,7 @@ export default function App() {
                         className="min-h-[42px] px-3 py-2 text-xs font-bold rounded-xl bg-white hover:bg-red-50 text-[#991B1B] border border-[#FCA5A5] transition-colors flex items-center justify-center gap-1.5 text-center cursor-pointer"
                       >
                         <FileSpreadsheet className="w-4 h-4 text-[#1E4D2B] shrink-0" />
-                        <span>فقط خروجی اکسل ۳ شیته (کتاب‌ها | شهدا | ارتباط‌ها)</span>
+                        <span>خروجی اکسل (کتاب‌ها، شهدا، ارتباطات)</span>
                       </button>
 
                       <button
@@ -2438,7 +2438,7 @@ export default function App() {
                         className="min-h-[42px] px-3 py-2 text-xs font-bold rounded-xl bg-white hover:bg-red-50 text-[#991B1B] border border-[#FCA5A5] transition-colors flex items-center justify-center gap-1.5 text-center cursor-pointer"
                       >
                         <DatabaseBackup className="w-4 h-4 text-[#991B1B] shrink-0" />
-                        <span>فقط خروجی جیسون کامل (JSON ۰ تا ۱۰۰ کل اطلاعات)</span>
+                        <span>خروجی جیسون (JSON)</span>
                       </button>
                     </div>
                   </div>
