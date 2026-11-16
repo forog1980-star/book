@@ -891,6 +891,13 @@ export function extractExplicitMartyrsFromBookNotesAndList(
     return false;
   };
 
+  const stripSayyedAndRanks = (name: string) =>
+    compactNameForTehranIndex(
+      stripTitlesForTehranIndex(name)
+        .replace(/^(?:سید|سیده|حاج|دکتر|مهندس|سردار|سرلشکر|سپهبد|امیر)\s+/g, '')
+        .trim()
+    );
+
   const addCandidate = (rawName: string, fromNotes = false) => {
     const cleaned = rawName
       .replace(/^(شهیدان|شهید)\s+/g, '')
@@ -901,17 +908,26 @@ export function extractExplicitMartyrsFromBookNotesAndList(
     const finalName = matched28k ? matched28k.fullName : cleaned;
     const comp = compactNameForTehranIndex(finalName);
     const rawComp = compactNameForTehranIndex(cleaned);
+    const baseComp = stripSayyedAndRanks(finalName);
     if (!comp || comp.length < 3 || seenCompacts.has(comp)) return;
     if (isExcludedCompact(comp) || isExcludedCompact(rawComp)) return;
 
-    // اگر نام جدید پیشوند ناقصی از نام کامل‌تر موجود در لیست باشد (مثلاً «سید علیرضا» در برابر «سید علیرضا جزئی»)، نادیده گرفته شود
+    // اگر نام جدید پیشوند یا پسوند یا شکل هم‌ریشه از نام موجود در لیست باشد (مثلاً «مصطفی صدرزاده» و «سید مصطفی صدرزاده»)، تکراری ثبت نشود
     for (let i = 0; i < results.length; i++) {
       const existingComp = compactNameForTehranIndex(results[i]);
-      if (existingComp.startsWith(comp) && existingComp.length > comp.length) {
+      const existingBaseComp = stripSayyedAndRanks(results[i]);
+      const sameRoot =
+        (baseComp.length >= 4 && existingBaseComp === baseComp) ||
+        (existingComp.length > comp.length &&
+          (existingComp.startsWith(comp) || existingComp.endsWith(comp)));
+      if (sameRoot) {
         return;
       }
-      // برعکس: اگر قبلاً نام ناقص ثبت شده بود و اکنون نام کامل‌تر آمده است، نام کامل‌تر جایگزین قبلی شود
-      if (!fromNotes && comp.startsWith(existingComp) && comp.length > existingComp.length) {
+      // برعکس: اگر قبلاً نام ناقص ثبت شده بود و اکنون نام کامل‌تر آمده است، همان ورودی به‌روزرسانی شود
+      if (
+        comp.length > existingComp.length &&
+        (comp.startsWith(existingComp) || comp.endsWith(existingComp))
+      ) {
         seenCompacts.delete(existingComp);
         seenCompacts.add(comp);
         results[i] = finalName;
@@ -962,7 +978,7 @@ export function extractExplicitMartyrsFromBookNotesAndList(
             if (validWords.length >= 4) break;
           }
           if (validWords.length >= 1) {
-            addCandidate(validWords.join(' '));
+            addCandidate(validWords.join(' '), true);
           }
         }
       }
@@ -992,7 +1008,7 @@ export function extractExplicitMartyrsFromBookNotesAndList(
           const sub = filteredWords.slice(0, len).join(' ');
           const gm = findMartyrRecordIn28k(sub);
           if (gm) {
-            addCandidate(gm.fullName);
+            addCandidate(gm.fullName, true);
             matchedKnown = true;
             break;
           }
@@ -1002,7 +1018,7 @@ export function extractExplicitMartyrsFromBookNotesAndList(
           const fallbackLen = Math.min(filteredWords.length, 3);
           const candidateStr = filteredWords.slice(0, fallbackLen).join(' ');
           if (candidateStr.length >= 3 && !GENERIC_SINGLE_WORDS.has(candidateStr)) {
-            addCandidate(candidateStr);
+            addCandidate(candidateStr, true);
           }
         }
       }

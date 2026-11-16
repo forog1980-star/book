@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Printer, Grid, Layers, Info } from 'lucide-react';
+import { Printer, X, BookOpen, ChevronLeft } from 'lucide-react';
 import {
   FieldAuditRecord,
   LEVELS,
@@ -11,9 +11,13 @@ import {
 
 interface ShelfMapAndLabelsTabProps {
   auditRecords: Record<string, FieldAuditRecord>;
+  onOpenBookDossier?: (record: FieldAuditRecord) => void;
 }
 
-export const ShelfMapAndLabelsTab: React.FC<ShelfMapAndLabelsTabProps> = ({ auditRecords }) => {
+export const ShelfMapAndLabelsTab: React.FC<ShelfMapAndLabelsTabProps> = ({
+  auditRecords,
+  onOpenBookDossier
+}) => {
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [showPrintableLabels, setShowPrintableLabels] = useState(false);
 
@@ -37,45 +41,44 @@ export const ShelfMapAndLabelsTab: React.FC<ShelfMapAndLabelsTabProps> = ({ audi
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">
           <div>
             <h2 className="text-base sm:text-lg font-bold text-slate-900">
-              نقشه عملیاتی قفسه‌ها (SH-01 تا SH-04) و جانمایی گروه‌های شش‌گانه
+              نقشه کتابخانه و جانمایی قفسه‌ها
             </h2>
             <p className="text-xs text-slate-600 mt-1">
-              طبقات هر قفسه از بالا به پایین با T01 تا T06 شماره‌گذاری شده‌اند. شناسه کتاب و کد محل (SH-xx-Txx) دو مفهوم مستقل‌اند.
+              با کلیک روی هر طبقه، فهرست کتاب‌های ثبت‌شده در همان طبقه باز می‌شود.
             </p>
           </div>
           <button
             type="button"
             onClick={() => setShowPrintableLabels((prev) => !prev)}
-            className="min-h-[42px] px-4 py-2 bg-[#1f4e79] hover:bg-[#163a5b] text-white text-xs font-bold rounded-xl inline-flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
+            className="min-h-[42px] px-4 py-2 bg-[#1f4e79] hover:bg-[#163a5b] text-white text-xs font-bold rounded-xl inline-flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Printer className="w-4 h-4" />
-            <span>{showPrintableLabels ? 'مشاهده نقشه قفسه‌ها' : 'پیش‌نمایش ۳۹ برچسب استاندارد قفسه و کتاب'}</span>
+            <span>{showPrintableLabels ? 'مشاهده نقشه کتابخانه' : 'پیش‌نمایش ۳۹ برچسب استاندارد قفسه و کتاب'}</span>
           </button>
         </div>
 
-        {/* Summary of Physical Count vs Excel Reference */}
+        {/* خلاصه وضعیت فهرست و شمارش قفسه‌ها با بیان ساده */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
-            <span className="text-slate-500 block">رکوردهای شیت «فهرست کتاب‌ها» در فایل تلفیقی:</span>
+            <span className="text-slate-500 block">تعداد کل کتاب‌های فهرست کتابخانه:</span>
             <strong className="text-lg font-bold text-slate-900 tabular-nums mt-0.5 block">
-              ۹۸۰ رکورد
+              ۹۸۰ کتاب
             </strong>
-            <span className="text-[11px] text-slate-500">شناسه موقت BK-0001 تا BK-0980</span>
           </div>
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
-            <span className="text-slate-500 block">جمع شمارش فیزیکی اولیه در ۶ گروه موضوعی:</span>
+            <span className="text-slate-500 block">شمارش فیزیکی اولیه در قفسه‌ها:</span>
             <strong className="text-lg font-bold text-[#1f4e79] tabular-nums mt-0.5 block">
-              ۹۴۲ جلد (R: ۵۸۰ + سایر: ۳۶۲)
+              ۹۴۲ جلد
             </strong>
-            <span className="text-[11px] text-slate-500">چیدمان اولیه در قفسه‌های SH-01 تا SH-04</span>
+            <span className="text-[11px] text-slate-500">مجموع شمارش اولیه ۶ گروه موضوعی قفسه‌ها</span>
           </div>
           <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3.5">
-            <span className="text-amber-900 font-semibold block">اختلاف محاسباتی در دست بررسی:</span>
+            <span className="text-amber-900 font-semibold block">تفاوت فهرست با شمارش اولیه:</span>
             <strong className="text-lg font-bold text-amber-800 tabular-nums mt-0.5 block">
-              ۳۸ مورد اختلاف باز
+              ۳۸ جلد در دست تطبیق
             </strong>
             <span className="text-[11px] text-amber-800">
-              تطبیق رکوردبه‌رکورد با همین ابزار موبایل برای تعیین وضعیت دقیق
+              مابه‌التفاوت ۹۸۰ کتاب فهرست و ۹۴۲ جلد شمارش‌شده که حین ثبت قفسه تطبیق داده می‌شود
             </span>
           </div>
         </div>
@@ -183,50 +186,74 @@ export const ShelfMapAndLabelsTab: React.FC<ShelfMapAndLabelsTabProps> = ({ audi
             ))}
           </div>
 
-          {/* Drill-down for Selected Slot */}
+          {/* پنجره فوری کتاب‌های طبقه انتخاب‌شده + لینک مستقیم به پرونده کتاب در کتابخانه */}
           {selectedSlot && (
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                <h3 className="text-sm font-bold text-slate-900">
-                  کتاب‌های ثبت‌شده در طبقه{' '}
-                  <span className="font-mono text-[#1f4e79]" dir="ltr">
-                    {selectedSlot}
-                  </span>{' '}
-                  ({toPersianDigits(slotBooks.length)} مورد)
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setSelectedSlot(null)}
-                  className="text-xs text-slate-500 hover:text-slate-900"
-                >
-                  بستن
-                </button>
-              </div>
-
-              {slotBooks.length === 0 ? (
-                <p className="text-xs text-slate-500 py-4 text-center">
-                  هنوز کتابی در این طبقه ثبت میدانی نشده است.
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {slotBooks.map((b) => (
-                    <div key={b.key} className="border border-slate-200 rounded-xl p-3 text-xs space-y-1">
-                      <div className="flex items-center justify-between text-slate-500">
-                        <span className="font-mono font-bold text-slate-700" dir="ltr">
-                          {b.tempBookId}
-                        </span>
-                        <span>{b.category}</span>
-                      </div>
-                      <div className="font-bold text-slate-900 text-sm">{b.title}</div>
-                      <div className="text-slate-600">
-                        {[b.author, b.publisher, `تعداد: ${toPersianDigits(b.countedCopies || '1')}`]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </div>
-                    </div>
-                  ))}
+            <div
+              className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-[1px] flex items-center justify-center p-3 sm:p-4"
+              onClick={() => setSelectedSlot(null)}
+            >
+              <div
+                className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg max-h-[82vh] flex flex-col overflow-hidden shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-4 py-3 bg-[#1f4e79] text-white flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <BookOpen className="w-4 h-4 shrink-0" />
+                    <h3 className="text-sm font-bold truncate">
+                      کتاب‌های طبقه{' '}
+                      <span className="font-mono" dir="ltr">
+                        {selectedSlot}
+                      </span>{' '}
+                      ({toPersianDigits(slotBooks.length)} کتاب)
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSlot(null)}
+                    className="p-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white cursor-pointer"
+                    aria-label="بستن پنجره"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-              )}
+
+                <div className="p-4 overflow-y-auto space-y-2">
+                  {slotBooks.length === 0 ? (
+                    <p className="text-xs text-slate-500 py-6 text-center">
+                      هنوز کتابی در این طبقه ثبت نشده است.
+                    </p>
+                  ) : (
+                    slotBooks.map((b) => (
+                      <button
+                        key={b.key}
+                        type="button"
+                        onClick={() => {
+                          setSelectedSlot(null);
+                          onOpenBookDossier?.(b);
+                        }}
+                        className="w-full text-right border border-slate-200 hover:border-[#1f4e79] hover:bg-[#f2f7fb] rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-3 transition-colors cursor-pointer"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="font-bold text-sm text-slate-900 truncate">
+                            {b.title}
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-2">
+                            <span className="font-mono" dir="ltr">
+                              {b.tempBookId}
+                            </span>
+                            <span>·</span>
+                            <span>تعداد: {toPersianDigits(b.countedCopies || '1')}</span>
+                          </div>
+                        </div>
+                        <span className="text-xs font-bold text-[#1f4e79] inline-flex items-center gap-1 shrink-0">
+                          <span>پرونده کتاب</span>
+                          <ChevronLeft className="w-4 h-4" />
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </>

@@ -1591,8 +1591,27 @@ export default function App() {
           workbookMartyrs
         );
 
+    const extractedCompacts = new Set(
+      extractedMartyrsFromRecord
+        .map((name) =>
+          normalizePersianText(name.replace(/^(?:شهیدان|شهید|سید)\s+/g, '')).replace(/\s+/g, '')
+        )
+        .filter(Boolean)
+    );
+
     const unverifiedMatches = autoMatches.filter((m) => {
       const normM = normalizePersianText(m.martyrName.replace(/^شهید\s+/, ''));
+      const compactM = normalizePersianText(
+        m.martyrName.replace(/^(?:شهیدان|شهید|سید)\s+/g, '')
+      ).replace(/\s+/g, '');
+      if (
+        compactM &&
+        Array.from(extractedCompacts).some(
+          (ec) => ec === compactM || ec.includes(compactM) || compactM.includes(ec)
+        )
+      ) {
+        return false;
+      }
       const normB = normalizePersianText(effectiveTitle);
       const alreadyLinked = links.some(
         (l) =>
@@ -3005,7 +3024,7 @@ export default function App() {
             <div className="bg-white border border-slate-200 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-xs font-bold text-[#253247] px-1">
                 <BookOpen className="w-4 h-4 text-[#1F4E79] shrink-0" />
-                <span>کتابخانه، نسخه‌های قفسه (SH-01..04) و برچسب:</span>
+                <span>کتابخانه، نسخه‌های قفسه و برچسب</span>
               </div>
               <div className="flex flex-wrap items-center gap-1.5 bg-[#F5F7FA] p-1 rounded-xl text-xs w-full sm:w-auto">
                 <button
@@ -3154,7 +3173,17 @@ export default function App() {
                 onNotify={showNotify}
               />
             ) : (
-              <ShelfMapAndLabelsTab auditRecords={auditRecords} />
+              <ShelfMapAndLabelsTab
+                auditRecords={auditRecords}
+                onOpenBookDossier={(rec) => {
+                  setLibraryDirectBookTarget({
+                    rowKey: rec.key,
+                    tempBookId: rec.tempBookId,
+                    nonce: Date.now()
+                  });
+                  setLibrarySubView('catalog');
+                }}
+              />
             )}
           </div>
         )}

@@ -249,6 +249,12 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
     copyId: string;
     location: string;
   } | null>(null);
+  const [lastQuickSavedBanner, setLastQuickSavedBanner] = useState<{
+    title: string;
+    tempBookId: string;
+    location: string;
+    approved: boolean;
+  } | null>(null);
   const [lastTouchedRowKey, setLastTouchedRowKey] = useState<string>(
     initialLibSnap.lastTouchedRowKey || ''
   );
@@ -549,16 +555,25 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
         );
         return !isExcl;
       });
-      // حذف نام‌های ناقص پیشوندی در صورت وجود نام کامل‌تر در همان کتاب (مثلاً سید علیرضا در برابر سید علیرضا جزئی)
+      // حذف نام‌های تکراری یا ناقص در صورت وجود نام کامل‌تر در همان کتاب (مثلاً «مصطفی صدرزاده» و «سید مصطفی صدرزاده»)
+      const normalizeRootCompact = (s: string) =>
+        normalizePersianText(
+          s.replace(/^(?:شهیدان|شهید|سردار|سرلشکر|سپهبد|امیر|حاج|دکتر|مهندس|سید)\s+/g, '')
+        ).replace(/\s+/g, '');
       const dedupedMartyrs = combinedMartyrs.filter((m, idx, arr) => {
         const mc = normalizePersianText(m.replace(/^(شهیدان|شهید)\s+/g, '')).replace(/\s+/g, '');
+        const mRoot = normalizeRootCompact(m);
         return !arr.some((other, oIdx) => {
           if (oIdx === idx) return false;
           const oc = normalizePersianText(other.replace(/^(شهیدان|شهید)\s+/g, '')).replace(
             /\s+/g,
             ''
           );
-          return oc.length > mc.length && oc.startsWith(mc);
+          const oRoot = normalizeRootCompact(other);
+          if (mRoot && oRoot && mRoot === oRoot && (oc.length > mc.length || oIdx < idx)) {
+            return true;
+          }
+          return oc.length > mc.length && (oc.startsWith(mc) || oc.endsWith(mc));
         });
       });
       setRelatedMartyrsInputs(dedupedMartyrs.length > 0 ? dedupedMartyrs : ['']);
@@ -692,7 +707,10 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       const seenMartyrCompact = new Set<string>();
       const addUnique = (m: BookMartyrLinkRecord) => {
         const mc = normalizePersianText(
-          (m.martyrNameRaw || '').replace(/^(شهیدان|شهید)\s+/g, '')
+          (m.martyrNameRaw || '').replace(
+            /^(?:شهیدان|شهید|سردار|سرلشکر|سپهبد|امیر|حاج|دکتر|مهندس|سید)\s+/g,
+            ''
+          )
         ).replace(/\s+/g, '');
         if (!mc || seenMartyrCompact.has(mc)) return;
         seenMartyrCompact.add(mc);
@@ -1034,25 +1052,61 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
   };
 
   // تأیید کارشناسی کتاب (خارج از فهرست یا نیازمند بررسی) و خروج قطعی از وضعیت نیازمند بررسی
-  const handleApproveOutsideRecord = (recordKey: string, fallbackRow?: ReferenceCatalogRow) => {
+  const handleApproveOutsideRecord = (
+    recordKey: string,
+    fallbackRow?: ReferenceCatalogRow,
+    useCurrentFormValues = false
+  ) => {
     const existing = auditRecords[recordKey];
-    const targetTitle = existing?.title || fallbackRow?.titleRaw || 'کتاب انتخابی';
+    const formMatchesRow = useCurrentFormValues && selectedRow?.rowKey === recordKey;
+    const formLocation = formMatchesRow && shelfValue && levelValue ? `${shelfValue}-${levelValue}` : '';
+    const targetTitle =
+      (formMatchesRow ? titleOverride.trim() : '') ||
+      existing?.title ||
+      fallbackRow?.titleRaw ||
+      'کتاب انتخابی';
     const targetBookId = existing?.tempBookId || fallbackRow?.tempBookId || recordKey;
-    const targetLoc = existing?.location || fallbackRow?.locationRaw || 'SH-01-T01';
-    const targetCat = existing?.category || fallbackRow?.categoryRaw || SUBJECT_CATEGORIES[0].label;
+    const targetLoc = formLocation || existing?.location || fallbackRow?.locationRaw || 'SH-01-T01';
+    const targetCat =
+      (formMatchesRow ? categoryValue : '') ||
+      existing?.category ||
+      fallbackRow?.categoryRaw ||
+      SUBJECT_CATEGORIES[0].label;
+    const targetShelf = (formMatchesRow && shelfValue ? shelfValue : existing?.shelf || targetLoc.slice(0, 5) || 'SH-01') as ShelfCode;
+    const targetLevel = (formMatchesRow && levelValue ? levelValue : existing?.level || targetLoc.slice(6) || 'T01') as LevelCode;
+
+    if (formMatchesRow && (!shelfValue || !levelValue)) {
+      onNotify(
+        'برای تأیید نهایی و بستن پرونده کتاب، لطفاً قفسه و طبقه را انتخاب کنید.',
+        'warning'
+      );
+      return;
+    }
+
+    const explicitFormMartyrs = formMatchesRow
+      ? Array.from(
+          new Set(
+            relatedMartyrsInputs
+              .flatMap((m) => splitMartyrNamesInput(m))
+              .map((m) => m.trim())
+              .filter(Boolean)
+          )
+        )
+      : existing?.relatedMartyrs;
 
     requestActionConfirmation({
       variant: 'confirm',
-      title: 'پرسش دوم: تأیید نهایی کارشناسی کتاب',
-      message: `آیا از تأیید نهایی کارشناسی کتاب «${targetTitle}» (${targetBookId}) و خروج آن از فهرست نیازمند بررسی اطمینان دارید؟`,
+      title: 'تأیید نهایی کارشناسی کتاب',
+      message: `آیا از تأیید نهایی کارشناسی کتاب «${targetTitle}» در محل ${targetLoc} و بستن پرونده آن اطمینان دارید؟`,
       details: [
         `عنوان کتاب: ${targetTitle}`,
-        `شناسه: ${targetBookId} · نسخه: ${existing?.copyId || '—'}`,
+        `شناسه: ${targetBookId} · نسخه: ${(formMatchesRow ? copyIdValue : existing?.copyId) || '—'}`,
         `محل نگهداری: ${targetLoc} · دسته: ${targetCat}`
       ],
       confirmLabel: 'بله، تأیید نهایی کارشناس ثبت شود',
       onConfirm: () => {
-        const cleanedNotes = (existing?.notes || '')
+        const rawNotes = formMatchesRow ? notesValue : existing?.notes || '';
+        const cleanedNotes = rawNotes
           .replace(/در انتظار تأیید کارشناس/g, 'تأییدشده توسط کارشناس')
           .replace(/\s*\|\s*⚠️\s*نیازمند بررسی:?\s*تشابه نام با[^|]*/g, '')
           .replace(/⚠️\s*نیازمند بررسی:?\s*تشابه نام با[^|]*/g, '')
@@ -1061,6 +1115,20 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
         const updated: FieldAuditRecord = existing
           ? {
               ...existing,
+              title: targetTitle,
+              author: (formMatchesRow ? authorOverride.trim() : '') || existing.author,
+              publisher: (formMatchesRow ? publisherOverride.trim() : '') || existing.publisher,
+              year: (formMatchesRow ? yearOverride.trim() : '') || existing.year,
+              isbn: (formMatchesRow ? isbnOverride.trim() : '') || existing.isbn,
+              fipa: (formMatchesRow ? fipaOverride.trim() : '') || existing.fipa,
+              registrationNo: (formMatchesRow ? regNoOverride.trim() : '') || existing.registrationNo,
+              category: targetCat,
+              shelf: targetShelf,
+              level: targetLevel,
+              location: targetLoc,
+              countedCopies: (formMatchesRow ? countedCopies.trim() : '') || existing.countedCopies || '1',
+              physicalCondition: formMatchesRow ? physicalCondition : existing.physicalCondition || 'healthy',
+              relatedMartyrs: explicitFormMartyrs,
               physical: 'verified',
               needsReview: false,
               expertApproved: true,
@@ -1073,27 +1141,44 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
               source: 'catalog',
               sheet: currentSheetName,
               tempBookId: targetBookId,
-              copyId: fallbackRow?.registrationNoRaw || `CP-${targetBookId}`,
+              copyId: (formMatchesRow ? copyIdValue.trim() : '') || fallbackRow?.registrationNoRaw || `CP-${targetBookId}`,
               title: targetTitle,
-              author: fallbackRow?.authorRaw || 'ثبت‌شده',
-              publisher: fallbackRow?.publisherRaw || 'ثبت‌شده',
-              year: '',
+              author: (formMatchesRow ? authorOverride.trim() : '') || fallbackRow?.authorRaw || 'ثبت‌شده',
+              publisher: (formMatchesRow ? publisherOverride.trim() : '') || fallbackRow?.publisherRaw || 'ثبت‌شده',
+              year: formMatchesRow ? yearOverride.trim() : '',
+              isbn: (formMatchesRow ? isbnOverride.trim() : '') || fallbackRow?.isbnRaw || '',
+              fipa: (formMatchesRow ? fipaOverride.trim() : '') || fallbackRow?.fipaRaw || '',
+              registrationNo: (formMatchesRow ? regNoOverride.trim() : '') || fallbackRow?.registrationNoRaw || '',
               descriptionRaw: fallbackRow?.descriptionRaw || '',
               category: targetCat,
-              shelf: 'SH-01',
-              level: 'T01',
+              shelf: targetShelf,
+              level: targetLevel,
               location: targetLoc,
               physical: 'verified',
               needsReview: false,
               expertApproved: true,
               copyStatus: 'verified_present',
-              physicalCondition: 'healthy',
-              countedCopies: fallbackRow?.countedCopiesRaw || '1',
-              notes: 'تأییدشده توسط کارشناس',
+              physicalCondition: formMatchesRow ? physicalCondition : 'healthy',
+              countedCopies: (formMatchesRow ? countedCopies.trim() : '') || fallbackRow?.countedCopiesRaw || '1',
+              notes: cleanedNotes || 'تأییدشده توسط کارشناس',
+              relatedMartyrs: explicitFormMartyrs,
+              backupSourceSheet: fallbackRow?.backupSourceSheet,
+              backupSourceRow: fallbackRow?.backupSourceRow,
               updatedAt: new Date().toISOString()
             };
         onSaveAuditRecord(updated);
-        onNotify(`✅ کتاب «${targetTitle}» (${targetBookId}) توسط کارشناس تأیید نهایی شد و از نیازمند بررسی خارج گردید.`);
+        setLastTouchedRowKey(recordKey);
+        setSelectedRow(null);
+        setShowSection3Drawer(false);
+        setLastQuickSavedBanner({
+          title: targetTitle,
+          tempBookId: targetBookId,
+          location: targetLoc,
+          approved: true
+        });
+        onNotify(
+          `✅ کتاب «${targetTitle}» در آدرس ${targetLoc} ثبت و تأیید نهایی کارشناس شد و پرونده بسته گردید.`
+        );
       }
     });
   };
@@ -1290,10 +1375,16 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
 
     onSaveAuditRecord(record);
     setLastTouchedRowKey(targetRow.rowKey);
+    setLastQuickSavedBanner({
+      title: finalBookTitle,
+      tempBookId: targetRow.tempBookId,
+      location: locationCode || 'ثبت‌نشده',
+      approved: physicalStatus === 'verified' && !effectiveNeedsReview
+    });
 
     if (advanceToNextRow) {
       onNotify(
-        `✅ کتاب «${finalBookTitle}» (${autoCopyId}) ثبت شد و کتاب بعدی باز شد.`
+        `✅ کتاب «${finalBookTitle}» در آدرس ${locationCode || 'ثبت‌نشده'} ثبت شد و کتاب بعدی باز گردید.`
       );
       handleSelectRow(advanceToNextRow);
       setTimeout(() => {
@@ -1304,15 +1395,9 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
       }, 70);
     } else {
       onNotify(
-        `✅ تغییرات کتاب «${finalBookTitle}» (${autoCopyId}) در کل نرم‌افزار (کتابخانه و خانه) ذخیره شد.`
+        `✅ کتاب «${finalBookTitle}» در آدرس ${locationCode || 'ثبت‌نشده'} با موفقیت ثبت شد.`
       );
-      // حفظ همان کتاب در حالت انتخاب‌شده و حفظ کامل جست‌وجو، فیلتر و اسکرول
-      setTimeout(() => {
-        const currentElem = document.getElementById(`book-item-${targetRow.rowKey}`);
-        if (currentElem) {
-          currentElem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
-      }, 50);
+      setSelectedRow(null);
     }
     return true;
   };
@@ -1548,6 +1633,30 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
         </div>
       )}
 
+      {/* بنر تأیید ثبت و بسته‌شدن پرونده کتاب در بخش کتابخانه */}
+      {lastQuickSavedBanner && (
+        <div
+          data-testid="quick-inventory-saved-banner"
+          className="bg-[#EDF6F0] border-2 border-[#4D8B68] rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs text-[#1E4D2B] shadow-xs"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <CheckCircle2 className="w-5 h-5 text-[#2E6F40] shrink-0" />
+            <div className="font-bold text-xs sm:text-sm text-[#1E4D2B] leading-relaxed">
+              {lastQuickSavedBanner.approved
+                ? `کتاب «${lastQuickSavedBanner.title}» (${lastQuickSavedBanner.tempBookId}) در آدرس ${lastQuickSavedBanner.location} ثبت و تأیید نهایی کارشناس شد و پرونده بسته گردید.`
+                : `کتاب «${lastQuickSavedBanner.title}» (${lastQuickSavedBanner.tempBookId}) در آدرس ${lastQuickSavedBanner.location} با موفقیت ثبت شد.`}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLastQuickSavedBanner(null)}
+            className="px-2.5 py-1 rounded-lg bg-white border border-[#A8D5B5] text-[#1E4D2B] text-xs font-bold cursor-pointer shrink-0"
+          >
+            بستن ✕
+          </button>
+        </div>
+      )}
+
       {/* بنر بازگشت مستقیم به پرونده خلاصه کتاب در داشبورد مدیریتی */}
       {onReturnToDashboardDossier && (
         <div
@@ -1749,16 +1858,6 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
             )}
           </div>
           <div className="flex items-center gap-2">
-            {(activeFiltersCount > 0 || selectedRow) && (
-              <button
-                type="button"
-                onClick={handleResetAllFilters}
-                className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-[#B94A48] border border-rose-200 text-[11px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer"
-              >
-                <RotateCcw className="w-3 h-3" />
-                <span>پاک‌سازی فیلتر و انتخاب</span>
-              </button>
-            )}
             <button
               type="button"
               onClick={() => setShowAdvancedColumnFilters((prev) => !prev)}
@@ -2272,13 +2371,18 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                             </div>
                           )}
 
-                          {/* سطر دوم: ۴ نشانگر و کلید عملیاتی (قفسه، منشأ/ثبت جدید، شهید مرتبط/وضعیت، ثبت سریع) در یک ردیف ۴ستونه کاملاً هم‌تراز */}
+                          {/* سطر دوم: آدرس قفسه و وضعیت شهید مرتبط / تأیید در قفسه */}
                           {(() => {
                             const rowLinks = getLinksForBookRow(row);
                             const locLabel = savedRec?.location || row.locationRaw || '';
+                            const isExpertVerified =
+                              Boolean(savedRec) &&
+                              savedRec?.physical === 'verified' &&
+                              !savedRec?.needsReview &&
+                              savedRec?.copyStatus !== 'pending_review';
                             return (
                               <>
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-2 pt-2 border-t border-slate-100 text-[11px]">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-2 pt-2 border-t border-slate-100 text-[11px]">
                                   <span
                                     className={`min-h-[32px] px-2.5 py-1 rounded-lg font-mono font-bold flex items-center justify-center text-center truncate ${
                                       locLabel
@@ -2287,18 +2391,6 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                     }`}
                                   >
                                     قفسه: {locLabel || 'ثبت‌نشده'}
-                                  </span>
-
-                                  <span
-                                    className={`min-h-[32px] px-2.5 py-1 rounded-lg font-bold flex items-center justify-center text-center truncate ${
-                                      isOutsideBook
-                                        ? 'bg-[#8C3B2B]/10 text-[#8C3B2B] border border-[#8C3B2B]/25'
-                                        : 'bg-[#FAF5EE] text-[#6B3E26] border border-[#E2D2BE]'
-                                    }`}
-                                  >
-                                    {isOutsideBook
-                                      ? 'ثبت جدید'
-                                      : `ردیف ${toPersianDigits(row.rowIndex)} فهرست`}
                                   </span>
 
                                   <span
@@ -2318,24 +2410,14 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                       ? '⚠️ نیازمند بررسی'
                                       : 'بررسی‌نشده در قفسه'}
                                   </span>
-
-                                  <span className="min-h-[32px] px-2.5 py-1 rounded-lg bg-[#1f4e79] hover:bg-[#163a5b] text-white font-bold flex items-center justify-center gap-1 text-center truncate">
-                                    <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
-                                    <span className="truncate">
-                                      {isChosen ? 'بستن ثبت سریع ▲' : 'ثبت سریع قفسه ▼'}
-                                    </span>
-                                  </span>
                                 </div>
 
-                                {/* دکمه‌های تأیید نهایی کارشناس یا حذف برای همه ردیف‌های کتاب */}
+                                {/* نشان وضعیت تأییدشده کارشناس (غیرکلیک‌پذیر) یا دکمه تأیید نهایی برای موارد نیازمند بررسی */}
                                 <div
                                   className="flex flex-wrap items-center justify-end gap-1.5 mt-2 pt-1.5 border-t border-slate-100"
                                   onClick={(e) => e.stopPropagation()}
                                 >
-                                  {(!savedRec ||
-                                    savedRec.physical !== 'verified' ||
-                                    savedRec.needsReview ||
-                                    savedRec.copyStatus === 'pending_review') ? (
+                                  {!isExpertVerified ? (
                                     <button
                                       type="button"
                                       onClick={() => handleApproveOutsideRecord(row.rowKey, row)}
@@ -2344,14 +2426,9 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                       ✓ تأیید نهایی کارشناس
                                     </button>
                                   ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleApproveOutsideRecord(row.rowKey, row)}
-                                      className="min-h-[28px] px-2.5 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-[10.5px] flex items-center justify-center cursor-pointer"
-                                      title="تأیید مجدد کارشناس برای این کتاب و ارتباطات"
-                                    >
-                                      ✓ تأییدشده کارشناس (ثبت مجدد)
-                                    </button>
+                                    <span className="min-h-[28px] px-2.5 py-0.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[10.5px] inline-flex items-center justify-center select-none">
+                                      ✓ تأییدشده کارشناس
+                                    </span>
                                   )}
                                   {isOutsideBook && onDeleteAuditRecord && (
                                     <button
@@ -2611,26 +2688,16 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                   <label className="text-xs font-bold text-[#8C3B2B]">
                                     نام شهید مرتبط با این کتاب (نام کامل شهید):
                                   </label>
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSaveCatalogBookRecord(row)}
-                                      className="px-2.5 py-1 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer shadow-2xs"
-                                    >
-                                      <CheckCircle2 className="w-3.5 h-3.5" />
-                                      <span>ذخیره ارتباط شهید ✓</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setRelatedMartyrsInputs((prev) => [...prev, ''])
-                                      }
-                                      className="px-2.5 py-1 rounded-lg bg-[#8C3B2B] hover:bg-[#702D20] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                                    >
-                                      <Plus className="w-3.5 h-3.5" />
-                                      <span>افزودن شهید دیگر</span>
-                                    </button>
-                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setRelatedMartyrsInputs((prev) => [...prev, ''])
+                                    }
+                                    className="px-2.5 py-1 rounded-lg bg-[#8C3B2B] hover:bg-[#702D20] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>افزودن شهید دیگر</span>
+                                  </button>
                                 </div>
                                 <div className="space-y-1.5">
                                   {relatedMartyrsInputs.map((mName, mIdx) => {
@@ -2656,17 +2723,6 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                             } (مثلاً: شهید مصطفی چمران)`}
                                             className="flex-1 min-w-[160px] min-h-[36px] px-3 py-1 bg-[#FAF5EE] focus:bg-white border border-[#D8C2A7] rounded-lg text-xs text-slate-900 focus:outline-none focus:border-[#8C3B2B]"
                                           />
-                                          {mName.trim() !== '' && (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleSaveCatalogBookRecord(row)}
-                                              className="min-h-[36px] px-2.5 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer shrink-0"
-                                              title="ذخیره و تأیید ارتباط این شهید با کتاب"
-                                            >
-                                              <CheckCircle2 className="w-3.5 h-3.5" />
-                                              <span>ذخیره ارتباط</span>
-                                            </button>
-                                          )}
                                           {(relatedMartyrsInputs.length > 1 || mName.trim() !== '') && (
                                             <button
                                               type="button"
@@ -2775,12 +2831,12 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                               </button>
                             </div>
 
-                            {/* 4. Action Buttons — هم‌تراز در یک ردیف */}
-                            <div className="pt-1 grid grid-cols-1 sm:grid-cols-12 gap-2">
+                            {/* 4. Action Buttons — فقط دو کلید اصلی: ذخیره سریع و کتاب بعدی + تأیید نهایی کارشناس */}
+                            <div className="pt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
                               <button
                                 type="button"
                                 onClick={() => handleSaveCatalogBookRecord(row, nextRow)}
-                                className="sm:col-span-4 min-h-[44px] px-3 py-2 bg-[#4D8B68] hover:bg-[#3D7254] text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                                className="min-h-[44px] px-3 py-2 bg-[#4D8B68] hover:bg-[#3D7254] text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
                               >
                                 <span>ذخیره سریع و کتاب بعدی</span>
                                 <ArrowDown className="w-4 h-4 shrink-0" />
@@ -2788,28 +2844,11 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
 
                               <button
                                 type="button"
-                                onClick={() => handleSaveCatalogBookRecord(row)}
-                                className="sm:col-span-3 min-h-[44px] px-3 py-2 bg-[#1f4e79] hover:bg-[#163a5c] text-white rounded-xl font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-                              >
-                                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                                <span>ذخیره ارتباط و کتاب ✓</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleApproveOutsideRecord(row.rowKey, row)}
-                                className="sm:col-span-3 min-h-[44px] px-3 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                                onClick={() => handleApproveOutsideRecord(row.rowKey, row, true)}
+                                className="min-h-[44px] px-3 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
                               >
                                 <CheckCircle2 className="w-4 h-4 shrink-0" />
                                 <span>✓ تأیید نهایی کارشناس</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => setSelectedRow(null)}
-                                className="sm:col-span-2 min-h-[44px] px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium text-xs flex items-center justify-center cursor-pointer"
-                              >
-                                <span>بستن ✕</span>
                               </button>
                             </div>
                           </div>
@@ -3661,28 +3700,16 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                             <label className="text-xs font-bold text-[#8C3B2B]">
                               شهید مرتبط با کتاب (نام کامل شهید — قابلیت افزودن چند شهید با +):
                             </label>
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              {selectedRow && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleSaveCatalogBookRecord(selectedRow)}
-                                  className="px-2.5 py-1 rounded-lg bg-[#4D8B68] hover:bg-[#3D7254] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                                >
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                  <span>ذخیره ارتباط شهید ✓</span>
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setRelatedMartyrsInputs((prev) => [...prev, ''])
-                                }
-                                className="px-2.5 py-1 rounded-lg bg-[#8C3B2B] hover:bg-[#702D20] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                                <span>افزودن شهید دیگر</span>
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setRelatedMartyrsInputs((prev) => [...prev, ''])
+                              }
+                              className="px-2.5 py-1 rounded-lg bg-[#8C3B2B] hover:bg-[#702D20] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>افزودن شهید دیگر</span>
+                            </button>
                           </div>
                           <div className="space-y-1.5">
                             {relatedMartyrsInputs.map((mName, mIdx) => {
@@ -3708,16 +3735,6 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                       } (مثلاً: شهید مصطفی چمران)`}
                                       className="flex-1 min-w-[160px] min-h-[38px] px-3 py-1.5 bg-white border border-[#D8C2A7] rounded-xl text-xs text-slate-900 focus:outline-none focus:border-[#8C3B2B]"
                                     />
-                                    {mName.trim() !== '' && selectedRow && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleSaveCatalogBookRecord(selectedRow)}
-                                        className="min-h-[38px] px-2.5 rounded-xl bg-[#4D8B68] hover:bg-[#3D7254] text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer shrink-0"
-                                      >
-                                        <CheckCircle2 className="w-3.5 h-3.5" />
-                                        <span>ذخیره ارتباط</span>
-                                      </button>
-                                    )}
                                     {(relatedMartyrsInputs.length > 1 || mName.trim() !== '') && (
                                       <button
                                         type="button"
