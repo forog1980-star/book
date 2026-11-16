@@ -43,6 +43,10 @@ import {
 import { requestActionConfirmation } from '../utils/confirmDialogService';
 import { openStandardExcelExportModal } from '../modules/excel-export';
 import { TehranMartyrBadge } from './TehranMartyrBadge';
+import {
+  ExpertApprovalStatusButton,
+  isBookMartyrLinkExpertApproved
+} from './ExpertApprovalBadge';
 import { evaluateMartyrTehranStatus } from '../utils/martyrsCrossMatchEngine';
 import { guardExternalInternetSearch } from '../utils/githubSyncService';
 import {
@@ -1822,34 +1826,22 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                         </span>
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                        <span
-                          className={`text-[10.5px] font-bold px-2 py-0.5 rounded border ${
-                            lnk.reviewStatus === 'تأییدشده کارشناسی'
-                              ? 'text-emerald-800 bg-emerald-50 border-emerald-200'
-                              : 'text-[#1F4E79] bg-blue-50 border-blue-200'
-                          }`}
-                        >
-                          {lnk.reviewStatus}
-                        </span>
-                        {lnk.reviewStatus !== 'تأییدشده کارشناسی' && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onLinkMartyrToBook({
-                                ...lnk,
-                                reviewStatus: 'تأییدشده کارشناسی'
-                              });
-                              onNotify(
-                                `ارتباط کتاب «${lnk.bookTitleRaw}» با شهید «${lnk.martyrNameRaw}» به تأیید نهایی کارشناس رسید.`,
-                                'success'
-                              );
-                            }}
-                            className="min-h-[26px] px-2.5 py-0.5 rounded-md bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold text-[10.5px] inline-flex items-center gap-1 cursor-pointer"
-                          >
-                            <CheckCircle2 className="w-3 h-3 shrink-0" />
-                            <span>✓ تأیید نهایی کارشناس</span>
-                          </button>
-                        )}
+                        <ExpertApprovalStatusButton
+                          compact
+                          approved={isBookMartyrLinkExpertApproved(lnk.reviewStatus, lnk.sourceFile)}
+                          onNotify={onNotify}
+                          customApprovedNotice="ارتباط این کتاب و شهید قبلاً تأیید کارشناسی شده است و نیازی به بررسی مجدد ندارد. در صورت نیاز به کارشناسی مجدد، لطفاً به صفحه «کتابخانه» مراجعه کرده و از آنجا اقدام نمایید."
+                          onApprove={() => {
+                            onLinkMartyrToBook({
+                              ...lnk,
+                              reviewStatus: 'تأییدشده کارشناسی'
+                            });
+                            onNotify(
+                              `ارتباط کتاب «${lnk.bookTitleRaw}» با شهید «${lnk.martyrNameRaw}» به تأیید نهایی کارشناس رسید.`,
+                              'success'
+                            );
+                          }}
+                        />
                       </div>
                     </div>
                     {lnk.sourceDescriptionRaw && (

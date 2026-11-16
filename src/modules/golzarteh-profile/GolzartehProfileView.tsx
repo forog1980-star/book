@@ -19,7 +19,7 @@ import {
   X,
   ZoomIn
 } from 'lucide-react';
-import { toPersianDigits } from '../../data/markazAsnadData';
+import { toPersianDigits, normalizePersianText } from '../../data/markazAsnadData';
 import { guardExternalInternetSearch } from '../../utils/githubSyncService';
 import {
   buildBidirectionalGolzartehSyncPackage,
@@ -31,6 +31,11 @@ import {
   saveMartyrProfileOverride,
   subscribeGolzartehDataset
 } from './loader';
+import {
+  flushGolzartehBackgroundSync,
+  getBackgroundSyncSummary,
+  subscribeBackgroundSync
+} from './backgroundSync';
 import {
   GolzartehPhotoCategory,
   GolzartehPhotoItem,
@@ -109,14 +114,20 @@ export const GolzartehComprehensiveProfilePanel: React.FC<
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    const unsub = subscribeGolzartehDataset(() => {
+    const unsubDataset = subscribeGolzartehDataset(() => {
+      setDatasetTick((prev) => prev + 1);
+    });
+    const unsubSync = subscribeBackgroundSync(() => {
       setDatasetTick((prev) => prev + 1);
     });
     const current = getGolzartehDatasetState();
     if (current.status === 'idle') {
       void loadGolzartehDataset();
     }
-    return unsub;
+    return () => {
+      unsubDataset();
+      unsubSync();
+    };
   }, []);
 
   // Reset transient editing panels cleanly when user navigates Prev / Next between martyrs
@@ -171,6 +182,21 @@ export const GolzartehComprehensiveProfilePanel: React.FC<
     [profile.photos]
   );
 
+  const hasLinkedBooksForMartyr = useMemo(() => {
+    const links = input.bookLinks || [];
+    if (links.length === 0) return false;
+    const targetNorm = normalizePersianText(profile.fullName.replace(/^شهید\s+/, ''));
+    return links.some((l) => {
+      const lNorm = normalizePersianText((l.martyrNameRaw || '').replace(/^شهید\s+/, ''));
+      return lNorm && (lNorm === targetNorm || lNorm.includes(targetNorm) || targetNorm.includes(lNorm));
+    });
+  }, [input.bookLinks, profile.fullName]);
+
+  const overrideSyncMeta = {
+    golzartehId: profile.golzartehMatch?.gid ?? null,
+    hasLinkedBooks: hasLinkedBooksForMartyr
+  };
+
   const handleSaveBio = () => {
     saveMartyrProfileOverride({
       key: profile.localKey,
@@ -184,7 +210,7 @@ export const GolzartehComprehensiveProfilePanel: React.FC<
       pinnedGolzartehId: profile.override?.pinnedGolzartehId,
       verifiedForGolzartehSync: profile.override?.verifiedForGolzartehSync,
       updatedAt: new Date().toISOString()
-    });
+    }, overrideSyncMeta);
     setIsEditingBio(false);
     onNotify?.(`زندگینامه شهید «${profile.fullName}» در حافظه سامانه ذخیره شد.`, 'success');
   };
@@ -202,7 +228,7 @@ export const GolzartehComprehensiveProfilePanel: React.FC<
       pinnedGolzartehId: profile.override?.pinnedGolzartehId,
       verifiedForGolzartehSync: profile.override?.verifiedForGolzartehSync,
       updatedAt: new Date().toISOString()
-    });
+    }, overrideSyncMeta);
     setIsEditingWill(false);
     onNotify?.(`متن وصیت‌نامه شهید «${profile.fullName}» ذخیره شد.`, 'success');
   };
@@ -220,7 +246,7 @@ export const GolzartehComprehensiveProfilePanel: React.FC<
       pinnedGolzartehId: profile.override?.pinnedGolzartehId,
       verifiedForGolzartehSync: profile.override?.verifiedForGolzartehSync,
       updatedAt: new Date().toISOString()
-    });
+    }, overrideSyncMeta);
     setIsEditingDates(false);
     onNotify?.('تاریخ‌های تولد و شهادت در پرونده شهید به‌روزرسانی شد.', 'success');
   };
@@ -253,7 +279,7 @@ export const GolzartehComprehensiveProfilePanel: React.FC<
         pinnedGolzartehId: profile.override?.pinnedGolzartehId,
         verifiedForGolzartehSync: profile.override?.verifiedForGolzartehSync,
         updatedAt: new Date().toISOString()
-      });
+      }, overrideSyncMeta);
       setNewPhotoCaption('');
       setShowAddPhotoBox(false);
       onNotify?.('تصویر با موفقیت به گالری پرونده شهید افزوده شد.', 'success');
@@ -278,7 +304,7 @@ export const GolzartehComprehensiveProfilePanel: React.FC<
       pinnedGolzartehId: profile.override?.pinnedGolzartehId,
       verifiedForGolzartehSync: profile.override?.verifiedForGolzartehSync,
       updatedAt: new Date().toISOString()
-    });
+    }, overrideSyncMeta);
     onNotify?.('تصویر از گالری محلی شهید حذف شد.', 'success');
   };
 
@@ -865,21 +891,56 @@ export const GolzartehComprehensiveProfilePanel: React.FC<
         )}
       </section>
 
-      {/* ۶. نوار تبادل و ارسال بسته استاندارد JSON به سایت golzarteh.ir */}
-      <div className="flex flex-wrap items-center justify-between gap-2 bg-[#EDF6F0] border border-[#B7DFC5] rounded-xl p-3">
-        <div className="text-[11px] text-[#1E4D2B]">
-          <strong>آماده انتقال به سایت گلزار شهدای تهران:</strong> خروجی استاندارد JSON شامل
-          زندگینامه، وصیت‌نامه، گالری تصاویر و کتب مرتبط برای درج در صفحه این شهید
-        </div>
-        <button
-          type="button"
-          onClick={handleExportSingleSyncJson}
-          className="min-h-[34px] px-3 py-1.5 rounded-lg bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-[11px] inline-flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
-        >
-          <Download className="w-3.5 h-3.5 shrink-0" />
-          <span>خروجی JSON انتقال به golzarteh.ir</span>
-        </button>
-      </div>
+      {/* ۶. نوار تبادل و همگام‌سازی خودکار پس‌زمینه با سایت و مرکز golzarteh.ir */}
+      {(() => {
+        const syncSummary = getBackgroundSyncSummary();
+        return (
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-[#EDF6F0] border border-[#B7DFC5] rounded-xl p-3">
+            <div className="space-y-0.5 text-[11px] text-[#1E4D2B]">
+              <div>
+                <strong>آماده انتقال به سایت گلزار شهدای تهران:</strong> خروجی استاندارد JSON شامل
+                زندگینامه، وصیت‌نامه، گالری تصاویر و کتب مرتبط برای درج در صفحه این شهید
+              </div>
+              <div className="text-[10.5px] text-[#2E6F40]">
+                {syncSummary.totalQueued > 0
+                  ? `زمان‌بندی پس‌زمینه: ${toPersianDigits(syncSummary.totalQueued)} تغییر در صف همگام‌سازی امن (اولویت بالا: ${toPersianDigits(syncSummary.highPriorityCount)})`
+                  : syncSummary.syncedCount > 0
+                  ? `همگام‌سازی پس‌زمینه: ${toPersianDigits(syncSummary.syncedCount)} تغییر با حفظ محتوای قبلی همگام شده است.`
+                  : 'سرویس همگام‌سازی خودکار هنگام اتصال مجدد اینترنت فعال است (بدون تخریب اطلاعات قبلی).'}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              {syncSummary.totalQueued > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void flushGolzartehBackgroundSync({
+                      reason: 'manual',
+                      profilesByGid: datasetState.profilesByGid
+                    }).then((res) => {
+                      onNotify?.(
+                        `همگام‌سازی پس‌زمینه: ${toPersianDigits(res.synced + res.conflictPreserved)} مورد با حفظ اطلاعات قبلی پردازش شد.`,
+                        res.deferred > 0 ? 'warning' : 'success'
+                      );
+                    });
+                  }}
+                  className="min-h-[34px] px-2.5 py-1.5 rounded-lg bg-white hover:bg-[#FAF5EE] border border-[#96CFA8] text-[#1E5B32] font-bold text-[11px] inline-flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <span>همگام‌سازی الان</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleExportSingleSyncJson}
+                className="min-h-[34px] px-3 py-1.5 rounded-lg bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-[11px] inline-flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
+              >
+                <Download className="w-3.5 h-3.5 shrink-0" />
+                <span>خروجی JSON انتقال به golzarteh.ir</span>
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* پنجره بزرگ‌نمایی تصویر (Lightbox) */}
       {lightboxPhoto && (

@@ -6,6 +6,12 @@ import {
   scoreGolzartehCandidateMatch
 } from './matcher';
 import { buildBidirectionalGolzartehSyncPackage } from './loader';
+import {
+  computeProfileFingerprint,
+  determineChangePriority,
+  mergeMartyrChangeWithoutCorruption,
+  type MartyrProfileSyncQueueItem
+} from './backgroundSync';
 import { GolzartehIndexRecord, ResolvedMartyrComprehensiveProfile } from './types';
 
 // 1. نرمال‌سازی حروف عربی/فارسی، اعداد فارسی و القاب
@@ -208,4 +214,90 @@ assert.equal(syncPkg.schema_version, 'markaz-golzarteh-sync-v1.0');
 assert.equal(syncPkg.martyrs[0].golzarteh_id, 6012);
 assert.equal(syncPkg.martyrs[0].gallery.length, 2);
 
-console.log('golzarteh-profile tests passed (6 assertions verified).');
+// 7. اولویت‌بندی صف همگام‌سازی پس‌زمینه و حفظ کامل داده‌های قبلی هنگام همگام‌سازی
+assert.equal(
+  determineChangePriority({ changedFields: ['birthDate'], hasLinkedBooks: false }),
+  'high'
+);
+assert.equal(
+  determineChangePriority({ changedFields: ['biography'], hasLinkedBooks: true }),
+  'high'
+);
+assert.equal(
+  determineChangePriority({ changedFields: ['biography'], hasLinkedBooks: false }),
+  'normal'
+);
+assert.equal(
+  determineChangePriority({ changedFields: ['photos'], hasLinkedBooks: false }),
+  'low'
+);
+
+const queueSample: MartyrProfileSyncQueueItem = {
+  id: 'gtsync_test_1',
+  localKey: 'golzar:2',
+  golzartehId: 6012,
+  fullName: 'سعید آئینه‌وند',
+  priority: 'high',
+  priorityWeight: 3,
+  changedFields: ['biography', 'photos'],
+  baseSnapshot: {
+    birthDate: '۱ مرداد ۱۳۴۳',
+    martyrdomDate: '۱۸ اسفند ۱۳۶۳',
+    biography: 'متن پایه قبلی',
+    willText: 'وصیت‌نامه قبلی مرکز',
+    photoIds: [],
+    fingerprint: computeProfileFingerprint({
+      birthDate: '۱ مرداد ۱۳۴۳',
+      martyrdomDate: '۱۸ اسفند ۱۳۶۳',
+      biography: 'متن پایه قبلی',
+      willText: 'وصیت‌نامه قبلی مرکز',
+      photoIds: []
+    })
+  },
+  payload: {
+    customBiography: 'زندگینامه تکمیلی ثبت‌شده در کتابخانه',
+    customWillText: undefined,
+    customBirthDate: undefined,
+    customMartyrdomDate: undefined,
+    customPhotos: [
+      {
+        id: 'c1',
+        category: 'personnel',
+        url: 'data:image/jpeg;base64,AAA',
+        caption: 'عکس اول',
+        source: 'local_upload'
+      },
+      {
+        id: 'c2',
+        category: 'personnel',
+        url: 'data:image/jpeg;base64,AAA',
+        caption: 'عکس تکراری',
+        source: 'local_upload'
+      }
+    ]
+  },
+  status: 'queued',
+  retryCount: 0,
+  nextRetryAt: 0,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z'
+};
+
+const mergedSafe = mergeMartyrChangeWithoutCorruption({
+  existingCenterRecord: {
+    birthDateDisplay: '۱ مرداد ۱۳۴۳',
+    martyrdomDateDisplay: '۱۸ اسفند ۱۳۶۳',
+    biography: 'متن به‌روزشده مستقل در پایگاه گلزار',
+    wills: [{ text: 'وصیت‌نامه قبلی مرکز' }]
+  },
+  queuedItem: queueSample
+});
+
+assert.equal(mergedSafe.hadDataLossRisk, true);
+assert.ok(mergedSafe.mergedDetail.biography?.includes('متن به‌روزشده مستقل در پایگاه گلزار'));
+assert.ok(mergedSafe.mergedDetail.biography?.includes('زندگینامه تکمیلی ثبت‌شده در کتابخانه'));
+assert.equal(mergedSafe.mergedDetail.birthDateDisplay, '۱ مرداد ۱۳۴۳');
+assert.equal(mergedSafe.mergedDetail.wills?.[0]?.text, 'وصیت‌نامه قبلی مرکز');
+assert.equal(mergedSafe.mergedDetail.customPhotosMerged.length, 1);
+
+console.log('golzarteh-profile tests passed (10 assertions verified).');

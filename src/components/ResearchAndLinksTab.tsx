@@ -1319,7 +1319,9 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                         });
                       }}
                       className={`px-2.5 py-1 rounded-lg border text-xs font-bold ${
-                        lnk.reviewStatus === 'تأییدشده کارشناسی' || lnk.reviewStatus === 'بررسی‌شده در پژوهش اصلی'
+                        lnk.reviewStatus === 'تأییدشده کارشناسی'
+                          ? 'bg-[#E9F5EC] border-[#96CFA8] text-[#1E5B32]'
+                          : lnk.reviewStatus === 'بررسی‌شده در پژوهش اصلی'
                           ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
                           : lnk.reviewStatus.includes('نیازمند')
                           ? 'bg-amber-50 border-amber-300 text-amber-800'

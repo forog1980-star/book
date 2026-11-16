@@ -37,5 +37,30 @@ export {
 
 export type { GolzartehDatasetRuntimeState, ResolveMartyrInput } from './loader';
 
+export {
+  GOLZARTEH_BG_SYNC_QUEUE_KEY,
+  GOLZARTEH_SYNC_TAG,
+  GOLZARTEH_SYNC_ENDPOINT_STORAGE_KEY,
+  computeProfileFingerprint,
+  determineChangePriority,
+  loadSyncQueue,
+  saveSyncQueue,
+  subscribeBackgroundSync,
+  mergeMartyrChangeWithoutCorruption,
+  enqueueMartyrProfileChange,
+  getBackgroundSyncSummary,
+  flushGolzartehBackgroundSync,
+  initGolzartehBackgroundSyncScheduler
+} from './backgroundSync';
+
+export type {
+  SyncPriority,
+  SyncItemStatus,
+  MartyrProfileSyncBaseSnapshot,
+  MartyrProfileSyncQueueItem,
+  SafeMergeResult,
+  BackgroundSyncSummary
+} from './backgroundSync';
+
 export { GolzartehComprehensiveProfilePanel } from './GolzartehProfileView';
 export type { GolzartehProfileBrowseNav } from './GolzartehProfileView';

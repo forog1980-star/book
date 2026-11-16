@@ -527,3 +527,16 @@ self.addEventListener('fetch', (event) => {
     })()
   );
 });
+
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'golzarteh-martyr-profile-sync') {
+    event.waitUntil(
+      (async () => {
+        const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        for (const client of allClients) {
+          client.postMessage({ type: 'GOLZARTEH_BACKGROUND_SYNC_TRIGGER' });
+        }
+      })()
+    );
+  }
+});

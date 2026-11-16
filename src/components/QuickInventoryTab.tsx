@@ -44,6 +44,11 @@ import {
   getLibraryTabNavSnapshot,
   saveLibraryTabNavSnapshot
 } from '../utils/navigationHistory';
+import {
+  ExpertApprovalStatusButton,
+  EXPERT_APPROVED_BADGE_CLASS,
+  isBookRecordExpertApproved
+} from './ExpertApprovalBadge';
 import { requestActionConfirmation } from '../utils/confirmDialogService';
 import { TehranMartyrBadge } from './TehranMartyrBadge';
 import {
@@ -1707,14 +1712,12 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
           </div>
           <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 w-full sm:w-auto">
             {selectedRow && (
-              <button
-                type="button"
-                onClick={() => handleApproveOutsideRecord(selectedRow.rowKey, selectedRow, true)}
-                className="min-h-[40px] px-3.5 py-2 rounded-xl bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>✓ تأیید نهایی کارشناس</span>
-              </button>
+              <ExpertApprovalStatusButton
+                approved={isBookRecordExpertApproved(auditRecords[selectedRow.rowKey])}
+                allowReReviewHere
+                onApprove={() => handleApproveOutsideRecord(selectedRow.rowKey, selectedRow, true)}
+                className="min-h-[40px]"
+              />
             )}
             <button
               type="button"
@@ -2409,11 +2412,7 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                           {(() => {
                             const rowLinks = getLinksForBookRow(row);
                             const locLabel = savedRec?.location || row.locationRaw || '';
-                            const isExpertVerified =
-                              Boolean(savedRec) &&
-                              savedRec?.physical === 'verified' &&
-                              !savedRec?.needsReview &&
-                              savedRec?.copyStatus !== 'pending_review';
+                            const isExpertVerified = isBookRecordExpertApproved(savedRec);
                             return (
                               <>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-2 pt-2 border-t border-slate-100 text-[11px]">
@@ -2466,7 +2465,9 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                       ✓ تأیید نهایی کارشناس
                                     </button>
                                   ) : (
-                                    <span className="min-h-[28px] px-2.5 py-0.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[10.5px] inline-flex items-center justify-center select-none">
+                                    <span
+                                      className={`min-h-[28px] px-2.5 py-0.5 rounded-lg ${EXPERT_APPROVED_BADGE_CLASS} font-bold text-[10.5px] inline-flex items-center justify-center select-none`}
+                                    >
                                       ✓ تأییدشده کارشناس
                                     </span>
                                   )}
@@ -2882,14 +2883,12 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                                 <ArrowDown className="w-4 h-4 shrink-0" />
                               </button>
 
-                              <button
-                                type="button"
-                                onClick={() => handleApproveOutsideRecord(row.rowKey, row, true)}
-                                className="min-h-[44px] px-3 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-                              >
-                                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                                <span>✓ تأیید نهایی کارشناس</span>
-                              </button>
+                              <ExpertApprovalStatusButton
+                                approved={isBookRecordExpertApproved(savedRec)}
+                                allowReReviewHere
+                                onApprove={() => handleApproveOutsideRecord(row.rowKey, row, true)}
+                                className="min-h-[44px] w-full justify-center"
+                              />
                             </div>
                           </div>
                         )}
@@ -3860,14 +3859,14 @@ export const QuickInventoryTab: React.FC<QuickInventoryTabProps> = ({
                       <span>ذخیره ثبت و ارتباط در دستگاه</span>
                     </button>
                     {selectedRow && (
-                      <button
-                        type="button"
-                        onClick={() => handleApproveOutsideRecord(selectedRow.rowKey, selectedRow, true)}
-                        className="sm:col-span-4 min-h-[46px] px-4 py-2.5 bg-[#4D8B68] hover:bg-[#3D7254] text-white font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                      >
-                        <CheckCircle2 className="w-4 h-4 shrink-0" />
-                        <span>✓ تأیید نهایی کارشناس</span>
-                      </button>
+                      <div className="sm:col-span-4 flex items-center justify-center">
+                        <ExpertApprovalStatusButton
+                          approved={isBookRecordExpertApproved(auditRecords[selectedRow.rowKey])}
+                          allowReReviewHere
+                          onApprove={() => handleApproveOutsideRecord(selectedRow.rowKey, selectedRow, true)}
+                          className="min-h-[46px] w-full justify-center"
+                        />
+                      </div>
                     )}
                     <button
                       type="button"

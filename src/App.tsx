@@ -148,6 +148,14 @@ import {
   saveShelfCapacities,
   type ShelfCapacityMap
 } from './utils/shelfCapacityAnalyzer';
+import {
+  initGolzartehBackgroundSyncScheduler,
+  getGolzartehDatasetState
+} from './modules/golzarteh-profile';
+import {
+  EXPERT_RE_REVIEW_LIBRARY_NOTICE,
+  isBookRecordExpertApproved
+} from './components/ExpertApprovalBadge';
 
 // عنوان و شناسه اختصاصی پایگاه داده در حافظه گوشی و مرورگر: book
 export const BOOK_STORAGE_NAMESPACE = 'book';
@@ -970,6 +978,11 @@ export default function App() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // راه‌اندازی زمان‌بند خودکار همگام‌سازی پس‌زمینه پروفایل شهدا با پایگاه مرکز گلزار هنگام اتصال مجدد اینترنت
+  useEffect(() => {
+    return initGolzartehBackgroundSyncScheduler(() => getGolzartehDatasetState().profilesByGid);
   }, []);
 
   // Toast Notification
@@ -2985,6 +2998,10 @@ export default function App() {
               }}
               onApproveOutsideBook={(recordKey) => {
                 const existing = auditRecords[recordKey];
+                if (isBookRecordExpertApproved(existing)) {
+                  showNotify(EXPERT_RE_REVIEW_LIBRARY_NOTICE, 'warning');
+                  return;
+                }
                 const catRow = catalogRows.find(
                   (r) => r.rowKey === recordKey || r.tempBookId === recordKey
                 );

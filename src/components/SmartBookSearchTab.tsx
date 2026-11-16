@@ -32,6 +32,10 @@ import {
 import { ModalWindow } from './ModalWindow';
 import { guardExternalInternetSearch } from '../utils/githubSyncService';
 import {
+  ExpertApprovalStatusButton,
+  isBookMartyrLinkExpertApproved
+} from './ExpertApprovalBadge';
+import {
   BookMartyrLinkRecord,
   CustomMartyrRecord,
   ExtractedContentItem,
@@ -2527,17 +2531,24 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                                   </td>
                                   <td className="py-2 px-2">
                                     <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span
-                                        className={`inline-block text-[10.5px] px-2 py-0.5 rounded-md border ${
-                                          isNeedsReview
-                                            ? 'bg-amber-100 text-amber-950 border-amber-300 font-bold'
-                                            : lnk.reviewStatus.includes('تأیید')
-                                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200 font-bold'
-                                            : 'bg-blue-50 text-[#1F4E79] border-blue-200 font-bold'
-                                        }`}
-                                      >
-                                        {isNeedsReview ? '⚠️ نیازمند بررسی' : lnk.reviewStatus}
-                                      </span>
+                                      {isBookMartyrLinkExpertApproved(lnk.reviewStatus, lnk.sourceFile) ? (
+                                        <ExpertApprovalStatusButton
+                                          compact
+                                          approved
+                                          onNotify={onNotify}
+                                          customApprovedNotice="این کتاب، مشخصات آن و ارتباط با شهید قبلاً تأیید کارشناسی شده است و نیازی به بررسی مجدد ندارد. در صورت نیاز به کارشناسی مجدد، لطفاً به صفحه «کتابخانه» مراجعه کرده و از آنجا اقدام نمایید."
+                                        />
+                                      ) : (
+                                        <span
+                                          className={`inline-block text-[10.5px] px-2 py-0.5 rounded-md border ${
+                                            isNeedsReview
+                                              ? 'bg-amber-100 text-amber-950 border-amber-300 font-bold'
+                                              : 'bg-blue-50 text-[#1F4E79] border-blue-200 font-bold'
+                                          }`}
+                                        >
+                                          {isNeedsReview ? '⚠️ نیازمند بررسی' : lnk.reviewStatus}
+                                        </span>
+                                      )}
                                       {isNeedsReview && (
                                         <button
                                           type="button"
@@ -3493,10 +3504,13 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
 
                     <div className="flex items-center justify-between sm:justify-end gap-1.5 text-xs shrink-0">
                       {sug.reviewStatus === 'تأییدشده و افزوده‌شده به پرونده' ? (
-                        <span className="text-[#2E7D5B] bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 font-bold inline-flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span>تأییدشده در پرونده</span>
-                        </span>
+                        <ExpertApprovalStatusButton
+                          compact
+                          approved
+                          approvedLabel="تأییدشده کارشناس (در پرونده)"
+                          onNotify={onNotify}
+                          customApprovedNotice="این پیشنهاد و ارتباط با شهید قبلاً تأیید کارشناسی شده و در پرونده ثبت گردیده است. در صورت نیاز به کارشناسی مجدد، لطفاً به صفحه «کتابخانه» مراجعه کرده و از آنجا اقدام نمایید."
+                        />
                       ) : sug.reviewStatus === 'ردشده با ثبت دلیل' ? (
                         <span className="text-[#B94A48] bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200 font-bold inline-flex items-center gap-1">
                           <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
@@ -3799,9 +3813,14 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                       </button>
 
                       {sug.reviewStatus === 'تأییدشده و افزوده‌شده به پرونده' ? (
-                        <div className="col-span-2 min-h-[34px] px-3 py-1 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-bold inline-flex items-center justify-center gap-1 border border-emerald-300">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                          <span>تأییدشده در پرونده</span>
+                        <div className="col-span-2 flex justify-center">
+                          <ExpertApprovalStatusButton
+                            approved
+                            approvedLabel="تأییدشده کارشناس (در پرونده)"
+                            onNotify={onNotify}
+                            customApprovedNotice="این پیشنهاد و ارتباط با شهید قبلاً تأیید کارشناسی شده و در پرونده ثبت گردیده است. در صورت نیاز به کارشناسی مجدد، لطفاً به صفحه «کتابخانه» مراجعه کرده و از آنجا اقدام نمایید."
+                            className="w-full min-h-[34px]"
+                          />
                         </div>
                       ) : sug.reviewStatus === 'ردشده با ثبت دلیل' ? (
                         <button

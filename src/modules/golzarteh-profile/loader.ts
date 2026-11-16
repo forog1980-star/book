@@ -14,6 +14,10 @@ import {
   MartyrLocalProfileOverride,
   ResolvedMartyrComprehensiveProfile
 } from './types';
+import {
+  computeProfileFingerprint,
+  enqueueMartyrProfileChange
+} from './backgroundSync';
 
 export const GOLZARTEH_OVERRIDES_STORAGE_KEY = 'markaz_golzarteh_profile_overrides_v1';
 
@@ -211,15 +215,39 @@ export function loadAllMartyrProfileOverrides(): Record<string, MartyrLocalProfi
 }
 
 export function saveMartyrProfileOverride(
-  override: MartyrLocalProfileOverride
+  override: MartyrLocalProfileOverride,
+  syncMeta?: {
+    golzartehId?: number | null;
+    hasLinkedBooks?: boolean;
+    changedFields?: string[];
+  }
 ): Record<string, MartyrLocalProfileOverride> {
   const all = loadAllMartyrProfileOverrides();
+  const prev = all[override.key];
+  const matchedRec = runtimeState.recordsByLocalKey[override.key];
+  const gid = syncMeta?.golzartehId ?? override.pinnedGolzartehId ?? matchedRec?.gid ?? null;
+  const baseDetail = gid ? runtimeState.profilesByGid[String(gid)] : undefined;
+
+  const changedFields = syncMeta?.changedFields ? [...syncMeta.changedFields] : [];
+  if (changedFields.length === 0) {
+    if ((override.customBiography || '') !== (prev?.customBiography || '')) changedFields.push('biography');
+    if ((override.customWillText || '') !== (prev?.customWillText || '')) changedFields.push('willText');
+    if ((override.customBirthDate || '') !== (prev?.customBirthDate || '')) changedFields.push('birthDate');
+    if ((override.customMartyrdomDate || '') !== (prev?.customMartyrdomDate || '')) changedFields.push('martyrdomDate');
+    if ((override.customPhotos?.length || 0) !== (prev?.customPhotos?.length || 0)) changedFields.push('photos');
+    if (override.verifiedForGolzartehSync !== prev?.verifiedForGolzartehSync) {
+      changedFields.push('verifiedForGolzartehSync');
+    }
+  }
+
+  const nextOverride: MartyrLocalProfileOverride = {
+    ...override,
+    updatedAt: new Date().toISOString()
+  };
+
   const next = {
     ...all,
-    [override.key]: {
-      ...override,
-      updatedAt: new Date().toISOString()
-    }
+    [override.key]: nextOverride
   };
   if (typeof window !== 'undefined') {
     try {
@@ -228,6 +256,38 @@ export function saveMartyrProfileOverride(
       // ignore storage quota errors gracefully
     }
   }
+
+  if (changedFields.length > 0) {
+    const baseBirth = prev?.customBirthDate || baseDetail?.birthDateDisplay || '';
+    const baseMartyrdom = prev?.customMartyrdomDate || baseDetail?.martyrdomDateDisplay || '';
+    const baseBio = prev?.customBiography || baseDetail?.biography || '';
+    const baseWill =
+      prev?.customWillText ||
+      (baseDetail?.wills?.map((w) => w.text).filter(Boolean).join('\n\n') || '');
+    const basePhotoIds = (prev?.customPhotos || []).map((p) => p.id);
+
+    enqueueMartyrProfileChange({
+      override: nextOverride,
+      golzartehId: gid,
+      changedFields,
+      hasLinkedBooks: syncMeta?.hasLinkedBooks,
+      baseSnapshot: {
+        birthDate: baseBirth,
+        martyrdomDate: baseMartyrdom,
+        biography: baseBio,
+        willText: baseWill,
+        photoIds: basePhotoIds,
+        fingerprint: computeProfileFingerprint({
+          birthDate: baseBirth,
+          martyrdomDate: baseMartyrdom,
+          biography: baseBio,
+          willText: baseWill,
+          photoIds: basePhotoIds
+        })
+      }
+    });
+  }
+
   notifyListeners();
   return next;
 }
