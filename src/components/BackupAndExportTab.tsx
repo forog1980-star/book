@@ -80,6 +80,7 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
   const [isSyncingGitHub, setIsSyncingGitHub] = useState(false);
   const [lastGitHubSyncFa, setLastGitHubSyncFa] = useState<string>(() => getLastGitHubSyncTimeFa());
   const { isInstallable, isInstalled, install } = usePWAInstall();
+  const [showStoredRecordsList, setShowStoredRecordsList] = useState(false);
 
   const handleOpenDoc = () => {
     if (onOpenComprehensiveDoc) {
@@ -310,7 +311,7 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-col gap-2.5 w-full md:w-auto shrink-0">
+        <div className="flex flex-col gap-2.5 w-full shrink-0">
           <button
             type="button"
             data-testid="backup-tab-download-docx-btn"
@@ -722,7 +723,7 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
 
       {/* Complete Ledger of Saved Field Registrations in Browser Memory */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
           <div>
             <h3 className="text-sm sm:text-base font-bold text-slate-900">
               فهرست ثبت‌های قفسه ذخیره‌شده در حافظه این دستگاه ({toPersianDigits(recordsList.length)} مورد)
@@ -731,77 +732,87 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
               امکان بازبینی تک‌تک رکوردهای ثبت‌شده قفسه پیش از خروجی گرفتن برای Excel
             </p>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowStoredRecordsList((prev) => !prev)}
+            className="min-h-[38px] px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors inline-flex items-center justify-center gap-2 cursor-pointer shrink-0"
+          >
+            <span>{showStoredRecordsList ? 'بستن فهرست رکوردها' : 'مشاهده و بازبینی فهرست رکوردها'}</span>
+            <span className="text-xs">{showStoredRecordsList ? '▲' : '▼'}</span>
+          </button>
         </div>
 
-        {recordsList.length === 0 ? (
-          <p className="text-xs text-slate-500 py-8 text-center">
-            هنوز کتابی در قفسه‌های این دستگاه ثبت نشده است. از تب «کتابخانه» اولین کتاب را ثبت کنید.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-right border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
-                  <th className="py-2.5 px-3 whitespace-nowrap">شناسه</th>
-                  <th className="py-2.5 px-3">عنوان کتاب</th>
-                  <th className="py-2.5 px-3">گروه موضوعی</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">کد محل (SH-xx-Txx)</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">تعداد</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">وضعیت</th>
-                  <th className="py-2.5 px-3">توضیحات</th>
-                  <th className="py-2.5 px-3 text-left">حذف</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {recordsList.map((rec) => (
-                  <tr key={rec.key} className="hover:bg-slate-50">
-                    <td className="py-2.5 px-3 font-mono font-bold text-[#1f4e79] whitespace-nowrap" dir="ltr">
-                      {rec.tempBookId || rec.key}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <div className="font-bold text-slate-900">{rec.title}</div>
-                      <div className="text-[11px] text-slate-500">
-                        {[
-                          rec.publisher,
-                          rec.author,
-                          rec.source === 'outside-list' ? 'خارج از فهرست Excel' : `شیت: ${rec.sheet}`
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-3 font-medium text-slate-800">{rec.category}</td>
-                    <td className="py-2.5 px-3 font-mono font-bold text-slate-900 whitespace-nowrap" dir="ltr">
-                      {rec.location || '—'}
-                    </td>
-                    <td className="py-2.5 px-3 tabular-nums font-bold text-center">
-                      {toPersianDigits(rec.countedCopies || '1')}
-                    </td>
-                    <td className="py-2.5 px-3 whitespace-nowrap">
-                      {rec.physical === 'verified' ? (
-                        <span className="text-emerald-700 font-bold">دیده شد و ثبت شد</span>
-                      ) : rec.physical === 'review' ? (
-                        <span className="text-amber-700 font-bold">نیازمند بررسی</span>
-                      ) : (
-                        <span className="text-red-700 font-bold">پیدا نشد</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3 text-slate-600">{rec.notes || '—'}</td>
-                    <td className="py-2.5 px-3 text-left">
-                      <button
-                        type="button"
-                        onClick={() => onDeleteSingleRecord(rec.key)}
-                        className="p-1.5 text-slate-400 hover:text-red-700 transition-colors"
-                        title="حذف این ثبت از حافظه مرورگر"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
+        {showStoredRecordsList && (
+          recordsList.length === 0 ? (
+            <p className="text-xs text-slate-500 py-8 text-center">
+              هنوز کتابی در قفسه‌های این دستگاه ثبت نشده است. از تب «کتابخانه» اولین کتاب را ثبت کنید.
+            </p>
+          ) : (
+            <div className="overflow-x-auto max-h-[380px] overflow-y-auto border border-slate-200 rounded-xl">
+              <table className="w-full text-right border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold sticky top-0 z-10">
+                    <th className="py-2.5 px-3 whitespace-nowrap bg-slate-100">شناسه</th>
+                    <th className="py-2.5 px-3 bg-slate-100">عنوان کتاب</th>
+                    <th className="py-2.5 px-3 bg-slate-100">گروه موضوعی</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap bg-slate-100">کد محل (SH-xx-Txx)</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap bg-slate-100">تعداد</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap bg-slate-100">وضعیت</th>
+                    <th className="py-2.5 px-3 bg-slate-100">توضیحات</th>
+                    <th className="py-2.5 px-3 text-left bg-slate-100">حذف</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {recordsList.map((rec) => (
+                    <tr key={rec.key} className="hover:bg-slate-50">
+                      <td className="py-2.5 px-3 font-mono font-bold text-[#1f4e79] whitespace-nowrap" dir="ltr">
+                        {rec.tempBookId || rec.key}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div className="font-bold text-slate-900">{rec.title}</div>
+                        <div className="text-[11px] text-slate-500">
+                          {[
+                            rec.publisher,
+                            rec.author,
+                            rec.source === 'outside-list' ? 'خارج از فهرست Excel' : `شیت: ${rec.sheet}`
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3 font-medium text-slate-800">{rec.category}</td>
+                      <td className="py-2.5 px-3 font-mono font-bold text-slate-900 whitespace-nowrap" dir="ltr">
+                        {rec.location || '—'}
+                      </td>
+                      <td className="py-2.5 px-3 tabular-nums font-bold text-center">
+                        {toPersianDigits(rec.countedCopies || '1')}
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        {rec.physical === 'verified' ? (
+                          <span className="text-emerald-700 font-bold">دیده شد و ثبت شد</span>
+                        ) : rec.physical === 'review' ? (
+                          <span className="text-amber-700 font-bold">نیازمند بررسی</span>
+                        ) : (
+                          <span className="text-red-700 font-bold">پیدا نشد</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-600">{rec.notes || '—'}</td>
+                      <td className="py-2.5 px-3 text-left">
+                        <button
+                          type="button"
+                          onClick={() => onDeleteSingleRecord(rec.key)}
+                          className="p-1.5 text-slate-400 hover:text-red-700 transition-colors"
+                          title="حذف این ثبت از حافظه مرورگر"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         )}
       </div>
 
