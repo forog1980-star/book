@@ -710,7 +710,7 @@ export const ComprehensiveDocViewer: React.FC<ComprehensiveDocViewerProps> = ({
             </div>
 
             {/* Export / Print Buttons */}
-            <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto">
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => {

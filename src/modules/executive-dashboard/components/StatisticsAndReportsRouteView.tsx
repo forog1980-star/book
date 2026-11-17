@@ -3571,7 +3571,7 @@ export const StatisticsAndReportsRouteView: React.FC<
                     placeholder="عنوان گزارش مدیریتی (اختیاری)..."
                     className="w-full min-h-[38px] px-2.5 py-1.5 rounded-lg border border-[#D8C5B0] bg-white text-xs text-[#332218]"
                   />
-                  <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto text-[11px]">
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
                     <button
                       type="button"
                       disabled={reportActionBusy}

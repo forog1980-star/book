@@ -203,7 +203,7 @@ export const ExecutiveDetailedReportsView: React.FC<ExecutiveDetailedReportsView
           </h2>
         </div>
 
-        <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2 overflow-x-auto shrink-0">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto shrink-0">
           <button
             type="button"
             data-testid="dashboard-export-excel-btn"
@@ -1085,7 +1085,7 @@ export const ExecutiveDetailedReportsView: React.FC<ExecutiveDetailedReportsView
               </span>{' '}
               ارائه می‌شوند.
             </p>
-            <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pt-1">
+            <div className="flex flex-wrap items-center gap-2 pt-1">
               <button
                 type="button"
                 onClick={() => void onExportExcel()}

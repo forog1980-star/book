@@ -2219,7 +2219,7 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
                 <BookOpen className="w-4 h-4 shrink-0" />
                 <span>مدیریت یکپارچه پرونده کتاب (بدون خروج از فهرست قبلی)</span>
               </div>
-              <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2 overflow-x-auto w-full sm:w-auto shrink-0">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto shrink-0">
                 {onApproveOutsideBook && (
                   <ExpertApprovalStatusButton
                     approved={isBookRecordExpertApproved(auditRecords[selectedBookDossier.rowKey])}

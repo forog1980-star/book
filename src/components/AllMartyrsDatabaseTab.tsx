@@ -1618,7 +1618,7 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
               )}
             </div>
 
-            <div className="flex flex-nowrap items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={handleResetSearch}

@@ -15,6 +15,7 @@ import {
   ArrowRight,
   ExternalLink,
   ChevronDown,
+  ChevronUp,
   Sparkles,
   ShieldCheck,
   Building2,
@@ -111,7 +112,8 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
   const [sourceSheetFilter, setSourceSheetFilter] = useState<'all' | 'ghatat_one' | 'ghatat_multi'>('all');
   const [exportScope, setExportScope] = useState<'filtered' | 'all'>('filtered');
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number | 'all'>(50);
+  const [pageSize, setPageSize] = useState<number | 'all'>(20);
+  const [isLinksTableOpen, setIsLinksTableOpen] = useState<boolean>(false);
 
   const topScrollRef = useRef<HTMLDivElement | null>(null);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
@@ -453,7 +455,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
       observer?.disconnect();
       window.removeEventListener('resize', updateWidth);
     };
-  }, [activeView, visibleMartyrRows.length, visibleBookRows.length, pageSize]);
+  }, [activeView, visibleMartyrRows.length, visibleBookRows.length, pageSize, isLinksTableOpen]);
 
   const handleSyncHorizontalScroll = (source: 'top' | 'table') => {
     if (isSyncingScrollRef.current) return;
@@ -632,77 +634,6 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Depository Header Banner — آبی ملایم و روشن، بدون توضیحات اضافی و با ابعاد تراز */}
-      <div className="depository-soft-blue rounded-2xl p-3.5 sm:p-4 shadow-2xs space-y-3">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div className="space-y-0.5">
-            <div className="text-xs font-bold text-[#2B547E]">
-              انبار جامع پیوندهای کتاب و شهید
-            </div>
-            <h2 className="text-base sm:text-lg font-bold text-[#1E3A5F] tracking-tight">
-              خروجی دوسویه اسناد: ارتباط شهید به کتاب و کتاب به شهید
-            </h2>
-          </div>
-
-          {/* Master Export Action Buttons — هم‌تراز در یک خط بدون شکستگی */}
-          <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2 overflow-x-auto w-full lg:w-auto shrink-0">
-            <button
-              type="button"
-              onClick={handleExportComprehensiveExcel}
-              className="min-h-[38px] px-3 sm:px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 shadow-2xs transition-all whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <FileSpreadsheet className="w-4 h-4 shrink-0" />
-              <span>دانلود اکسل جامع</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleExportJson}
-              className="min-h-[38px] px-3 py-1.5 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <FileJson className="w-4 h-4 text-[#2B547E] shrink-0" />
-              <span>خروجی JSON</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              className="min-h-[38px] px-3 py-1.5 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <Download className="w-4 h-4 text-[#2B547E] shrink-0" />
-              <span>خروجی CSV</span>
-            </button>
-          </div>
-        </div>
-
-        {/* فقط ۲ کادر کلیدی درخواستی: شهدای دارای کتاب مرتبط و کتاب‌های متصل به شهدا */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 text-xs border-t border-[#C5D9ED]">
-          <div className="bg-white/95 border border-[#C5D9ED] rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-2">
-            <div>
-              <div className="text-[#4A698C] text-xs font-bold">شهدای دارای کتاب مرتبط</div>
-              <div className="text-[11px] text-[#4A698C] mt-0.5">
-                در مجموع {toPersianDigits(stats.totalLinks)} پیوند ثبت‌شده کتاب و شهید
-              </div>
-            </div>
-            <div className="text-lg sm:text-xl font-bold tabular-nums text-[#1E3A5F] shrink-0">
-              {toPersianDigits(stats.uniqueMartyrs)} شهید
-            </div>
-          </div>
-
-          <div className="bg-white/95 border border-[#C5D9ED] rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-2">
-            <div>
-              <div className="text-[#4A698C] text-xs font-bold">کتاب‌های متصل به شهدا</div>
-              <div className="text-[11px] text-[#4A698C] mt-0.5">
-                از مجموع {toPersianDigits(totalSystemBooksCount)} کتاب ثبت‌شده در سامانه
-              </div>
-            </div>
-            <div className="text-lg sm:text-xl font-bold tabular-nums text-[#1E3A5F] shrink-0">
-              {toPersianDigits(stats.booksWithLinks)} کتاب
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Main Control & Perspective Switcher Bar */}
       <div className="bg-white border border-[#E2D2BE] rounded-2xl p-3.5 sm:p-4 space-y-3">
         <div className="grid grid-cols-1 2xl:grid-cols-12 items-stretch 2xl:items-center gap-3">
@@ -819,8 +750,12 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
               type="search"
               value={searchQuery}
               onChange={(e) => {
-                setSearchQuery(e.target.value);
+                const nextVal = e.target.value;
+                setSearchQuery(nextVal);
                 setCurrentPage(1);
+                if (nextVal.trim() !== '') {
+                  setIsLinksTableOpen(true);
+                }
               }}
               placeholder={
                 activeView === 'martyr_centric'
@@ -882,21 +817,40 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
         </div>
       </div>
 
-      {/* Live Data Depository Table Preview */}
+      {/* Live Data Depository Table Preview (کشویی و بسته در حالت پیش‌فرض) */}
       <div className="bg-white border border-[#E2D2BE] rounded-2xl overflow-x-clip shadow-2xs">
-        <div className="p-3.5 bg-[#FAF5EE] border-b border-[#E2D2BE] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs rounded-t-2xl">
-          <div className="font-bold text-[#332218] flex items-center gap-2">
-            <Layers className="w-4 h-4 text-[#6B3E26] shrink-0" />
-            <span className="leading-relaxed">
-              فهرست ارتباطات کتاب و شهید (
-              {activeView === 'martyr_centric'
-                ? `نمایش ${toPersianDigits(visibleMartyrRows.length)} از ${toPersianDigits(filteredMartyrRows.length)} رکورد شهید–کتاب`
-                : `نمایش ${toPersianDigits(visibleBookRows.length)} از ${toPersianDigits(filteredBookRows.length)} عنوان کتاب متصل به شهدا`}
-              )
+        <div
+          className={`p-3.5 bg-[#FAF5EE] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs ${
+            isLinksTableOpen ? 'border-b border-[#E2D2BE] rounded-t-2xl' : 'rounded-2xl'
+          }`}
+        >
+          <button
+            type="button"
+            data-testid="depository-links-accordion-toggle"
+            onClick={() => setIsLinksTableOpen((prev) => !prev)}
+            className="font-bold text-[#332218] flex items-center justify-between sm:justify-start gap-2 text-right cursor-pointer hover:text-[#6B3E26] transition-colors flex-1 min-w-0"
+          >
+            <span className="flex items-center gap-2 min-w-0">
+              <Layers className="w-4 h-4 text-[#6B3E26] shrink-0" />
+              <span className="leading-relaxed">
+                فهرست ارتباطات کتاب و شهید (
+                {activeView === 'martyr_centric'
+                  ? `نمایش ${toPersianDigits(visibleMartyrRows.length)} از ${toPersianDigits(filteredMartyrRows.length)} رکورد شهید–کتاب`
+                  : `نمایش ${toPersianDigits(visibleBookRows.length)} از ${toPersianDigits(filteredBookRows.length)} عنوان کتاب متصل به شهدا`}
+                )
+              </span>
             </span>
-          </div>
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-[#D8C7B2] text-[11px] font-bold text-[#6B3E26] shrink-0">
+              <span>{isLinksTableOpen ? 'بستن فهرست' : 'مشاهده فهرست'}</span>
+              {isLinksTableOpen ? (
+                <ChevronUp className="w-3.5 h-3.5 shrink-0" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+              )}
+            </span>
+          </button>
 
-          <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
+          <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto shrink-0">
             <span className="text-[11px] text-[#78604E] shrink-0">تعداد نمایش در هر صفحه:</span>
             <select
               value={String(pageSize)}
@@ -904,9 +858,11 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                 const val = e.target.value;
                 setPageSize(val === 'all' ? 'all' : Number(val));
                 setCurrentPage(1);
+                setIsLinksTableOpen(true);
               }}
               className="min-h-[38px] px-2.5 py-1 rounded-lg bg-white border border-[#D8C7B2] text-[#332218] font-bold text-xs cursor-pointer"
             >
+              <option value="20">۲۰ ردیف در صفحه</option>
               <option value="50">۵۰ ردیف در صفحه</option>
               <option value="100">۱۰۰ ردیف در صفحه</option>
               <option value="200">۲۰۰ ردیف در صفحه</option>
@@ -915,20 +871,22 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
           </div>
         </div>
 
-        {/* نوار اسکرول افقی چسبان بالای جدول (هم‌زمان و دوطرفه با جدول) */}
-        <div className="sticky top-0 z-30 bg-[#FAF5EE] border-b border-[#E2D2BE] px-3 py-1.5 flex items-center gap-2.5">
-          <span className="text-[10.5px] font-bold text-[#6B3E26] whitespace-nowrap shrink-0">
-            اسکرول افقی ستون‌ها:
-          </span>
-          <div
-            ref={topScrollRef}
-            onScroll={() => handleSyncHorizontalScroll('top')}
-            dir="rtl"
-            className="flex-1 min-w-0 h-4 overflow-x-auto overflow-y-hidden rounded-full bg-[#EFE4D6]/60 [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-[#EFE4D6] [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#8C6D53] [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-[#6B3E26]"
-          >
-            <div style={{ width: `${tableScrollWidth}px` }} className="h-[1px]" />
-          </div>
-        </div>
+        {isLinksTableOpen && (
+          <>
+            {/* نوار اسکرول افقی چسبان بالای جدول (هم‌زمان و دوطرفه با جدول) */}
+            <div className="sticky top-0 z-30 bg-[#FAF5EE] border-b border-[#E2D2BE] px-3 py-1.5 flex items-center gap-2.5">
+              <span className="text-[10.5px] font-bold text-[#6B3E26] whitespace-nowrap shrink-0">
+                اسکرول افقی ستون‌ها:
+              </span>
+              <div
+                ref={topScrollRef}
+                onScroll={() => handleSyncHorizontalScroll('top')}
+                dir="rtl"
+                className="flex-1 min-w-0 h-4 overflow-x-auto overflow-y-hidden rounded-full bg-[#EFE4D6]/60 [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-[#EFE4D6] [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#8C6D53] [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-[#6B3E26]"
+              >
+                <div style={{ width: `${tableScrollWidth}px` }} className="h-[1px]" />
+              </div>
+            </div>
 
         {/* View 1: Martyr-Centric Table */}
         {activeView === 'martyr_centric' ? (
@@ -1145,22 +1103,95 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                   نمایش یکجای همه ({toPersianDigits(totalActiveItems)} مورد)
                 </button>
               ) : (
-                totalActiveItems > 50 && (
+                totalActiveItems > 20 && (
                   <button
                     type="button"
                     onClick={() => {
-                      setPageSize(50);
+                      setPageSize(20);
                       setCurrentPage(1);
                     }}
                     className="px-3.5 py-1.5 rounded-lg bg-white border border-[#D8C7B2] text-[#5C4033] font-bold hover:bg-[#F3E9DC] cursor-pointer"
                   >
-                    بازگشت به نمایش صفحه‌بندی (۵۰تایی)
+                    بازگشت به نمایش صفحه‌بندی (۲۰تایی)
                   </button>
                 )
               )}
             </div>
           </div>
         )}
+          </>
+        )}
+      </div>
+
+      {/* Depository Header Banner — منتقل‌شده به پایینِ پایین فهرست ارتباط کتاب و شهید با چیدمان دوخطی تراز و بدون اسکرول افقی */}
+      <div className="depository-soft-blue rounded-2xl p-3.5 sm:p-4 shadow-2xs space-y-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="space-y-0.5">
+            <div className="text-xs font-bold text-[#2B547E]">
+              انبار جامع پیوندهای کتاب و شهید
+            </div>
+            <h2 className="text-base sm:text-lg font-bold text-[#1E3A5F] tracking-tight">
+              خروجی دوسویه اسناد: ارتباط شهید به کتاب و کتاب به شهید
+            </h2>
+          </div>
+
+          {/* Master Export Action Buttons — دو ردیف تراز روی موبایل (اکسل جامع تمام‌عرض + دو دکمه JSON و CSV در ردیف زیرین بدون اسکرول افقی) */}
+          <div className="grid grid-cols-2 lg:flex lg:flex-wrap items-center gap-2 w-full lg:w-auto shrink-0">
+            <button
+              type="button"
+              onClick={handleExportComprehensiveExcel}
+              className="col-span-2 lg:col-span-1 min-h-[40px] px-3.5 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+            >
+              <FileSpreadsheet className="w-4 h-4 shrink-0" />
+              <span>دانلود اکسل جامع</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportJson}
+              className="min-h-[38px] px-2.5 sm:px-3 py-1.5 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+            >
+              <FileJson className="w-4 h-4 text-[#2B547E] shrink-0" />
+              <span>خروجی JSON</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              className="min-h-[38px] px-2.5 sm:px-3 py-1.5 rounded-xl bg-white hover:bg-[#F5F9FD] text-[#1E3A5F] border border-[#B8D0E8] font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+            >
+              <Download className="w-4 h-4 text-[#2B547E] shrink-0" />
+              <span>خروجی CSV</span>
+            </button>
+          </div>
+        </div>
+
+        {/* فقط ۲ کادر کلیدی درخواستی: شهدای دارای کتاب مرتبط و کتاب‌های متصل به شهدا */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 text-xs border-t border-[#C5D9ED]">
+          <div className="bg-white/95 border border-[#C5D9ED] rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-2">
+            <div>
+              <div className="text-[#4A698C] text-xs font-bold">شهدای دارای کتاب مرتبط</div>
+              <div className="text-[11px] text-[#4A698C] mt-0.5">
+                در مجموع {toPersianDigits(stats.totalLinks)} پیوند ثبت‌شده کتاب و شهید
+              </div>
+            </div>
+            <div className="text-lg sm:text-xl font-bold tabular-nums text-[#1E3A5F] shrink-0">
+              {toPersianDigits(stats.uniqueMartyrs)} شهید
+            </div>
+          </div>
+
+          <div className="bg-white/95 border border-[#C5D9ED] rounded-xl px-3.5 py-2.5 flex items-center justify-between gap-2">
+            <div>
+              <div className="text-[#4A698C] text-xs font-bold">کتاب‌های متصل به شهدا</div>
+              <div className="text-[11px] text-[#4A698C] mt-0.5">
+                از مجموع {toPersianDigits(totalSystemBooksCount)} کتاب ثبت‌شده در سامانه
+              </div>
+            </div>
+            <div className="text-lg sm:text-xl font-bold tabular-nums text-[#1E3A5F] shrink-0">
+              {toPersianDigits(stats.booksWithLinks)} کتاب
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
