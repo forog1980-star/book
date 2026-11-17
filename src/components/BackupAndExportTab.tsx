@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Download,
@@ -13,7 +13,9 @@ import {
   BookOpen,
   FileText,
   ShieldCheck,
-  AlertTriangle
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import {
   FieldAuditRecord,
@@ -40,7 +42,12 @@ import {
   guardExternalInternetSearch,
   performManualGitHubSync
 } from '../utils/githubSyncService';
-import { GolzartehAddonPackWidget } from '../modules/golzarteh-profile';
+import {
+  GolzartehAddonPackWidget,
+  getGolzartehDatasetState,
+  loadGolzartehDataset,
+  subscribeGolzartehDataset
+} from '../modules/golzarteh-profile';
 
 interface BackupAndExportTabProps {
   auditRecords: Record<string, FieldAuditRecord>;
@@ -81,6 +88,17 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
   const [lastGitHubSyncFa, setLastGitHubSyncFa] = useState<string>(() => getLastGitHubSyncTimeFa());
   const { isInstallable, isInstalled, install } = usePWAInstall();
   const [showStoredRecordsList, setShowStoredRecordsList] = useState(false);
+  const [golzartehState, setGolzartehState] = useState(() => getGolzartehDatasetState());
+
+  useEffect(() => {
+    const unsub = subscribeGolzartehDataset(() => {
+      setGolzartehState({ ...getGolzartehDatasetState() });
+    });
+    if (getGolzartehDatasetState().status === 'idle') {
+      void loadGolzartehDataset();
+    }
+    return unsub;
+  }, []);
 
   const handleOpenDoc = () => {
     if (onOpenComprehensiveDoc) {
@@ -103,6 +121,18 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
     userSettings: { activeRole: 'registrar' },
     rejectedSuggestionsArchive: []
   };
+
+  const linkedMartyrNames = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (effectiveState.links || [])
+            .map((l) => l.martyrNameRaw)
+            .filter(Boolean)
+        )
+      ),
+    [effectiveState.links]
+  );
 
   const liveCounts = calculateCollectionCounts(effectiveState);
   const recordsList = Object.values(auditRecords);
@@ -291,12 +321,12 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
   return (
     <div className="space-y-6">
       {/* Comprehensive Library & Dashboard Document Section & Word (.docx) Export */}
-      <div className="bg-[#FBF8EC] border-2 border-[#D8D1BB] rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-start gap-3.5">
+      <div className="bg-[#FBF8EC] border-2 border-[#D8D1BB] rounded-2xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex items-start gap-3.5 min-w-0">
           <div className="w-11 h-11 rounded-2xl bg-[#353530] text-[#FBF8EC] flex items-center justify-center shrink-0">
             <BookOpen className="w-5 h-5 text-[#B9B38A]" />
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1 min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-sm sm:text-base font-extrabold text-[#353530]">
                 گزارش جامع فنی داشبورد مدیریتی، آمار تفصیلی، ۴ گزارش پیوست و سند کتابخانه
@@ -311,7 +341,7 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-col gap-2.5 w-full shrink-0">
+        <div className="flex flex-col gap-2.5 w-full lg:w-[290px] shrink-0">
           <button
             type="button"
             data-testid="backup-tab-download-docx-btn"
@@ -337,6 +367,16 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Section: Offline Martyr Image Addon Pack Manager (IndexedDB) */}
+      <GolzartehAddonPackWidget
+        allRecords={golzartehState.allRecords}
+        linkedMartyrNames={linkedMartyrNames}
+        onRefreshDataset={() => {
+          void loadGolzartehDataset(true);
+        }}
+        onNotify={onNotify}
+      />
 
       {/* Priority 1: Legacy SHSF-01-Qxx Data Protection Banner (if any exist) */}
       {legacyRecords.length > 0 && (
@@ -637,7 +677,7 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-1">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-1">
               <button
                 type="button"
                 onClick={() => setRestoreInspection(null)}
@@ -734,11 +774,17 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
           </div>
           <button
             type="button"
+            data-testid="backup-stored-records-toggle-btn"
+            aria-expanded={showStoredRecordsList}
             onClick={() => setShowStoredRecordsList((prev) => !prev)}
             className="min-h-[38px] px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors inline-flex items-center justify-center gap-2 cursor-pointer shrink-0"
           >
             <span>{showStoredRecordsList ? 'بستن فهرست رکوردها' : 'مشاهده و بازبینی فهرست رکوردها'}</span>
-            <span className="text-xs">{showStoredRecordsList ? '▲' : '▼'}</span>
+            {showStoredRecordsList ? (
+              <ChevronUp className="w-4 h-4 shrink-0" />
+            ) : (
+              <ChevronDown className="w-4 h-4 shrink-0" />
+            )}
           </button>
         </div>
 
@@ -871,16 +917,6 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
         </div>
       </div>
 
-      {/* Section: Offline Martyr Image Addon Pack Manager */}
-      <GolzartehAddonPackWidget
-        allRecords={Object.values(auditRecords).map((r) => ({
-          id: r.key,
-          name: r.title || '',
-          code: r.key,
-        })) as any}
-        onNotify={onNotify}
-      />
-
       {/* Section: Android PWA Installation, Offline Single-File HTML & Mobile Direct Access Links */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
         <h3 className="text-sm sm:text-base font-bold text-slate-900">
@@ -917,7 +953,7 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
           </a>
 
           <a
-            href="https://raw.githack.com/forog1980-star/book/main/%D8%AE%D8%B1%D9%88%D8%AC%DB%8C%20%D9%86%D8%B1%D9%85%E2%80%8C%D8%A7%D9%81%D8%B2%D8%A7%D8%B5/index.html"
+            href="https://forog1980-star.github.io/book/"
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => {

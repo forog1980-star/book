@@ -3222,6 +3222,19 @@ export default function App() {
                 capacities={shelfCapacities}
                 focusedShelfRequest={shelfMapFocusRequest}
                 onClearFocusedShelfRequest={() => setShelfMapFocusRequest(null)}
+                onUpdateCapacities={(next) => {
+                  setShelfCapacities(next);
+                  saveShelfCapacities(next);
+                  showNotify('ظرفیت استاندارد قفسه‌ها با موفقیت ذخیره و به‌روزرسانی شد.');
+                }}
+                onFilterShelfInCatalog={(shelf) => {
+                  setLibraryShelfFilterRequest({ shelf, nonce: Date.now() });
+                  setLibrarySubView('catalog');
+                }}
+                onInspectShelfOnMap={(shelf, locationCode) => {
+                  setShelfMapFocusRequest({ shelf, locationCode, nonce: Date.now() });
+                  setLibrarySubView('shelves');
+                }}
                 onOpenBookDossier={(rec) => {
                   setLibraryDirectBookTarget({
                     rowKey: rec.key,

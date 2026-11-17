@@ -25,6 +25,11 @@ export interface AddonStorageStatusSummary {
   addonProfilesCount: number;
   cachedPhotosCount: number;
   estimatedPackMb: number;
+  totalPackTargetMb: number;
+  downloadProgressPercent: number;
+  hasResumableDownload: boolean;
+  resumableCompletedCount: number;
+  resumableTotalCount: number;
   deviceUsedMb: number | null;
   deviceQuotaMb: number | null;
   lastUpdatedAt: string | null;
@@ -331,9 +336,10 @@ export function saveAddonPackUrl(url: string): void {
 }
 
 export async function getOfflineAddonStatusSummary(): Promise<AddonStorageStatusSummary> {
-  const [addonProfiles, cachedUrls] = await Promise.all([
+  const [addonProfiles, cachedUrls, downloadState] = await Promise.all([
     loadAddonProfilesFromIdb(),
-    getCachedAddonImageUrlsSet()
+    getCachedAddonImageUrlsSet(),
+    loadDownloadStateFromIdb()
   ]);
 
   let deviceUsedMb: number | null = null;
@@ -352,11 +358,31 @@ export async function getOfflineAddonStatusSummary(): Promise<AddonStorageStatus
   const photosCount = cachedUrls.size;
   const meta = readAddonMeta();
   const estimatedPackMb = Math.round(((profilesCount * 3.5 + photosCount * meta.avgPhotoKb) / 1024) * 10) / 10;
+  const totalPackTargetMb = 1024;
+
+  const hasResumableDownload = Boolean(downloadState && Array.isArray(downloadState.urls) && downloadState.urls.length > 0 && downloadState.currentIndex > 0);
+  const resumableCompletedCount = downloadState?.currentIndex || 0;
+  const resumableTotalCount = Array.isArray(downloadState?.urls) ? downloadState.urls.length : 0;
+
+  let downloadProgressPercent = 0;
+  if (hasResumableDownload && resumableTotalCount > 0) {
+    downloadProgressPercent = Math.min(100, Math.round((resumableCompletedCount / resumableTotalCount) * 100));
+  } else if (photosCount > 0 || profilesCount > 0) {
+    downloadProgressPercent =
+      estimatedPackMb >= totalPackTargetMb || (meta.lastUpdatedAt && photosCount > 0)
+        ? 100
+        : Math.min(99, Math.max(1, Math.round((estimatedPackMb / totalPackTargetMb) * 100)));
+  }
 
   return {
     addonProfilesCount: profilesCount,
     cachedPhotosCount: photosCount,
     estimatedPackMb,
+    totalPackTargetMb,
+    downloadProgressPercent,
+    hasResumableDownload,
+    resumableCompletedCount,
+    resumableTotalCount,
     deviceUsedMb,
     deviceQuotaMb,
     lastUpdatedAt: meta.lastUpdatedAt,

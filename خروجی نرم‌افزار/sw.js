@@ -1,9 +1,9 @@
 // Service Worker اختصاصی سامانه اصلی مرکز اسناد (مسیر /book/)
-// نسخه کش ایزوله و اتمیک: markaz-asnad-main-book-v16
+// نسخه کش ایزوله و اتمیک: markaz-asnad-main-book-v17
 
 const CACHE_PREFIX = 'markaz-asnad-main-book-';
 const LEGACY_CACHE_PREFIX = 'markaz-asnad-pwa-';
-const CACHE_NAME = `${CACHE_PREFIX}v16`;
+const CACHE_NAME = `${CACHE_PREFIX}v17`;
 
 function getCacheVersionNumber(cacheName) {
   const match = String(cacheName || '').match(/-v(\d+)$/);

@@ -1,5 +1,5 @@
-export const OFFLINE_SW_CACHE_NAME = 'markaz-asnad-main-book-v16';
-export const OFFLINE_SW_SCRIPT_URL = './sw.js?v=16';
+export const OFFLINE_SW_CACHE_NAME = 'markaz-asnad-main-book-v17';
+export const OFFLINE_SW_SCRIPT_URL = './sw.js?v=17';
 export const LAST_GITHUB_SYNC_STORAGE_KEY = 'markaz_last_github_sync_fa';
 
 export interface GitHubSyncResult {

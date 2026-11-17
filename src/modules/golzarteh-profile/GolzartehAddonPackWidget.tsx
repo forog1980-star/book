@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { toPersianDigits } from '../../data/markazAsnadData';
 import { ModalWindow } from '../../components/ModalWindow';
+import { requestActionConfirmation } from '../../utils/confirmDialogService';
 import {
   AddonDownloadProgress,
   AddonDownloadScope,
@@ -182,12 +183,19 @@ export const GolzartehAddonPackWidget: React.FC<GolzartehAddonPackWidgetProps> =
     }
   };
 
-  const handleClearCache = async () => {
-    if (!window.confirm('آیا از پاک‌سازی تصاویر و پروفایل‌های بسته الحاقی آفلاین مطمئن هستید؟')) return;
-    await clearOfflineAddonPackData();
-    await loadSummary();
-    onRefreshDataset?.();
-    onNotify?.('کش بسته الحاقی آفلاین با موفقیت پاک‌سازی شد.', 'success');
+  const handleClearCache = () => {
+    requestActionConfirmation({
+      title: 'پاک‌سازی کش بسته الحاقی تصاویر شهدا',
+      message: 'آیا از پاک‌سازی تصاویر و پروفایل‌های بسته الحاقی آفلاین از حافظه این دستگاه مطمئن هستید؟',
+      confirmLabel: 'بله، پاک‌سازی شود',
+      variant: 'delete',
+      onConfirm: async () => {
+        await clearOfflineAddonPackData();
+        await loadSummary();
+        onRefreshDataset?.();
+        onNotify?.('کش بسته الحاقی آفلاین با موفقیت پاک‌سازی شد.', 'success');
+      }
+    });
   };
 
   const handleExportJson = async () => {
@@ -245,29 +253,61 @@ export const GolzartehAddonPackWidget: React.FC<GolzartehAddonPackWidgetProps> =
         </div>
 
         {summary && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#E2D2BE]/60 text-xs">
-            <div className="bg-white p-2 rounded-xl border border-[#E2D2BE] text-center">
-              <div className="text-[10px] text-[#6E5846]">پروفایل‌های ذخیره‌شده</div>
-              <div className="font-bold font-mono text-[#332218] text-sm">
-                {toPersianDigits(profilesCount)}
+          <div className="space-y-2.5 pt-2 border-t border-[#E2D2BE]/60 text-xs">
+            <div className="bg-white border border-[#E2D2BE] rounded-xl p-2.5 space-y-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                <span className="font-bold text-[#6B3E26]">
+                  وضعیت دانلود در IndexedDB:{' '}
+                  {summary.hasResumableDownload
+                    ? `متوقف‌شده (${toPersianDigits(summary.resumableCompletedCount)} از ${toPersianDigits(summary.resumableTotalCount)})`
+                    : summary.downloadProgressPercent >= 100
+                    ? 'نصب کامل و تأییدشده'
+                    : summary.downloadProgressPercent > 0
+                    ? 'بخشی دریافت‌شده'
+                    : 'آماده دریافت (۰٪)'}
+                </span>
+                <span className="font-mono font-extrabold text-[#2E6F40]" data-testid="addon-idb-progress-pct">
+                  {toPersianDigits(summary.downloadProgressPercent)}٪ از {toPersianDigits(summary.totalPackTargetMb)} مگابایت (۱ گیگابایت)
+                </span>
+              </div>
+              <div className="w-full h-2 bg-[#E2D2BE]/60 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[#2E6F40] transition-all duration-300 rounded-full"
+                  style={{ width: `${Math.min(100, Math.max(0, summary.downloadProgressPercent))}%` }}
+                />
               </div>
             </div>
-            <div className="bg-white p-2 rounded-xl border border-[#E2D2BE] text-center">
-              <div className="text-[10px] text-[#6E5846]">تصاویر کش‌شده در گوشی</div>
-              <div className="font-bold font-mono text-[#332218] text-sm">
-                {toPersianDigits(photosCount)}
+
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              <div className="bg-white p-2 rounded-xl border border-[#E2D2BE] text-center">
+                <div className="text-[10px] text-[#6E5846]">درصد پیشرفت</div>
+                <div className="font-bold font-mono text-[#2E6F40] text-sm">
+                  {toPersianDigits(summary.downloadProgressPercent)}٪
+                </div>
               </div>
-            </div>
-            <div className="bg-white p-2 rounded-xl border border-[#E2D2BE] text-center">
-              <div className="text-[10px] text-[#6E5846]">حجم تخمینی بسته</div>
-              <div className="font-bold font-mono text-[#6B3E26] text-sm">
-                {toPersianDigits(summary.estimatedPackMb)} مگابایت
+              <div className="bg-white p-2 rounded-xl border border-[#E2D2BE] text-center">
+                <div className="text-[10px] text-[#6E5846]">پروفایل‌های ذخیره‌شده</div>
+                <div className="font-bold font-mono text-[#332218] text-sm">
+                  {toPersianDigits(profilesCount)}
+                </div>
               </div>
-            </div>
-            <div className="bg-white p-2 rounded-xl border border-[#E2D2BE] text-center">
-              <div className="text-[10px] text-[#6E5846]">فضای اشغال‌شده دستگاه</div>
-              <div className="font-bold font-mono text-[#1F4E79] text-sm">
-                {summary.deviceUsedMb !== null ? `${toPersianDigits(summary.deviceUsedMb)} MB` : 'نامشخص'}
+              <div className="bg-white p-2 rounded-xl border border-[#E2D2BE] text-center">
+                <div className="text-[10px] text-[#6E5846]">تصاویر کش‌شده</div>
+                <div className="font-bold font-mono text-[#332218] text-sm">
+                  {toPersianDigits(photosCount)}
+                </div>
+              </div>
+              <div className="bg-white p-2 rounded-xl border border-[#E2D2BE] text-center">
+                <div className="text-[10px] text-[#6E5846]">حجم دریافتی / کل</div>
+                <div className="font-bold font-mono text-[#6B3E26] text-sm">
+                  {toPersianDigits(summary.estimatedPackMb)} / {toPersianDigits(summary.totalPackTargetMb)} MB
+                </div>
+              </div>
+              <div className="bg-white p-2 rounded-xl border border-[#E2D2BE] text-center col-span-2 sm:col-span-1">
+                <div className="text-[10px] text-[#6E5846]">فضای کل مرورگر</div>
+                <div className="font-bold font-mono text-[#1F4E79] text-sm">
+                  {summary.deviceUsedMb !== null ? `${toPersianDigits(summary.deviceUsedMb)} MB` : 'نامشخص'}
+                </div>
               </div>
             </div>
           </div>

@@ -20,7 +20,7 @@ const mainEntry = await readFile(join(projectRoot, 'src/main.tsx'), 'utf8');
 const githubSyncService = await readFile(join(projectRoot, 'src/utils/githubSyncService.ts'), 'utf8');
 const subAppSw = await readFile(join(projectRoot, 'apps/library-research-pwa/sw.js'), 'utf8');
 
-// 1 & 2. Service Worker version and Cache Name matching & upgrade from v15 -> v16
+// 1 & 2. Service Worker version and Cache Name matching & upgrade from v16 -> v17
 assert.ok(html.includes('id="root"'), 'production HTML must contain the application mount point');
 assert.ok(manifest.includes('"start_url": "./"'), 'PWA start_url must remain scoped to the app');
 assert.ok(
@@ -28,25 +28,25 @@ assert.ok(
   'main app cache must use its own namespace'
 );
 assert.ok(
-  publicSw.includes("const CACHE_NAME = `${CACHE_PREFIX}v16`") ||
-    publicSw.includes("const CACHE_NAME = 'markaz-asnad-main-book-v16'"),
-  'main app Service Worker must use versioned cache markaz-asnad-main-book-v16'
+  publicSw.includes("const CACHE_NAME = `${CACHE_PREFIX}v17`") ||
+    publicSw.includes("const CACHE_NAME = 'markaz-asnad-main-book-v17'"),
+  'main app Service Worker must use versioned cache markaz-asnad-main-book-v17'
 );
 assert.ok(
-  !publicSw.includes('markaz-asnad-main-book-v15'),
-  'new Service Worker cache name must be distinct from previous v15'
+  !publicSw.includes('markaz-asnad-main-book-v16'),
+  'new Service Worker cache name must be distinct from previous v16'
 );
 assert.ok(
-  mainEntry.includes("./sw.js?v=16"),
-  'application must register the matching Service Worker version (?v=16)'
+  mainEntry.includes("./sw.js?v=17"),
+  'application must register the matching Service Worker version (?v=17)'
 );
 assert.ok(
-  githubSyncService.includes("export const OFFLINE_SW_CACHE_NAME = 'markaz-asnad-main-book-v16'"),
-  'githubSyncService must target the exact active cache version v16'
+  githubSyncService.includes("export const OFFLINE_SW_CACHE_NAME = 'markaz-asnad-main-book-v17'"),
+  'githubSyncService must target the exact active cache version v17'
 );
 assert.ok(
-  githubSyncService.includes("export const OFFLINE_SW_SCRIPT_URL = './sw.js?v=16'"),
-  'githubSyncService must target ./sw.js?v=16'
+  githubSyncService.includes("export const OFFLINE_SW_SCRIPT_URL = './sw.js?v=17'"),
+  'githubSyncService must target ./sw.js?v=17'
 );
 
 // 3 & 4. HTML, JS, CSS, bundled WOFF2 font, and /data/ existence & relative path correctness for /book/
