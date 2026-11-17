@@ -22,6 +22,11 @@ import {
   Cell,
   Pie,
   PieChart,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
 } from 'recharts';
@@ -2209,6 +2214,73 @@ export const StatisticsAndReportsRouteView: React.FC<
                       </button>
                     );
                   })}
+                </div>
+              </div>
+
+              {/* نمودار میله‌ای مقایسه‌ای Recharts تعداد کتاب‌ها بر اساس ۶ گروه موضوعی */}
+              <div
+                data-testid="statistics-library-categories-barchart"
+                className="bg-[#FBF8EC] border border-[#D8D1BB] rounded-xl p-4 space-y-3 mt-4"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-bold text-[#6B3E26]">
+                    نمودار میله‌ای مقایسه‌ای تعداد کتاب‌های ثبت‌شده در ۶ گروه موضوعی
+                  </div>
+                  <span className="text-[11px] text-[#5C4636]">
+                    مقایسه حجم کتاب‌های هر گروه موضوعی
+                  </span>
+                </div>
+                <div className="w-full h-[220px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={liveCategoryAnalytics.items}
+                      margin={{ top: 10, right: 10, left: -15, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#D8D1BB" opacity={0.6} />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: 11, fill: '#332218', fontWeight: 600 }}
+                        interval={0}
+                      />
+                      <YAxis tick={{ fontSize: 11, fill: '#332218' }} allowDecimals={false} />
+                      <RechartsTooltip
+                        formatter={(value: unknown) => [
+                          `${toPersianDigits(Number(value) || 0)} کتاب`,
+                          'تعداد کتاب',
+                        ]}
+                        contentStyle={{
+                          backgroundColor: '#FBF8EC',
+                          borderColor: '#6B3E26',
+                          borderRadius: '0.75rem',
+                          direction: 'rtl',
+                          textAlign: 'right',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          color: '#332218',
+                        }}
+                      />
+                      <Bar
+                        dataKey="value"
+                        radius={[6, 6, 0, 0]}
+                        onClick={(data: unknown) => {
+                          const item = data as { code?: string } | null;
+                          if (item?.code) {
+                            setSelectedCategoryCode((prev) =>
+                              prev === item.code ? null : item.code
+                            );
+                          }
+                        }}
+                      >
+                        {liveCategoryAnalytics.items.map((entry) => (
+                          <Cell
+                            key={entry.code}
+                            fill={entry.color}
+                            className="cursor-pointer transition-opacity hover:opacity-85"
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
 

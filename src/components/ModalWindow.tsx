@@ -185,9 +185,6 @@ export const ModalWindow: React.FC<ModalWindowProps> = ({
                 <Move className="w-3.5 h-3.5 text-[#6B3E26] hidden sm:inline shrink-0" />
                 <span className="truncate">{title || 'پنجره جزئیات و عملیات'}</span>
               </span>
-              <span className="hidden md:inline-block text-[10px] text-[#78604E] bg-white/80 border border-[#E2D2BE] px-2 py-0.5 rounded-md">
-                جابه‌جایی با ماوس (Move)
-              </span>
             </div>
 
             <div className="flex items-center gap-1.5 shrink-0">

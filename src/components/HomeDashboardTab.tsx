@@ -2035,6 +2035,8 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
         </div>
       </section>
 
+
+
       {/* بخش مستقل انتقال و نگهداری اطلاعات کتابخانه با JSON (به‌صورت جمع‌شونده / Accordion و در حالت پیش‌فرض بسته) */}
       {fullOperationalState && onApplyMergedSystemState && (
         <section

@@ -329,3 +329,40 @@
 .balance-text {
   text-wrap: balance;
 }
+
+/* سراسری: اسکرول نرم (Smooth Scroll) و اسکرول‌بارهای زیبا برای تمام لیست‌های رکوردها و کانتینرها */
+html {
+  scroll-behavior: smooth;
+}
+
+*, ::before, ::after {
+  scroll-behavior: smooth;
+}
+
+.overflow-y-auto,
+.overflow-x-auto,
+.overflow-auto,
+[class*="overflow"] {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(240, 235, 217, 0.7);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #B9B38A;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #353530;
+}

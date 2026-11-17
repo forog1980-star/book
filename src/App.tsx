@@ -62,7 +62,6 @@ import {
 import { HomeDashboardTab } from './components/HomeDashboardTab';
 import { QuickInventoryTab } from './components/QuickInventoryTab';
 import { ShelfMapAndLabelsTab } from './components/ShelfMapAndLabelsTab';
-import { ShelfCapacityAlertWidget } from './components/ShelfCapacityAlertWidget';
 import { AllMartyrsDatabaseTab } from './components/AllMartyrsDatabaseTab';
 import { SmartBookSearchTab } from './components/SmartBookSearchTab';
 import { ResearchAndLinksTab } from './components/ResearchAndLinksTab';
@@ -3093,27 +3092,6 @@ export default function App() {
                 </button>
               </div>
             </div>
-
-            <ShelfCapacityAlertWidget
-              catalogRows={catalogRows}
-              auditRecords={auditRecords}
-              bookCopies={bookCopies}
-              capacities={shelfCapacities}
-              onUpdateCapacities={(next) => {
-                setShelfCapacities(next);
-                saveShelfCapacities(next);
-                showNotify('ظرفیت استاندارد قفسه‌ها ذخیره شد و پایش خودکار به‌روز گردید.');
-              }}
-              activeSubView={librarySubView}
-              onFilterShelfInCatalog={(shelf) => {
-                setLibrarySubView('catalog');
-                setLibraryShelfFilterRequest({ shelf, nonce: Date.now() });
-              }}
-              onInspectShelfOnMap={(shelf, locationCode) => {
-                setLibrarySubView('shelves');
-                setShelfMapFocusRequest({ shelf, locationCode, nonce: Date.now() });
-              }}
-            />
 
             {librarySubView === 'catalog' ? (
               <QuickInventoryTab

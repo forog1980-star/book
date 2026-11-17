@@ -16,6 +16,7 @@ import {
   ShelfCapacityMap,
   analyzeShelfCapacities
 } from '../utils/shelfCapacityAnalyzer';
+import { ShelfCapacityAlertWidget } from './ShelfCapacityAlertWidget';
 
 interface ShelfMapAndLabelsTabProps {
   auditRecords: Record<string, FieldAuditRecord>;
@@ -29,6 +30,9 @@ interface ShelfMapAndLabelsTabProps {
   } | null;
   onClearFocusedShelfRequest?: () => void;
   onOpenBookDossier?: (record: FieldAuditRecord) => void;
+  onUpdateCapacities?: (next: ShelfCapacityMap) => void;
+  onFilterShelfInCatalog?: (shelf: ShelfCode) => void;
+  onInspectShelfOnMap?: (shelf: ShelfCode, locationCode?: string) => void;
 }
 
 export const ShelfMapAndLabelsTab: React.FC<ShelfMapAndLabelsTabProps> = ({
@@ -38,7 +42,10 @@ export const ShelfMapAndLabelsTab: React.FC<ShelfMapAndLabelsTabProps> = ({
   capacities = DEFAULT_SHELF_CAPACITIES,
   focusedShelfRequest,
   onClearFocusedShelfRequest,
-  onOpenBookDossier
+  onOpenBookDossier,
+  onUpdateCapacities,
+  onFilterShelfInCatalog,
+  onInspectShelfOnMap
 }) => {
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [highlightedShelf, setHighlightedShelf] = useState<ShelfCode | null>(null);
@@ -90,6 +97,19 @@ export const ShelfMapAndLabelsTab: React.FC<ShelfMapAndLabelsTabProps> = ({
 
   return (
     <div className="space-y-6">
+      {onUpdateCapacities && (
+        <ShelfCapacityAlertWidget
+          catalogRows={catalogRows}
+          auditRecords={auditRecords}
+          bookCopies={bookCopies}
+          capacities={capacities}
+          onUpdateCapacities={onUpdateCapacities}
+          activeSubView="shelves"
+          onFilterShelfInCatalog={onFilterShelfInCatalog}
+          onInspectShelfOnMap={onInspectShelfOnMap}
+        />
+      )}
+
       {/* Header & Discrepancy Tracker (980 Catalog vs 942 Physical Count = 38 Open Discrepancy) */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4">

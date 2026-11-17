@@ -40,6 +40,7 @@ import {
   guardExternalInternetSearch,
   performManualGitHubSync
 } from '../utils/githubSyncService';
+import { GolzartehAddonPackWidget } from '../modules/golzarteh-profile';
 
 interface BackupAndExportTabProps {
   auditRecords: Record<string, FieldAuditRecord>;
@@ -309,7 +310,7 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto shrink-0">
+        <div className="flex flex-col gap-2.5 w-full md:w-auto shrink-0">
           <button
             type="button"
             data-testid="backup-tab-download-docx-btn"
@@ -319,7 +320,7 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
                 'فایل استاندارد و قابل ویرایش Word گزارش جامع فنی و ۴ پیوست با موفقیت دانلود شد.'
               );
             }}
-            className="min-h-[40px] px-3.5 py-2 bg-[#15803D] hover:bg-[#166534] text-white text-xs sm:text-sm font-extrabold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+            className="min-h-[40px] px-3.5 py-2.5 bg-[#15803D] hover:bg-[#166534] text-white text-xs sm:text-sm font-extrabold rounded-xl inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer w-full"
           >
             <Download className="w-4 h-4 shrink-0" />
             <span>دانلود فایل Word گزارش جامع + پیوست‌ها</span>
@@ -328,7 +329,7 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
           <button
             type="button"
             onClick={handleOpenDoc}
-            className="min-h-[40px] px-3.5 py-2 bg-[#353530] hover:bg-[#4A493E] text-[#FBF8EC] text-xs sm:text-sm font-extrabold rounded-xl inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+            className="min-h-[40px] px-3.5 py-2.5 bg-[#353530] hover:bg-[#4A493E] text-[#FBF8EC] text-xs sm:text-sm font-extrabold rounded-xl inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer w-full"
           >
             <FileText className="w-4 h-4 shrink-0 text-[#B9B38A]" />
             <span>مشاهده گزارش جامع و اسناد فنی</span>
@@ -859,6 +860,16 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
         </div>
       </div>
 
+      {/* Section: Offline Martyr Image Addon Pack Manager */}
+      <GolzartehAddonPackWidget
+        allRecords={Object.values(auditRecords).map((r) => ({
+          id: r.key,
+          name: r.title || '',
+          code: r.key,
+        })) as any}
+        onNotify={onNotify}
+      />
+
       {/* Section: Android PWA Installation, Offline Single-File HTML & Mobile Direct Access Links */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
         <h3 className="text-sm sm:text-base font-bold text-slate-900">
@@ -867,7 +878,7 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
         <p className="text-xs text-slate-600 leading-relaxed">
           برای نصب مستقیم برنامه روی صفحه اصلی گوشی اندروید (جهت استفاده آفلاین کنار قفسه‌ها)، دریافت فایل تک‌صفحه‌ای ویندوز/موبایل یا دسترسی به لینک مستقیم گیت‌هاب از دکمه‌های زیر استفاده کنید:
         </p>
-        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pt-1">
+        <div className="flex flex-col gap-2.5 pt-1">
           {!isInstalled && (
             <button
               type="button"
@@ -878,7 +889,7 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
                   setShowInstallGuideModal(true);
                 }
               }}
-              className="min-h-[40px] px-3.5 py-1.5 text-xs font-bold bg-[#2E7D5B] text-white hover:bg-[#236347] rounded-xl transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              className="min-h-[40px] px-3.5 py-2.5 text-xs font-bold bg-[#2E7D5B] text-white hover:bg-[#236347] rounded-xl transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer w-full"
             >
               <Smartphone className="w-4 h-4 shrink-0" />
               <span>نصب روی گوشی اندروید</span>
@@ -888,20 +899,20 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
           <a
             href="./library-quick-inventory.html"
             download="library-quick-inventory.html"
-            className="min-h-[40px] px-3.5 py-1.5 text-xs font-bold bg-amber-100 text-amber-950 hover:bg-amber-200 border border-amber-300 rounded-xl transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+            className="min-h-[40px] px-3.5 py-2.5 text-xs font-bold bg-amber-100 text-amber-950 hover:bg-amber-200 border border-amber-300 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5 w-full"
           >
             <Download className="w-4 h-4 shrink-0" />
             <span>دانلود نسخه تک‌فایل آفلاین HTML</span>
           </a>
 
           <a
-            href="https://raw.githack.com/forog1980-star/book/main/%D8%AE%D8%B1%D9%88%D8%AC%DB%8C%20%D9%86%D8%B1%D9%85%E2%80%8C%D8%A7%D9%81%D8%B2%D8%A7%D8%B1/index.html"
+            href="https://raw.githack.com/forog1980-star/book/main/%D8%AE%D8%B1%D9%88%D8%AC%DB%8C%20%D9%86%D8%B1%D9%85%E2%80%8C%D8%A7%D9%81%D8%B2%D8%A7%D8%B5/index.html"
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => {
               guardExternalInternetSearch(e, 'لینک مستقیم گیت‌هاب', onNotify);
             }}
-            className="min-h-[40px] px-3.5 py-1.5 text-xs font-bold bg-[#1f4e79] text-white hover:bg-[#163a5b] rounded-xl transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+            className="min-h-[40px] px-3.5 py-2.5 text-xs font-bold bg-[#1f4e79] text-white hover:bg-[#163a5b] rounded-xl transition-colors inline-flex items-center justify-center gap-1.5 w-full"
           >
             <Download className="w-4 h-4 shrink-0" />
             <span>لینک مستقیم موبایل در گیت‌هاب</span>
