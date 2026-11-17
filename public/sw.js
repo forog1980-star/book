@@ -1,9 +1,9 @@
 // Service Worker اختصاصی سامانه اصلی مرکز اسناد (مسیر /book/)
-// نسخه کش ایزوله و اتمیک: markaz-asnad-main-book-v17
+// نسخه کش ایزوله و اتمیک: markaz-asnad-main-book-v18
 
 const CACHE_PREFIX = 'markaz-asnad-main-book-';
 const LEGACY_CACHE_PREFIX = 'markaz-asnad-pwa-';
-const CACHE_NAME = `${CACHE_PREFIX}v17`;
+const CACHE_NAME = `${CACHE_PREFIX}v18`;
 
 function getCacheVersionNumber(cacheName) {
   const match = String(cacheName || '').match(/-v(\d+)$/);
@@ -155,16 +155,47 @@ function collectAppShellAssets(htmlText, cssTexts = []) {
   return Array.from(discovered);
 }
 
+async function fetchFreshAssetWithNoStore(relAsset) {
+  const fetchUrl = new URL(relAsset, self.location.href);
+  fetchUrl.searchParams.set('_sw_fetch', String(Date.now()));
+  const resp = await fetch(fetchUrl.toString(), {
+    cache: 'no-store',
+    credentials: 'same-origin'
+  });
+  if (!resp || !resp.ok) {
+    throw new Error(`Failed to fetch required asset with no-store: ${relAsset} (${resp ? resp.status : 'network'})`);
+  }
+  return resp;
+}
+
+async function runWithConcurrency(items, concurrency, workerFn) {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      await workerFn(items[idx]);
+    }
+  });
+  await Promise.all(workers);
+}
+
+async function isFreshlyPreverifiedInCache(cache, relAsset) {
+  try {
+    const match = await cache.match(new URL(relAsset, self.location.href).href, { ignoreSearch: true });
+    if (!match || !match.ok) return false;
+    const stampRaw = match.headers.get('X-Markaz-Manual-Sync');
+    if (!stampRaw) return false;
+    const stamp = Number(stampRaw);
+    return Number.isFinite(stamp) && Date.now() - stamp < 180000;
+  } catch {
+    return false;
+  }
+}
+
 async function installAppShellAtomically() {
   const cache = await caches.open(CACHE_NAME);
   try {
-    const htmlResp = await fetch('./index.html', {
-      cache: 'no-store',
-      credentials: 'same-origin'
-    });
-    if (!htmlResp || !htmlResp.ok) {
-      throw new Error(`Failed to fetch index.html (${htmlResp ? htmlResp.status : 'network error'})`);
-    }
+    const htmlResp = await fetchFreshAssetWithNoStore('./index.html');
     const htmlText = await htmlResp.clone().text();
     if (!htmlText || !htmlText.includes('id="root"')) {
       throw new Error('Fetched index.html is empty or invalid');
@@ -173,45 +204,40 @@ async function installAppShellAtomically() {
     const initialAssets = collectAppShellAssets(htmlText, []);
     const cssUrls = initialAssets.filter((item) => item.endsWith('.css'));
     const cssTexts = [];
+    const fetchedCssMap = new Map();
 
     for (const cssUrl of cssUrls) {
-      const cssResp = await fetch(cssUrl, {
-        cache: 'no-store',
-        credentials: 'same-origin'
-      });
-      if (!cssResp || !cssResp.ok) {
-        throw new Error(`Failed to fetch required CSS bundle: ${cssUrl}`);
-      }
-      cssTexts.push(await cssResp.text());
+      const cssResp = await fetchFreshAssetWithNoStore(cssUrl);
+      const cssBody = await cssResp.clone().text();
+      cssTexts.push(cssBody);
+      fetchedCssMap.set(cssUrl, cssResp);
     }
 
     const appShellAssets = collectAppShellAssets(htmlText, cssTexts);
-    await cache.addAll(appShellAssets);
 
-    // نوسازی اجباری دارایی‌های متغیر با no-store تا کش HTTP موبایل باعث ماندگاری نسخه قبلی نشود
-    await cache.put('./', htmlResp.clone());
-    await cache.put('./index.html', htmlResp.clone());
-    for (const asset of appShellAssets) {
-      if (asset === './' || asset === './index.html') continue;
-      if (
-        asset.startsWith('./assets/') ||
-        asset.startsWith('./data/') ||
-        asset === './manifest.webmanifest'
-      ) {
-        const freshResp = await fetch(asset, {
-          cache: 'no-store',
-          credentials: 'same-origin'
-        });
-        if (!freshResp || !freshResp.ok) {
-          throw new Error(`Failed to fetch fresh asset with no-store: ${asset}`);
-        }
-        await cache.put(asset, freshResp);
-      }
+    // ثبت صفحه اصلی و CSS دریافت‌شده بدون دریافت تکراری
+    await cache.put(new URL('./', self.location.href).href, htmlResp.clone());
+    await cache.put(new URL('./index.html', self.location.href).href, htmlResp.clone());
+    for (const [cssUrl, cssResp] of fetchedCssMap.entries()) {
+      await cache.put(new URL(cssUrl, self.location.href).href, cssResp.clone());
     }
+
+    // دریافت موازی و تک‌مرحله‌ای سایر فایل‌ها با no-store (صرفه‌جویی کامل در زمان نصب روی گوشی)
+    const remainingAssets = appShellAssets.filter(
+      (asset) => asset !== './' && asset !== './index.html' && !fetchedCssMap.has(asset)
+    );
+
+    await runWithConcurrency(remainingAssets, 4, async (asset) => {
+      if (await isFreshlyPreverifiedInCache(cache, asset)) {
+        return;
+      }
+      const freshResp = await fetchFreshAssetWithNoStore(asset);
+      await cache.put(new URL(asset, self.location.href).href, freshResp);
+    });
 
     // راستی‌آزمایی وجود تمام منابع ضروری در کش نسخه جدید پیش از اجازه تکمیل نصب
     for (const asset of appShellAssets) {
-      const verifyMatch = await cache.match(asset, { ignoreSearch: true });
+      const verifyMatch = await cache.match(new URL(asset, self.location.href).href, { ignoreSearch: true });
       if (!verifyMatch || !verifyMatch.ok) {
         throw new Error(`Verification failed for precached asset: ${asset}`);
       }
@@ -349,6 +375,10 @@ self.addEventListener('message', (event) => {
               ? CACHE_NAME
               : requestedCache;
           await setActiveWorkingCacheName(newCache);
+          // آزادسازی پیوند نسخه فقط برای تبی که بروزرسانی را تایید کرده تا تست و بازخوانی فوری از نسخه جدید انجام شود
+          if (event.source && event.source.id) {
+            tabAffinityMap.delete(event.source.id);
+          }
           await clearPersistedLock();
           if (port) port.postMessage({ ok: true, activeCacheName: newCache });
         } catch (err) {
@@ -423,10 +453,12 @@ self.addEventListener('activate', (event) => {
 
       for (const client of activeClients) {
         const bound = tabAffinityMap.get(client.id);
-        if (bound) inUseCaches.add(bound);
+        if (bound && getCacheVersionNumber(bound) >= getCacheVersionNumber(activeWorking)) {
+          inUseCaches.add(bound);
+        }
       }
 
-      // حذف ایمن فقط کش‌های غیرفعال و بدون کلاینت متصل
+      // حذف ایمن فقط کش‌های غیرفعال و نسخه‌های قدیمی‌تر
       await Promise.all(
         allKeys.map((key) => {
           if (
@@ -469,7 +501,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   // درخواست‌های بررسی و دریافت نسخه جدید که توسط کلید بروزرسانی دستی ارسال می‌شوند مستقیم از شبکه عبور کنند
-  if (reqUrl.searchParams.get('_manual_github_sync') === '1') {
+  if (reqUrl.searchParams.get('_manual_github_sync') === '1' || reqUrl.searchParams.has('_sw_fetch')) {
     return;
   }
 
@@ -490,7 +522,9 @@ self.addEventListener('fetch', (event) => {
           tabAffinityMap.set(clientId, currentActive);
         }
         const activeCache = await caches.open(currentActive);
+        const rootIndexUrl = new URL('./index.html', self.location.href).href;
         const cachedHtml =
+          (await activeCache.match(rootIndexUrl, { ignoreSearch: true })) ||
           (await activeCache.match('./index.html', { ignoreSearch: true })) ||
           (await activeCache.match(event.request, { ignoreSearch: true }));
         if (cachedHtml) {
@@ -499,7 +533,7 @@ self.addEventListener('fetch', (event) => {
 
         const networkResp = await fetch(event.request);
         if (networkResp && networkResp.status === 200) {
-          await activeCache.put('./index.html', networkResp.clone()).catch(() => {});
+          await activeCache.put(rootIndexUrl, networkResp.clone()).catch(() => {});
         }
         return networkResp;
       })()

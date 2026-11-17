@@ -127,7 +127,12 @@ import {
   RECORD_META_MAP_KEY,
   SyncMetadataSnapshot
 } from './modules/device-sync';
-import { getLastGitHubSyncTimeFa, performManualGitHubSync } from './utils/githubSyncService';
+import {
+  forceCleanAppReload,
+  getCurrentOfflineCoreInfo,
+  getLastGitHubSyncTimeFa,
+  performManualGitHubSync
+} from './utils/githubSyncService';
 import {
   ExecutiveDashboardView,
   StatisticsAndReportsRouteView,
@@ -234,8 +239,11 @@ export default function App() {
   const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
   const [showComprehensiveDocModal, setShowComprehensiveDocModal] = useState<boolean>(false);
   const [isSyncingGitHub, setIsSyncingGitHub] = useState<boolean>(false);
+  const [syncProgressMsg, setSyncProgressMsg] = useState<string>('');
+  const [syncErrorMsg, setSyncErrorMsg] = useState<string>('');
   const [showControlMenu, setShowControlMenu] = useState<boolean>(false);
   const [lastGitHubSyncFa, setLastGitHubSyncFa] = useState<string>(() => getLastGitHubSyncTimeFa());
+  const offlineCoreInfo = React.useMemo(() => getCurrentOfflineCoreInfo(), []);
   const [shelfCapacities, setShelfCapacities] = useState<ShelfCapacityMap>(() =>
     loadSavedShelfCapacities()
   );
@@ -2510,23 +2518,28 @@ export default function App() {
                       onClick={async () => {
                         if (isSyncingGitHub) return;
                         setIsSyncingGitHub(true);
+                        setSyncErrorMsg('');
+                        setSyncProgressMsg('در حال برقراری ارتباط با گیت‌هاب...');
                         const res = await performManualGitHubSync((msg) => {
-                          showNotify(msg, 'warning');
+                          setSyncProgressMsg(msg);
                         });
                         setIsSyncingGitHub(false);
+                        setSyncProgressMsg('');
                         if (res.syncedAtFa) {
                           setLastGitHubSyncFa(res.syncedAtFa);
                         } else {
                           setLastGitHubSyncFa(getLastGitHubSyncTimeFa());
                         }
                         if (res.ok) {
+                          setSyncErrorMsg('');
                           showNotify(res.message, 'success');
                           if (res.shouldReload) {
                             window.setTimeout(() => {
-                              window.location.reload();
+                              forceCleanAppReload();
                             }, 600);
                           }
                         } else {
+                          setSyncErrorMsg(res.message);
                           showNotify(res.message, 'warning');
                         }
                       }}
@@ -2540,18 +2553,33 @@ export default function App() {
                       </span>
                     </button>
                   </div>
+
+                  {syncProgressMsg && (
+                    <div className="mt-2 px-3 py-2 rounded-lg bg-[#EDF4FB] border border-[#C5D9ED] text-[11px] font-semibold text-[#1E3A5F]">
+                      {syncProgressMsg}
+                    </div>
+                  )}
+
+                  {syncErrorMsg && (
+                    <div className="mt-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-[11px] font-semibold text-amber-900">
+                      {syncErrorMsg}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* خط وضعیت زیر کلید کنترل: تاریخ شمسی و ساعت دقیق به دقیقه و ثانیه از آخرین به‌روزرسانی نرم‌افزار */}
+              {/* خط وضعیت زیر کلید کنترل: تاریخ شمسی و ساعت دقیق به دقیقه و ثانیه + نسخه هسته آفلاین */}
               <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#5C4636] pt-0.5">
-                <div className="flex items-center gap-1.5 font-medium">
+                <div className="flex flex-wrap items-center gap-1.5 font-medium">
                   <RefreshCw className="w-3 h-3 text-[#8C3B2B] shrink-0" />
                   <span>
                     آخرین به‌روزرسانی اطلاعات نرم‌افزار از گیت‌هاب:{' '}
                     <strong className="text-[#332218] font-bold tabular-nums" dir="rtl">
                       {lastGitHubSyncFa}
                     </strong>
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded bg-[#EFE3D2] text-[#5C4636] font-mono text-[10px]" dir="ltr">
+                    {offlineCoreInfo.cacheVersion} · {offlineCoreInfo.jsBundle}
                   </span>
                 </div>
                 {!isOnline && (

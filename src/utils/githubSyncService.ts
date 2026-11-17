@@ -1,5 +1,6 @@
-export const OFFLINE_SW_CACHE_NAME = 'markaz-asnad-main-book-v17';
-export const OFFLINE_SW_SCRIPT_URL = './sw.js?v=17';
+export const OFFLINE_SW_CACHE_NAME = 'markaz-asnad-main-book-v18';
+export const OFFLINE_SW_SCRIPT_URL = './sw.js?v=18';
+export const OFFLINE_SW_VERSION_LABEL = 'v18';
 export const LAST_GITHUB_SYNC_STORAGE_KEY = 'markaz_last_github_sync_fa';
 
 export interface GitHubSyncResult {
@@ -103,10 +104,58 @@ function getCurrentlyLoadedBundles(): { jsBundle: string; cssBundle: string } {
   return { jsBundle, cssBundle };
 }
 
+export function getCurrentOfflineCoreInfo(): {
+  cacheVersion: string;
+  jsBundle: string;
+  cssBundle: string;
+} {
+  const { jsBundle, cssBundle } = getCurrentlyLoadedBundles();
+  return {
+    cacheVersion: OFFLINE_SW_VERSION_LABEL,
+    jsBundle: jsBundle || 'dev-live',
+    cssBundle: cssBundle || 'dev-live'
+  };
+}
+
+/**
+ * بازخوانی قطعی برنامه پس از بروزرسانی روی موبایل و PWA با دور زدن bfcache/HTTP کش مرورگر
+ */
+export function forceCleanAppReload(): void {
+  try {
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set('_sw_sync', String(Date.now()));
+    window.location.replace(nextUrl.toString());
+  } catch {
+    window.location.reload();
+  }
+}
+
+async function resolveAppBaseUrl(): Promise<string> {
+  try {
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg && reg.scope) {
+        return reg.scope.endsWith('/') ? reg.scope : `${reg.scope}/`;
+      }
+    }
+  } catch {
+    // fallback below
+  }
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.hash = '';
+  if (url.pathname.endsWith('/index.html')) {
+    url.pathname = url.pathname.slice(0, -'index.html'.length);
+  } else if (!url.pathname.endsWith('/')) {
+    url.pathname = `${url.pathname}/`;
+  }
+  return url.toString();
+}
+
 async function sendSwMessage<T = any>(
   worker: ServiceWorker | null | undefined,
   message: any,
-  timeoutMs = 6000
+  timeoutMs = 7000
 ): Promise<T | null> {
   if (!worker) return null;
   return new Promise((resolve) => {
@@ -125,7 +174,7 @@ async function sendSwMessage<T = any>(
   });
 }
 
-async function waitForInstallingWorker(worker: ServiceWorker, timeoutMs = 35000): Promise<boolean> {
+async function waitForInstallingWorker(worker: ServiceWorker, timeoutMs = 90000): Promise<boolean> {
   if (worker.state === 'installed' || worker.state === 'activated') {
     return true;
   }
@@ -135,6 +184,7 @@ async function waitForInstallingWorker(worker: ServiceWorker, timeoutMs = 35000)
 
   return new Promise<boolean>((resolve) => {
     const timer = window.setTimeout(() => {
+      worker.removeEventListener('statechange', onStateChange);
       resolve(false);
     }, timeoutMs);
 
@@ -154,6 +204,21 @@ async function waitForInstallingWorker(worker: ServiceWorker, timeoutMs = 35000)
   });
 }
 
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  workerFn: (item: T) => Promise<void>
+): Promise<void> {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      await workerFn(items[idx]);
+    }
+  });
+  await Promise.all(workers);
+}
+
 /**
  * اعتبارسنجی ساختاری و معنایی فایل‌های داده مرجع بدون وابستگی به هش هاردکد شده
  * با این سازوکار، تغییرات متداول کتب و اسناد نیازمند دستکاری دستی کدهای برنامه نیست
@@ -165,7 +230,6 @@ function validateDataAssetSemantics(relUrl: string, bytes: ArrayBuffer): boolean
     try {
       const text = new TextDecoder('utf-8').decode(bytes);
       const parsed = JSON.parse(text);
-      // پشتیبانی از هر دو فرمت استاندارد کارپوشه چندشیت مرکز اسناد و فرمت آرایه تخت کتب
       if (parsed && typeof parsed === 'object') {
         if (
           parsed.format === 'markaz-asnad-library-workbook-json' &&
@@ -193,7 +257,6 @@ function validateDataAssetSemantics(relUrl: string, bytes: ArrayBuffer): boolean
   if (relUrl.endsWith('golzar_martyrs.xlsx')) {
     if (bytes.byteLength < 500000) return false;
     const header = new Uint8Array(bytes.slice(0, 4));
-    // بررسی امضای استاندارد فایل فشرده/اکسل زیپ: PK\x03\x04
     return header[0] === 0x50 && header[1] === 0x4b && header[2] === 0x03 && header[3] === 0x04;
   }
 
@@ -236,13 +299,190 @@ function validateDataAssetSemantics(relUrl: string, bytes: ArrayBuffer): boolean
   return true;
 }
 
+async function fetchAndVerifyPackageInMemory(
+  appBaseUrl: string,
+  signal: AbortSignal,
+  onProgress?: (stepMessage: string) => void
+): Promise<{
+  htmlText: string;
+  serverJsBundle: string;
+  serverCssBundle: string;
+  isViteDevMode: boolean;
+  verifiedResponses: Map<string, { bytes: ArrayBuffer; contentType: string }>;
+}> {
+  const checkUrl = new URL('./index.html', appBaseUrl);
+  checkUrl.searchParams.set('_manual_github_sync', '1');
+  checkUrl.searchParams.set('_t', String(Date.now()));
+
+  const htmlResponse = await fetch(checkUrl.toString(), {
+    cache: 'no-store',
+    credentials: 'same-origin',
+    signal
+  });
+
+  if (!htmlResponse.ok) {
+    throw new Error(`دریافت اطلاعات از سرور ناموفق بود (کد وضعیت: ${htmlResponse.status})`);
+  }
+
+  const htmlText = await htmlResponse.text();
+  if (!htmlText || !htmlText.includes('id="root"')) {
+    throw new Error('پاسخ دریافتی از سرور معتبر نیست');
+  }
+
+  const scriptMatches = Array.from(
+    htmlText.matchAll(/src=["']([^"']*\/assets\/[^"']+\.m?js)["']/gi)
+  );
+  const preloadAndFontMatches = Array.from(
+    htmlText.matchAll(/href=["']([^"']*\/assets\/[^"']+\.(?:m?js|woff2))["']/gi)
+  );
+  const styleMatches = Array.from(
+    htmlText.matchAll(/href=["']([^"']*\/assets\/[^"']+\.css)["']/gi)
+  );
+
+  let serverJsBundle = '';
+  let serverCssBundle = '';
+
+  for (const m of scriptMatches) {
+    const norm = normalizeRelativeUrl(m[1]);
+    if (norm) serverJsBundle = norm.split('/').pop() || '';
+  }
+  for (const m of styleMatches) {
+    const norm = normalizeRelativeUrl(m[1]);
+    if (norm) serverCssBundle = norm.split('/').pop() || '';
+  }
+
+  const { jsBundle: currentJsBundle } = getCurrentlyLoadedBundles();
+  const isViteDevMode = !currentJsBundle && !serverJsBundle && htmlText.includes('/src/main.tsx');
+  if (isViteDevMode) {
+    return {
+      htmlText,
+      serverJsBundle: 'dev-live',
+      serverCssBundle: 'dev-live',
+      isViteDevMode: true,
+      verifiedResponses: new Map()
+    };
+  }
+
+  if (currentJsBundle && (!serverJsBundle || !serverCssBundle)) {
+    throw new Error('فایل‌های اجرایی نسخه جدید در پاسخ سرور یافت نشد');
+  }
+
+  const requiredShellUrls = new Set<string>([
+    './manifest.webmanifest',
+    './golzar-logo.png',
+    './icon.svg',
+    './apple-touch-icon.png',
+    './pwa-192x192.png',
+    './pwa-512x512.png',
+    './fonts/Vazirmatn-variable.woff2',
+    './data/library_books.json',
+    './data/golzar_martyrs.xlsx',
+    './data/sooreh_mehr_book_martyr_research.json',
+    './data/golzarteh_index.json',
+    './data/golzarteh_profiles.json'
+  ]);
+
+  for (const m of scriptMatches) {
+    const norm = normalizeRelativeUrl(m[1]);
+    if (norm) requiredShellUrls.add(norm);
+  }
+  for (const m of preloadAndFontMatches) {
+    const norm = normalizeRelativeUrl(m[1]);
+    if (norm) requiredShellUrls.add(norm);
+  }
+  for (const m of styleMatches) {
+    const norm = normalizeRelativeUrl(m[1]);
+    if (norm) requiredShellUrls.add(norm);
+  }
+
+  const verifiedResponses = new Map<string, { bytes: ArrayBuffer; contentType: string }>();
+  const urlList = Array.from(requiredShellUrls);
+  const totalFiles = urlList.length;
+  let completedFiles = 0;
+
+  // دانلود موازی در دسته‌های ۴تایی جهت جلوگیری از Timeout روی اینترنت گوشی
+  await runWithConcurrency(urlList, 4, async (relUrl) => {
+    const fetchUrl = new URL(relUrl, appBaseUrl);
+    fetchUrl.searchParams.set('_manual_github_sync', '1');
+    fetchUrl.searchParams.set('_t', String(Date.now()));
+
+    const resp = await fetch(fetchUrl.toString(), {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal
+    });
+
+    if (!resp.ok) {
+      throw new Error(`خطا در دریافت فایل ضروری ${relUrl} (وضعیت ${resp.status})`);
+    }
+
+    const bytes = await resp.arrayBuffer();
+    if (!bytes || bytes.byteLength === 0) {
+      throw new Error(`فایل ضروری ${relUrl} خالی است`);
+    }
+
+    if (!validateDataAssetSemantics(relUrl, bytes)) {
+      throw new Error(`ساختار فایل داده ${relUrl} نامعتبر یا ناقص است`);
+    }
+
+    const contentType = resp.headers.get('Content-Type') || '';
+    verifiedResponses.set(relUrl, { bytes, contentType });
+    completedFiles++;
+    const shortLabel = relUrl.split('/').pop() || relUrl;
+    onProgress?.(`در حال دریافت نسخه جدید: ${shortLabel} (${completedFiles}/${totalFiles})...`);
+
+    if (relUrl.endsWith('.css')) {
+      const cssText = new TextDecoder('utf-8').decode(bytes);
+      const fontMatches = Array.from(
+        cssText.matchAll(/url\(\s*["']?([^"')]+Vazirmatn[^"')]+\.woff2)["']?\s*\)/gi)
+      );
+      for (const fm of fontMatches) {
+        const rawFont = fm[1] || '';
+        const fontRelUrl =
+          rawFont.startsWith('./') && !rawFont.startsWith('./assets/') && !rawFont.startsWith('./fonts/')
+            ? `./assets/${rawFont.slice(2)}`
+            : normalizeRelativeUrl(rawFont);
+
+        if (fontRelUrl && !verifiedResponses.has(fontRelUrl)) {
+          const fUrl = new URL(fontRelUrl, appBaseUrl);
+          fUrl.searchParams.set('_manual_github_sync', '1');
+          fUrl.searchParams.set('_t', String(Date.now()));
+          const fResp = await fetch(fUrl.toString(), {
+            cache: 'no-store',
+            credentials: 'same-origin',
+            signal
+          });
+          if (!fResp.ok) {
+            throw new Error(`خطا در دریافت فونت نسخه جدید (${fontRelUrl})`);
+          }
+          const fBytes = await fResp.arrayBuffer();
+          if (!fBytes || fBytes.byteLength === 0) {
+            throw new Error(`فایل فونت ${fontRelUrl} خالی است`);
+          }
+          verifiedResponses.set(fontRelUrl, {
+            bytes: fBytes,
+            contentType: fResp.headers.get('Content-Type') || 'font/woff2'
+          });
+        }
+      }
+    }
+  });
+
+  return {
+    htmlText,
+    serverJsBundle,
+    serverCssBundle,
+    isViteDevMode: false,
+    verifiedResponses
+  };
+}
+
 /**
  * به‌روزرسانی دستی، اتمیک و ایمن از گیت‌هاب با رعایت پروتکل قفل چندتبی و اعتبارسنجی پس از فینالایز:
  * ۱. رزرو قفل انحصاری عملیات (BEGIN_UPDATE_OPERATION) در Service Worker با شناسه یکتا و قابلیت تمدید Lease
- * ۲. دریافت و اعتبارسنجی ۱۰۰٪ دارایی‌ها در یک کش کاندید موقت ایزوله (بدون دستکاری کش فعال فعلی)
- * ۳. راستی‌آزمایی ساختاری فایل‌های داده (Semantic Invariants) بدون نیاز به هاردکد کردن هش در کد TypeScript
- * ۴. بررسی صحت ذخیره‌سازی با بازخوانی مجدد از CacheStorage (Read-back verification)
- * ۵. اعتبارسنجی پس از Commit با درخواست‌های عادی مرورگر؛ در صورت کوچک‌ترین شکست، اجرای خودکار Rollback پایدار
+ * ۲. دریافت موازی و اعتبارسنجی ۱۰۰٪ دارایی‌ها در کش کاندید موقت ایزوله (بدون دستکاری کش فعال فعلی)
+ * ۳. انتقال اتمیک به کش نسخه جدید با مُهر تایید زمانی جهت جلوگیری از دانلود مجدد در Service Worker
+ * ۴. همگام‌سازی قطعی کنترل‌کننده Service Worker و آزادسازی پیوند تب جهت بارگذاری فوری نسخه جدید
  */
 export async function performManualGitHubSync(
   onProgress?: (stepMessage: string) => void
@@ -257,9 +497,9 @@ export async function performManualGitHubSync(
     };
   }
 
-  // افزایش مهلت به ۹۵ ثانیه برای سازگاری کامل با دانلود فایل‌های حجیم روی اینترنت موبایل
+  // افزایش مهلت به ۱۸۰ ثانیه برای سازگاری کامل با اینترنت موبایل
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 95000);
+  const timeoutId = window.setTimeout(() => controller.abort(), 180000);
   const operationId = `op_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const tabId = `tab_${Math.random().toString(36).slice(2, 10)}`;
   let stagingCacheName = `${OFFLINE_SW_CACHE_NAME}-staging-${Date.now()}`;
@@ -268,6 +508,8 @@ export async function performManualGitHubSync(
   let swTargetWorker: ServiceWorker | null = null;
 
   try {
+    const appBaseUrl = await resolveAppBaseUrl();
+
     // مرحله ۰: رزرو قفل انحصاری عملیات در Service Worker پیش از شروع واکشی منابع
     if ('serviceWorker' in navigator) {
       const reg = await navigator.serviceWorker.getRegistration();
@@ -282,7 +524,7 @@ export async function performManualGitHubSync(
           operationId,
           tabId,
           expectedActiveCacheName: OFFLINE_SW_CACHE_NAME,
-          leaseDurationMs: 45000
+          leaseDurationMs: 60000
         });
 
         if (lockRes && !lockRes.ok && lockRes.error !== 'VERSION_MISMATCH') {
@@ -302,77 +544,31 @@ export async function performManualGitHubSync(
           }
           lockAcquired = true;
 
-          // راه‌اندازی ضربان قلب تمدید Lease در طول واکشی منابع سنگین
           heartbeatTimer = window.setInterval(() => {
             if (swTargetWorker && lockAcquired) {
               sendSwMessage(swTargetWorker, {
                 type: 'RENEW_UPDATE_LEASE',
                 operationId,
-                additionalMs: 30000
+                additionalMs: 45000
               }).catch(() => {});
             }
-          }, 8000);
+          }, 10000);
         }
       }
     }
 
     onProgress?.('در حال بررسی آخرین نسخه در گیت‌هاب...');
 
-    const checkUrl = new URL('./index.html', window.location.href);
-    checkUrl.searchParams.set('_manual_github_sync', '1');
-    checkUrl.searchParams.set('_t', String(Date.now()));
+    const {
+      htmlText,
+      serverJsBundle,
+      serverCssBundle,
+      isViteDevMode,
+      verifiedResponses
+    } = await fetchAndVerifyPackageInMemory(appBaseUrl, controller.signal, onProgress);
 
-    const htmlResponse = await fetch(checkUrl.toString(), {
-      cache: 'no-store',
-      credentials: 'same-origin',
-      signal: controller.signal
-    });
-
-    if (!htmlResponse.ok) {
-      throw new Error(`دریافت اطلاعات از سرور ناموفق بود (کد وضعیت: ${htmlResponse.status})`);
-    }
-
-    const htmlText = await htmlResponse.text();
-    if (!htmlText || !htmlText.includes('id="root"')) {
-      throw new Error('پاسخ دریافتی از سرور معتبر نیست');
-    }
-
-    const scriptMatches = Array.from(
-      htmlText.matchAll(/src=["']([^"']*\/assets\/[^"']+\.m?js)["']/gi)
-    );
-    const preloadAndFontMatches = Array.from(
-      htmlText.matchAll(/href=["']([^"']*\/assets\/[^"']+\.(?:m?js|woff2))["']/gi)
-    );
-    const styleMatches = Array.from(
-      htmlText.matchAll(/href=["']([^"']*\/assets\/[^"']+\.css)["']/gi)
-    );
-
-    let serverJsBundle = '';
-    let serverCssBundle = '';
-
-    for (const m of scriptMatches) {
-      const norm = normalizeRelativeUrl(m[1]);
-      if (norm) {
-        serverJsBundle = norm.split('/').pop() || '';
-      }
-    }
-
-    for (const m of styleMatches) {
-      const norm = normalizeRelativeUrl(m[1]);
-      if (norm) {
-        serverCssBundle = norm.split('/').pop() || '';
-      }
-    }
-
-    const { jsBundle: currentJsBundle, cssBundle: currentCssBundle } = getCurrentlyLoadedBundles();
-
-    // بررسی اولیه و سریع به‌روز بودن نسخه بدون نیاز به دانلود غیرضروری ۱۰ مگابایت فایل
     const nowFa = formatExactShamsiDateTimeFa(new Date());
-    const bundleChanged =
-      Boolean(currentJsBundle && serverJsBundle && currentJsBundle !== serverJsBundle) ||
-      Boolean(currentCssBundle && serverCssBundle && currentCssBundle !== serverCssBundle);
 
-    const isViteDevMode = !currentJsBundle && !serverJsBundle && htmlText.includes('/src/main.tsx');
     if (isViteDevMode) {
       if (heartbeatTimer !== null) {
         window.clearInterval(heartbeatTimer);
@@ -398,172 +594,85 @@ export async function performManualGitHubSync(
         ok: true,
         status: 'up_to_date',
         shouldReload: false,
-        updatedBundle: currentJsBundle || 'dev-live',
+        updatedBundle: 'dev-live',
         syncedAtFa: nowFa,
         message: '✅ نسخه فعلی نرم‌افزار به‌روز است و نیازی به بارگذاری مجدد نیست.'
       };
     }
 
-    if (currentJsBundle && (!serverJsBundle || !serverCssBundle)) {
-      throw new Error('فایل‌های اجرایی نسخه جدید در پاسخ سرور یافت نشد');
-    }
-
-    // مرحله ۱: دریافت و اعتبارسنجی فایل‌های نسخه جدید در حافظه با گزارش پیشرفت
-    const requiredShellUrls = new Set<string>([
-      './manifest.webmanifest',
-      './golzar-logo.png',
-      './icon.svg',
-      './apple-touch-icon.png',
-      './pwa-192x192.png',
-      './pwa-512x512.png',
-      './fonts/Vazirmatn-variable.woff2',
-      './data/library_books.json',
-      './data/golzar_martyrs.xlsx',
-      './data/sooreh_mehr_book_martyr_research.json',
-      './data/golzarteh_index.json',
-      './data/golzarteh_profiles.json'
-    ]);
-
-    for (const m of scriptMatches) {
-      const norm = normalizeRelativeUrl(m[1]);
-      if (norm) requiredShellUrls.add(norm);
-    }
-    for (const m of preloadAndFontMatches) {
-      const norm = normalizeRelativeUrl(m[1]);
-      if (norm) requiredShellUrls.add(norm);
-    }
-    for (const m of styleMatches) {
-      const norm = normalizeRelativeUrl(m[1]);
-      if (norm) requiredShellUrls.add(norm);
-    }
-
-    const verifiedResponses = new Map<string, { bytes: ArrayBuffer; contentType: string }>();
-    const totalFiles = requiredShellUrls.size;
-    let completedFiles = 0;
-
-    for (const relUrl of Array.from(requiredShellUrls)) {
-      completedFiles++;
-      const shortLabel = relUrl.split('/').pop() || relUrl;
-      onProgress?.(`در حال دریافت نسخه جدید: ${shortLabel} (${completedFiles}/${totalFiles})...`);
-
-      const fetchUrl = new URL(relUrl, window.location.href);
-      fetchUrl.searchParams.set('_manual_github_sync', '1');
-      fetchUrl.searchParams.set('_t', String(Date.now()));
-
-      const resp = await fetch(fetchUrl.toString(), {
-        cache: 'no-store',
-        credentials: 'same-origin',
-        signal: controller.signal
-      });
-
-      if (!resp.ok) {
-        throw new Error(`خطا در دریافت فایل ضروری ${relUrl} (وضعیت ${resp.status})`);
-      }
-
-      const bytes = await resp.arrayBuffer();
-      if (!bytes || bytes.byteLength === 0) {
-        throw new Error(`فایل ضروری ${relUrl} خالی است`);
-      }
-
-      // اعتبارسنجی معنایی و ساختاری فایل‌های داده
-      if (!validateDataAssetSemantics(relUrl, bytes)) {
-        throw new Error(`ساختار فایل داده ${relUrl} نامعتبر یا ناقص است`);
-      }
-
-      const contentType = resp.headers.get('Content-Type') || '';
-      verifiedResponses.set(relUrl, { bytes, contentType });
-
-      // استخراج و راستی‌آزمایی فونت از داخل CSS
-      if (relUrl.endsWith('.css')) {
-        const cssText = new TextDecoder('utf-8').decode(bytes);
-        const fontMatches = Array.from(
-          cssText.matchAll(/url\(\s*["']?([^"')]+Vazirmatn[^"')]+\.woff2)["']?\s*\)/gi)
-        );
-        for (const fm of fontMatches) {
-          const rawFont = fm[1] || '';
-          const fontRelUrl =
-            rawFont.startsWith('./') && !rawFont.startsWith('./assets/') && !rawFont.startsWith('./fonts/')
-              ? `./assets/${rawFont.slice(2)}`
-              : normalizeRelativeUrl(rawFont);
-
-          if (fontRelUrl && !verifiedResponses.has(fontRelUrl)) {
-            const fUrl = new URL(fontRelUrl, window.location.href);
-            fUrl.searchParams.set('_manual_github_sync', '1');
-            fUrl.searchParams.set('_t', String(Date.now()));
-            const fResp = await fetch(fUrl.toString(), {
-              cache: 'no-store',
-              credentials: 'same-origin',
-              signal: controller.signal
-            });
-            if (!fResp.ok) {
-              throw new Error(`خطا در دریافت فونت نسخه جدید (${fontRelUrl})`);
-            }
-            const fBytes = await fResp.arrayBuffer();
-            if (!fBytes || fBytes.byteLength === 0) {
-              throw new Error(`فایل فونت ${fontRelUrl} خالی است`);
-            }
-            verifiedResponses.set(fontRelUrl, {
-              bytes: fBytes,
-              contentType: fResp.headers.get('Content-Type') || 'font/woff2'
-            });
-          }
-        }
-      }
-    }
+    const indexAbsUrl = new URL('./index.html', appBaseUrl).toString();
+    const rootAbsUrl = new URL('./', appBaseUrl).toString();
+    const syncStamp = String(Date.now());
 
     // مرحله ۲: ذخیره در کش کاندید موقت و راستی‌آزمایی صحت ذخیره‌سازی (Read-back Verification)
     onProgress?.('در حال ثبت و اعتبارسنجی کش آفلاین...');
     if ('caches' in window) {
       const stagingCache = await window.caches.open(stagingCacheName);
       await stagingCache.put(
-        new Request('./index.html'),
+        new Request(indexAbsUrl),
         new Response(htmlText, {
           status: 200,
-          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'X-Markaz-Manual-Sync': syncStamp
+          }
         })
       );
+
       for (const [relUrl, item] of verifiedResponses.entries()) {
-        const cleanUrl = new URL(relUrl, window.location.href);
+        const cleanUrl = new URL(relUrl, appBaseUrl);
         cleanUrl.search = '';
         await stagingCache.put(
           new Request(cleanUrl.toString()),
           new Response(item.bytes.slice(0), {
             status: 200,
-            headers: item.contentType ? { 'Content-Type': item.contentType } : undefined
+            headers: {
+              ...(item.contentType ? { 'Content-Type': item.contentType } : {}),
+              'X-Markaz-Manual-Sync': syncStamp
+            }
           })
         );
 
-        // راستی‌آزمایی فوری خواندن مجدد از حافظه کش
         const readBack = await stagingCache.match(cleanUrl.toString());
         if (!readBack || !readBack.ok) {
           throw new Error(`خطای ذخیره‌سازی در کش موقت برای فایل: ${relUrl}`);
         }
       }
 
-      // انتقال اتمیک فایل‌ها به کش نهایی
+      // انتقال اتمیک فایل‌ها به کش نهایی (دارای مُهر X-Markaz-Manual-Sync برای جلوگیری از دانلود تکراری در SW)
       const targetCache = await window.caches.open(OFFLINE_SW_CACHE_NAME);
       await targetCache.put(
-        new Request('./index.html'),
+        new Request(indexAbsUrl),
         new Response(htmlText, {
           status: 200,
-          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'X-Markaz-Manual-Sync': syncStamp
+          }
         })
       );
       await targetCache.put(
-        new Request('./'),
+        new Request(rootAbsUrl),
         new Response(htmlText, {
           status: 200,
-          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'X-Markaz-Manual-Sync': syncStamp
+          }
         })
       );
+
       for (const [relUrl, item] of verifiedResponses.entries()) {
-        const cleanUrl = new URL(relUrl, window.location.href);
+        const cleanUrl = new URL(relUrl, appBaseUrl);
         cleanUrl.search = '';
         await targetCache.put(
           new Request(cleanUrl.toString()),
           new Response(item.bytes.slice(0), {
             status: 200,
-            headers: item.contentType ? { 'Content-Type': item.contentType } : undefined
+            headers: {
+              ...(item.contentType ? { 'Content-Type': item.contentType } : {}),
+              'X-Markaz-Manual-Sync': syncStamp
+            }
           })
         );
       }
@@ -572,23 +681,28 @@ export async function performManualGitHubSync(
     }
 
     // مرحله ۳: بررسی و به‌روزرسانی چرخه Service Worker
-    let swUpdatedAndActivated = false;
     if ('serviceWorker' in navigator) {
-      const reg = await navigator.serviceWorker.register(OFFLINE_SW_SCRIPT_URL, {
+      const swUrl = new URL(OFFLINE_SW_SCRIPT_URL, appBaseUrl).toString();
+      const reg = await navigator.serviceWorker.register(swUrl, {
         updateViaCache: 'none'
       });
 
       await reg.update();
 
-      if (reg.installing) {
+      const trackedInstalling = reg.installing;
+      if (trackedInstalling) {
         onProgress?.('در حال راه‌اندازی Service Worker نسخه جدید...');
-        const installedOk = await waitForInstallingWorker(reg.installing);
+        const installedOk = await waitForInstallingWorker(trackedInstalling, 90000);
         if (!installedOk) {
           throw new Error('نصب Service Worker نسخه جدید کامل نشد؛ نسخه قبلی حفظ گردید.');
         }
       }
 
-      if (reg.waiting) {
+      // رفع race condition در مرورگرهای موبایل بین statechange و reg.waiting
+      const pendingWaiting =
+        reg.waiting || (trackedInstalling && trackedInstalling.state === 'installed' ? trackedInstalling : null);
+
+      if (pendingWaiting) {
         const controllerChangedPromise = new Promise<boolean>((resolve) => {
           let resolved = false;
           const onControllerChange = () => {
@@ -604,11 +718,11 @@ export async function performManualGitHubSync(
               navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
               resolve(true);
             }
-          }, 5000);
+          }, 6000);
         });
 
-        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-        swUpdatedAndActivated = await controllerChangedPromise;
+        pendingWaiting.postMessage({ type: 'SKIP_WAITING' });
+        await controllerChangedPromise;
       }
 
       const refreshedReg = await navigator.serviceWorker.getRegistration();
@@ -626,23 +740,23 @@ export async function performManualGitHubSync(
         newCacheName: OFFLINE_SW_CACHE_NAME
       });
 
-      // تست درخواست‌های عادی بدون هیچ هدر یا کوئری خاص
       try {
-        const testHtml = await fetch('./index.html', { cache: 'default' });
+        const testHtml = await fetch(indexAbsUrl, { cache: 'no-store' });
         if (!testHtml.ok) throw new Error('درخواست عادی index.html با خطا مواجه شد');
         const testHtmlText = await testHtml.text();
         if (!testHtmlText.includes('id="root"')) throw new Error('محتوای index.html ناقص است');
 
         if (serverJsBundle) {
-          const testJs = await fetch(`./assets/${serverJsBundle}`, { cache: 'default' });
+          const testJsUrl = new URL(`./assets/${serverJsBundle}`, appBaseUrl).toString();
+          const testJs = await fetch(testJsUrl, { cache: 'default' });
           if (!testJs.ok) throw new Error(`باندل JS اصلی در مسیر عادی در دسترس نیست: ${serverJsBundle}`);
         }
         if (serverCssBundle) {
-          const testCss = await fetch(`./assets/${serverCssBundle}`, { cache: 'default' });
+          const testCssUrl = new URL(`./assets/${serverCssBundle}`, appBaseUrl).toString();
+          const testCss = await fetch(testCssUrl, { cache: 'default' });
           if (!testCss.ok) throw new Error(`باندل CSS اصلی در مسیر عادی در دسترس نیست: ${serverCssBundle}`);
         }
       } catch (verifyErr) {
-        // اجرای رول‌بک پایدار در صورت شکست درخواست‌های عادی
         await sendSwMessage(swTargetWorker, {
           type: 'ROLLBACK_ACTIVE_CACHE',
           operationId,
@@ -651,7 +765,6 @@ export async function performManualGitHubSync(
         throw new Error(`شکست در اعتبارسنجی پس از فعال‌سازی: ${String(verifyErr)}`);
       }
 
-      // آزادسازی قطعی قفل عملیات پس از موفقیت کامل
       await sendSwMessage(swTargetWorker, {
         type: 'RELEASE_UPDATE_OPERATION',
         operationId
@@ -678,7 +791,7 @@ export async function performManualGitHubSync(
       updatedBundle: serverJsBundle,
       syncedAtFa: nowFa,
       message:
-        '✅ نسخه جدید با موفقیت دریافت، راستی‌آزمایی و فعال شد. در حال بارگذاری نسخه جدید...'
+        `✅ نسخه جدید (${OFFLINE_SW_VERSION_LABEL}) با موفقیت دریافت و فعال شد. در حال بارگذاری مجدد...`
     };
   } catch (error: any) {
     if (heartbeatTimer !== null) {
@@ -704,6 +817,136 @@ export async function performManualGitHubSync(
       status: 'failed',
       shouldReload: false,
       message: `⚠️ دریافت نسخه جدید با شکست مواجه شد: ${error?.message || 'خطای شبکه یا پایان مهلت اتصال'}. نسخه پایدار قبلی بدون تغییر حفظ شد.`
+    };
+  }
+}
+
+/**
+ * تعمیر و بازسازی قطعی کش نرم‌افزار در گوشی‌های اندروید/آیفون قفل‌شده روی کش قدیمی
+ * بدون دست زدن به اطلاعات ثبت‌شده کاربر در پایگاه داده محلی و حافظه دستگاه!
+ * ابتدا کل بسته جدید را در حافظه دریافت و اعتبارسنجی می‌کند و فقط در صورت صحت ۱۰۰٪، کش‌های قدیمی پوسته برنامه را پاکسازی و جایگزین می‌نماید.
+ */
+export async function performHardAppShellRepair(
+  onProgress?: (stepMessage: string) => void
+): Promise<GitHubSyncResult> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return {
+      ok: false,
+      status: 'offline',
+      shouldReload: false,
+      message: '⚠️ اینترنت دستگاه قطع است. برای تعمیر کش نرم‌افزار، ابتدا اینترنت را وصل کنید.'
+    };
+  }
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 180000);
+
+  try {
+    const appBaseUrl = await resolveAppBaseUrl();
+    onProgress?.('در حال دریافت بسته کامل و سالم از سرور...');
+
+    const {
+      htmlText,
+      serverJsBundle,
+      isViteDevMode,
+      verifiedResponses
+    } = await fetchAndVerifyPackageInMemory(appBaseUrl, controller.signal, onProgress);
+
+    const nowFa = formatExactShamsiDateTimeFa(new Date());
+
+    if (!isViteDevMode && 'caches' in window) {
+      onProgress?.('در حال پاک‌سازی کش‌های قدیمی پوسته برنامه (حفظ کامل اطلاعات)...');
+      const allKeys = await window.caches.keys();
+      await Promise.all(
+        allKeys
+          .filter(
+            (key) =>
+              key.startsWith('markaz-asnad-main-book-') ||
+              key.startsWith('markaz-asnad-pwa-') ||
+              key === 'markaz-asnad-sw-control-v1'
+          )
+          .map((key) => window.caches.delete(key).catch(() => false))
+      );
+
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
+      }
+
+      const indexAbsUrl = new URL('./index.html', appBaseUrl).toString();
+      const rootAbsUrl = new URL('./', appBaseUrl).toString();
+      const syncStamp = String(Date.now());
+
+      const targetCache = await window.caches.open(OFFLINE_SW_CACHE_NAME);
+      await targetCache.put(
+        new Request(indexAbsUrl),
+        new Response(htmlText, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'X-Markaz-Manual-Sync': syncStamp
+          }
+        })
+      );
+      await targetCache.put(
+        new Request(rootAbsUrl),
+        new Response(htmlText, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'X-Markaz-Manual-Sync': syncStamp
+          }
+        })
+      );
+
+      for (const [relUrl, item] of verifiedResponses.entries()) {
+        const cleanUrl = new URL(relUrl, appBaseUrl);
+        cleanUrl.search = '';
+        await targetCache.put(
+          new Request(cleanUrl.toString()),
+          new Response(item.bytes.slice(0), {
+            status: 200,
+            headers: {
+              ...(item.contentType ? { 'Content-Type': item.contentType } : {}),
+              'X-Markaz-Manual-Sync': syncStamp
+            }
+          })
+        );
+      }
+
+      if ('serviceWorker' in navigator) {
+        const swUrl = new URL(OFFLINE_SW_SCRIPT_URL, appBaseUrl).toString();
+        const freshReg = await navigator.serviceWorker.register(swUrl, {
+          updateViaCache: 'none'
+        });
+        if (freshReg.installing) {
+          await waitForInstallingWorker(freshReg.installing, 90000);
+        }
+      }
+    }
+
+    window.clearTimeout(timeoutId);
+    try {
+      localStorage.setItem(LAST_GITHUB_SYNC_STORAGE_KEY, nowFa);
+    } catch {
+      // ignore
+    }
+
+    return {
+      ok: true,
+      status: 'updated',
+      shouldReload: true,
+      updatedBundle: serverJsBundle,
+      syncedAtFa: nowFa,
+      message: `✅ کش برنامه روی نسخه ${OFFLINE_SW_VERSION_LABEL} با حفظ کامل اطلاعات بازسازی شد. در حال بارگذاری مجدد...`
+    };
+  } catch (error: any) {
+    window.clearTimeout(timeoutId);
+    return {
+      ok: false,
+      status: 'failed',
+      shouldReload: false,
+      message: `⚠️ بازسازی کش ناموفق بود: ${error?.message || 'خطای شبکه'}. اطلاعات و نسخه فعلی حفظ شدند.`
     };
   }
 }

@@ -38,8 +38,11 @@ import {
 import { requestActionConfirmation } from '../utils/confirmDialogService';
 import { openStandardExcelExportModal } from '../modules/excel-export';
 import {
+  forceCleanAppReload,
+  getCurrentOfflineCoreInfo,
   getLastGitHubSyncTimeFa,
   guardExternalInternetSearch,
+  performHardAppShellRepair,
   performManualGitHubSync
 } from '../utils/githubSyncService';
 import {
@@ -85,7 +88,13 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
   const [showInstallGuideModal, setShowInstallGuideModal] = useState(false);
   const [showComprehensiveDocModal, setShowComprehensiveDocModal] = useState(false);
   const [isSyncingGitHub, setIsSyncingGitHub] = useState(false);
+  const [isRepairingCache, setIsRepairingCache] = useState(false);
+  const [syncStatusDetail, setSyncStatusDetail] = useState<{
+    text: string;
+    type: 'info' | 'success' | 'warning';
+  } | null>(null);
   const [lastGitHubSyncFa, setLastGitHubSyncFa] = useState<string>(() => getLastGitHubSyncTimeFa());
+  const offlineCoreInfo = useMemo(() => getCurrentOfflineCoreInfo(), []);
   const { isInstallable, isInstalled, install } = usePWAInstall();
   const [showStoredRecordsList, setShowStoredRecordsList] = useState(false);
   const [golzartehState, setGolzartehState] = useState(() => getGolzartehDatasetState());
@@ -880,41 +889,121 @@ export const BackupAndExportTab: React.FC<BackupAndExportTabProps> = ({
           این نرم‌افزار در اجرای عادی از کش آفلاین و پایگاه داده محلی دستگاه کار می‌کند و <strong>در کد برنامه هیچ درخواست خودکاری به گیت‌هاب ارسال نمی‌شود</strong>. هنگام زدن دکمه زیر، ابتدا تمام فایل‌های نسخه جدید به صورت اتمیک دریافت و راستی‌آزمایی می‌شوند و تنها در صورت کامل بودن همه فایل‌ها، کش نسخه جدید جایگزین می‌گردد؛ در غیر این صورت نسخه فعلی بدون تغییر حفظ می‌شود.
         </p>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-          <button
-            type="button"
-            disabled={isSyncingGitHub}
-            onClick={async () => {
-              if (isSyncingGitHub) return;
-              setIsSyncingGitHub(true);
-              const res = await performManualGitHubSync((msg) => onNotify(msg, 'warning'));
-              setIsSyncingGitHub(false);
-              if (res.ok) {
-                if (res.syncedAtFa) setLastGitHubSyncFa(res.syncedAtFa);
-                onNotify(res.message, 'success');
-                if (res.shouldReload) {
-                  window.setTimeout(() => {
-                    window.location.reload();
-                  }, 600);
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-white/80 border border-[#C5D9ED] rounded-xl px-3 py-2 text-[#1E3A5F]">
+          <div>
+            نسخه هسته آفلاین فعلی:{' '}
+            <strong className="font-bold font-mono" dir="ltr">
+              {offlineCoreInfo.cacheVersion}
+            </strong>
+          </div>
+          <div className="font-mono text-[10px] text-slate-600 truncate max-w-full" dir="ltr">
+            باندل فعال: {offlineCoreInfo.jsBundle}
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-2.5 pt-1">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <button
+              type="button"
+              disabled={isSyncingGitHub || isRepairingCache}
+              onClick={async () => {
+                if (isSyncingGitHub || isRepairingCache) return;
+                setIsSyncingGitHub(true);
+                setSyncStatusDetail({
+                  text: 'در حال بررسی و دریافت نسخه جدید از گیت‌هاب...',
+                  type: 'info'
+                });
+                const res = await performManualGitHubSync((msg) => {
+                  setSyncStatusDetail({ text: msg, type: 'info' });
+                });
+                setIsSyncingGitHub(false);
+                if (res.syncedAtFa) {
+                  setLastGitHubSyncFa(res.syncedAtFa);
+                } else {
+                  setLastGitHubSyncFa(getLastGitHubSyncTimeFa());
                 }
-              } else {
-                onNotify(res.message, 'warning');
-              }
-            }}
-            className="min-h-[44px] px-4 py-2 text-xs font-bold bg-[#2E6F40] text-white hover:bg-[#235632] rounded-xl transition-colors inline-flex items-center gap-2 cursor-pointer disabled:opacity-60 shadow-xs"
-          >
-            <RefreshCw className={`w-4 h-4 shrink-0 ${isSyncingGitHub ? 'animate-spin' : ''}`} />
-            <span>
-              {isSyncingGitHub
-                ? 'در حال بررسی و دریافت اتمیک از گیت‌هاب...'
-                : 'بروزرسانی از گیت‌هاب'}
-            </span>
-          </button>
+                if (res.ok) {
+                  setSyncStatusDetail({ text: res.message, type: 'success' });
+                  onNotify(res.message, 'success');
+                  if (res.shouldReload) {
+                    window.setTimeout(() => {
+                      forceCleanAppReload();
+                    }, 600);
+                  }
+                } else {
+                  setSyncStatusDetail({ text: res.message, type: 'warning' });
+                  onNotify(res.message, 'warning');
+                }
+              }}
+              className="min-h-[44px] px-4 py-2 text-xs font-bold bg-[#2E6F40] text-white hover:bg-[#235632] rounded-xl transition-colors inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 shadow-xs"
+            >
+              <RefreshCw className={`w-4 h-4 shrink-0 ${isSyncingGitHub ? 'animate-spin' : ''}`} />
+              <span>
+                {isSyncingGitHub
+                  ? 'در حال بررسی و دریافت اتمیک از گیت‌هاب...'
+                  : 'بروزرسانی از گیت‌هاب'}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              disabled={isSyncingGitHub || isRepairingCache}
+              onClick={async () => {
+                if (isSyncingGitHub || isRepairingCache) return;
+                setIsRepairingCache(true);
+                setSyncStatusDetail({
+                  text: 'در حال دریافت و بازسازی کامل کش نرم‌افزار (بدون دست زدن به داده‌های ثبت‌شده)...',
+                  type: 'info'
+                });
+                const res = await performHardAppShellRepair((msg) => {
+                  setSyncStatusDetail({ text: msg, type: 'info' });
+                });
+                setIsRepairingCache(false);
+                if (res.syncedAtFa) {
+                  setLastGitHubSyncFa(res.syncedAtFa);
+                }
+                if (res.ok) {
+                  setSyncStatusDetail({ text: res.message, type: 'success' });
+                  onNotify(res.message, 'success');
+                  if (res.shouldReload) {
+                    window.setTimeout(() => {
+                      forceCleanAppReload();
+                    }, 700);
+                  }
+                } else {
+                  setSyncStatusDetail({ text: res.message, type: 'warning' });
+                  onNotify(res.message, 'warning');
+                }
+              }}
+              className="min-h-[44px] px-4 py-2 text-xs font-bold bg-white text-[#1E3A5F] hover:bg-slate-50 border border-[#9BBCE0] rounded-xl transition-colors inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+            >
+              <ShieldCheck className={`w-4 h-4 shrink-0 ${isRepairingCache ? 'animate-pulse' : ''}`} />
+              <span>
+                {isRepairingCache
+                  ? 'در حال بازسازی و تعمیر کش...'
+                  : 'بازسازی و تعمیر کش برنامه (حفظ کامل داده‌ها)'}
+              </span>
+            </button>
+          </div>
 
           <div className="text-[11px] text-[#5C4033] font-semibold">
             آخرین بررسی/بروزرسانی دستی از گیت‌هاب: <span className="font-bold">{lastGitHubSyncFa}</span>
           </div>
         </div>
+
+        {syncStatusDetail && (
+          <div
+            className={`px-3.5 py-2.5 rounded-xl border text-xs font-semibold leading-relaxed ${
+              syncStatusDetail.type === 'success'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                : syncStatusDetail.type === 'warning'
+                  ? 'bg-amber-50 border-amber-200 text-amber-900'
+                  : 'bg-white border-[#C5D9ED] text-[#1E3A5F]'
+            }`}
+          >
+            {syncStatusDetail.text}
+          </div>
+        )}
       </div>
 
       {/* Section: Android PWA Installation, Offline Single-File HTML & Mobile Direct Access Links */}
