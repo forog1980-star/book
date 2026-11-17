@@ -21,17 +21,20 @@ export function toEnglishDigits(input: unknown): string {
  */
 export function normalizePersian(input: unknown): string {
   if (input === null || input === undefined) return '';
-  return toEnglishDigits(input)
-    .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, ' ')
-    .replace(/[يىئ]/g, 'ی')
-    .replace(/ك/g, 'ک')
+  return toEnglishDigits(String(input).normalize('NFKC'))
+    .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+    .replace(/[\u200B-\u200D\u00A0]/g, ' ')
+    .replace(/[يىئىێے]/g, 'ی')
+    .replace(/[كڪکګ]/g, 'ک')
     .replace(/[ۀة]/g, 'ه')
-    .replace(/[ؤ]/g, 'و')
-    .replace(/[إأآ]/g, 'ا')
+    .replace(/[ؤٶ]/g, 'و')
+    .replace(/[إأآٱ]/g, 'ا')
+    .replace(/\u0640/g, '')
     .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim()
+    .toLowerCase();
 }
 
 export function compactPersian(input: unknown): string {

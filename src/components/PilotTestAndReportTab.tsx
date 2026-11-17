@@ -181,8 +181,14 @@ export const PilotTestAndReportTab: React.FC<PilotTestAndReportTabProps> = ({
 
     const approvedPublishReady = verifiedLinksCount + approvedExtractedCount;
 
-    const missingAuthorCount = catalogRows.filter((r) => !r.authorRaw.trim()).length;
-    const missingPublisherCount = catalogRows.filter((r) => !r.publisherRaw.trim()).length;
+    const missingAuthorCount = catalogRows.filter((r) => {
+      const rec = auditRecords[r.rowKey];
+      return !(rec?.author?.trim() || r.authorRaw.trim());
+    }).length;
+    const missingPublisherCount = catalogRows.filter((r) => {
+      const rec = auditRecords[r.rowKey];
+      return !(rec?.publisher?.trim() || r.publisherRaw.trim());
+    }).length;
     const missingYearCount = catalogRows.filter((r) => {
       const rec = auditRecords[r.rowKey];
       return !rec?.year?.trim();
@@ -207,7 +213,7 @@ export const PilotTestAndReportTab: React.FC<PilotTestAndReportTabProps> = ({
             return `${c.code}: ${toPersianDigits(liveCount)}`;
           })
           .join(' · '),
-        detail: 'شمارش زنده عناوین فهرست مرجع در ۶ گروه R, A, H, P, K, M (شمارش فیزیکی اولیه شیت توضیح دسته‌ها: ۹۴۲ نسخه)',
+        detail: `شمارش زنده عناوین فهرست مرجع در ۶ گروه R, A, H, P, K, M${outsideRecords.length > 0 ? ` (به علاوه ${toPersianDigits(outsideRecords.length)} ثبت جدید خارج از فهرست)` : ''}`,
         source: 'منبع داده: catalogRows + auditRecords.category'
       },
       {

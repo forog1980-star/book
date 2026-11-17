@@ -23,7 +23,13 @@ import {
   Layers,
   Eye,
   EyeOff,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Pencil,
+  Trash2,
+  MapPin,
+  ShieldCheck,
+  UserCheck,
+  BookOpenCheck
 } from 'lucide-react';
 import { DepositoryAndExportHub } from './DepositoryAndExportHub';
 import { BookLiveSearchPicker, buildLinkableBookOptions } from './BookLiveSearchPicker';
@@ -36,18 +42,23 @@ import {
 import {
   BookCopyRecord,
   BookMartyrLinkRecord,
+  CustomMartyrRecord,
   ExtractedContentItem,
   ExtractedContentType,
   ExtractedReviewStatus,
   FieldAuditRecord,
+  LEVELS,
+  LevelCode,
   MultiMartyrGroupAudit,
   PendingReviewItem,
   ReferenceCatalogRow,
+  SHELVES,
+  ShelfCode,
   WorkbookGolzarMartyr,
+  matchesPersianSearch,
   normalizePersianText,
   toPersianDigits
 } from '../data/markazAsnadData';
-import { SOOREH_MEHR_RESEARCH_STATS } from '../data/soorehMehrResearch';
 import { generateUniqueExtractedId, generateUniqueLinkId } from '../utils/idGenerator';
 import { requestActionConfirmation } from '../utils/confirmDialogService';
 import { TehranMartyrBadge } from './TehranMartyrBadge';
@@ -57,12 +68,17 @@ interface ResearchAndLinksTabProps {
   catalogRows: ReferenceCatalogRow[];
   auditRecords?: Record<string, FieldAuditRecord>;
   bookCopies?: BookCopyRecord[];
+  customMartyrs?: CustomMartyrRecord[];
   links: BookMartyrLinkRecord[];
   pendingReviews: PendingReviewItem[];
   workbookMartyrs?: WorkbookGolzarMartyr[];
   multiMartyrGroups: MultiMartyrGroupAudit[];
   extractedItems: ExtractedContentItem[];
+  onSaveAuditRecord?: (record: FieldAuditRecord) => void;
+  onUpdateCustomMartyr?: (updated: CustomMartyrRecord) => void;
   onAddLink: (newLink: BookMartyrLinkRecord) => void;
+  onUpdateLink?: (updatedLnk: BookMartyrLinkRecord, oldMartyrName?: string) => void;
+  onDeleteLink?: (linkId: string, bookId?: string, martyrName?: string) => void;
   onUpdateLinkStatus: (linkId: string, status: string, note: string) => void;
   onUpdatePendingReviewStatus: (trackingId: string, newStatus: string) => void;
   onUpdateGroupAudit: (updatedGroup: MultiMartyrGroupAudit) => void;
@@ -81,12 +97,17 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
   catalogRows,
   auditRecords = {},
   bookCopies = [],
+  customMartyrs = [],
   links,
   pendingReviews,
   workbookMartyrs = [],
   multiMartyrGroups,
   extractedItems,
+  onSaveAuditRecord,
+  onUpdateCustomMartyr,
   onAddLink,
+  onUpdateLink,
+  onDeleteLink,
   onUpdateLinkStatus,
   onUpdatePendingReviewStatus,
   onUpdateGroupAudit,
@@ -95,48 +116,45 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
   onJumpToSmartSearch,
   onNotify
 }) => {
-  const [subView, setSubView] = useState<
-    'links' | 'ghatat_sheets' | 'extracted' | 'pending567' | 'groups16' | 'publish_gateway' | 'depository'
-  >('depository');
+  // ۳ تب اصلی شفاف و غیرتکراری (مرحله دوم خلوت‌سازی پژوهش)
+  const [subView, setSubView] = useState<'workspace' | 'extracted' | 'publish_gateway'>('workspace');
+  const [showReviewQueuesPanel, setShowReviewQueuesPanel] = useState<boolean>(false);
+  const [reviewQueueTab, setReviewQueueTab] = useState<'pending567' | 'groups16'>('pending567');
 
-  // ثبت زیربخش‌های پژوهش در پشته بازگشت تا کلید Back ابتدا به نمای اصلی انبار اسناد برگردد
+  // ثبت زیربخش‌های پژوهش در پشته بازگشت تا کلید Back ابتدا پنل بازبینی یا تب فرعی را ببندد
   useEffect(() => {
-    if (subView === 'depository') return;
-    return registerInnerBackStep('research-subview', () => {
-      setSubView('depository');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
-  }, [subView]);
-  const [ghatatActiveSheet, setGhatatActiveSheet] = useState<'one' | 'multi'>('one');
-  const [ghatatQuery, setGhatatQuery] = useState('');
-  const [ghatatPage, setGhatatPage] = useState<number>(1);
-  const [ghatatPageSize, setGhatatPageSize] = useState<number | 'all'>(50);
+    if (showReviewQueuesPanel) {
+      return registerInnerBackStep('research-review-queues', () => {
+        setShowReviewQueuesPanel(false);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    }
+    if (subView !== 'workspace') {
+      return registerInnerBackStep('research-subview', () => {
+        setSubView('workspace');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    }
+  }, [subView, showReviewQueuesPanel]);
 
-  // صفحه‌بندی و حالت نمایش بخش مطالب و صفحات استخراج‌شده (۳۰۹ مورد)
+  // صفحه‌بندی و جست‌وجوی ایزوله برای هر بخش (جلوگیری از تداخل جست‌وجو بین تب‌ها)
+  const [extractedSearchQuery, setExtractedSearchQuery] = useState('');
   const [extractedViewMode, setExtractedViewMode] = useState<'cards' | 'table'>('cards');
   const [extractedPage, setExtractedPage] = useState<number>(1);
-  const [extractedPageSize, setExtractedPageSize] = useState<number | 'all'>(50);
+  const [extractedPageSize, setExtractedPageSize] = useState<number | 'all'>(20);
 
-  // تنظیمات و صفحه‌بندی بخش خروجی انتشار سایت
   const [publishScope, setPublishScope] = useState<'all_valid' | 'expert_only'>('all_valid');
   const [publishPreviewTab, setPublishPreviewTab] = useState<'martyr_cards' | 'extracted_passages'>('martyr_cards');
   const [publishSearchQuery, setPublishSearchQuery] = useState('');
   const [publishPage, setPublishPage] = useState<number>(1);
-  const [publishPageSize, setPublishPageSize] = useState<number | 'all'>(40);
+  const [publishPageSize, setPublishPageSize] = useState<number | 'all'>(20);
 
-  const [deskMode, setDeskMode] = useState<'streamlined' | 'detailed'>('streamlined');
-  const [hideArchivedGroups, setHideArchivedGroups] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('book_hide_archived_groups') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [pendingSearchQuery, setPendingSearchQuery] = useState('');
+  const [pendingPage, setPendingPage] = useState<number>(1);
+  const [pendingPageSize, setPendingPageSize] = useState<number | 'all'>(20);
+
   const [externalIdPrefix, setExternalIdPrefix] = useState('GOLZAR-TEH-');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('named_only');
   const [contentTypeFilter, setContentTypeFilter] = useState<string>('all');
-  const [visibleLimit, setVisibleLimit] = useState<number>(60);
 
   // Add New Link Form State
   const [showAddLink, setShowAddLink] = useState(false);
@@ -193,11 +211,297 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
   // Sub-filter for 16 Groups
   const [groupsStatusFilter, setGroupsStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
 
-  // Sub-filter & Reject Modal for Extracted Items
   const [extractedStatusFilter, setExtractedStatusFilter] = useState<string>('all');
   const [rejectingExtractedId, setRejectingExtractedId] = useState<string | null>(null);
   const [extractedRejectReason, setExtractedRejectReason] = useState<string>('');
   const [expandedPassageIds, setExpandedPassageIds] = useState<Record<string, boolean>>({});
+
+  // ===================== PHASE 3: IN-PLACE BOOK / MARTYR / LINK EDITORS =====================
+  const [inspectingBookTarget, setInspectingBookTarget] = useState<{
+    bookId: string;
+    fallbackTitle: string;
+  } | null>(null);
+  const [bookFormTitle, setBookFormTitle] = useState('');
+  const [bookFormAuthor, setBookFormAuthor] = useState('');
+  const [bookFormPublisher, setBookFormPublisher] = useState('');
+  const [bookFormYear, setBookFormYear] = useState('');
+  const [bookFormCategory, setBookFormCategory] = useState('');
+  const [bookFormShelf, setBookFormShelf] = useState<ShelfCode>('SH-01');
+  const [bookFormLevel, setBookFormLevel] = useState<LevelCode>('T01');
+  const [bookFormStatus, setBookFormStatus] = useState<'verified' | 'review' | 'not_found'>('verified');
+  const [bookFormExpertApproved, setBookFormExpertApproved] = useState(false);
+  const [bookFormNotes, setBookFormNotes] = useState('');
+
+  const [inspectingMartyrName, setInspectingMartyrName] = useState<string | null>(null);
+  const [editingCustomMartyrId, setEditingCustomMartyrId] = useState<string | null>(null);
+  const [cmFullName, setCmFullName] = useState('');
+  const [cmPiece, setCmPiece] = useState('');
+  const [cmRow, setCmRow] = useState('');
+  const [cmNumber, setCmNumber] = useState('');
+  const [cmNotes, setCmNotes] = useState('');
+
+  const [editingLinkRecord, setEditingLinkRecord] = useState<BookMartyrLinkRecord | null>(null);
+  const [editLinkMartyrName, setEditLinkMartyrName] = useState('');
+  const [editLinkPiece, setEditLinkPiece] = useState('');
+  const [editLinkRow, setEditLinkRow] = useState('');
+  const [editLinkNumber, setEditLinkNumber] = useState('');
+  const [editLinkPageRef, setEditLinkPageRef] = useState('');
+  const [editLinkSourceDesc, setEditLinkSourceDesc] = useState('');
+  const [editLinkReviewStatus, setEditLinkReviewStatus] = useState('');
+  const [editLinkNote, setEditLinkNote] = useState('');
+  const [editLinkIsGroup, setEditLinkIsGroup] = useState(false);
+
+  // نگاشت سریع کتاب‌ها و وضعیت زنده از auditRecords برای حل تضمینی نام و ناشر در کل پژوهش
+  const liveBookLookup = useMemo(() => {
+    const catalogById = new Map<string, ReferenceCatalogRow>();
+    catalogRows.forEach((r) => {
+      if (r.tempBookId) catalogById.set(r.tempBookId, r);
+    });
+    const auditById = new Map<string, FieldAuditRecord>();
+    Object.values(auditRecords).forEach((rec) => {
+      if (rec.tempBookId) auditById.set(rec.tempBookId, rec);
+    });
+    const copiesById = new Map<string, BookCopyRecord[]>();
+    bookCopies.forEach((cp) => {
+      if (!cp.bookId) return;
+      const arr = copiesById.get(cp.bookId) || [];
+      arr.push(cp);
+      copiesById.set(cp.bookId, arr);
+    });
+    return { catalogById, auditById, copiesById };
+  }, [catalogRows, auditRecords, bookCopies]);
+
+  const resolveLiveBookMeta = (bookId?: string, fallbackTitle?: string, fallbackPublisher?: string) => {
+    const id = (bookId || '').trim();
+    const cat = id ? liveBookLookup.catalogById.get(id) : undefined;
+    const aud = (id ? liveBookLookup.auditById.get(id) : undefined) || (cat ? auditRecords[cat.rowKey] : undefined);
+    const title = aud?.title?.trim() || fallbackTitle?.trim() || cat?.titleRaw || '—';
+    const publisher = aud?.publisher?.trim() || fallbackPublisher?.trim() || cat?.publisherRaw || '—';
+    const author = aud?.author?.trim() || cat?.authorRaw || '';
+    const location =
+      aud?.location?.trim() ||
+      (aud?.shelf ? `${aud.shelf}-${aud.level || 'T01'}` : '') ||
+      cat?.locationRaw ||
+      '—';
+    return { title, publisher, author, location, cat, aud };
+  };
+
+  const handleOpenBookInspector = (bookId: string, fallbackTitle: string) => {
+    const { cat, aud } = resolveLiveBookMeta(bookId, fallbackTitle);
+    const firstCopy = liveBookLookup.copiesById.get(bookId)?.[0];
+    const locParts = (cat?.locationRaw || '').split('-');
+    const initialShelf = (aud?.shelf || firstCopy?.shelf || (locParts[0] as ShelfCode) || 'SH-01') as ShelfCode;
+    const initialLevel = (aud?.level || firstCopy?.level || (locParts[1] as LevelCode) || 'T01') as LevelCode;
+    setInspectingBookTarget({ bookId, fallbackTitle });
+    setBookFormTitle(aud?.title || cat?.titleRaw || fallbackTitle || '');
+    setBookFormAuthor(aud?.author || cat?.authorRaw || '');
+    setBookFormPublisher(aud?.publisher || cat?.publisherRaw || '');
+    setBookFormYear(aud?.year || '');
+    setBookFormCategory(aud?.category || cat?.categoryRaw || '');
+    setBookFormShelf(SHELVES.some((s) => s.code === initialShelf) ? initialShelf : 'SH-01');
+    setBookFormLevel(LEVELS.some((l) => l.code === initialLevel) ? initialLevel : 'T01');
+    setBookFormStatus(aud?.physical || 'verified');
+    setBookFormExpertApproved(Boolean(aud?.expertApproved));
+    setBookFormNotes(aud?.notes || cat?.noteRaw || '');
+  };
+
+  const handleSaveBookInspector = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inspectingBookTarget) return;
+    if (!onSaveAuditRecord) {
+      onNotify('امکان ویرایش مستقیم کتاب در این نما فعال نیست.', 'warning');
+      return;
+    }
+    const { bookId } = inspectingBookTarget;
+    const { cat, aud } = resolveLiveBookMeta(bookId, bookFormTitle);
+    const recordKey = aud?.key || cat?.rowKey || `outside::${bookId}`;
+    const updatedLocation = `${bookFormShelf}-${bookFormLevel}`;
+    const updatedRecord: FieldAuditRecord = {
+      ...(aud || {}),
+      key: recordKey,
+      source: aud?.source || (cat ? 'catalog' : 'outside-list'),
+      sheet: aud?.sheet || 'فهرست کتاب‌ها',
+      tempBookId: bookId,
+      title: bookFormTitle.trim() || inspectingBookTarget.fallbackTitle,
+      author: bookFormAuthor.trim(),
+      publisher: bookFormPublisher.trim(),
+      year: bookFormYear.trim(),
+      descriptionRaw: aud?.descriptionRaw || cat?.descriptionRaw || '',
+      category: bookFormCategory.trim(),
+      shelf: bookFormShelf,
+      level: bookFormLevel,
+      location: updatedLocation,
+      physical: bookFormStatus,
+      countedCopies: aud?.countedCopies || cat?.countedCopiesRaw || '1',
+      expertApproved: bookFormExpertApproved,
+      relatedMartyrs: aud?.relatedMartyrs,
+      excludedMartyrs: aud?.excludedMartyrs,
+      needsReview: bookFormStatus === 'review',
+      notes: bookFormNotes.trim(),
+      updatedAt: new Date().toISOString()
+    };
+    onSaveAuditRecord(updatedRecord);
+    setInspectingBookTarget(null);
+    onNotify(`شناسنامه کتاب «${updatedRecord.title}» ذخیره و در تمام بخش‌های سامانه همگام‌سازی شد.`);
+  };
+
+  const handleOpenMartyrInspector = (name: string) => {
+    setInspectingMartyrName(name);
+    const norm = normalizePersianText(name.replace(/^(شهیدان|شهید)\s+/g, ''));
+    const matchedCustom = customMartyrs.find(
+      (cm) => normalizePersianText(cm.fullName.replace(/^(شهیدان|شهید)\s+/g, '')) === norm
+    );
+    if (matchedCustom) {
+      setEditingCustomMartyrId(matchedCustom.martyrId);
+      setCmFullName(matchedCustom.fullName);
+      setCmPiece(matchedCustom.gravePiece || '');
+      setCmRow(matchedCustom.graveRow || '');
+      setCmNumber(matchedCustom.graveNumber || '');
+      setCmNotes(matchedCustom.description || '');
+    } else {
+      setEditingCustomMartyrId(null);
+    }
+  };
+
+  const handleSaveCustomMartyrInspector = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCustomMartyrId || !onUpdateCustomMartyr) return;
+    const existing = customMartyrs.find((cm) => cm.martyrId === editingCustomMartyrId);
+    if (!existing) return;
+    const parts = cmFullName.trim().split(/\s+/);
+    const nextFirst = parts[0] || existing.firstName;
+    const nextLast = parts.slice(1).join(' ') || existing.lastName;
+    const updated: CustomMartyrRecord = {
+      ...existing,
+      firstName: nextFirst,
+      lastName: nextLast,
+      fullName: cmFullName.trim() || existing.fullName,
+      gravePiece: cmPiece.trim(),
+      graveRow: cmRow.trim(),
+      graveNumber: cmNumber.trim(),
+      graveDisplayAddress: [
+        cmPiece.trim() ? `قطعه ${cmPiece.trim()}` : '',
+        cmRow.trim() ? `ردیف ${cmRow.trim()}` : '',
+        cmNumber.trim() ? `شماره ${cmNumber.trim()}` : ''
+      ]
+        .filter(Boolean)
+        .join(' · ') || existing.graveDisplayAddress,
+      description: cmNotes.trim()
+    };
+    onUpdateCustomMartyr(updated);
+    setInspectingMartyrName(updated.fullName);
+    onNotify(`پرونده شهید «${updated.fullName}» ویرایش و در کل بخش‌های نرم‌افزار همگام‌سازی شد.`);
+  };
+
+  const handleOpenLinkEditor = (linkId: string) => {
+    const lnk = links.find((l) => l.id === linkId);
+    if (!lnk) return;
+    setEditingLinkRecord(lnk);
+    setEditLinkMartyrName(lnk.martyrNameRaw);
+    setEditLinkPiece(lnk.gravePieceRaw || '');
+    setEditLinkRow(lnk.graveRowRaw || '');
+    setEditLinkNumber(lnk.graveNumberRaw || '');
+    setEditLinkPageRef(lnk.pageReferenceRaw || '');
+    setEditLinkSourceDesc(lnk.sourceDescriptionRaw || '');
+    setEditLinkReviewStatus(lnk.reviewStatus || 'تأییدشده کارشناسی');
+    setEditLinkNote(lnk.reviewerNote || '');
+    setEditLinkIsGroup(Boolean(lnk.isGroupPhrase));
+  };
+
+  const handleSaveLinkEditor = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLinkRecord) return;
+    const oldMartyrName = editingLinkRecord.martyrNameRaw;
+    const meta = resolveLiveBookMeta(editingLinkRecord.tempBookId, editingLinkRecord.bookTitleRaw, editingLinkRecord.publisherRaw);
+    const updated: BookMartyrLinkRecord = {
+      ...editingLinkRecord,
+      bookTitleRaw: meta.title,
+      publisherRaw: meta.publisher,
+      martyrNameRaw: editLinkMartyrName.trim() || oldMartyrName,
+      gravePieceRaw: editLinkPiece.trim(),
+      graveRowRaw: editLinkRow.trim(),
+      graveNumberRaw: editLinkNumber.trim(),
+      pageReferenceRaw: editLinkPageRef.trim() || 'ثبت‌نشده',
+      sourceDescriptionRaw: editLinkSourceDesc.trim(),
+      reviewStatus: editLinkReviewStatus,
+      reviewerNote: editLinkNote.trim(),
+      isGroupPhrase: editLinkIsGroup
+    };
+    if (onUpdateLink) {
+      onUpdateLink(updated, oldMartyrName);
+    } else {
+      onUpdateLinkStatus(updated.id, updated.reviewStatus, updated.reviewerNote);
+    }
+    setEditingLinkRecord(null);
+    onNotify(`پیوند ${updated.id} ویرایش و در کل نرم‌افزار همگام‌سازی شد.`);
+  };
+
+  const handleConfirmDeleteLink = (linkId: string) => {
+    const lnk = links.find((l) => l.id === linkId);
+    if (!lnk) return;
+    const meta = resolveLiveBookMeta(lnk.tempBookId, lnk.bookTitleRaw, lnk.publisherRaw);
+    requestActionConfirmation({
+      title: 'حذف پیوند کتاب و شهید',
+      message: `آیا از حذف پیوند میان کتاب «${meta.title}» و شهید «${lnk.martyrNameRaw}» اطمینان دارید؟`,
+      details: `شناسه پیوند: ${lnk.id} · این تغییر در بخش کتابخانه، شهدا و جست‌وجوی هوشمند هم اعمال می‌شود.`,
+      confirmLabel: 'بله، حذف شود',
+      variant: 'delete',
+      onConfirm: () => {
+        if (onDeleteLink) {
+          onDeleteLink(lnk.id, lnk.tempBookId, lnk.martyrNameRaw);
+        } else {
+          onUpdateLinkStatus(lnk.id, 'ردشده با دلیل', 'حذف کارشناسی از میز پژوهش');
+        }
+        onNotify(`پیوند ${lnk.id} حذف و با مخزن کتاب‌ها همگام‌سازی شد.`);
+      }
+    });
+  };
+
+  // خروجی سریع اکسل قطعات شهدا (یک شهید و چند شهید با عنوان‌های زنده)
+  const handleExportGhatatExcel = () => {
+    const wb = XLSX.utils.book_new();
+    const ws1 = XLSX.utils.json_to_sheet(
+      links
+        .filter((l) => l.sourceSheet === 'یک شهید')
+        .map((l, idx) => {
+          const meta = resolveLiveBookMeta(l.tempBookId, l.bookTitleRaw, l.publisherRaw);
+          return {
+            'ردیف': idx + 1,
+            'انتشارات': meta.publisher,
+            'عنوان کتاب': meta.title,
+            'عنوان دیگر': l.alternativeTitle || '',
+            'توضیحات': l.sourceDescriptionRaw,
+            'نام و نام خانوادگی شهید': l.martyrNameRaw,
+            'قطعه': l.gravePieceRaw,
+            'ردیف مزار': l.graveRowRaw,
+            'شماره': l.graveNumberRaw,
+            'شناسه کتاب در مخزن': l.tempBookId
+          };
+        })
+    );
+    const ws2 = XLSX.utils.json_to_sheet(
+      links
+        .filter((l) => l.sourceSheet === 'چند شهید')
+        .map((l, idx) => {
+          const meta = resolveLiveBookMeta(l.tempBookId, l.bookTitleRaw, l.publisherRaw);
+          return {
+            'ردیف': idx + 1,
+            'انتشارات': meta.publisher,
+            'عنوان کتاب': meta.title,
+            'توضیحات': l.sourceDescriptionRaw,
+            'نام و نام خانوادگی شهید': l.martyrNameRaw,
+            'قطعه': l.gravePieceRaw,
+            'ردیف مزار': l.graveRowRaw,
+            'شماره': l.graveNumberRaw,
+            'شناسه کتاب در مخزن': l.tempBookId
+          };
+        })
+    );
+    XLSX.utils.book_append_sheet(wb, ws1, 'یک شهید');
+    XLSX.utils.book_append_sheet(wb, ws2, 'چند شهید');
+    XLSX.writeFile(wb, `قطعات-شهدا-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    onNotify('فایل اکسل «قطعات شهدا» (شیت یک شهید و شیت چند شهید) دانلود شد.');
+  };
 
 
   // Open PV Review Form
@@ -281,42 +585,9 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     });
   };
 
-  // Filtered 836 Links
-  const allFilteredLinks = useMemo(() => {
-    const q = normalizePersianText(searchQuery);
-    return links.filter((lnk) => {
-      if (statusFilter === 'named_only') {
-        if (!lnk.martyrNameRaw || lnk.martyrNameRaw === '*') return false;
-      } else if (statusFilter === 'tehran_martyrs_only') {
-        if (!lnk.martyrNameRaw || lnk.martyrNameRaw === '*' || lnk.isGroupPhrase) return false;
-        const tEval = evaluateMartyrTehranStatus({
-          martyrName: lnk.martyrNameRaw,
-          gravePiece: lnk.gravePieceRaw,
-          graveRow: lnk.graveRowRaw,
-          graveNumber: lnk.graveNumberRaw,
-          sourceDesc: lnk.sourceDescriptionRaw,
-          reviewerNote: lnk.reviewerNote
-        });
-        if (!tEval.isTehran) return false;
-      } else if (statusFilter !== 'all' && lnk.reviewStatus !== statusFilter) {
-        return false;
-      }
-
-      if (!q) return true;
-      const hay = normalizePersianText(
-        `${lnk.id} ${lnk.tempBookId} ${lnk.bookTitleRaw} ${lnk.alternativeTitle || ''} ${
-          lnk.publisherRaw
-        } ${lnk.martyrNameRaw} ${lnk.gravePieceRaw} ${lnk.pageReferenceRaw} ${
-          lnk.sourceDescriptionRaw
-        }`
-      );
-      return q.split(' ').every((w) => hay.includes(w));
-    });
-  }, [links, searchQuery, statusFilter]);
-
-  // Filtered Extracted Content Items
+  // Filtered Extracted Content Items (با جست‌وجوی ایزوله و حل زنده نام کتاب/ناشر)
   const filteredExtractedItems = useMemo(() => {
-    const q = normalizePersianText(searchQuery);
+    const hasQ = Boolean(normalizePersianText(extractedSearchQuery));
     return extractedItems.filter((item) => {
       if (contentTypeFilter !== 'all' && item.contentType !== contentTypeFilter) {
         return false;
@@ -327,29 +598,30 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
         if (extractedStatusFilter === 'نیازمند بررسی' && item.reviewStatus !== 'نیازمند بررسی') return false;
         if (extractedStatusFilter === 'ردشده با دلیل' && !item.reviewStatus.includes('رد')) return false;
       }
-      if (!q) return true;
-      const hay = normalizePersianText(
-        `${item.id} ${item.tempBookId} ${item.bookTitleRaw} ${item.publisherRaw} ${item.martyrNameRaw} ${item.gravePieceRaw} ${item.pageReferenceRaw} ${item.contentType} ${item.passageTitle} ${item.extractedText} ${item.researcherNote}`
+      if (!hasQ) return true;
+      const meta = resolveLiveBookMeta(item.tempBookId, item.bookTitleRaw, item.publisherRaw);
+      return matchesPersianSearch(
+        `${item.id} ${item.tempBookId} ${meta.title} ${meta.publisher} ${item.martyrNameRaw} ${item.gravePieceRaw} ${item.pageReferenceRaw} ${item.contentType} ${item.passageTitle} ${item.extractedText} ${item.researcherNote}`,
+        extractedSearchQuery
       );
-      return q.split(' ').every((w) => hay.includes(w));
     });
-  }, [extractedItems, searchQuery, contentTypeFilter, extractedStatusFilter]);
+  }, [extractedItems, extractedSearchQuery, contentTypeFilter, extractedStatusFilter, auditRecords, liveBookLookup]);
 
-  // Filtered 567 Pending Reviews
+  // Filtered 567 Pending Reviews (با جست‌وجوی ایزوله)
   const filteredPendingReviews = useMemo(() => {
-    const q = normalizePersianText(searchQuery);
+    const hasQ = Boolean(normalizePersianText(pendingSearchQuery));
     return pendingReviews.filter((pv) => {
       if (pendingStatusFilter === 'open' && pv.trackingStatus !== 'باز') return false;
       if (pendingStatusFilter === 'reviewed' && pv.trackingStatus !== 'بررسی‌شده') return false;
       if (pendingStatusFilter === 'needs_source' && pv.trackingStatus !== 'نیازمند منبع') return false;
 
-      if (!q) return true;
-      const hay = normalizePersianText(
-        `${pv.trackingId} ${pv.mainSheet} ${pv.mainRecordId} ${pv.nameOrPhrase} ${pv.bookTitle} ${pv.publisher} ${pv.issueSubject}`
+      if (!hasQ) return true;
+      return matchesPersianSearch(
+        `${pv.trackingId} ${pv.mainSheet} ${pv.mainRecordId} ${pv.nameOrPhrase} ${pv.bookTitle} ${pv.publisher} ${pv.issueSubject}`,
+        pendingSearchQuery
       );
-      return q.split(' ').every((w) => hay.includes(w));
     });
-  }, [pendingReviews, searchQuery, pendingStatusFilter]);
+  }, [pendingReviews, pendingSearchQuery, pendingStatusFilter]);
 
   // Filtered 16 Multi-Martyr Groups
   const filteredMultiMartyrGroups = useMemo(() => {
@@ -501,125 +773,32 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     });
   };
 
-  // Export Links Excel (.xlsx)
-  const exportLinksExcel = () => {
-    const rows = allFilteredLinks.map((l, idx) => ({
-      'ردیف': idx + 1,
-      'شناسه پیوند': l.id,
-      'شناسه کتاب (مخزن)': l.tempBookId || '',
-      'عنوان کتاب': l.bookTitleRaw,
-      'عنوان دیگر': l.alternativeTitle || '',
-      'ناشر': l.publisherRaw || '',
-      'نام شهید / عبارت ثبت‌شده': l.martyrNameRaw,
-      'قطعه مزار': l.gravePieceRaw || '',
-      'ردیف مزار': l.graveRowRaw || '',
-      'شماره مزار': l.graveNumberRaw || '',
-      'ارجاع صفحه در اثر': l.pageReferenceRaw || '',
-      'شرح و موضوع ارتباط': l.sourceDescriptionRaw || '',
-      'منبع اطلاعات': `${l.sourceFile} / ${l.sourceSheet} (ردیف ${l.sourceExcelRow})`,
-      'وضعیت بررسی کارشناسی': l.reviewStatus,
-      'یادداشت کارشناس': l.reviewerNote || ''
-    }));
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'پیوندهای کتاب و شهید');
-    XLSX.writeFile(wb, `پیوندهای-کتاب-و-شهید-${new Date().toISOString().slice(0, 10)}.xlsx`);
-    onNotify(`فایل اکسل پیوندهای کتاب و شهید شامل ${toPersianDigits(rows.length)} رکورد دانلود شد.`);
-  };
-
-  // Export Links CSV
-  const exportLinksCsv = () => {
-    const hdrs = [
-      'شناسه پیوند',
-      'شناسه کتاب',
-      'عنوان کتاب',
-      'ناشر',
-      'نام شهید',
-      'قطعه مزار',
-      'ردیف',
-      'شماره مزار',
-      'ارجاع صفحه',
-      'موضوع ارتباط',
-      'فایل منبع',
-      'شیت منبع',
-      'وضعیت بررسی',
-      'یادداشت کارشناس'
-    ];
-    const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const lines = [
-      hdrs.map(cell).join(','),
-      ...allFilteredLinks.map((l) =>
-        [
-          l.id,
-          l.tempBookId,
-          l.bookTitleRaw,
-          l.publisherRaw,
-          l.martyrNameRaw,
-          l.gravePieceRaw,
-          l.graveRowRaw,
-          l.graveNumberRaw,
-          l.pageReferenceRaw,
-          l.sourceDescriptionRaw,
-          l.sourceFile,
-          l.sourceSheet,
-          l.reviewStatus,
-          l.reviewerNote
-        ]
-          .map(cell)
-          .join(',')
-      )
-    ];
-    const blob = new Blob(['\uFEFF', lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `پیوندهای-کتاب-و-شهید-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
-    onNotify('فایل CSV پیوندها دانلود شد.');
-  };
-
-  // Export Links JSON
-  const exportLinksJson = () => {
-    const blob = new Blob([JSON.stringify(allFilteredLinks, null, 2)], {
-      type: 'application/json;charset=utf-8'
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `پیوندهای-کتاب-و-شهید-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
-    onNotify('فایل JSON پیوندها دانلود شد.');
-  };
-
-  // Export Extracted Content Items Excel (.xlsx)
+  // Export Extracted Content Items Excel (.xlsx) با عنوان و ناشر زنده از مخزن
   const exportExtractedExcel = () => {
-    const rows = filteredExtractedItems.map((it, idx) => ({
-      'ردیف': idx + 1,
-      'شناسه مطلب': it.id,
-      'شناسه کتاب (مخزن)': it.tempBookId,
-      'عنوان کتاب': it.bookTitleRaw,
-      'ناشر': it.publisherRaw || '',
-      'نام شهید / عبارت مرتبط': it.martyrNameRaw,
-      'قطعه مزار': it.gravePieceRaw || '',
-      'نوع مطلب': it.contentType,
-      'عنوان بخش / فصل': it.passageTitle,
-      'ارجاع صفحه در کتاب': it.pageReferenceRaw,
-      'صفحه شروع': it.pageStartNormalized || '',
-      'صفحه پایان': it.pageEndNormalized || '',
-      'متن یا استناد پژوهشی استخراج‌شده': it.extractedText,
-      'نقل‌قول کوتاه مستند': it.shortVerifiedQuote || '',
-      'یادداشت پژوهشگر': it.researcherNote || '',
-      'وضعیت بازبینی': it.reviewStatus,
-      'ثبت‌کننده': it.recordedBy || '',
-      'بازبین': it.reviewedBy || '',
-      'تاریخ': it.updatedAt || ''
-    }));
+    const rows = filteredExtractedItems.map((it, idx) => {
+      const meta = resolveLiveBookMeta(it.tempBookId, it.bookTitleRaw, it.publisherRaw);
+      return {
+        'ردیف': idx + 1,
+        'شناسه مطلب': it.id,
+        'شناسه کتاب (مخزن)': it.tempBookId,
+        'عنوان کتاب': meta.title,
+        'ناشر': meta.publisher !== '—' ? meta.publisher : '',
+        'نام شهید / عبارت مرتبط': it.martyrNameRaw,
+        'قطعه مزار': it.gravePieceRaw || '',
+        'نوع مطلب': it.contentType,
+        'عنوان بخش / فصل': it.passageTitle,
+        'ارجاع صفحه در کتاب': it.pageReferenceRaw,
+        'صفحه شروع': it.pageStartNormalized || '',
+        'صفحه پایان': it.pageEndNormalized || '',
+        'متن یا استناد پژوهشی استخراج‌شده': it.extractedText,
+        'نقل‌قول کوتاه مستند': it.shortVerifiedQuote || '',
+        'یادداشت پژوهشگر': it.researcherNote || '',
+        'وضعیت بازبینی': it.reviewStatus,
+        'ثبت‌کننده': it.recordedBy || '',
+        'بازبین': it.reviewedBy || '',
+        'تاریخ': it.updatedAt || ''
+      };
+    });
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'مطالب استخراج‌شده');
@@ -654,12 +833,13 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
     const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = [
       hdrs.map(cell).join(','),
-      ...filteredExtractedItems.map((it) =>
-        [
+      ...filteredExtractedItems.map((it) => {
+        const meta = resolveLiveBookMeta(it.tempBookId, it.bookTitleRaw, it.publisherRaw);
+        return [
           it.id,
           it.tempBookId,
-          it.bookTitleRaw,
-          it.publisherRaw,
+          meta.title,
+          meta.publisher !== '—' ? meta.publisher : '',
           it.martyrNameRaw,
           it.gravePieceRaw,
           it.pageReferenceRaw,
@@ -678,8 +858,8 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
           it.updatedAt
         ]
           .map(cell)
-          .join(',')
-      )
+          .join(',');
+      })
     ];
 
     const blob = new Blob(['\uFEFF', lines.join('\r\n')], {
@@ -882,60 +1062,58 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
           }
         });
 
-        setHideArchivedGroups(true);
-        try {
-          localStorage.setItem('book_hide_archived_groups', 'true');
-        } catch {
-          // ignore
-        }
-        setSubView('depository');
+        setShowReviewQueuesPanel(false);
         onNotify(
           `وضعیت هر ۱۶ گروه چندشهیدی (G001 تا G016) به «تأیید» تغییر یافت${
             updatedLinksCount > 0
               ? ` و ${toPersianDigits(updatedLinksCount)} پیوند مرتبط نیز در دپوی اسناد «تأییدشده کارشناسی» شد`
               : ''
-          }. برگه ۱۶ گروه در حالت بایگانی قرار گرفت.`
+          }.`
         );
       }
     });
   };
 
+  const openPendingCount = pendingReviews.filter((p) => p.trackingStatus === 'باز').length;
+  const openGroupsCount = multiMartyrGroups.filter((g) => g.decisionStatus.includes('انتظار')).length;
+
   return (
     <div className="space-y-5">
-      {/* Sub-navigation Switcher — پالت یکدست کرم و قهوه‌ای شکلاتی */}
+      {/* نوار ۳ تب اصلی خلوت‌سازی‌شده پژوهش */}
       <div className="bg-white border border-[#E2D2BE] rounded-2xl p-4 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#EFE4D6] pb-2.5">
           <h2 className="text-base sm:text-lg font-bold text-[#332218]">
             پژوهش و پیوند کتاب‌ها با شهدای گلزار تهران
           </h2>
+          <span className="text-xs text-[#6E5846]">
+            انتخاب شهید یا کتاب در جداول زیر، پرونده ویرایش درجا را بدون تغییر صفحه باز می‌کند.
+          </span>
         </div>
 
-        {/* Tab Buttons Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 p-1.5 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs">
-          {/* 1. MASTER DEPOSITORY & 2-WAY EXPORT (آبی ملایم و روشن) */}
+        {/* ۳ تب یک‌دست، تمام‌عرض و تراز در موبایل و دسکتاپ */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-1.5 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs">
           <button
             type="button"
             onClick={() => {
-              setSubView('depository');
+              setSubView('workspace');
             }}
-            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
-              subView === 'depository'
+            className={`min-h-[44px] px-3 py-2 rounded-lg font-bold transition-all flex items-center justify-center gap-2 cursor-pointer text-center ${
+              subView === 'workspace'
                 ? 'bg-[#2B547E] text-white shadow-2xs'
                 : 'bg-[#EDF4FB] text-[#1E3A5F] border border-[#C2D8EC] hover:bg-[#E1EEF9]'
             }`}
           >
             <FileSpreadsheet className="w-4 h-4 shrink-0" />
-            <span>خروجی دوسویه اسناد (شهید ↔ کتاب)</span>
+            <span>میز کار پیوند کتاب و شهید</span>
           </button>
 
-          {/* 2. Extracted Items (۳۰۹ مطلب و صفحه استخراج‌شده) */}
           <button
             type="button"
             onClick={() => {
               setSubView('extracted');
               setExtractedPage(1);
             }}
-            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+            className={`min-h-[44px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer text-center ${
               subView === 'extracted'
                 ? 'bg-[#6B3E26] text-white shadow-2xs'
                 : 'text-[#332218] hover:bg-[#EFE4D6] bg-white border border-[#E2D2BE]'
@@ -945,492 +1123,992 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
             <span>مطالب و صفحات استخراج‌شده ({toPersianDigits(extractedItems.length)})</span>
           </button>
 
-          {/* 3. Publishing Gateway (خروجی انتشار سایت) */}
           <button
             type="button"
             onClick={() => {
               setSubView('publish_gateway');
               setPublishPage(1);
             }}
-            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+            className={`min-h-[44px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer text-center ${
               subView === 'publish_gateway'
                 ? 'bg-[#2E6F40] text-white shadow-2xs'
                 : 'text-[#2E6F40] hover:bg-[#EAF4EC] bg-white border border-[#C6DFCD]'
             }`}
           >
             <Download className="w-4 h-4 shrink-0" />
-            <span>خروجی انتشار سایت</span>
-          </button>
-
-          {/* 4. قطعات شهدا (یک شهید و چند شهید) */}
-          <button
-            type="button"
-            onClick={() => {
-              setSubView('ghatat_sheets');
-              setGhatatPage(1);
-            }}
-            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer text-center ${
-              subView === 'ghatat_sheets'
-                ? 'bg-[#6B3E26] text-white shadow-2xs'
-                : 'text-[#332218] hover:bg-[#EFE4D6] bg-white border border-[#E2D2BE]'
-            }`}
-          >
-            <BookOpen className="w-4 h-4 shrink-0" />
-            <span>اکسل قطعات شهدا (یک شهید · چند شهید)</span>
-          </button>
-
-          {/* 5. Core Links (ثبت و مدیریت پیوندها) */}
-          <button
-            type="button"
-            onClick={() => {
-              setSubView('links');
-              setStatusFilter('named_only');
-              setVisibleLimit(60);
-            }}
-            className={`min-h-[42px] px-3 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer text-center sm:col-span-2 lg:col-span-1 ${
-              subView === 'links'
-                ? 'bg-[#6B3E26] text-white shadow-2xs'
-                : 'text-[#332218] hover:bg-[#EFE4D6] bg-white border border-[#E2D2BE]'
-            }`}
-          >
-            <Link2 className="w-4 h-4 shrink-0" />
-            <span>
-              ثبت و مدیریت پیوندها ({toPersianDigits(links.filter((l) => l.martyrNameRaw && l.martyrNameRaw !== '*').length)})
-            </span>
+            <span>درگاه انتشار و خروجی سایت</span>
           </button>
         </div>
       </div>
 
-      {subView === 'links' && (
+      {/* SubView 1: میز کار یکپارچه پیوند کتاب و شهید (شامل صف بازبینی کشویی، انبار جامع و اکسل قطعات) */}
+      {subView === 'workspace' && (
         <div className="space-y-4">
-          {/* Search & Filter Bar + Export Toolbar */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
-              <div className="md:col-span-6 relative">
-                <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setVisibleLimit(60);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      onNotify(
-                        `فیلتر اعمال شد: ${toPersianDigits(allFilteredLinks.length)} رکورد ارتباط منطبق یافت شد.`
-                      );
-                    }
-                  }}
-                  placeholder="جست‌وجوی نام شهید، عنوان کتاب، عنوان دیگر، قطعه یا کد RL-0015 (با کلید Enter)..."
-                  className="w-full min-h-[44px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#1f4e79]"
-                />
-              </div>
-
-              <div className="md:col-span-4">
-                <select
-                  value={statusFilter}
-                  onChange={(e) => {
-                    setStatusFilter(e.target.value);
-                    setVisibleLimit(60);
-                  }}
-                  className="w-full min-h-[44px] px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl text-slate-800 font-medium"
-                >
-                  <option value="named_only">رکوردهای دارای نام/عبارت ثبت‌شده (حذف خالی و *)</option>
-                  <option value="tehran_martyrs_only">شهدای تهرانی (منطبق با گلزار شهدای تهران)</option>
-                  <option value="all">همه رکوردهای شیت ({toPersianDigits(links.length)} مورد)</option>
-                  <option value="بررسی‌شده در پژوهش اصلی">بررسی‌شده در پژوهش اصلی (پژوهش سوره مهر)</option>
-                  <option value="بررسی‌نشده">بررسی‌نشده</option>
-                  <option value="نیازمند تکمیل">نیازمند تکمیل</option>
-                  <option value="نیازمند تفکیک نام‌ها">نیازمند تفکیک نام‌ها (عبارت گروهی)</option>
-                  <option value="نیازمند تکمیل مزار">نیازمند تکمیل مزار</option>
-                  <option value="نیازمند بررسی مزار">نیازمند بررسی مزار (اختلاف مزار)</option>
-                  <option value="نیازمند تطبیق کتاب">نیازمند تطبیق کتاب</option>
-                  <option value="تأییدشده کارشناسی">تأییدشده کارشناسی</option>
-                </select>
-              </div>
-
-              <div className="md:col-span-2">
+          {showReviewQueuesPanel && (
+            <div className="bg-white border-2 border-[#6B3E26] rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EFE4D6] pb-3">
+                <div className="space-y-0.5">
+                  <h3 className="text-sm sm:text-base font-bold text-[#332218] flex items-center gap-2">
+                    <ClipboardCheck className="w-4 h-4 text-[#6B3E26] shrink-0" />
+                    <span>صف بازبینی کارشناس: موارد نیازمند تکمیل و گروه‌های چندشهیدی</span>
+                  </h3>
+                  <p className="text-[11px] text-[#6E5846]">
+                    بدون نیاز به تب جداگانه؛ تعیین تکلیف ردیف‌های نیازمند بررسی ({toPersianDigits(openPendingCount)} باز) و ۱۶ گروه چندشهیدی ({toPersianDigits(openGroupsCount)} در انتظار)
+                  </p>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setShowAddLink((prev) => !prev)}
-                  className="w-full min-h-[44px] px-4 py-2 bg-[#1f4e79] hover:bg-[#163a5b] text-white text-xs font-bold rounded-xl inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  onClick={() => setShowReviewQueuesPanel(false)}
+                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#FAF5EE] hover:bg-[#F3E9DC] border border-[#D8C7B2] text-[#332218] text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer self-start sm:self-auto"
                 >
-                  <Plus className="w-4 h-4 shrink-0" />
-                  <span>ثبت پیوند جدید</span>
+                  <X className="w-4 h-4" />
+                  <span>بستن پنل بازبینی</span>
                 </button>
               </div>
-            </div>
 
-            {/* Links Export Buttons Toolbar — چیدمان ۳ستونه فشرده با فونت ریزتر تا هر سه کلید بدون اسکرول چپ/راست جا شوند */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
-              <div className="text-slate-600 font-medium">
-                تعداد رکوردهای منطبق: <strong className="text-slate-900 tabular-nums">{toPersianDigits(allFilteredLinks.length)}</strong> پیوند
-              </div>
-
-              <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center gap-1.5 w-full sm:w-auto shrink-0">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-1 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs">
                 <button
                   type="button"
-                  data-testid="links-excel-export-btn"
-                  onClick={exportLinksExcel}
-                  className="min-h-[36px] px-1.5 sm:px-3 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white text-[10.5px] sm:text-xs font-bold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
+                  onClick={() => setReviewQueueTab('pending567')}
+                  className={`min-h-[40px] px-3 py-2 rounded-lg font-bold transition-colors cursor-pointer text-center ${
+                    reviewQueueTab === 'pending567'
+                      ? 'bg-[#8C5208] text-white shadow-2xs'
+                      : 'text-[#5C4033] hover:bg-[#EFE4D6]'
+                  }`}
                 >
-                  <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
-                  <span>خروجی Excel</span>
+                  صف موارد نیازمند بررسی ({toPersianDigits(openPendingCount)} باز از {toPersianDigits(pendingReviews.length)})
                 </button>
-
                 <button
                   type="button"
-                  onClick={exportLinksCsv}
-                  className="min-h-[36px] px-1.5 sm:px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10.5px] sm:text-xs font-semibold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                  onClick={() => setReviewQueueTab('groups16')}
+                  className={`min-h-[40px] px-3 py-2 rounded-lg font-bold transition-colors cursor-pointer text-center ${
+                    reviewQueueTab === 'groups16'
+                      ? 'bg-[#1F4E79] text-white shadow-2xs'
+                      : 'text-[#5C4033] hover:bg-[#EFE4D6]'
+                  }`}
                 >
-                  <Download className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                  <span>خروجی CSV</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={exportLinksJson}
-                  className="min-h-[36px] px-1.5 sm:px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10.5px] sm:text-xs font-semibold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                >
-                  <FileJson className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                  <span>خروجی JSON</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Add New Book-Martyr Link Form */}
-          {showAddLink && (
-            <form
-              onSubmit={handleCreateLink}
-              className="bg-white border-2 border-[#1f4e79] rounded-2xl p-4 sm:p-5 space-y-4 text-xs"
-            >
-              <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                <h3 className="font-bold text-sm text-slate-900">
-                  ثبت ارتباط پژوهشی کتاب و شهید (همراه با ارجاع خام صفحه و منشأ)
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setShowAddLink(false)}
-                  className="text-slate-500 hover:text-slate-900"
-                >
-                  بستن
+                  کاربرگ ۱۶ گروه چندشهیدی G001..G016 ({toPersianDigits(openGroupsCount)} در انتظار)
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                <div className="sm:col-span-2 lg:col-span-1">
-                  <BookLiveSearchPicker
-                    books={linkableBooks}
-                    selectedBookId={selectedBookId}
-                    onSelectBook={setSelectedBookId}
-                    query={linkBookSearchQuery}
-                    onQueryChange={setLinkBookSearchQuery}
-                    label="کتاب مرجع (جست‌وجوی زنده نام کتاب یا شماره قفسه) *"
-                    placeholder="نام کتاب، شماره قفسه (SH-01 / قفسه ۱) یا کد BK..."
-                    inputTestId="research-link-book-search-input"
-                    listTestId="research-link-book-options-list"
-                    bannerTestId="research-link-book-banner"
-                  />
-                </div>
+              {reviewQueueTab === 'pending567' && (() => {
+                const pvTotalCount = filteredPendingReviews.length;
+                const pvTotalPages =
+                  pendingPageSize === 'all' ? 1 : Math.max(1, Math.ceil(pvTotalCount / pendingPageSize));
+                const pvSafePage = Math.min(pendingPage, pvTotalPages);
+                const pvStartIdx = pendingPageSize === 'all' ? 0 : (pvSafePage - 1) * pendingPageSize;
+                const visiblePendingRows =
+                  pendingPageSize === 'all'
+                    ? filteredPendingReviews
+                    : filteredPendingReviews.slice(pvStartIdx, pvStartIdx + pendingPageSize);
 
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    نام شهید یا عبارت مرتبط (عین منبع) *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={martyrName}
-                    onChange={(e) => setMartyrName(e.target.value)}
-                    placeholder="مثال: احمد بیابانی"
-                    className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl"
-                  />
-                </div>
+                return (
+                  <div className="space-y-4">
+                    <div className="bg-[#fff8ea] border border-[#f5dfad] rounded-2xl p-3.5 text-xs space-y-1">
+                      <div className="font-bold text-[#8c5208] flex items-center gap-1.5">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>میز تخصصی رفع اشکال و تکمیل موارد نیازمند بررسی ({toPersianDigits(pendingReviews.length)} سطر):</span>
+                      </div>
+                      <p className="text-slate-700 leading-relaxed">
+                        با زدن دکمه <strong>«بررسی و تکمیل اطلاعات»</strong>، اطلاعات مستند را وارد کنید تا مورد به وضعیت «بررسی‌شده» منتقل شده و در صورت تأیید مستقیماً به پیوندهای معتبر کتاب و شهید اضافه شود.
+                      </p>
+                    </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    ارجاع صفحه خام (عین منبع، مثلاً 173تا184)
-                  </label>
-                  <input
-                    type="text"
-                    value={pageRefRaw}
-                    onChange={(e) => setPageRefRaw(e.target.value)}
-                    placeholder="مثال: ص 45 تا 52"
-                    className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl"
-                  />
-                </div>
-              </div>
+                    <div className="bg-[#FAF5EE]/60 border border-[#E2D2BE] rounded-2xl p-3.5 space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div className="relative flex-1">
+                          <Search className="w-4 h-4 text-[#6E5846] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="search"
+                            value={pendingSearchQuery}
+                            onChange={(e) => {
+                              setPendingSearchQuery(e.target.value);
+                              setPendingPage(1);
+                            }}
+                            placeholder="جست‌وجو در موارد نیازمند بررسی (کد PV، عنوان کتاب، نام شهید، موضوع)..."
+                            className="w-full min-h-[42px] pr-10 pl-3 py-2 text-xs bg-white border border-[#D8C7B2] rounded-xl focus:outline-none focus:border-[#6B3E26]"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 w-full sm:w-auto shrink-0">
+                          <button
+                            type="button"
+                            data-testid="pending-reviews-excel-export-btn"
+                            onClick={exportPendingReviewsExcel}
+                            className="min-h-[38px] px-3 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                            <span>خروجی Excel</span>
+                          </button>
 
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                <div>
-                  <label className="block font-medium text-slate-600 mb-1">قطعه مزار خام</label>
-                  <input
-                    type="text"
-                    value={gravePiece}
-                    onChange={(e) => setGravePiece(e.target.value)}
-                    placeholder="24"
-                    className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-slate-600 mb-1">ردیف مزار خام</label>
-                  <input
-                    type="text"
-                    value={graveRow}
-                    onChange={(e) => setGraveRow(e.target.value)}
-                    placeholder="77"
-                    className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-slate-600 mb-1">شماره مزار خام</label>
-                  <input
-                    type="text"
-                    value={graveNumber}
-                    onChange={(e) => setGraveNumber(e.target.value)}
-                    placeholder="52"
-                    className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
-                  />
-                </div>
-                <div className="col-span-3 sm:col-span-1 flex items-end">
-                  <label className="inline-flex items-center gap-2 min-h-[40px] cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={isGroupPhrase}
-                      onChange={(e) => setIsGroupPhrase(e.target.checked)}
-                      className="w-4 h-4 accent-[#1f4e79]"
-                    />
-                    <span className="text-slate-700 font-medium">عبارت گروهی است</span>
-                  </label>
-                </div>
-              </div>
+                          <button
+                            type="button"
+                            onClick={exportPendingReviewsCsv}
+                            className="min-h-[38px] px-3 py-1.5 rounded-xl bg-white border border-[#D8C7B2] hover:bg-[#F3E9DC] text-[#332218] text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Download className="w-3.5 h-3.5 shrink-0" />
+                            <span>خروجی CSV</span>
+                          </button>
+                        </div>
+                      </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-medium text-slate-600 mb-1">شرح ارتباط / توضیح منبع</label>
-                  <input
-                    type="text"
-                    value={sourceDesc}
-                    onChange={(e) => setSourceDesc(e.target.value)}
-                    placeholder="توضیح ثبت‌شده در شیت یا نوع مطلب..."
-                    className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-slate-600 mb-1">یادداشت کارشناس بازبین</label>
-                  <input
-                    type="text"
-                    value={reviewerNote}
-                    onChange={(e) => setReviewerNote(e.target.value)}
-                    placeholder="یادداشت تصمیم یا ابهام..."
-                    className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl"
-                  />
-                </div>
-              </div>
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2 pt-2 border-t border-[#E2D2BE] text-xs">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 flex-1">
+                          {(
+                            [
+                              {
+                                key: 'open',
+                                label: `در انتظار بررسی (${toPersianDigits(
+                                  pendingReviews.filter((p) => p.trackingStatus === 'باز').length
+                                )})`
+                              },
+                              {
+                                key: 'reviewed',
+                                label: `بررسی‌شده (${toPersianDigits(
+                                  pendingReviews.filter((p) => p.trackingStatus === 'بررسی‌شده').length
+                                )})`
+                              },
+                              {
+                                key: 'needs_source',
+                                label: `نیازمند منبع (${toPersianDigits(
+                                  pendingReviews.filter((p) => p.trackingStatus === 'نیازمند منبع').length
+                                )})`
+                              },
+                              {
+                                key: 'all',
+                                label: `همه (${toPersianDigits(pendingReviews.length)})`
+                              }
+                            ] as const
+                          ).map((tab) => (
+                            <button
+                              key={tab.key}
+                              type="button"
+                              onClick={() => {
+                                setPendingStatusFilter(tab.key);
+                                setPendingPage(1);
+                              }}
+                              className={`min-h-[36px] px-2.5 py-1.5 rounded-xl font-bold transition-colors flex items-center justify-center text-center cursor-pointer ${
+                                pendingStatusFilter === tab.key
+                                  ? 'bg-[#1F4E79] text-white'
+                                  : 'bg-white border border-[#D8C7B2] text-[#332218] hover:bg-[#F3E9DC]'
+                              }`}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
 
-              <div className="flex justify-end gap-2">
-                <button
-                  type="submit"
-                  className="min-h-[42px] px-5 py-2 bg-[#1f4e79] text-white font-bold rounded-xl"
-                >
-                  ذخیره ارتباط در فهرست کاری
-                </button>
-              </div>
-            </form>
-          )}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[11px] text-[#6E5846]">تعداد در صفحه:</span>
+                          <select
+                            value={String(pendingPageSize)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setPendingPageSize(val === 'all' ? 'all' : Number(val));
+                              setPendingPage(1);
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-white border border-[#D8C7B2] text-[#332218] font-bold text-xs cursor-pointer"
+                          >
+                            <option value="20">۲۰ مورد</option>
+                            <option value="50">۵۰ مورد</option>
+                            <option value="100">۱۰۰ مورد</option>
+                            <option value="200">۲۰۰ مورد</option>
+                            <option value="all">نمایش همه ({toPersianDigits(pvTotalCount)})</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 px-1 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-            <div>
-              نمایش <strong className="text-slate-900">{toPersianDigits(Math.min(visibleLimit, allFilteredLinks.length))}</strong> از{' '}
-              <strong className="text-slate-900">{toPersianDigits(allFilteredLinks.length)}</strong> رکورد فیلترشده{' '}
-              <span className="text-slate-500">
-                (از مجموع کل {toPersianDigits(links.length)} سطر شیت ارتباط کتاب و شهید)
-              </span>
-            </div>
-            {statusFilter === 'named_only' && (
-              <span className="text-[11px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                فیلتر پیش‌فرض: رکوردهای دارای نام مشخص ({toPersianDigits(allFilteredLinks.length)} مورد)
-              </span>
-            )}
-          </div>
+                    {activeReviewPv && (
+                      <ModalWindow
+                        onClose={() => setActiveReviewPv(null)}
+                        title={`بررسی، رفع اشکال و تکمیل اطلاعات (${activeReviewPv.trackingId})`}
+                        maxWidthClass="max-w-2xl"
+                      >
+                        <div className="bg-[#F6EFE6] border border-[#E2D2BE] rounded-xl p-3 flex items-center justify-between mb-3">
+                          <div className="space-y-0.5">
+                            <h3 className="text-xs sm:text-sm font-bold text-[#332218] flex items-center gap-2">
+                              <span>بررسی، رفع اشکال و تکمیل اطلاعات</span>
+                              <span className="font-mono bg-white border border-[#E2D2BE] px-2 py-0.5 rounded text-xs text-[#6B3E26]" dir="ltr">
+                                {activeReviewPv.trackingId}
+                              </span>
+                            </h3>
+                            <p className="text-[11px] text-[#78604E]">
+                              شیت مبدأ: {activeReviewPv.mainSheet} · رکورد مرجع: {activeReviewPv.mainRecordId}
+                            </p>
+                          </div>
+                        </div>
 
-          {/* Links Cards List */}
-          <div className="space-y-3">
-            {allFilteredLinks.slice(0, visibleLimit).map((lnk) => (
-              <div
-                key={lnk.id}
-                className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5 text-xs">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono font-bold text-[#1f4e79]" dir="ltr">
-                      {lnk.id}
-                    </span>
-                    {lnk.tempBookId && (
-                      <>
-                        <span className="text-slate-400">·</span>
-                        <span className="font-mono font-semibold text-slate-700" dir="ltr">
-                          {lnk.tempBookId}
-                        </span>
-                      </>
+                        <form onSubmit={handleSavePvReview} className="space-y-4 text-xs">
+                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5">
+                            <div className="text-slate-800 font-bold text-sm">
+                              کتاب: {activeReviewPv.bookTitle}{' '}
+                              <span className="text-xs font-normal text-slate-500">
+                                ({activeReviewPv.publisher})
+                              </span>
+                            </div>
+                            {activeReviewPv.nameOrPhrase && (
+                              <div className="text-slate-700">
+                                عبارت ثبت‌شده در منبع: <strong className="text-[#1f4e79]">{activeReviewPv.nameOrPhrase}</strong>
+                              </div>
+                            )}
+                            <div className="text-amber-900 font-semibold pt-1 border-t border-slate-200">
+                              موضوع اشکال: {activeReviewPv.issueSubject}
+                            </div>
+                            <div className="text-slate-600">
+                              اقدام پیشنهادی کارشناس ارشد: {activeReviewPv.suggestedAction}
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block font-bold text-slate-800 mb-1">
+                                نام شهید مستند و اصلاح‌شده *
+                              </label>
+                              <input
+                                type="text"
+                                required
+                                value={pvMartyrName}
+                                onChange={(e) => setPvMartyrName(e.target.value)}
+                                placeholder="نام و نام خانوادگی شهید..."
+                                className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-slate-900"
+                              />
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label className="block font-bold text-slate-800 mb-1">
+                                  شماره صفحه در کتاب (ارجاع صفحه) *
+                                </label>
+                                <input
+                                  type="text"
+                                  required
+                                  value={pvPageRef}
+                                  onChange={(e) => setPvPageRef(e.target.value)}
+                                  placeholder="مثال: صص ۱۴-۱۸ یا ص ۴۲"
+                                  className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl tabular-nums"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block font-bold text-slate-800 mb-1">
+                                  تصمیم نهایی کارشناس *
+                                </label>
+                                <select
+                                  value={pvTargetStatus}
+                                  onChange={(e) => setPvTargetStatus(e.target.value)}
+                                  className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-[#1f4e79]"
+                                >
+                                  <option value="approved_to_links">
+                                    تکمیل و تأیید شد (انتقال به پیوندهای معتبر کتاب و شهید)
+                                  </option>
+                                  <option value="reviewed_no_change">بررسی شد - بدون نیاز به تغییر</option>
+                                  <option value="needs_source">نیازمند منبع تکمیلی / استخراج مجدد</option>
+                                  <option value="rejected">رد پیوند (فاقد ارتباط معتبر)</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2">
+                              <div>
+                                <label className="block font-medium text-slate-700 mb-1">قطعه مزار</label>
+                                <input
+                                  type="text"
+                                  value={pvGravePiece}
+                                  onChange={(e) => setPvGravePiece(e.target.value)}
+                                  placeholder="26"
+                                  className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
+                                />
+                              </div>
+                              <div>
+                                <label className="block font-medium text-slate-700 mb-1">ردیف مزار</label>
+                                <input
+                                  type="text"
+                                  value={pvGraveRow}
+                                  onChange={(e) => setPvGraveRow(e.target.value)}
+                                  placeholder="12"
+                                  className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
+                                />
+                              </div>
+                              <div>
+                                <label className="block font-medium text-slate-700 mb-1">شماره قبر</label>
+                                <input
+                                  type="text"
+                                  value={pvGraveNumber}
+                                  onChange={(e) => setPvGraveNumber(e.target.value)}
+                                  placeholder="5"
+                                  className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block font-medium text-slate-700 mb-1">
+                                یادداشت و دلیل تصمیم کارشناسی:
+                              </label>
+                              <input
+                                type="text"
+                                value={pvReviewerNote}
+                                onChange={(e) => setPvReviewerNote(e.target.value)}
+                                placeholder="توضیح درباره صحت منبع، تطبیق با گلزار یا مستندات صفحه..."
+                                className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => setActiveReviewPv(null)}
+                              className="min-h-[42px] px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold cursor-pointer"
+                            >
+                              انصراف
+                            </button>
+                            <button
+                              type="submit"
+                              className="min-h-[42px] px-5 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                            >
+                              <Check className="w-4 h-4" />
+                              <span>ثبت نهایی و ذخیره در پرونده</span>
+                            </button>
+                          </div>
+                        </form>
+                      </ModalWindow>
                     )}
-                    <span className="text-slate-400">·</span>
-                    <span className="text-slate-600">
-                      منشأ: {lnk.sourceFile} / شیت «{lnk.sourceSheet}» / ردیف {toPersianDigits(lnk.sourceExcelRow)}
-                    </span>
-                    {lnk.groupStartRow && lnk.groupStartRow !== lnk.sourceExcelRow && (
-                      <>
-                        <span className="text-slate-400">·</span>
-                        <span className="text-amber-800 font-medium">
-                          آغاز گروه: ردیف {toPersianDigits(lnk.groupStartRow)}
-                        </span>
-                      </>
-                    )}
-                  </div>
 
-                  {/* Review Status Selector & Quick Extract Button */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleStartExtractFromLink(lnk)}
-                      className="px-2.5 py-1 rounded-lg bg-[#edf4fa] hover:bg-[#dceaf7] text-[#1f4e79] font-semibold text-xs inline-flex items-center gap-1 transition-colors"
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                      <span>＋ ثبت مطلب استخراج‌شده</span>
-                    </button>
+                    <div className="space-y-2.5">
+                      {pvTotalCount === 0 ? (
+                        <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-2xl p-6 text-center text-[#5C4033] space-y-1.5 text-xs">
+                          <CheckCircle2 className="w-7 h-7 text-emerald-600 mx-auto" />
+                          <p className="font-bold text-[#332218]">هیچ موردی با فیلتر انتخابی یافت نشد.</p>
+                        </div>
+                      ) : (
+                        visiblePendingRows.map((pv) => (
+                          <div
+                            key={pv.trackingId}
+                            className="bg-white border border-[#E2D2BE] rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs hover:border-[#C5AD91] transition-colors"
+                          >
+                            <div className="space-y-1 flex-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-2 text-[#6E5846]">
+                                <span className="font-mono font-bold text-[#1F4E79]" dir="ltr">
+                                  {pv.trackingId}
+                                </span>
+                                <span>·</span>
+                                <span>شیت: {pv.mainSheet}</span>
+                                <span>·</span>
+                                <span className="font-mono font-semibold text-[#332218]" dir="ltr">
+                                  {pv.mainRecordId}
+                                </span>
+                                <span
+                                  className={`mr-auto px-2 py-0.5 rounded-md font-bold text-[11px] ${
+                                    pv.trackingStatus === 'بررسی‌شده'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : pv.trackingStatus === 'نیازمند منبع'
+                                      ? 'bg-blue-100 text-blue-800'
+                                      : 'bg-amber-100 text-amber-900'
+                                  }`}
+                                >
+                                  وضعیت: {pv.trackingStatus}
+                                </span>
+                              </div>
 
-                    <span className="text-slate-500">وضعیت:</span>
-                    <select
-                      value={lnk.reviewStatus}
-                      onChange={(e) => {
-                        const nextStatus = e.target.value;
-                        requestActionConfirmation({
-                          title: 'تأیید تغییر وضعیت پیوند کتاب و شهید',
-                          message: `آیا از تغییر وضعیت پیوند ${lnk.id} («${lnk.martyrNameRaw}» — کتاب «${lnk.bookTitleRaw}») به «${nextStatus}» اطمینان دارید؟`,
-                          confirmLabel: 'بله، وضعیت تغییر کند',
-                          variant: nextStatus.includes('رد') ? 'delete' : 'approve',
-                          onConfirm: () => {
-                            onUpdateLinkStatus(lnk.id, nextStatus, lnk.reviewerNote);
-                            onNotify(`وضعیت پیوند ${lnk.id} به «${nextStatus}» تغییر یافت.`);
-                          }
-                        });
-                      }}
-                      className={`px-2.5 py-1 rounded-lg border text-xs font-bold ${
-                        lnk.reviewStatus === 'تأییدشده کارشناسی'
-                          ? 'bg-[#E9F5EC] border-[#96CFA8] text-[#1E5B32]'
-                          : lnk.reviewStatus === 'بررسی‌شده در پژوهش اصلی'
-                          ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                          : lnk.reviewStatus.includes('نیازمند')
-                          ? 'bg-amber-50 border-amber-300 text-amber-800'
-                          : 'bg-slate-50 border-slate-300 text-slate-700'
-                      }`}
-                    >
-                      <option value="بررسی‌شده در پژوهش اصلی">بررسی‌شده در پژوهش اصلی</option>
-                      <option value="پیشنهادشده توسط سامانه">پیشنهادشده توسط سامانه</option>
-                      <option value="بررسی‌نشده">بررسی‌نشده</option>
-                      <option value="نیازمند بررسی">نیازمند بررسی</option>
-                      <option value="نیازمند تکمیل">نیازمند تکمیل</option>
-                      <option value="نیازمند تفکیک نام‌ها">نیازمند تفکیک نام‌ها</option>
-                      <option value="نیازمند تکمیل مزار">نیازمند تکمیل مزار</option>
-                      <option value="نیازمند بررسی مزار">نیازمند بررسی مزار</option>
-                      <option value="نیازمند تطبیق کتاب">نیازمند تطبیق کتاب</option>
-                      <option value="تأییدشده کارشناسی">تأییدشده کارشناسی</option>
-                      <option value="ردشده با دلیل">ردشده با دلیل</option>
-                      <option value="دارای تعارض اطلاعاتی">دارای تعارض اطلاعاتی</option>
-                    </select>
-                  </div>
-                </div>
+                              <div className="text-sm font-bold text-[#332218] break-words">
+                                <span>{pv.bookTitle}</span>{' '}
+                                <span className="font-normal text-[#6E5846]">({pv.publisher})</span>
+                                {pv.nameOrPhrase && pv.nameOrPhrase !== '*' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenMartyrInspector(pv.nameOrPhrase)}
+                                    className="text-[#1F4E79] hover:underline mr-2 font-bold cursor-pointer"
+                                  >
+                                    — {pv.nameOrPhrase}
+                                  </button>
+                                )}
+                              </div>
 
-                {(() => {
-                  const tEval =
-                    !lnk.isGroupPhrase && lnk.martyrNameRaw && lnk.martyrNameRaw !== '*'
-                      ? evaluateMartyrTehranStatus({
-                          martyrName: lnk.martyrNameRaw,
-                          gravePiece: lnk.gravePieceRaw,
-                          graveRow: lnk.graveRowRaw,
-                          graveNumber: lnk.graveNumberRaw,
-                          sourceDesc: lnk.sourceDescriptionRaw,
-                          reviewerNote: lnk.reviewerNote
-                        })
-                      : null;
-                  const isTehran = Boolean(tEval?.isTehran);
-                  return (
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
-                      <div className="md:col-span-5">
-                        <div className="text-xs text-slate-500">عنوان کتاب در منبع:</div>
-                        <div className="text-base font-bold text-slate-900 mt-0.5 flex items-center gap-1.5 flex-wrap">
-                          <span>{lnk.bookTitleRaw}</span>
-                          {isTehran && <TehranMartyrBadge size="xs" />}
-                          {lnk.alternativeTitle && (
-                            <span className="text-xs font-normal text-[#1f4e79] mr-2">
-                              (عنوان دیگر ثبت‌شده: «{lnk.alternativeTitle}»)
+                              <div className="text-amber-900 font-medium">موضوع بررسی: {pv.issueSubject}</div>
+                              <div className="text-[#5C4033]">اقدام پیشنهادی: {pv.suggestedAction}</div>
+                            </div>
+
+                            <div className="shrink-0 flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenPvReview(pv)}
+                                className="min-h-[38px] px-3 py-1.5 bg-[#1F4E79] hover:bg-[#163A5B] text-white rounded-xl font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <span>بررسی و تکمیل ✍️</span>
+                              </button>
+
+                              <select
+                                value={pv.trackingStatus}
+                                onChange={(e) => {
+                                  const nextStatus = e.target.value;
+                                  requestActionConfirmation({
+                                    title: 'تأیید تغییر وضعیت مورد نیازمند بررسی',
+                                    message: `آیا از تغییر وضعیت مورد ${pv.trackingId} (کتاب «${pv.bookTitle}») به «${nextStatus}» اطمینان دارید؟`,
+                                    confirmLabel: 'بله، وضعیت تغییر کند',
+                                    variant: 'approve',
+                                    onConfirm: () => {
+                                      onUpdatePendingReviewStatus(pv.trackingId, nextStatus);
+                                      onNotify(`وضعیت مورد ${pv.trackingId} به «${nextStatus}» تغییر یافت.`);
+                                    }
+                                  });
+                                }}
+                                className={`min-h-[38px] px-2.5 py-1.5 rounded-xl border font-bold text-xs ${
+                                  pv.trackingStatus === 'بررسی‌شده'
+                                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                                    : 'bg-amber-50 border-amber-300 text-amber-900'
+                                }`}
+                              >
+                                <option value="باز">باز</option>
+                                <option value="بررسی‌شده">بررسی‌شده</option>
+                                <option value="نیازمند منبع">نیازمند منبع</option>
+                              </select>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {pvTotalCount > 0 && (
+                      <div className="p-3 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="text-[#5C4033]">
+                          {pendingPageSize === 'all' ? (
+                            <span>نمایش یکجای تمام {toPersianDigits(pvTotalCount)} مورد</span>
+                          ) : (
+                            <span>
+                              صفحه <strong>{toPersianDigits(pvSafePage)}</strong> از{' '}
+                              <strong>{toPersianDigits(pvTotalPages)}</strong> (مورد {toPersianDigits(pvStartIdx + 1)} تا{' '}
+                              {toPersianDigits(Math.min(pvTotalCount, pvStartIdx + (pendingPageSize as number)))} از{' '}
+                              {toPersianDigits(pvTotalCount)})
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-slate-600 mt-0.5">ناشر: {lnk.publisherRaw || '—'}</div>
-                      </div>
-
-                      <div className="md:col-span-4">
-                        <div className="text-xs text-slate-500">
-                          {lnk.isGroupPhrase ? 'عبارت گروهی ثبت‌شده:' : 'نام شهید یا عبارت ثبت‌شده:'}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {pendingPageSize !== 'all' && pvTotalPages > 1 && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={pvSafePage <= 1}
+                                onClick={() => setPendingPage((p) => Math.max(1, p - 1))}
+                                className="px-3 py-1 rounded-lg bg-white border border-[#D8C7B2] text-[#332218] font-bold disabled:opacity-40 cursor-pointer"
+                              >
+                                → صفحه قبل
+                              </button>
+                              <button
+                                type="button"
+                                disabled={pvSafePage >= pvTotalPages}
+                                onClick={() => setPendingPage((p) => Math.min(pvTotalPages, p + 1))}
+                                className="px-3 py-1 rounded-lg bg-[#1F4E79] text-white font-bold disabled:opacity-40 cursor-pointer"
+                              >
+                                صفحه بعد ←
+                              </button>
+                            </>
+                          )}
+                          {pendingPageSize !== 'all' ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPendingPageSize('all');
+                                setPendingPage(1);
+                              }}
+                              className="px-3 py-1 rounded-lg bg-white border border-[#6B3E26] text-[#6B3E26] font-bold cursor-pointer"
+                            >
+                              نمایش همه ({toPersianDigits(pvTotalCount)})
+                            </button>
+                          ) : (
+                            pvTotalCount > 20 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPendingPageSize(20);
+                                  setPendingPage(1);
+                                }}
+                                className="px-3 py-1 rounded-lg bg-white border border-[#D8C7B2] text-[#5C4033] font-bold cursor-pointer"
+                              >
+                                صفحه‌بندی (۲۰تایی)
+                              </button>
+                            )
+                          )}
                         </div>
-                        <div className="text-base font-bold text-[#1f4e79] mt-0.5 flex items-center gap-1.5 flex-wrap">
-                          <span>
-                            {lnk.martyrNameRaw ||
-                              (lnk.rawNameInSource === '*' ? '* (علامت منبع)' : '(خالی در منبع)')}
-                          </span>
-                          {isTehran && <TehranMartyrBadge size="xs" />}
-                        </div>
-                        <div className="text-xs text-slate-600 mt-0.5 tabular-nums">
-                          مزار: قطعه {toPersianDigits(lnk.gravePieceRaw || 'خالی')} · ردیف{' '}
-                          {toPersianDigits(lnk.graveRowRaw || 'خالی')} · شماره{' '}
-                          {toPersianDigits(lnk.graveNumberRaw || 'خالی')}
-                        </div>
-                      </div>
-
-                      <div className="md:col-span-3 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs">
-                        <span className="text-slate-500 block">صفحه یا ارجاع خام:</span>
-                        <strong className="text-slate-900 font-bold mt-0.5 block">
-                          {toPersianDigits(lnk.pageReferenceRaw || '—')}
-                        </strong>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {(lnk.sourceDescriptionRaw || lnk.reviewerNote) && (
-                  <div className="text-xs text-slate-600 bg-slate-50/70 rounded-xl p-3 space-y-1">
-                    {lnk.sourceDescriptionRaw && (
-                      <div>
-                        <strong className="text-slate-800">توضیحات کتاب در منبع: </strong>
-                        {lnk.sourceDescriptionRaw}
-                      </div>
-                    )}
-                    {lnk.reviewerNote && (
-                      <div className="text-[#1f4e79]">
-                        <strong>یادداشت بررسی: </strong>
-                        {lnk.reviewerNote}
                       </div>
                     )}
                   </div>
-                )}
-              </div>
-            ))}
+                );
+              })()}
 
-            {allFilteredLinks.length > visibleLimit && (
+              {reviewQueueTab === 'groups16' && (
+                <div className="space-y-4">
+                  <div className="bg-[#fff9f0] border border-[#f5dfad] rounded-2xl p-3.5 text-xs space-y-1">
+                    <div className="font-bold text-[#8c5208] flex items-center gap-1.5">
+                      <ClipboardCheck className="w-4 h-4 shrink-0" />
+                      <span>کاربرگ بازبینی ۱۶ گروه کتاب‌های چندشهیدی (شیت ۳ اکسل مرجع):</span>
+                    </div>
+                    <p className="text-slate-700 leading-relaxed">
+                      در این بخش مشخص می‌شود آیا تمام شهدای گروه به همین کتاب متعلق‌اند و مرز گروه در اکسل دقیق تفکیک شده است یا خیر.
+                    </p>
+                  </div>
+
+                  <div className="bg-[#FAF5EE]/60 border border-[#E2D2BE] rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                      <span className="text-[#6E5846] font-medium ml-1">فیلتر بازبینی:</span>
+                      {(
+                        [
+                          { key: 'all', label: `همه (${toPersianDigits(multiMartyrGroups.length)})` },
+                          {
+                            key: 'pending',
+                            label: `در انتظار (${toPersianDigits(
+                              multiMartyrGroups.filter((g) => g.decisionStatus.includes('انتظار')).length
+                            )})`
+                          },
+                          {
+                            key: 'approved',
+                            label: `تأییدشده (${toPersianDigits(
+                              multiMartyrGroups.filter((g) => g.decisionStatus === 'تأیید').length
+                            )})`
+                          },
+                          {
+                            key: 'rejected',
+                            label: `پیگیری / رد (${toPersianDigits(
+                              multiMartyrGroups.filter((g) => g.decisionStatus === 'رد' || g.decisionStatus === 'نیازمند پیگیری').length
+                            )})`
+                          }
+                        ] as const
+                      ).map((tab) => (
+                        <button
+                          key={tab.key}
+                          type="button"
+                          onClick={() => setGroupsStatusFilter(tab.key)}
+                          className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer ${
+                            groupsStatusFilter === tab.key
+                              ? 'bg-[#1F4E79] text-white'
+                              : 'bg-white border border-[#D8C7B2] text-[#332218] hover:bg-[#F3E9DC]'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 w-full sm:w-auto shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleBulkApproveAndArchive16Groups}
+                        className="col-span-2 sm:col-span-1 min-h-[38px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        <span>تأیید یکپارچه ۱۶ گروه</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={exportGroupsExcel}
+                        className="min-h-[38px] px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold rounded-xl inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>اکسل ۱۶ گروه</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={exportGroupsCsv}
+                        className="min-h-[38px] px-3 py-1.5 bg-white border border-[#D8C7B2] hover:bg-[#F3E9DC] text-[#332218] text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Download className="w-4 h-4 shrink-0" />
+                        <span>CSV</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {filteredMultiMartyrGroups.map((grp) => {
+                      const isEditing = editingGroupCode === grp.groupCode;
+                      return (
+                        <div
+                          key={grp.groupCode}
+                          className="bg-white border border-[#E2D2BE] rounded-2xl p-4 space-y-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2.5">
+                              <span
+                                className="font-mono font-bold text-sm px-2.5 py-1 rounded-lg bg-[#edf4fa] text-[#1f4e79]"
+                                dir="ltr"
+                              >
+                                {grp.groupCode}
+                              </span>
+                              <div>
+                                <h4 className="font-bold text-sm sm:text-base text-[#332218]">
+                                  {grp.registeredTitle}
+                                </h4>
+                                <p className="text-xs text-[#6E5846]">
+                                  ناشر: {grp.registeredPublisher} · ردیف آغاز در Excel:{' '}
+                                  {toPersianDigits(grp.startExcelRow)} · تعداد ردیف شهید:{' '}
+                                  <strong>{toPersianDigits(grp.martyrRowsCount)}</strong>
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`text-xs font-bold px-2.5 py-1 rounded-lg ${
+                                  grp.decisionStatus === 'تأیید'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : grp.decisionStatus === 'رد'
+                                    ? 'bg-red-100 text-red-800'
+                                    : grp.decisionStatus === 'نیازمند پیگیری'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}
+                              >
+                                {grp.decisionStatus}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setEditingGroupCode(isEditing ? null : grp.groupCode)}
+                                className="min-h-[38px] px-3.5 py-1.5 text-xs font-bold border border-[#1f4e79] text-[#1f4e79] rounded-xl hover:bg-blue-50 cursor-pointer"
+                              >
+                                {isEditing ? 'بستن فرم بازبینی' : 'ثبت نظر بازبین ✍️'}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-[#5C4033] pt-1">
+                            <span>
+                              ردیف‌های دارای مکان ناقص:{' '}
+                              <strong className={grp.incompleteGraveRows !== 'ندارد' ? 'text-amber-800' : 'text-[#332218]'}>
+                                {toPersianDigits(grp.incompleteGraveRows)}
+                              </strong>
+                            </span>
+                            <span>·</span>
+                            <span>پرچم کنترل اولیه: {grp.initialFlag}</span>
+                            {grp.reviewerName && (
+                              <>
+                                <span>·</span>
+                                <span className="text-[#1f4e79] font-medium">
+                                  بازبین: {grp.reviewerName} ({grp.reviewDate})
+                                </span>
+                              </>
+                            )}
+                          </div>
+
+                          {isEditing && (
+                            <div className="pt-3 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs bg-slate-50 p-4 rounded-xl">
+                              <div>
+                                <label className="block font-semibold text-slate-700 mb-1">
+                                  مرز گروه تأیید می‌شود؟
+                                </label>
+                                <select
+                                  value={grp.boundaryApproved}
+                                  onChange={(e) =>
+                                    onUpdateGroupAudit({
+                                      ...grp,
+                                      boundaryApproved: e.target.value as MultiMartyrGroupAudit['boundaryApproved']
+                                    })
+                                  }
+                                  className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl"
+                                >
+                                  <option value="نامشخص">نامشخص</option>
+                                  <option value="بله">بله</option>
+                                  <option value="خیر">خیر</option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block font-semibold text-slate-700 mb-1">
+                                  همه شهدا به همین کتاب مرتبط‌اند؟
+                                </label>
+                                <select
+                                  value={grp.allMartyrsLinked}
+                                  onChange={(e) =>
+                                    onUpdateGroupAudit({
+                                      ...grp,
+                                      allMartyrsLinked: e.target.value as MultiMartyrGroupAudit['allMartyrsLinked']
+                                    })
+                                  }
+                                  className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl"
+                                >
+                                  <option value="نامشخص">نامشخص</option>
+                                  <option value="بله">بله</option>
+                                  <option value="خیر">خیر</option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block font-semibold text-slate-700 mb-1">
+                                  وضعیت تصمیم بازبین:
+                                </label>
+                                <select
+                                  value={grp.decisionStatus}
+                                  onChange={(e) =>
+                                    onUpdateGroupAudit({
+                                      ...grp,
+                                      decisionStatus: e.target.value as MultiMartyrGroupAudit['decisionStatus'],
+                                      reviewDate: new Intl.DateTimeFormat('fa-IR').format(new Date())
+                                    })
+                                  }
+                                  className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl font-bold text-[#1f4e79]"
+                                >
+                                  <option value="در انتظار بازبینی کارشناس">در انتظار بازبینی کارشناس</option>
+                                  <option value="تأیید">تأیید</option>
+                                  <option value="نیازمند پیگیری">نیازمند پیگیری</option>
+                                  <option value="رد">رد</option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block font-semibold text-slate-700 mb-1">نام بازبین:</label>
+                                <input
+                                  type="text"
+                                  value={grp.reviewerName}
+                                  onChange={(e) =>
+                                    onUpdateGroupAudit({
+                                      ...grp,
+                                      reviewerName: e.target.value,
+                                      reviewDate: new Intl.DateTimeFormat('fa-IR').format(new Date())
+                                    })
+                                  }
+                                  placeholder="نام کارشناس"
+                                  className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl"
+                                />
+                              </div>
+
+                              <div className="sm:col-span-2 lg:col-span-4">
+                                <label className="block font-semibold text-slate-700 mb-1">
+                                  دلیل تصمیم / یادداشت استنادی ردیف‌های منبع:
+                                </label>
+                                <input
+                                  type="text"
+                                  value={grp.reviewNote}
+                                  onChange={(e) =>
+                                    onUpdateGroupAudit({
+                                      ...grp,
+                                      reviewNote: e.target.value
+                                    })
+                                  }
+                                  placeholder="توضیح درباره مرز گروه، شکست خط عنوان یا وضعیت مزار ناقص..."
+                                  className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl"
+                                />
+                              </div>
+
+                              <div className="sm:col-span-2 lg:col-span-4 flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingGroupCode(null)}
+                                  className="min-h-[38px] px-3.5 py-1.5 bg-white border border-slate-300 text-slate-700 rounded-xl font-medium"
+                                >
+                                  بستن
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    requestActionConfirmation({
+                                      title: 'تأیید نهایی تصمیم بازبین برای گروه چندشهیدی',
+                                      message: `آیا از ثبت و ذخیره نهایی تصمیم «${grp.decisionStatus}» برای گروه ${grp.groupCode} («${grp.registeredTitle}») اطمینان دارید؟`,
+                                      confirmLabel: 'بله، تصمیم ثبت نهایی شود',
+                                      variant: grp.decisionStatus === 'رد' ? 'delete' : 'approve',
+                                      onConfirm: () => {
+                                        setEditingGroupCode(null);
+                                        onNotify(`تصمیم کارشناس برای گروه ${grp.groupCode} با موفقیت در سامانه ثبت شد.`);
+                                      }
+                                    });
+                                  }}
+                                  className="min-h-[38px] px-5 py-1.5 bg-[#1f4e79] hover:bg-[#163a5b] text-white rounded-xl font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                                >
+                                  <Check className="w-4 h-4" />
+                                  <span>ثبت و ذخیره نهایی تصمیم بازبین</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DepositoryAndExportHub
+            catalogRows={catalogRows}
+            auditRecords={auditRecords}
+            bookCopies={bookCopies}
+            links={links}
+            pendingReviews={pendingReviews}
+            workbookMartyrs={workbookMartyrs}
+            extractedItems={extractedItems}
+            pendingReviewsOpenCount={openPendingCount}
+            openGroupsCount={openGroupsCount}
+            onOpenAddLink={() => setShowAddLink(true)}
+            onOpenReviewQueues={(target) => {
+              if (target) setReviewQueueTab(target);
+              setShowReviewQueuesPanel((prev) => !prev);
+            }}
+            onExportGhatatExcel={handleExportGhatatExcel}
+            onExtractPassageFromLink={(linkId) => {
+              const lnk = links.find((l) => l.id === linkId);
+              if (lnk) handleStartExtractFromLink(lnk);
+            }}
+            onQuickEditLink={handleOpenLinkEditor}
+            onQuickDeleteLink={handleConfirmDeleteLink}
+            onQuickUpdateLinkStatus={(linkId, nextStatus) => {
+              const lnk = links.find((l) => l.id === linkId);
+              if (!lnk) return;
+              const meta = resolveLiveBookMeta(lnk.tempBookId, lnk.bookTitleRaw, lnk.publisherRaw);
+              requestActionConfirmation({
+                title: 'تأیید نهایی پیوند کتاب و شهید',
+                message: `آیا از ثبت وضعیت «${nextStatus}» برای پیوند ${lnk.id} («${lnk.martyrNameRaw}» — کتاب «${meta.title}») اطمینان دارید؟`,
+                confirmLabel: 'بله، تأیید شود',
+                variant: 'approve',
+                onConfirm: () => {
+                  onUpdateLinkStatus(lnk.id, nextStatus, lnk.reviewerNote || 'تأیید کارشناسی در میز پژوهش');
+                  onNotify(`پیوند ${lnk.id} به وضعیت «${nextStatus}» به‌روزرسانی شد.`);
+                }
+              });
+            }}
+            onInspectBook={handleOpenBookInspector}
+            onInspectMartyr={(martyrName) => handleOpenMartyrInspector(martyrName)}
+            onNotify={onNotify}
+            onJumpToSmartSearch={onJumpToSmartSearch}
+          />
+        </div>
+      )}
+
+      {/* مودال ثبت پیوند جدید کتاب و شهید (بدون نیاز به تب تکراری) */}
+      {showAddLink && (
+        <ModalWindow
+          onClose={() => setShowAddLink(false)}
+          title="ثبت ارتباط پژوهشی جدید کتاب و شهید"
+          maxWidthClass="max-w-3xl"
+        >
+          <form onSubmit={handleCreateLink} className="space-y-4 text-xs">
+            <div>
+              <BookLiveSearchPicker
+                books={linkableBooks}
+                selectedBookId={selectedBookId}
+                onSelectBook={setSelectedBookId}
+                query={linkBookSearchQuery}
+                onQueryChange={setLinkBookSearchQuery}
+                label="کتاب مرجع (جست‌وجوی زنده نام کتاب یا شماره قفسه) *"
+                placeholder="نام کتاب، شماره قفسه (SH-01 / قفسه ۱) یا کد BK..."
+                inputTestId="research-link-book-search-input"
+                listTestId="research-link-book-options-list"
+                bannerTestId="research-link-book-banner"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-[#332218] mb-1">
+                  نام شهید یا عبارت مرتبط (عین منبع) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={martyrName}
+                  onChange={(e) => setMartyrName(e.target.value)}
+                  placeholder="مثال: احمد بیابانی"
+                  className="w-full min-h-[42px] px-3 py-2 bg-white border border-[#D8C7B2] rounded-xl"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#332218] mb-1">
+                  ارجاع صفحه خام (مثال: ۱۷۳تا۱۸۴ یا ص ۴۵)
+                </label>
+                <input
+                  type="text"
+                  value={pageRefRaw}
+                  onChange={(e) => setPageRefRaw(e.target.value)}
+                  placeholder="مثال: ص 45 تا 52"
+                  className="w-full min-h-[42px] px-3 py-2 bg-white border border-[#D8C7B2] rounded-xl"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+              <div>
+                <label className="block font-medium text-[#5C4033] mb-1">قطعه مزار خام</label>
+                <input
+                  type="text"
+                  value={gravePiece}
+                  onChange={(e) => setGravePiece(e.target.value)}
+                  placeholder="24"
+                  className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl tabular-nums"
+                />
+              </div>
+              <div>
+                <label className="block font-medium text-[#5C4033] mb-1">ردیف مزار خام</label>
+                <input
+                  type="text"
+                  value={graveRow}
+                  onChange={(e) => setGraveRow(e.target.value)}
+                  placeholder="77"
+                  className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl tabular-nums"
+                />
+              </div>
+              <div>
+                <label className="block font-medium text-[#5C4033] mb-1">شماره مزار خام</label>
+                <input
+                  type="text"
+                  value={graveNumber}
+                  onChange={(e) => setGraveNumber(e.target.value)}
+                  placeholder="52"
+                  className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl tabular-nums"
+                />
+              </div>
+              <div className="col-span-3 sm:col-span-1 flex items-end">
+                <label className="inline-flex items-center gap-2 min-h-[40px] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isGroupPhrase}
+                    onChange={(e) => setIsGroupPhrase(e.target.checked)}
+                    className="w-4 h-4 accent-[#6B3E26]"
+                  />
+                  <span className="text-[#332218] font-medium">عبارت گروهی است</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-medium text-[#5C4033] mb-1">شرح ارتباط / توضیح منبع</label>
+                <input
+                  type="text"
+                  value={sourceDesc}
+                  onChange={(e) => setSourceDesc(e.target.value)}
+                  placeholder="توضیح ثبت‌شده در شیت یا نوع مطلب..."
+                  className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl"
+                />
+              </div>
+              <div>
+                <label className="block font-medium text-[#5C4033] mb-1">یادداشت کارشناس بازبین</label>
+                <input
+                  type="text"
+                  value={reviewerNote}
+                  onChange={(e) => setReviewerNote(e.target.value)}
+                  placeholder="یادداشت تصمیم یا ابهام..."
+                  className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#EFE4D6]">
               <button
                 type="button"
-                onClick={() => setVisibleLimit((prev) => prev + 100)}
-                className="w-full min-h-[44px] py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 text-xs font-bold rounded-xl"
+                onClick={() => setShowAddLink(false)}
+                className="min-h-[42px] px-4 py-2 bg-[#FAF5EE] border border-[#D8C7B2] text-[#332218] font-bold rounded-xl cursor-pointer"
               >
-                نمایش ۱۰۰ رکورد بعدی (از مجموع {toPersianDigits(allFilteredLinks.length)} رکورد)
+                انصراف
               </button>
-            )}
-          </div>
-        </div>
+              <button
+                type="submit"
+                className="min-h-[42px] px-5 py-2 bg-[#1F4E79] hover:bg-[#163A5B] text-white font-bold rounded-xl cursor-pointer"
+              >
+                ذخیره ارتباط در سامانه
+              </button>
+            </div>
+          </form>
+        </ModalWindow>
       )}
 
       {/* SubView 1.5: Extracted Content & Page Passages (ثبت، مدیریت و مرور کامل مطالب و صفحات استخراج‌شده) */}
@@ -1507,9 +2185,9 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                   <Search className="w-4 h-4 text-[#6E5846] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="search"
-                    value={searchQuery}
+                    value={extractedSearchQuery}
                     onChange={(e) => {
-                      setSearchQuery(e.target.value);
+                      setExtractedSearchQuery(e.target.value);
                       setExtractedPage(1);
                     }}
                     placeholder="جست‌وجو در نام شهید، عنوان کتاب، متن مطلب، شماره صفحه یا کد EX-0001..."
@@ -1628,8 +2306,10 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                     }}
                     className="px-2.5 py-1 rounded-lg bg-white border border-[#D8C7B2] text-[#332218] font-bold text-xs cursor-pointer"
                   >
+                    <option value="20">۲۰ مورد</option>
                     <option value="50">۵۰ مورد</option>
                     <option value="100">۱۰۰ مورد</option>
+                    <option value="200">۲۰۰ مورد</option>
                     <option value="all">نمایش همه ({toPersianDigits(totalExtractedCount)})</option>
                   </select>
                 </div>
@@ -1850,14 +2530,23 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#EFE4D6]">
-                      {visibleExtractedRows.map((item, idx) => (
+                      {visibleExtractedRows.map((item, idx) => {
+                        const meta = resolveLiveBookMeta(item.tempBookId, item.bookTitleRaw, item.publisherRaw);
+                        return (
                         <tr key={item.id} className="hover:bg-[#FAF5EE]">
                           <td className="py-2.5 px-3 text-center font-mono text-[#78604E]">
                             {toPersianDigits(exStartIdx + idx + 1)}
                           </td>
                           <td className="py-2.5 px-3 font-bold text-[#332218]">
                             <span className="inline-flex items-center gap-1.5 flex-wrap">
-                              <span>{item.martyrNameRaw}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenMartyrInspector(item.martyrNameRaw)}
+                                className="font-bold text-[#1F4E79] hover:underline cursor-pointer text-right"
+                                title="مشاهده پرونده و کتاب‌های این شهید"
+                              >
+                                {item.martyrNameRaw}
+                              </button>
                               {evaluateMartyrTehranStatus({
                                 martyrName: item.martyrNameRaw,
                                 gravePiece: item.gravePieceRaw,
@@ -1870,12 +2559,14 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                           </td>
                           <td className="py-2.5 px-3 font-bold text-[#6B3E26]">
                             <span className="inline-flex items-center gap-1.5 flex-wrap">
-                              <span>{item.bookTitleRaw}</span>
-                              {evaluateMartyrTehranStatus({
-                                martyrName: item.martyrNameRaw,
-                                gravePiece: item.gravePieceRaw,
-                                sourceDesc: item.researcherNote
-                              }).isTehran && <TehranMartyrBadge size="xs" />}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenBookInspector(item.tempBookId, meta.title)}
+                                className="font-bold text-[#6B3E26] hover:underline cursor-pointer text-right"
+                                title="مشاهده و ویرایش درجا کتاب"
+                              >
+                                {meta.title}
+                              </button>
                               <span className="font-mono text-[10.5px] text-[#78604E] font-normal" dir="ltr">
                                 ({item.tempBookId})
                               </span>
@@ -1923,7 +2614,8 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                             </div>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1931,7 +2623,9 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
             ) : (
               /* نمایش کارتی مشروح مطالب استخراج‌شده */
               <div className="space-y-3">
-                {visibleExtractedRows.map((item, idx) => (
+                {visibleExtractedRows.map((item, idx) => {
+                  const cardBookMeta = resolveLiveBookMeta(item.tempBookId, item.bookTitleRaw, item.publisherRaw);
+                  return (
                   <div
                     key={item.id}
                     className="bg-white border border-[#E2D2BE] rounded-2xl p-4 sm:p-5 space-y-3"
@@ -2092,16 +2786,24 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                       <div className="md:col-span-9 space-y-1.5 min-w-0 max-w-full overflow-hidden">
                         <div className="text-xs text-[#5C4033] break-words [overflow-wrap:anywhere] flex items-center gap-1.5 flex-wrap">
                           <span>
-                            کتاب: <strong className="text-[#332218]">{item.bookTitleRaw}</strong>
+                            کتاب:{' '}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenBookInspector(item.tempBookId, cardBookMeta.title)}
+                              className="font-bold text-[#1F4E79] hover:underline cursor-pointer"
+                            >
+                              {cardBookMeta.title}
+                            </button>
                           </span>
-                          {evaluateMartyrTehranStatus({
-                            martyrName: item.martyrNameRaw,
-                            gravePiece: item.gravePieceRaw,
-                            sourceDesc: item.researcherNote
-                          }).isTehran && <TehranMartyrBadge size="xs" />}
-                          {item.publisherRaw && <span>· ناشر: {item.publisherRaw}</span>}
+                          {cardBookMeta.publisher !== '—' && <span>· ناشر: {cardBookMeta.publisher}</span>}
                           <span>· شهید:</span>
-                          <strong className="text-[#6B3E26]">{item.martyrNameRaw}</strong>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenMartyrInspector(item.martyrNameRaw)}
+                            className="font-bold text-[#6B3E26] hover:underline cursor-pointer"
+                          >
+                            {item.martyrNameRaw}
+                          </button>
                           {evaluateMartyrTehranStatus({
                             martyrName: item.martyrNameRaw,
                             gravePiece: item.gravePieceRaw,
@@ -2168,11 +2870,12 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
-            {/* نوار صفحه‌بندی کامل برای مطالب استخراج‌شده (صفحه ۱، ۲، ۳ ... + نمایش یکجای همه ۳۰۹ مورد) */}
+            {/* نوار صفحه‌بندی کامل برای مطالب استخراج‌شده */}
             {totalExtractedCount > 0 && (
               <div className="p-3.5 bg-white border border-[#E2D2BE] rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
                 <div className="text-[#5C4033] font-medium">
@@ -2241,16 +2944,16 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                       نمایش یکجای همه ({toPersianDigits(totalExtractedCount)} مورد)
                     </button>
                   ) : (
-                    totalExtractedCount > 50 && (
+                    totalExtractedCount > 20 && (
                       <button
                         type="button"
                         onClick={() => {
-                          setExtractedPageSize(50);
+                          setExtractedPageSize(20);
                           setExtractedPage(1);
                         }}
                         className="px-3 py-1.5 rounded-lg bg-[#FAF5EE] border border-[#D8C7B2] text-[#5C4033] font-bold hover:bg-[#F3E9DC] cursor-pointer"
                       >
-                        بازگشت به نمایش صفحه‌بندی (۵۰تایی)
+                        بازگشت به نمایش صفحه‌بندی (۲۰تایی)
                       </button>
                     )
                   )}
@@ -2261,686 +2964,13 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
         );
       })()}
 
-      {/* SubView 2: Sheet 4 — 567 Pending Review Items (موارد نیازمند بررسی PV-0001..PV-0567) */}
-      {subView === 'pending567' && (
-        <div className="space-y-4">
-          {/* راهنمای فرآیند بررسی و تکمیل */}
-          <div className="bg-[#fff8ea] border border-[#f5dfad] rounded-2xl p-4 text-xs space-y-1.5">
-            <div className="font-bold text-[#8c5208] flex items-center gap-1.5 text-sm">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>میز تخصصی رفع اشکال و تکمیل موارد نیازمند بررسی (۵۶۷ سطر شیت ۴):</span>
-            </div>
-            <p className="text-slate-700 leading-relaxed">
-              این موارد در ورود اولیه اطلاعات دارای نواقصی مانند عدم ثبت صفحه، نامشخص بودن قطعه مزار یا عبارات چندشهیدی بوده‌اند. با زدن دکمه <strong>«بررسی، تکمیل و ثبت اطلاعات»</strong>، اطلاعات مستند را وارد نموده و با ذخیره، این مورد به وضعیت «بررسی‌شده» منتقل شده و در صورت تأیید، مستقیماً به بخش پیوندهای معتبر «ارتباط کتاب و شهید» اضافه می‌شود.
-            </p>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setVisibleLimit(60);
-                  }}
-                  placeholder="جست‌وجو در ۵۶۷ مورد نیازمند بررسی (کد PV-0001، عنوان کتاب، نام شهید، موضوع بررسی)..."
-                  className="w-full min-h-[44px] pr-10 pl-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-[#1f4e79]"
-                />
-              </div>
-              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto shrink-0">
-                <button
-                  type="button"
-                  data-testid="pending-reviews-excel-export-btn"
-                  onClick={exportPendingReviewsExcel}
-                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
-                >
-                  <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                  <span>خروجی Excel</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={exportPendingReviewsCsv}
-                  className="min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                  <span>خروجی CSV</span>
-                </button>
-              </div>
-            </div>
-
-            {/* نوار فیلتر وضعیت پیگیری */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-2 text-xs border-t border-slate-100">
-              {(
-                [
-                  {
-                    key: 'open',
-                    label: `در انتظار بررسی (باز) (${toPersianDigits(
-                      pendingReviews.filter((p) => p.trackingStatus === 'باز').length
-                    )})`
-                  },
-                  {
-                    key: 'reviewed',
-                    label: `تکمیل و بررسی‌شده (${toPersianDigits(
-                      pendingReviews.filter((p) => p.trackingStatus === 'بررسی‌شده').length
-                    )})`
-                  },
-                  {
-                    key: 'needs_source',
-                    label: `نیازمند منبع (${toPersianDigits(
-                      pendingReviews.filter((p) => p.trackingStatus === 'نیازمند منبع').length
-                    )})`
-                  },
-                  {
-                    key: 'all',
-                    label: `همه موارد (${toPersianDigits(pendingReviews.length)})`
-                  }
-                ] as const
-              ).map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => {
-                    setPendingStatusFilter(tab.key);
-                    setVisibleLimit(60);
-                  }}
-                  className={`min-h-[36px] px-3 py-1.5 rounded-xl font-bold transition-colors flex items-center justify-center text-center cursor-pointer ${
-                    pendingStatusFilter === tab.key
-                      ? 'bg-[#1f4e79] text-white shadow-xs'
-                      : 'bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* فرم مودال بررسی و تکمیل اطلاعات رکورد انتخابی */}
-          {activeReviewPv && (
-            <ModalWindow
-              onClose={() => setActiveReviewPv(null)}
-              title={`بررسی، رفع اشکال و تکمیل اطلاعات (${activeReviewPv.trackingId})`}
-              maxWidthClass="max-w-2xl"
-            >
-              <div className="bg-[#F6EFE6] border border-[#E2D2BE] rounded-xl p-3 flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <h3 className="text-xs sm:text-sm font-bold text-[#332218] flex items-center gap-2">
-                    <span>بررسی، رفع اشکال و تکمیل اطلاعات</span>
-                    <span className="font-mono bg-white border border-[#E2D2BE] px-2 py-0.5 rounded text-xs text-[#6B3E26]" dir="ltr">
-                      {activeReviewPv.trackingId}
-                    </span>
-                  </h3>
-                  <p className="text-[11px] text-[#78604E]">
-                    شیت مبدأ: {activeReviewPv.mainSheet} · رکورد مرجع: {activeReviewPv.mainRecordId}
-                  </p>
-                </div>
-              </div>
-
-              <form onSubmit={handleSavePvReview} className="space-y-4">
-                {/* اطلاعات شناسنامه‌ای منبع */}
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5">
-                  <div className="text-slate-800 font-bold text-sm">
-                    کتاب: {activeReviewPv.bookTitle}{' '}
-                    <span className="text-xs font-normal text-slate-500">
-                      ({activeReviewPv.publisher})
-                    </span>
-                  </div>
-                  {activeReviewPv.nameOrPhrase && (
-                    <div className="text-slate-700">
-                      عبارت ثبت‌شده در منبع: <strong className="text-[#1f4e79]">{activeReviewPv.nameOrPhrase}</strong>
-                    </div>
-                  )}
-                  <div className="text-amber-900 font-semibold pt-1 border-t border-slate-200">
-                    موضوع اشکال: {activeReviewPv.issueSubject}
-                  </div>
-                  <div className="text-slate-600">
-                    اقدام پیشنهادی کارشناس ارشد: {activeReviewPv.suggestedAction}
-                  </div>
-                </div>
-
-                {/* فیلدهای تکمیل اطلاعات */}
-                <div className="space-y-3">
-                  <div>
-                    <label className="block font-bold text-slate-800 mb-1">
-                      نام شهید مستند و اصلاح‌شده *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={pvMartyrName}
-                      onChange={(e) => setPvMartyrName(e.target.value)}
-                      placeholder="نام و نام خانوادگی شهید..."
-                      className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-slate-900"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block font-bold text-slate-800 mb-1">
-                        شماره صفحه در کتاب (ارجاع صفحه) *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={pvPageRef}
-                        onChange={(e) => setPvPageRef(e.target.value)}
-                        placeholder="مثال: صص ۱۴-۱۸ یا ص ۴۲"
-                        className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl tabular-nums"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block font-bold text-slate-800 mb-1">
-                        تصمیم نهایی کارشناس *
-                      </label>
-                      <select
-                        value={pvTargetStatus}
-                        onChange={(e) => setPvTargetStatus(e.target.value)}
-                        className="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-[#1f4e79]"
-                      >
-                        <option value="approved_to_links">
-                          تکمیل و تأیید شد (انتقال به پیوندهای معتبر کتاب و شهید)
-                        </option>
-                        <option value="reviewed_no_change">بررسی شد - بدون نیاز به تغییر</option>
-                        <option value="needs_source">نیازمند منبع تکمیلی / استخراج مجدد</option>
-                        <option value="rejected">رد پیوند (فاقد ارتباط معتبر)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
-                      <label className="block font-medium text-slate-700 mb-1">قطعه مزار</label>
-                      <input
-                        type="text"
-                        value={pvGravePiece}
-                        onChange={(e) => setPvGravePiece(e.target.value)}
-                        placeholder="مثال: 26"
-                        className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-medium text-slate-700 mb-1">ردیف مزار</label>
-                      <input
-                        type="text"
-                        value={pvGraveRow}
-                        onChange={(e) => setPvGraveRow(e.target.value)}
-                        placeholder="مثال: 12"
-                        className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-medium text-slate-700 mb-1">شماره قبر</label>
-                      <input
-                        type="text"
-                        value={pvGraveNumber}
-                        onChange={(e) => setPvGraveNumber(e.target.value)}
-                        placeholder="مثال: 5"
-                        className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl tabular-nums"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block font-medium text-slate-700 mb-1">
-                      یادداشت و دلیل تصمیم کارشناسی:
-                    </label>
-                    <input
-                      type="text"
-                      value={pvReviewerNote}
-                      onChange={(e) => setPvReviewerNote(e.target.value)}
-                      placeholder="توضیح درباره صحت منبع، تطبیق با گلزار یا مستندات صفحه..."
-                      className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => setActiveReviewPv(null)}
-                    className="min-h-[42px] px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold cursor-pointer"
-                  >
-                    انصراف
-                  </button>
-                  <button
-                    type="submit"
-                    className="min-h-[42px] px-5 py-2 bg-[#2E6F40] hover:bg-[#235632] text-white rounded-xl font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
-                  >
-                    <Check className="w-4 h-4" />
-                    <span>ثبت نهایی و ذخیره در پرونده</span>
-                  </button>
-                </div>
-              </form>
-            </ModalWindow>
-          )}
-
-          {/* لیست رکوردهای ۵۶۷ مورد */}
-          <div className="space-y-2.5">
-            {filteredPendingReviews.length === 0 ? (
-              <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-500 space-y-2">
-                <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
-                <p className="font-bold text-slate-800">هیچ موردی با فیلتر انتخابی یافت نشد.</p>
-                <p className="text-xs">
-                  {pendingStatusFilter === 'open'
-                    ? 'همه موارد در این بخش بررسی و تکمیل شده‌اند یا با فیلتر دیگری در دسترس‌اند.'
-                    : 'برای مشاهده سایر رکوردها، فیلتر وضعیت را تغییر دهید.'}
-                </p>
-              </div>
-            ) : (
-              filteredPendingReviews.slice(0, visibleLimit).map((pv) => (
-                <div
-                  key={pv.trackingId}
-                  className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs hover:border-slate-300 transition-colors"
-                >
-                  <div className="space-y-1.5 flex-1">
-                    <div className="flex flex-wrap items-center gap-2 text-slate-500">
-                      <span className="font-mono font-bold text-[#1f4e79]" dir="ltr">
-                        {pv.trackingId}
-                      </span>
-                      <span>·</span>
-                      <span>شیت اصلی: {pv.mainSheet}</span>
-                      <span>·</span>
-                      <span className="font-mono font-semibold text-slate-700" dir="ltr">
-                        رکورد: {pv.mainRecordId}
-                      </span>
-                      <span className="mr-auto">
-                        <span
-                          className={`px-2 py-0.5 rounded-md font-bold text-[11px] ${
-                            pv.trackingStatus === 'بررسی‌شده'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : pv.trackingStatus === 'نیازمند منبع'
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-amber-100 text-amber-900'
-                          }`}
-                        >
-                          وضعیت: {pv.trackingStatus}
-                        </span>
-                      </span>
-                    </div>
-
-                    <div className="text-sm font-bold text-slate-900">
-                      {pv.bookTitle} <span className="font-normal text-slate-600">({pv.publisher})</span>
-                      {pv.nameOrPhrase && (
-                        <span className="text-[#1f4e79] mr-2">— {pv.nameOrPhrase}</span>
-                      )}
-                    </div>
-
-                    <div className="text-amber-900 font-medium">
-                      موضوع بررسی: {pv.issueSubject}
-                    </div>
-                    <div className="text-slate-600">
-                      اقدام پیشنهادی: {pv.suggestedAction}
-                    </div>
-                  </div>
-
-                  <div className="shrink-0 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleOpenPvReview(pv)}
-                      className="min-h-[40px] px-3.5 py-1.5 bg-[#1f4e79] hover:bg-[#163a5b] text-white rounded-xl font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
-                    >
-                      <span>بررسی و تکمیل اطلاعات ✍️</span>
-                    </button>
-
-                    <select
-                      value={pv.trackingStatus}
-                      onChange={(e) => {
-                        const nextStatus = e.target.value;
-                        requestActionConfirmation({
-                          title: 'تأیید تغییر وضعیت مورد نیازمند بررسی',
-                          message: `آیا از تغییر وضعیت مورد ${pv.trackingId} (کتاب «${pv.bookTitle}») به «${nextStatus}» اطمینان دارید؟`,
-                          confirmLabel: 'بله، وضعیت تغییر کند',
-                          variant: 'approve',
-                          onConfirm: () => {
-                            onUpdatePendingReviewStatus(pv.trackingId, nextStatus);
-                            onNotify(`وضعیت مورد ${pv.trackingId} به «${nextStatus}» تغییر یافت.`);
-                          }
-                        });
-                      }}
-                      className={`min-h-[40px] px-3 py-1.5 rounded-xl border font-bold text-xs ${
-                        pv.trackingStatus === 'بررسی‌شده'
-                          ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                          : 'bg-amber-50 border-amber-300 text-amber-900'
-                      }`}
-                    >
-                      <option value="باز">باز</option>
-                      <option value="بررسی‌شده">بررسی‌شده</option>
-                      <option value="نیازمند منبع">نیازمند منبع</option>
-                    </select>
-                  </div>
-                </div>
-              ))
-            )}
-
-            {filteredPendingReviews.length > visibleLimit && (
-              <button
-                type="button"
-                onClick={() => setVisibleLimit((prev) => prev + 100)}
-                className="w-full min-h-[44px] py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 text-xs font-bold rounded-xl"
-              >
-                نمایش ۱۰۰ مورد بعدی (از مجموع {toPersianDigits(filteredPendingReviews.length)} مورد)
-              </button>
-            )}
-          </div>
-        </div>
-      )}
 
 
-      {/* SubView 4: 16 Multi-Martyr Groups Human Review Sheet (G001..G016) */}
-      {subView === 'groups16' && (
-        <div className="space-y-4">
-          {/* راهنمای مفهومی ۱۶ گروه چندشهیدی */}
-          <div className="bg-[#fff9f0] border border-[#f5dfad] rounded-2xl p-4 text-xs space-y-1.5">
-            <div className="font-bold text-[#8c5208] flex items-center gap-1.5 text-sm">
-              <ClipboardCheck className="w-4 h-4 shrink-0" />
-              <span>مفهوم و کارکرد ۱۶ گروه چندشهیدی (شیت ۳ اکسل مرجع):</span>
-            </div>
-            <p className="text-slate-700 leading-relaxed">
-              در شیت «چند شهید» اکسل اولیه، <strong>۱۶ عنوان کتاب شاخص</strong> (مانند <em>مدافعان حرم</em>، <em>یادگاران</em>، <em>دیدار در فکه</em>) قرار دارند که هر کدام به‌جای یک شهید، اسامی چندین شهید را به‌صورت پیاپی در بر گرفته‌اند (مجموعاً ۱۹۸ ردیف داده شهید).
-              کارشناس در این بخش مشخص می‌کند: آیا تمام شهدای این گروه واقعاً متعلق به همین کتاب هستند؟ آیا مرز شروع و پایان کتاب در اکسل درست تفکیک شده؟ با ثبت تصمیم نهایی، این رکورد به وضعیت تأیید یا پیگیری در سامانه به‌روزرسانی می‌شود.
-            </p>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            {/* نوار فیلتر ۱۶ گروه */}
-            <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              <span className="text-slate-500 font-medium ml-1">فیلتر بازبینی گروه‌ها:</span>
-              {(
-                [
-                  { key: 'all', label: `همه (۱۶ گروه)` },
-                  {
-                    key: 'pending',
-                    label: `در انتظار بازبینی (${toPersianDigits(
-                      multiMartyrGroups.filter((g) => g.decisionStatus.includes('انتظار')).length
-                    )})`
-                  },
-                  {
-                    key: 'approved',
-                    label: `تأییدشده (${toPersianDigits(
-                      multiMartyrGroups.filter((g) => g.decisionStatus === 'تأیید').length
-                    )})`
-                  },
-                  {
-                    key: 'rejected',
-                    label: `نیازمند پیگیری / رد (${toPersianDigits(
-                      multiMartyrGroups.filter((g) => g.decisionStatus === 'رد' || g.decisionStatus === 'نیازمند پیگیری').length
-                    )})`
-                  }
-                ] as const
-              ).map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => setGroupsStatusFilter(tab.key)}
-                  className={`px-3 py-1.5 rounded-xl font-bold transition-colors ${
-                    groupsStatusFilter === tab.key
-                      ? 'bg-[#1f4e79] text-white shadow-xs'
-                      : 'bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto shrink-0">
-              <button
-                type="button"
-                onClick={handleBulkApproveAndArchive16Groups}
-                className="col-span-2 sm:col-span-1 min-h-[38px] px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl inline-flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
-                title="تأیید همه ۱۶ گروه و انتقال به پیوندها و پنهان‌سازی این پنجره"
-              >
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>تأیید یکپارچه ۱۶ گروه</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={exportGroupsExcel}
-                className="min-h-[38px] px-2.5 sm:px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold rounded-xl inline-flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>خروجی اکسل ۱۶ گروه</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={exportGroupsCsv}
-                className="min-h-[38px] px-2.5 sm:px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Download className="w-4 h-4 shrink-0" />
-                <span>خروجی CSV</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {filteredMultiMartyrGroups.map((grp) => {
-              const isEditing = editingGroupCode === grp.groupCode;
-              return (
-                <div
-                  key={grp.groupCode}
-                  className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 hover:border-slate-300 transition-colors"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5">
-                      <span
-                        className="font-mono font-bold text-sm px-2.5 py-1 rounded-lg bg-[#edf4fa] text-[#1f4e79]"
-                        dir="ltr"
-                      >
-                        {grp.groupCode}
-                      </span>
-                      <div>
-                        <h4 className="font-bold text-sm sm:text-base text-slate-900">
-                          {grp.registeredTitle}
-                        </h4>
-                        <p className="text-xs text-slate-500">
-                          ناشر: {grp.registeredPublisher} · ردیف آغاز در Excel:{' '}
-                          {toPersianDigits(grp.startExcelRow)} · تعداد ردیف شهید:{' '}
-                          <strong>{toPersianDigits(grp.martyrRowsCount)}</strong>
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`text-xs font-bold px-2.5 py-1 rounded-lg ${
-                          grp.decisionStatus === 'تأیید'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : grp.decisionStatus === 'رد'
-                            ? 'bg-red-100 text-red-800'
-                            : grp.decisionStatus === 'نیازمند پیگیری'
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        {grp.decisionStatus}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEditingGroupCode(isEditing ? null : grp.groupCode)
-                        }
-                        className="min-h-[38px] px-3.5 py-1.5 text-xs font-bold border border-[#1f4e79] text-[#1f4e79] rounded-xl hover:bg-blue-50 cursor-pointer"
-                      >
-                        {isEditing ? 'بستن فرم بازبینی' : 'ثبت نظر بازبین ✍️'}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 pt-1">
-                    <span>
-                      ردیف‌های دارای مکان ناقص:{' '}
-                      <strong
-                        className={
-                          grp.incompleteGraveRows !== 'ندارد'
-                            ? 'text-amber-800'
-                            : 'text-slate-800'
-                        }
-                      >
-                        {toPersianDigits(grp.incompleteGraveRows)}
-                      </strong>
-                    </span>
-                    <span>·</span>
-                    <span>پرچم کنترل اولیه: {grp.initialFlag}</span>
-                    {grp.reviewerName && (
-                      <>
-                        <span>·</span>
-                        <span className="text-[#1f4e79] font-medium">
-                          بازبین: {grp.reviewerName} ({grp.reviewDate})
-                        </span>
-                      </>
-                    )}
-                  </div>
-
-                  {isEditing && (
-                    <div className="pt-3 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs bg-slate-50 p-4 rounded-xl">
-                      <div>
-                        <label className="block font-semibold text-slate-700 mb-1">
-                          مرز گروه تأیید می‌شود؟
-                        </label>
-                        <select
-                          value={grp.boundaryApproved}
-                          onChange={(e) =>
-                            onUpdateGroupAudit({
-                              ...grp,
-                              boundaryApproved: e.target.value as MultiMartyrGroupAudit['boundaryApproved']
-                            })
-                          }
-                          className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl"
-                        >
-                          <option value="نامشخص">نامشخص</option>
-                          <option value="بله">بله</option>
-                          <option value="خیر">خیر</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block font-semibold text-slate-700 mb-1">
-                          همه شهدا به همین کتاب مرتبط‌اند؟
-                        </label>
-                        <select
-                          value={grp.allMartyrsLinked}
-                          onChange={(e) =>
-                            onUpdateGroupAudit({
-                              ...grp,
-                              allMartyrsLinked: e.target.value as MultiMartyrGroupAudit['allMartyrsLinked']
-                            })
-                          }
-                          className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl"
-                        >
-                          <option value="نامشخص">نامشخص</option>
-                          <option value="بله">بله</option>
-                          <option value="خیر">خیر</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block font-semibold text-slate-700 mb-1">
-                          وضعیت تصمیم بازبین:
-                        </label>
-                        <select
-                          value={grp.decisionStatus}
-                          onChange={(e) =>
-                            onUpdateGroupAudit({
-                              ...grp,
-                              decisionStatus: e.target.value as MultiMartyrGroupAudit['decisionStatus'],
-                              reviewDate: new Intl.DateTimeFormat('fa-IR').format(new Date())
-                            })
-                          }
-                          className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl font-bold text-[#1f4e79]"
-                        >
-                          <option value="در انتظار بازبینی کارشناس">در انتظار بازبینی کارشناس</option>
-                          <option value="تأیید">تأیید</option>
-                          <option value="نیازمند پیگیری">نیازمند پیگیری</option>
-                          <option value="رد">رد</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block font-semibold text-slate-700 mb-1">
-                          نام بازبین:
-                        </label>
-                        <input
-                          type="text"
-                          value={grp.reviewerName}
-                          onChange={(e) =>
-                            onUpdateGroupAudit({
-                              ...grp,
-                              reviewerName: e.target.value,
-                              reviewDate: new Intl.DateTimeFormat('fa-IR').format(new Date())
-                            })
-                          }
-                          placeholder="نام کارشناس"
-                          className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl"
-                        />
-                      </div>
-
-                      <div className="sm:col-span-2 lg:col-span-4">
-                        <label className="block font-semibold text-slate-700 mb-1">
-                          دلیل تصمیم / یادداشت استنادی ردیف‌های منبع:
-                        </label>
-                        <input
-                          type="text"
-                          value={grp.reviewNote}
-                          onChange={(e) =>
-                            onUpdateGroupAudit({
-                              ...grp,
-                              reviewNote: e.target.value
-                            })
-                          }
-                          placeholder="توضیح درباره مرز گروه، شکست خط عنوان یا وضعیت مزار ناقص..."
-                          className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-slate-300 rounded-xl"
-                        />
-                      </div>
-
-                      <div className="sm:col-span-2 lg:col-span-4 flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
-                        <button
-                          type="button"
-                          onClick={() => setEditingGroupCode(null)}
-                          className="min-h-[38px] px-3.5 py-1.5 bg-white border border-slate-300 text-slate-700 rounded-xl font-medium"
-                        >
-                          بستن
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            requestActionConfirmation({
-                              title: 'تأیید نهایی تصمیم بازبین برای گروه چندشهیدی',
-                              message: `آیا از ثبت و ذخیره نهایی تصمیم «${grp.decisionStatus}» برای گروه ${grp.groupCode} («${grp.registeredTitle}») اطمینان دارید؟`,
-                              confirmLabel: 'بله، تصمیم ثبت نهایی شود',
-                              variant: grp.decisionStatus === 'رد' ? 'delete' : 'approve',
-                              onConfirm: () => {
-                                setEditingGroupCode(null);
-                                onNotify(`تصمیم کارشناس برای گروه ${grp.groupCode} با موفقیت در سامانه ثبت شد.`);
-                              }
-                            });
-                          }}
-                          className="min-h-[38px] px-5 py-1.5 bg-[#1f4e79] hover:bg-[#163a5b] text-white rounded-xl font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
-                        >
-                          <Check className="w-4 h-4" />
-                          <span>ثبت و ذخیره نهایی تصمیم بازبین</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* SubView 5: مرکز جامع خروجی انتشار سایت گلزار شهدا (golzarteh.ir) */}
+      {/* SubView 3: مرکز جامع خروجی انتشار سایت گلزار شهدا (golzarteh.ir) */}
       {subView === 'publish_gateway' && (() => {
-        const qNorm = normalizePersianText(publishSearchQuery);
+        const hasPubQ = Boolean(normalizePersianText(publishSearchQuery));
 
-        // رکوردهای معتبر قابل انتشار در سایت (پیش‌فرض: همه پیوندهای دارای نام شهید و همه ۳۰۹ مطلب استخراج‌شده غیر ردشده)
+        // رکوردهای معتبر قابل انتشار در سایت (همه پیوندهای دارای نام شهید و مطالب غیر ردشده با عنوان زنده کتاب)
         const publishableLinks = links.filter((l) => {
           if (!l.martyrNameRaw || l.martyrNameRaw === '*' || l.reviewStatus.includes('رد')) return false;
           if (publishScope === 'expert_only' && !l.reviewStatus.includes('تأیید')) return false;
@@ -2953,7 +2983,6 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
           return true;
         });
 
-        // تجمیع پرونده‌های آماده انتشار در سایت به ازای هر شهید (شامل کتاب‌ها، شماره صفحات و مطالب استخراج‌شده)
         const martyrPublishProfilesMap = new Map<
           string,
           {
@@ -2974,6 +3003,7 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
         publishableLinks.forEach((l) => {
           const normKey = normalizePersianText(l.martyrNameRaw);
+          const meta = resolveLiveBookMeta(l.tempBookId, l.bookTitleRaw, l.publisherRaw);
           let prof = martyrPublishProfilesMap.get(normKey);
           if (!prof) {
             prof = {
@@ -2992,8 +3022,8 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
 
           prof.books.push({
             bookId: l.tempBookId || '',
-            bookTitle: l.bookTitleRaw,
-            publisher: l.publisherRaw || '—',
+            bookTitle: meta.title,
+            publisher: meta.publisher,
             pageReference: l.pageReferenceRaw || 'ثبت در منبع',
             description: l.sourceDescriptionRaw || ''
           });
@@ -3017,19 +3047,20 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
         });
 
         const allMartyrPublishProfiles = Array.from(martyrPublishProfilesMap.values()).filter((p) => {
-          if (!qNorm) return true;
-          const hay = normalizePersianText(
-            `${p.martyrName} ${p.gravePiece} ${p.books.map((b) => `${b.bookTitle} ${b.publisher} ${b.pageReference}`).join(' ')} ${p.passages.map((ex) => `${ex.passageTitle} ${ex.extractedText}`).join(' ')}`
+          if (!hasPubQ) return true;
+          return matchesPersianSearch(
+            `${p.martyrName} ${p.gravePiece} ${p.books.map((b) => `${b.bookTitle} ${b.publisher} ${b.pageReference}`).join(' ')} ${p.passages.map((ex) => `${ex.passageTitle} ${ex.extractedText}`).join(' ')}`,
+            publishSearchQuery
           );
-          return qNorm.split(' ').every((w) => hay.includes(w));
         });
 
         const filteredPublishableExtracts = publishableExtracts.filter((it) => {
-          if (!qNorm) return true;
-          const hay = normalizePersianText(
-            `${it.martyrNameRaw} ${it.bookTitleRaw} ${it.passageTitle} ${it.extractedText} ${it.pageReferenceRaw} ${it.contentType}`
+          if (!hasPubQ) return true;
+          const meta = resolveLiveBookMeta(it.tempBookId, it.bookTitleRaw, it.publisherRaw);
+          return matchesPersianSearch(
+            `${it.martyrNameRaw} ${meta.title} ${meta.publisher} ${it.passageTitle} ${it.extractedText} ${it.pageReferenceRaw} ${it.contentType}`,
+            publishSearchQuery
           );
-          return qNorm.split(' ').every((w) => hay.includes(w));
         });
 
         const activeTotalCount =
@@ -3068,36 +3099,45 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
               .join(' | '),
             'تعداد مطالب و صفحات استخراج‌شده': p.passages.length,
             'متن کامل مطالب استخراج‌شده جهت درج در سایت': p.passages
-              .map((ex) => `[${ex.contentType} - کتاب ${ex.bookTitleRaw}، ص ${ex.pageReferenceRaw}]: ${ex.passageTitle} — ${ex.extractedText}`)
+              .map((ex) => {
+                const exMeta = resolveLiveBookMeta(ex.tempBookId, ex.bookTitleRaw, ex.publisherRaw);
+                return `[${ex.contentType} - کتاب ${exMeta.title}، ص ${ex.pageReferenceRaw}]: ${ex.passageTitle} — ${ex.extractedText}`;
+              })
               .join('\n\n')
           }));
 
-          const sheetExtractedPassages = filteredPublishableExtracts.map((it, idx) => ({
-            'ردیف': idx + 1,
-            'کد مطلب در سایت': `${externalIdPrefix}PUB-${String(idx + 1).padStart(4, '0')}`,
-            'نام شهید': it.martyrNameRaw,
-            'قطعه مزار': it.gravePieceRaw || '—',
-            'کد کتاب': it.tempBookId,
-            'عنوان کتاب': it.bookTitleRaw,
-            'ناشر': it.publisherRaw || '—',
-            'شماره صفحه در کتاب': it.pageReferenceRaw,
-            'نوع مطلب': it.contentType,
-            'عنوان مطلب': it.passageTitle,
-            'متن آماده انتشار در سایت': it.extractedText
-          }));
+          const sheetExtractedPassages = filteredPublishableExtracts.map((it, idx) => {
+            const itMeta = resolveLiveBookMeta(it.tempBookId, it.bookTitleRaw, it.publisherRaw);
+            return {
+              'ردیف': idx + 1,
+              'کد مطلب در سایت': `${externalIdPrefix}PUB-${String(idx + 1).padStart(4, '0')}`,
+              'نام شهید': it.martyrNameRaw,
+              'قطعه مزار': it.gravePieceRaw || '—',
+              'کد کتاب': it.tempBookId,
+              'عنوان کتاب': itMeta.title,
+              'ناشر': itMeta.publisher,
+              'شماره صفحه در کتاب': it.pageReferenceRaw,
+              'نوع مطلب': it.contentType,
+              'عنوان مطلب': it.passageTitle,
+              'متن آماده انتشار در سایت': it.extractedText
+            };
+          });
 
-          const sheetBookLinks = publishableLinks.map((l, idx) => ({
-            'ردیف': idx + 1,
-            'نام شهید': l.martyrNameRaw,
-            'قطعه': l.gravePieceRaw || '—',
-            'ردیف مزار': l.graveRowRaw || '—',
-            'شماره مزار': l.graveNumberRaw || '—',
-            'کد کتاب': l.tempBookId,
-            'عنوان کتاب': l.bookTitleRaw,
-            'ناشر': l.publisherRaw || '—',
-            'شماره صفحه': l.pageReferenceRaw || '—',
-            'توضیحات کتاب': l.sourceDescriptionRaw || '—'
-          }));
+          const sheetBookLinks = publishableLinks.map((l, idx) => {
+            const lMeta = resolveLiveBookMeta(l.tempBookId, l.bookTitleRaw, l.publisherRaw);
+            return {
+              'ردیف': idx + 1,
+              'نام شهید': l.martyrNameRaw,
+              'قطعه': l.gravePieceRaw || '—',
+              'ردیف مزار': l.graveRowRaw || '—',
+              'شماره مزار': l.graveNumberRaw || '—',
+              'کد کتاب': l.tempBookId,
+              'عنوان کتاب': lMeta.title,
+              'ناشر': lMeta.publisher,
+              'شماره صفحه': l.pageReferenceRaw || '—',
+              'توضیحات کتاب': l.sourceDescriptionRaw || '—'
+            };
+          });
 
           XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheetMartyrProfiles), 'پرونده شهدای سایت');
           XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheetExtractedPassages), 'مطالب و صفحات استخراج‌شده');
@@ -3150,14 +3190,17 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                 will_text: resolved.willText || null,
                 gallery_photos: resolved.photos,
                 linked_books: p.books,
-                extracted_passages: p.passages.map((it) => ({
-                  passage_id: it.id,
-                  book_title: it.bookTitleRaw,
-                  page_reference: it.pageReferenceRaw,
-                  content_type: it.contentType,
-                  title: it.passageTitle,
-                  text: it.extractedText
-                }))
+                extracted_passages: p.passages.map((it) => {
+                  const exMeta = resolveLiveBookMeta(it.tempBookId, it.bookTitleRaw, it.publisherRaw);
+                  return {
+                    passage_id: it.id,
+                    book_title: exMeta.title,
+                    page_reference: it.pageReferenceRaw,
+                    content_type: it.contentType,
+                    title: it.passageTitle,
+                    text: it.extractedText
+                  };
+                })
               };
             })
           };
@@ -3196,8 +3239,9 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
           if (p.passages.length > 0) {
             lines.push('📖 گزیده مطالب و صفحات استخراج‌شده:');
             p.passages.forEach((ex, i) => {
+              const exMeta = resolveLiveBookMeta(ex.tempBookId, ex.bookTitleRaw, ex.publisherRaw);
               lines.push(
-                `${i + 1}. [${ex.contentType} — کتاب «${ex.bookTitleRaw}»، ص ${ex.pageReferenceRaw}] ${ex.passageTitle}:`
+                `${i + 1}. [${ex.contentType} — کتاب «${exMeta.title}»، ص ${ex.pageReferenceRaw}] ${ex.passageTitle}:`
               );
               lines.push(ex.extractedText);
               lines.push('');
@@ -3353,8 +3397,10 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                     }}
                     className="min-h-[38px] px-2.5 py-1.5 rounded-xl bg-white border border-[#D8C7B2] text-[#332218] font-bold text-xs cursor-pointer"
                   >
-                    <option value="40">۴۰ مورد در صفحه</option>
+                    <option value="20">۲۰ مورد در صفحه</option>
+                    <option value="50">۵۰ مورد در صفحه</option>
                     <option value="100">۱۰۰ مورد در صفحه</option>
+                    <option value="200">۲۰۰ مورد در صفحه</option>
                     <option value="all">نمایش یکجای همه ({toPersianDigits(activeTotalCount)})</option>
                   </select>
                 </div>
@@ -3375,9 +3421,13 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                           <span className="font-mono text-[10.5px] text-[#78604E] block" dir="ltr">
                             {externalIdPrefix}SH-{String(pubStartIdx + idx + 1).padStart(4, '0')}
                           </span>
-                          <h4 className="text-sm sm:text-base font-bold text-[#332218] mt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenMartyrInspector(p.martyrName)}
+                            className="text-sm sm:text-base font-bold text-[#1F4E79] hover:underline mt-0.5 text-right cursor-pointer"
+                          >
                             شهید {p.martyrName}
-                          </h4>
+                          </button>
                         </div>
                         <span className="px-2.5 py-1 rounded-lg bg-[#FAF5EE] border border-[#E2D2BE] text-[#5C4033] font-bold tabular-nums">
                           قطعه {toPersianDigits(p.gravePiece)}
@@ -3397,9 +3447,13 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                               key={bIdx}
                               className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-lg px-2.5 py-1.5 flex flex-wrap items-center justify-between gap-1"
                             >
-                              <span className="font-bold text-[#332218]">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenBookInspector(b.bookId, b.bookTitle)}
+                                className="font-bold text-[#332218] hover:text-[#1F4E79] hover:underline text-right cursor-pointer"
+                              >
                                 «{b.bookTitle}» <span className="font-normal text-[#6E5846]">({b.publisher})</span>
-                              </span>
+                              </button>
                               <span className="font-mono font-bold text-[#6B3E26] tabular-nums">
                                 صفحه: {toPersianDigits(b.pageReference)}
                               </span>
@@ -3462,7 +3516,9 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#EFE4D6]">
-                      {visiblePublishExtracts.map((it, idx) => (
+                      {visiblePublishExtracts.map((it, idx) => {
+                        const itMeta = resolveLiveBookMeta(it.tempBookId, it.bookTitleRaw, it.publisherRaw);
+                        return (
                         <tr key={it.id} className="hover:bg-[#FAF5EE]">
                           <td className="py-2.5 px-3 text-center font-mono text-[#78604E]">
                             {toPersianDigits(pubStartIdx + idx + 1)}
@@ -3470,11 +3526,27 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                           <td className="py-2.5 px-3 font-mono font-bold text-[#2E6F40]" dir="ltr">
                             {externalIdPrefix}PUB-{String(pubStartIdx + idx + 1).padStart(4, '0')}
                           </td>
-                          <td className="py-2.5 px-3 font-bold text-[#332218]">{it.martyrNameRaw}</td>
+                          <td className="py-2.5 px-3 font-bold text-[#332218]">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenMartyrInspector(it.martyrNameRaw)}
+                              className="font-bold text-[#1F4E79] hover:underline text-right cursor-pointer"
+                            >
+                              {it.martyrNameRaw}
+                            </button>
+                          </td>
                           <td className="py-2.5 px-3 tabular-nums text-[#5C4033]">
                             {toPersianDigits(it.gravePieceRaw || '—')}
                           </td>
-                          <td className="py-2.5 px-3 font-bold text-[#6B3E26]">{it.bookTitleRaw}</td>
+                          <td className="py-2.5 px-3 font-bold text-[#6B3E26]">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenBookInspector(it.tempBookId, itMeta.title)}
+                              className="font-bold text-[#6B3E26] hover:underline text-right cursor-pointer"
+                            >
+                              {itMeta.title}
+                            </button>
+                          </td>
                           <td className="py-2.5 px-3 font-bold text-[#332218] tabular-nums">
                             {toPersianDigits(it.pageReferenceRaw)}
                           </td>
@@ -3484,7 +3556,8 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                             <div className="text-[11px] text-[#5C4033] mt-0.5">{it.extractedText}</div>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -3560,16 +3633,16 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
                       نمایش یکجای همه ({toPersianDigits(activeTotalCount)} مورد)
                     </button>
                   ) : (
-                    activeTotalCount > 40 && (
+                    activeTotalCount > 20 && (
                       <button
                         type="button"
                         onClick={() => {
-                          setPublishPageSize(40);
+                          setPublishPageSize(20);
                           setPublishPage(1);
                         }}
                         className="px-3 py-1.5 rounded-lg bg-[#FAF5EE] border border-[#D8C7B2] text-[#5C4033] font-bold hover:bg-[#F3E9DC] cursor-pointer"
                       >
-                        بازگشت به نمایش صفحه‌بندی (۴۰تایی)
+                        بازگشت به نمایش صفحه‌بندی (۲۰تایی)
                       </button>
                     )
                   )}
@@ -3580,258 +3653,600 @@ export const ResearchAndLinksTab: React.FC<ResearchAndLinksTabProps> = ({
         );
       })()}
 
-      {/* SubView: اکسل قطعات شهدا (شیت یک شهید و شیت چند شهید — بدون شیت راهنمای ۱۹۶تایی) */}
-      {subView === 'ghatat_sheets' && (() => {
-        const qNorm = normalizePersianText(ghatatQuery);
-        const oneMartyrRows = links.filter((l) => {
-          if (l.sourceSheet !== 'یک شهید') return false;
-          if (!qNorm) return true;
-          return normalizePersianText(
-            `${l.martyrNameRaw} ${l.bookTitleRaw} ${l.alternativeTitle || ''} ${l.publisherRaw} ${l.sourceDescriptionRaw} ${l.gravePieceRaw}`
-          ).includes(qNorm);
-        });
-        const multiMartyrRows = links.filter((l) => {
-          if (l.sourceSheet !== 'چند شهید') return false;
-          if (!qNorm) return true;
-          return normalizePersianText(
-            `${l.martyrNameRaw} ${l.bookTitleRaw} ${l.publisherRaw} ${l.sourceDescriptionRaw} ${l.gravePieceRaw}`
-          ).includes(qNorm);
-        });
+      {/* ===================== PHASE 3 MODAL 1: IN-PLACE BOOK INSPECTOR & QUICK EDIT ===================== */}
+      {inspectingBookTarget && (() => {
+        const meta = resolveLiveBookMeta(inspectingBookTarget.bookId, inspectingBookTarget.fallbackTitle);
+        const bookLinks = links.filter(
+          (l) =>
+            (inspectingBookTarget.bookId && l.tempBookId === inspectingBookTarget.bookId) ||
+            normalizePersianText(l.bookTitleRaw) === normalizePersianText(meta.title)
+        );
+        return (
+          <ModalWindow
+            onClose={() => setInspectingBookTarget(null)}
+            title={`پرونده و ویرایش درجا کتاب (${inspectingBookTarget.bookId || '—'})`}
+            maxWidthClass="max-w-2xl"
+          >
+            <div className="space-y-4 text-xs">
+              <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="space-y-0.5">
+                  <div className="font-bold text-sm text-[#332218] flex items-center gap-1.5">
+                    <BookOpenCheck className="w-4 h-4 text-[#6B3E26]" />
+                    <span>{meta.title}</span>
+                  </div>
+                  <div className="text-[11px] text-[#6E5846]">
+                    ناشر فعلی: {meta.publisher} · محل قفسه فعلی: {meta.location}
+                  </div>
+                </div>
+                {inspectingBookTarget.bookId && (
+                  <span className="font-mono font-bold px-2.5 py-1 rounded-lg bg-white border border-[#D8C7B2] text-[#1F4E79]" dir="ltr">
+                    {inspectingBookTarget.bookId}
+                  </span>
+                )}
+              </div>
 
-        const activeRows = ghatatActiveSheet === 'one' ? oneMartyrRows : multiMartyrRows;
-        const ghTotalPages =
-          ghatatPageSize === 'all' ? 1 : Math.max(1, Math.ceil(activeRows.length / ghatatPageSize));
-        const ghSafePage = Math.min(ghatatPage, ghTotalPages);
-        const ghStartIdx = ghatatPageSize === 'all' ? 0 : (ghSafePage - 1) * ghatatPageSize;
-        const visibleGhatatRows =
-          ghatatPageSize === 'all' ? activeRows : activeRows.slice(ghStartIdx, ghStartIdx + ghatatPageSize);
+              <form onSubmit={handleSaveBookInspector} className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-[#332218] mb-1">عنوان کتاب *</label>
+                    <input
+                      type="text"
+                      required
+                      value={bookFormTitle}
+                      onChange={(e) => setBookFormTitle(e.target.value)}
+                      className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-[#332218] mb-1">ناشر</label>
+                    <input
+                      type="text"
+                      value={bookFormPublisher}
+                      onChange={(e) => setBookFormPublisher(e.target.value)}
+                      className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl"
+                    />
+                  </div>
+                </div>
 
-        const handleExportGhatatExcel = () => {
-          const wb = XLSX.utils.book_new();
-          const ws1 = XLSX.utils.json_to_sheet(
-            links
-              .filter((l) => l.sourceSheet === 'یک شهید')
-              .map((l, idx) => ({
-                'ردیف': idx + 1,
-                'انتشارات': l.publisherRaw,
-                'عنوان کتاب': l.bookTitleRaw,
-                'عنوان دیگر': l.alternativeTitle || '',
-                'توضیحات': l.sourceDescriptionRaw,
-                'نام و نام خانوادگی شهید': l.martyrNameRaw,
-                'قطعه': l.gravePieceRaw,
-                'ردیف مزار': l.graveRowRaw,
-                'شماره': l.graveNumberRaw,
-                'شناسه کتاب در مخزن': l.tempBookId
-              }))
-          );
-          const ws2 = XLSX.utils.json_to_sheet(
-            links
-              .filter((l) => l.sourceSheet === 'چند شهید')
-              .map((l, idx) => ({
-                'ردیف': idx + 1,
-                'انتشارات': l.publisherRaw,
-                'عنوان کتاب': l.bookTitleRaw,
-                'توضیحات': l.sourceDescriptionRaw,
-                'نام و نام خانوادگی شهید': l.martyrNameRaw,
-                'قطعه': l.gravePieceRaw,
-                'ردیف مزار': l.graveRowRaw,
-                'شماره': l.graveNumberRaw,
-                'شناسه کتاب در مخزن': l.tempBookId
-              }))
-          );
-          XLSX.utils.book_append_sheet(wb, ws1, 'یک شهید');
-          XLSX.utils.book_append_sheet(wb, ws2, 'چند شهید');
-          XLSX.writeFile(wb, `قطعات-شهدا-${new Date().toISOString().slice(0, 10)}.xlsx`);
-          onNotify('فایل اکسل «قطعات شهدا» (شیت یک شهید و شیت چند شهید) دانلود شد.');
-        };
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-medium text-[#5C4033] mb-1">نویسنده / گردآورنده</label>
+                    <input
+                      type="text"
+                      value={bookFormAuthor}
+                      onChange={(e) => setBookFormAuthor(e.target.value)}
+                      className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-[#5C4033] mb-1">سال نشر</label>
+                    <input
+                      type="text"
+                      value={bookFormYear}
+                      onChange={(e) => setBookFormYear(e.target.value)}
+                      className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl tabular-nums"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-[#5C4033] mb-1">دسته موضوعی</label>
+                    <input
+                      type="text"
+                      value={bookFormCategory}
+                      onChange={(e) => setBookFormCategory(e.target.value)}
+                      className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-medium text-[#5C4033] mb-1">قفسه</label>
+                    <select
+                      value={bookFormShelf}
+                      onChange={(e) => setBookFormShelf(e.target.value as ShelfCode)}
+                      className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-[#D8C7B2] rounded-xl font-bold"
+                    >
+                      {SHELVES.map((s) => (
+                        <option key={s.code} value={s.code}>
+                          {s.code}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-medium text-[#5C4033] mb-1">طبقه</label>
+                    <select
+                      value={bookFormLevel}
+                      onChange={(e) => setBookFormLevel(e.target.value as LevelCode)}
+                      className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-[#D8C7B2] rounded-xl font-bold"
+                    >
+                      {LEVELS.map((l) => (
+                        <option key={l.code} value={l.code}>
+                          {l.code}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="block font-medium text-[#5C4033] mb-1">وضعیت فیزیکی</label>
+                    <select
+                      value={bookFormStatus}
+                      onChange={(e) => setBookFormStatus(e.target.value as 'verified' | 'review' | 'not_found')}
+                      className="w-full min-h-[40px] px-2.5 py-1.5 bg-white border border-[#D8C7B2] rounded-xl font-bold"
+                    >
+                      <option value="verified">موجود و تأییدشده</option>
+                      <option value="review">نیازمند بررسی</option>
+                      <option value="not_found">پیدا نشد</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-medium text-[#5C4033] mb-1">یادداشت کتابخانه</label>
+                  <textarea
+                    rows={2}
+                    value={bookFormNotes}
+                    onChange={(e) => setBookFormNotes(e.target.value)}
+                    className="w-full p-2.5 bg-white border border-[#D8C7B2] rounded-xl"
+                  />
+                </div>
+
+                <label className="inline-flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={bookFormExpertApproved}
+                    onChange={(e) => setBookFormExpertApproved(e.target.checked)}
+                    className="w-4 h-4 accent-[#2E6F40]"
+                  />
+                  <span className="font-bold text-[#1E4D2B]">مهر تأیید کارشناسی کتابخانه</span>
+                </label>
+
+                <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-[#EFE4D6]">
+                  <button
+                    type="button"
+                    onClick={() => setInspectingBookTarget(null)}
+                    className="min-h-[40px] px-4 py-1.5 bg-[#FAF5EE] border border-[#D8C7B2] text-[#332218] font-bold rounded-xl cursor-pointer"
+                  >
+                    بستن
+                  </button>
+                  {onSaveAuditRecord && (
+                    <button
+                      type="submit"
+                      className="min-h-[40px] px-5 py-1.5 bg-[#2E6F40] hover:bg-[#235632] text-white font-bold rounded-xl inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Check className="w-4 h-4" />
+                      <span>ذخیره و همگام‌سازی کتاب</span>
+                    </button>
+                  )}
+                </div>
+              </form>
+
+              {bookLinks.length > 0 && (
+                <div className="pt-3 border-t border-[#EFE4D6] space-y-2">
+                  <div className="font-bold text-[#332218]">
+                    شهدای متصل به این کتاب ({toPersianDigits(bookLinks.length)} پیوند):
+                  </div>
+                  <div className="max-h-44 overflow-y-auto space-y-1.5">
+                    {bookLinks.map((lnk) => (
+                      <div
+                        key={lnk.id}
+                        className="flex flex-wrap items-center justify-between gap-2 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl px-3 py-2"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInspectingBookTarget(null);
+                            handleOpenMartyrInspector(lnk.martyrNameRaw);
+                          }}
+                          className="font-bold text-[#1F4E79] hover:underline cursor-pointer"
+                        >
+                          {lnk.martyrNameRaw}
+                        </button>
+                        <div className="flex items-center gap-2 text-[11px] text-[#5C4033]">
+                          <span>ص: {toPersianDigits(lnk.pageReferenceRaw || '—')}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInspectingBookTarget(null);
+                              handleOpenLinkEditor(lnk.id);
+                            }}
+                            className="px-2 py-0.5 rounded-lg bg-white border border-[#D8C7B2] text-[#332218] font-bold hover:bg-[#EFE4D6] cursor-pointer"
+                          >
+                            ویرایش پیوند
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </ModalWindow>
+        );
+      })()}
+
+      {/* ===================== PHASE 3 MODAL 2: IN-PLACE MARTYR INSPECTOR & CUSTOM EDIT ===================== */}
+      {inspectingMartyrName && (() => {
+        const cleanM = inspectingMartyrName.replace(/^(شهیدان|شهید)\s+/g, '').trim();
+        const normM = normalizePersianText(cleanM);
+        const martyrLinks = links.filter((l) => {
+          const ln = normalizePersianText(l.martyrNameRaw.replace(/^(شهیدان|شهید)\s+/g, ''));
+          return ln && (ln === normM || ln.includes(normM) || normM.includes(ln));
+        });
+        const martyrExtracts = extractedItems.filter((ex) => {
+          const en = normalizePersianText(ex.martyrNameRaw.replace(/^(شهیدان|شهید)\s+/g, ''));
+          return en && (en === normM || en.includes(normM) || normM.includes(en));
+        });
+        const golzarMatch = workbookMartyrs.find(
+          (w) => normalizePersianText(w.fullNameSearch) === normM
+        );
+        const firstLnk = martyrLinks[0];
+        const graveText =
+          (golzarMatch
+            ? `قطعه ${toPersianDigits(golzarMatch.piece || '—')} · ردیف ${toPersianDigits(golzarMatch.graveRow || '—')} · شماره ${toPersianDigits(golzarMatch.graveNumber || '—')}`
+            : firstLnk && (firstLnk.gravePieceRaw || firstLnk.graveRowRaw || firstLnk.graveNumberRaw)
+            ? `قطعه ${toPersianDigits(firstLnk.gravePieceRaw || '—')} · ردیف ${toPersianDigits(firstLnk.graveRowRaw || '—')} · شماره ${toPersianDigits(firstLnk.graveNumberRaw || '—')}`
+            : 'درج‌نشده');
 
         return (
-          <div className="bg-white border border-[#E2D2BE] rounded-2xl p-4 sm:p-5 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EFE4D6] pb-3">
-              <div>
-                <h3 className="text-base font-bold text-[#332218]">
-                  فایل قطعات شهدا
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={handleExportGhatatExcel}
-                className="min-h-[38px] px-4 py-1.5 rounded-xl bg-[#2E6F40] hover:bg-[#235632] text-white font-bold text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                <span>دانلود اکسل قطعات شهدا</span>
-              </button>
-            </div>
-
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="flex flex-wrap gap-1.5 p-1 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl text-xs font-bold">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGhatatActiveSheet('one');
-                    setGhatatPage(1);
-                  }}
-                  className={`px-3.5 py-2 rounded-lg transition-colors cursor-pointer ${
-                    ghatatActiveSheet === 'one'
-                      ? 'bg-[#6B3E26] text-white'
-                      : 'text-[#5C4033] hover:bg-[#EFE4D6]'
-                  }`}
-                >
-                  ۱. شیت «یک شهید» ({toPersianDigits(oneMartyrRows.length)})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGhatatActiveSheet('multi');
-                    setGhatatPage(1);
-                  }}
-                  className={`px-3.5 py-2 rounded-lg transition-colors cursor-pointer ${
-                    ghatatActiveSheet === 'multi'
-                      ? 'bg-[#6B3E26] text-white'
-                      : 'text-[#5C4033] hover:bg-[#EFE4D6]'
-                  }`}
-                >
-                  ۲. شیت «چند شهید» ({toPersianDigits(multiMartyrRows.length)})
-                </button>
-              </div>
-
-              <div className="relative flex-1 max-w-md">
-                <Search className="w-4 h-4 text-[#78604E] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="search"
-                  value={ghatatQuery}
-                  onChange={(e) => {
-                    setGhatatQuery(e.target.value);
-                    setGhatatPage(1);
-                  }}
-                  placeholder="جست‌وجوی نام شهید، عنوان کتاب (مثلاً آخرین نامه، با مرام)، ناشر یا قطعه..."
-                  className="w-full min-h-[40px] pr-10 pl-3 py-2 text-xs bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl focus:bg-white focus:outline-none focus:border-[#6B3E26]"
-                />
-              </div>
-            </div>
-
-            <div className="overflow-x-auto border border-[#E2D2BE] rounded-xl">
-              <table className="w-full text-xs text-right border-collapse">
-                <thead>
-                  <tr className="bg-[#F6EFE6] text-[#332218] border-b border-[#E2D2BE] font-bold">
-                    <th className="py-2.5 px-3 w-12 text-center">ردیف</th>
-                    <th className="py-2.5 px-3">انتشارات</th>
-                    <th className="py-2.5 px-3">عنوان کتاب</th>
-                    <th className="py-2.5 px-3">توضیحات</th>
-                    <th className="py-2.5 px-3">نام و نام خانوادگی شهید</th>
-                    <th className="py-2.5 px-3 text-center">قطعه</th>
-                    <th className="py-2.5 px-3 text-center">ردیف</th>
-                    <th className="py-2.5 px-3 text-center">شماره</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#EFE4D6]">
-                  {visibleGhatatRows.map((row, idx) => (
-                    <tr key={row.id} className="hover:bg-[#FAF5EE]">
-                      <td className="py-2 px-3 text-center font-mono text-[#78604E]">
-                        {toPersianDigits(ghStartIdx + idx + 1)}
-                      </td>
-                      <td className="py-2 px-3 text-[#5C4033]">{row.publisherRaw || '—'}</td>
-                      <td className="py-2 px-3 font-bold text-[#6B3E26]">
-                        {row.bookTitleRaw}
-                        {row.alternativeTitle ? ` (${row.alternativeTitle})` : ''}
-                      </td>
-                      <td className="py-2 px-3 text-[#332218]">{row.sourceDescriptionRaw || '—'}</td>
-                      <td className="py-2 px-3 font-bold text-[#332218]">{row.martyrNameRaw}</td>
-                      <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(row.gravePieceRaw || '—')}</td>
-                      <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(row.graveRowRaw || '—')}</td>
-                      <td className="py-2 px-3 text-center tabular-nums">{toPersianDigits(row.graveNumberRaw || '—')}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {activeRows.length > 0 && (
-              <div className="p-3 bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div className="text-[#5C4033]">
-                  نمایش {toPersianDigits(visibleGhatatRows.length)} از {toPersianDigits(activeRows.length)} ردیف
+          <ModalWindow
+            onClose={() => setInspectingMartyrName(null)}
+            title={`پرونده درجا شهید: ${inspectingMartyrName}`}
+            maxWidthClass="max-w-2xl"
+          >
+            <div className="space-y-4 text-xs">
+              <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-2">
+                <div className="space-y-1">
+                  <div className="font-bold text-sm text-[#332218] flex items-center gap-1.5 flex-wrap">
+                    <UserCheck className="w-4 h-4 text-[#1F4E79]" />
+                    <span>{inspectingMartyrName}</span>
+                    {evaluateMartyrTehranStatus({
+                      martyrName: inspectingMartyrName,
+                      gravePiece: golzarMatch?.piece || firstLnk?.gravePieceRaw || ''
+                    }).isTehran && <TehranMartyrBadge size="xs" />}
+                  </div>
+                  <div className="text-[11px] text-[#5C4033] flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5 text-[#8C3B2B]" />
+                    <span>نشانی مزار: {graveText}</span>
+                  </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {ghatatPageSize !== 'all' && ghTotalPages > 1 && (
-                    <>
-                      <button
-                        type="button"
-                        disabled={ghSafePage <= 1}
-                        onClick={() => setGhatatPage((p) => Math.max(1, p - 1))}
-                        className="px-3 py-1 rounded-lg bg-white border border-[#D8C7B2] text-[#332218] font-bold disabled:opacity-40 cursor-pointer"
-                      >
-                        → صفحه قبل
-                      </button>
-                      {Array.from({ length: ghTotalPages }, (_, i) => i + 1).map((pageNum) => (
-                        <button
-                          key={pageNum}
-                          type="button"
-                          onClick={() => setGhatatPage(pageNum)}
-                          className={`min-w-[32px] px-2 py-1 rounded-lg border font-bold tabular-nums cursor-pointer ${
-                            ghSafePage === pageNum
-                              ? 'bg-[#6B3E26] text-white border-[#6B3E26]'
-                              : 'bg-white text-[#332218] border-[#D8C7B2]'
-                          }`}
-                        >
-                          {toPersianDigits(pageNum)}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        disabled={ghSafePage >= ghTotalPages}
-                        onClick={() => setGhatatPage((p) => Math.min(ghTotalPages, p + 1))}
-                        className="px-3 py-1 rounded-lg bg-[#6B3E26] text-white font-bold disabled:opacity-40 cursor-pointer"
-                      >
-                        صفحه بعد (ادامه اسامی) ←
-                      </button>
-                    </>
-                  )}
-                  {ghatatPageSize !== 'all' ? (
+
+                {onJumpToSmartSearch && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = inspectingMartyrName;
+                      setInspectingMartyrName(null);
+                      onJumpToSmartSearch(target);
+                    }}
+                    className="min-h-[36px] px-3 py-1.5 rounded-xl bg-[#1F4E79] hover:bg-[#163A5B] text-white font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>جست‌وجوی هوشمند کتاب‌ها</span>
+                  </button>
+                )}
+              </div>
+
+              {editingCustomMartyrId && onUpdateCustomMartyr && (
+                <form
+                  onSubmit={handleSaveCustomMartyrInspector}
+                  className="bg-[#F0F7F4] border border-[#C2DFCE] rounded-xl p-3.5 space-y-2.5"
+                >
+                  <div className="font-bold text-[#1E4D2B] flex items-center gap-1.5">
+                    <Pencil className="w-3.5 h-3.5" />
+                    <span>ویرایش مستقیم پرونده شهید مستقل ({editingCustomMartyrId})</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-bold text-[#332218] mb-0.5">نام کامل *</label>
+                      <input
+                        type="text"
+                        required
+                        value={cmFullName}
+                        onChange={(e) => setCmFullName(e.target.value)}
+                        className="w-full min-h-[36px] px-2.5 py-1 bg-white border border-[#C2DFCE] rounded-lg font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-[#5C4033] mb-0.5">قطعه</label>
+                      <input
+                        type="text"
+                        value={cmPiece}
+                        onChange={(e) => setCmPiece(e.target.value)}
+                        className="w-full min-h-[36px] px-2.5 py-1 bg-white border border-[#C2DFCE] rounded-lg tabular-nums"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <div>
+                        <label className="block text-[11px] font-medium text-[#5C4033] mb-0.5">ردیف</label>
+                        <input
+                          type="text"
+                          value={cmRow}
+                          onChange={(e) => setCmRow(e.target.value)}
+                          className="w-full min-h-[36px] px-2 py-1 bg-white border border-[#C2DFCE] rounded-lg tabular-nums"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-[#5C4033] mb-0.5">شماره</label>
+                        <input
+                          type="text"
+                          value={cmNumber}
+                          onChange={(e) => setCmNumber(e.target.value)}
+                          className="w-full min-h-[36px] px-2 py-1 bg-white border border-[#C2DFCE] rounded-lg tabular-nums"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
+                    <div className="flex-1">
+                      <label className="block text-[11px] font-medium text-[#5C4033] mb-0.5">توضیحات</label>
+                      <input
+                        type="text"
+                        value={cmNotes}
+                        onChange={(e) => setCmNotes(e.target.value)}
+                        className="w-full min-h-[36px] px-2.5 py-1 bg-white border border-[#C2DFCE] rounded-lg"
+                      />
+                    </div>
                     <button
-                      type="button"
-                      onClick={() => {
-                        setGhatatPageSize('all');
-                        setGhatatPage(1);
-                      }}
-                      className="px-3 py-1 rounded-lg bg-white border border-[#6B3E26] text-[#6B3E26] font-bold cursor-pointer"
+                      type="submit"
+                      className="min-h-[36px] px-4 py-1.5 bg-[#2E6F40] hover:bg-[#235632] text-white font-bold rounded-lg cursor-pointer shrink-0"
                     >
-                      نمایش یکجای همه ({toPersianDigits(activeRows.length)} مورد)
+                      ذخیره و همگام‌سازی شهید
                     </button>
-                  ) : (
-                    activeRows.length > 50 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setGhatatPageSize(50);
-                          setGhatatPage(1);
-                        }}
-                        className="px-3 py-1 rounded-lg bg-white border border-[#D8C7B2] text-[#5C4033] font-bold cursor-pointer"
-                      >
-                        نمایش صفحه‌بندی (۵۰تایی)
-                      </button>
-                    )
-                  )}
+                  </div>
+                </form>
+              )}
+
+              <div className="space-y-2">
+                <div className="font-bold text-[#332218]">
+                  کتاب‌ها و پیوندهای این شهید ({toPersianDigits(martyrLinks.length)} مورد):
                 </div>
+                {martyrLinks.length === 0 ? (
+                  <p className="text-[#6E5846] bg-[#FAF5EE] rounded-xl p-3">پیوندی ثبت نشده است.</p>
+                ) : (
+                  <div className="max-h-52 overflow-y-auto space-y-1.5">
+                    {martyrLinks.map((lnk) => {
+                      const bMeta = resolveLiveBookMeta(lnk.tempBookId, lnk.bookTitleRaw, lnk.publisherRaw);
+                      return (
+                        <div
+                          key={lnk.id}
+                          className="bg-white border border-[#E2D2BE] rounded-xl p-2.5 flex flex-wrap items-center justify-between gap-2"
+                        >
+                          <div className="space-y-0.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setInspectingMartyrName(null);
+                                handleOpenBookInspector(lnk.tempBookId, bMeta.title);
+                              }}
+                              className="font-bold text-[#6B3E26] hover:underline text-right cursor-pointer"
+                            >
+                              کتاب «{bMeta.title}» ({bMeta.publisher})
+                            </button>
+                            <div className="text-[11px] text-[#5C4033]">
+                              صفحه: {toPersianDigits(lnk.pageReferenceRaw || '—')} · وضعیت: {lnk.reviewStatus}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setInspectingMartyrName(null);
+                                handleOpenLinkEditor(lnk.id);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-[#FAF5EE] border border-[#D8C7B2] text-[#332218] font-bold hover:bg-[#EFE4D6] cursor-pointer"
+                            >
+                              ویرایش پیوند
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setInspectingMartyrName(null);
+                                handleStartExtractFromLink(lnk);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-[#EDF6F0] border border-[#C6DFCD] text-[#1E4D2B] font-bold hover:bg-[#DDF0E3] cursor-pointer"
+                            >
+                              + ثبت مطلب
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+
+              {martyrExtracts.length > 0 && (
+                <div className="space-y-1.5 pt-2 border-t border-[#EFE4D6]">
+                  <div className="font-bold text-[#2E6F40]">
+                    مطالب استخراج‌شده ({toPersianDigits(martyrExtracts.length)} مورد):
+                  </div>
+                  <div className="max-h-40 overflow-y-auto space-y-1.5">
+                    {martyrExtracts.map((ex) => {
+                      const exMeta = resolveLiveBookMeta(ex.tempBookId, ex.bookTitleRaw, ex.publisherRaw);
+                      return (
+                        <div key={ex.id} className="bg-[#EDF6F0] border border-[#C6DFCD] rounded-xl p-2.5">
+                          <div className="font-bold text-[#1E4D2B]">
+                            [{ex.contentType}] {ex.passageTitle} — کتاب «{exMeta.title}» (ص {toPersianDigits(ex.pageReferenceRaw)})
+                          </div>
+                          <p className="text-[11px] text-[#332218] mt-1 line-clamp-2">{ex.extractedText}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end pt-2 border-t border-[#EFE4D6]">
+                <button
+                  type="button"
+                  onClick={() => setInspectingMartyrName(null)}
+                  className="min-h-[38px] px-4 py-1.5 bg-[#FAF5EE] border border-[#D8C7B2] text-[#332218] font-bold rounded-xl cursor-pointer"
+                >
+                  بستن
+                </button>
+              </div>
+            </div>
+          </ModalWindow>
         );
       })()}
 
-      {/* SubView: Master Depository and 2-Way Final Export Hub */}
-      {subView === 'depository' && (
-        <DepositoryAndExportHub
-          catalogRows={catalogRows}
-          auditRecords={auditRecords}
-          bookCopies={bookCopies}
-          links={links}
-          pendingReviews={pendingReviews}
-          workbookMartyrs={workbookMartyrs}
-          extractedItems={extractedItems}
-          onNotify={onNotify}
-          onJumpToSmartSearch={onJumpToSmartSearch}
-        />
-      )}
+      {/* ===================== PHASE 3 MODAL 3: IN-PLACE LINK QUICK EDITOR ===================== */}
+      {editingLinkRecord && (() => {
+        const meta = resolveLiveBookMeta(
+          editingLinkRecord.tempBookId,
+          editingLinkRecord.bookTitleRaw,
+          editingLinkRecord.publisherRaw
+        );
+        return (
+          <ModalWindow
+            onClose={() => setEditingLinkRecord(null)}
+            title={`ویرایش درجا پیوند کتاب و شهید (${editingLinkRecord.id})`}
+            maxWidthClass="max-w-xl"
+          >
+            <form onSubmit={handleSaveLinkEditor} className="space-y-3.5 text-xs">
+              <div className="bg-[#FAF5EE] border border-[#E2D2BE] rounded-xl p-3 space-y-0.5">
+                <div className="font-bold text-[#6B3E26] text-sm">کتاب «{meta.title}»</div>
+                <div className="text-[11px] text-[#6E5846]">
+                  ناشر: {meta.publisher} · شناسه کتاب: {editingLinkRecord.tempBookId || '—'}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-[#332218] mb-1">نام شهید / عبارت مرتبط *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editLinkMartyrName}
+                    onChange={(e) => setEditLinkMartyrName(e.target.value)}
+                    className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-[#332218] mb-1">شماره صفحه در کتاب</label>
+                  <input
+                    type="text"
+                    value={editLinkPageRef}
+                    onChange={(e) => setEditLinkPageRef(e.target.value)}
+                    placeholder="مثال: ص ۴۵ تا ۵۲"
+                    className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl tabular-nums"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block font-medium text-[#5C4033] mb-1">قطعه</label>
+                  <input
+                    type="text"
+                    value={editLinkPiece}
+                    onChange={(e) => setEditLinkPiece(e.target.value)}
+                    className="w-full min-h-[38px] px-2.5 py-1 bg-white border border-[#D8C7B2] rounded-xl tabular-nums"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-[#5C4033] mb-1">ردیف</label>
+                  <input
+                    type="text"
+                    value={editLinkRow}
+                    onChange={(e) => setEditLinkRow(e.target.value)}
+                    className="w-full min-h-[38px] px-2.5 py-1 bg-white border border-[#D8C7B2] rounded-xl tabular-nums"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-[#5C4033] mb-1">شماره قبر</label>
+                  <input
+                    type="text"
+                    value={editLinkNumber}
+                    onChange={(e) => setEditLinkNumber(e.target.value)}
+                    className="w-full min-h-[38px] px-2.5 py-1 bg-white border border-[#D8C7B2] rounded-xl tabular-nums"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-medium text-[#5C4033] mb-1">توضیح ارتباط / شرح منبع</label>
+                <input
+                  type="text"
+                  value={editLinkSourceDesc}
+                  onChange={(e) => setEditLinkSourceDesc(e.target.value)}
+                  className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+                <div>
+                  <label className="block font-bold text-[#332218] mb-1">وضعیت بازبینی کارشناس</label>
+                  <select
+                    value={editLinkReviewStatus}
+                    onChange={(e) => setEditLinkReviewStatus(e.target.value)}
+                    className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl font-bold"
+                  >
+                    <option value="تأییدشده کارشناسی">تأییدشده کارشناسی</option>
+                    <option value="نیازمند بررسی">نیازمند بررسی</option>
+                    <option value="نیازمند تکمیل مزار">نیازمند تکمیل مزار</option>
+                    <option value="نیازمند تطبیق کتاب">نیازمند تطبیق کتاب</option>
+                    <option value="ردشده با دلیل">ردشده با دلیل</option>
+                  </select>
+                </div>
+
+                <label className="inline-flex items-center gap-2 pt-4 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editLinkIsGroup}
+                    onChange={(e) => setEditLinkIsGroup(e.target.checked)}
+                    className="w-4 h-4 accent-[#6B3E26]"
+                  />
+                  <span className="font-medium text-[#332218]">عبارت گروهی چندشهیدی است</span>
+                </label>
+              </div>
+
+              <div>
+                <label className="block font-medium text-[#5C4033] mb-1">یادداشت کارشناس</label>
+                <input
+                  type="text"
+                  value={editLinkNote}
+                  onChange={(e) => setEditLinkNote(e.target.value)}
+                  className="w-full min-h-[40px] px-3 py-1.5 bg-white border border-[#D8C7B2] rounded-xl"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-[#EFE4D6]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const id = editingLinkRecord.id;
+                    setEditingLinkRecord(null);
+                    handleConfirmDeleteLink(id);
+                  }}
+                  className="min-h-[40px] px-3.5 py-1.5 bg-[#FDF0F0] hover:bg-[#FADADA] text-[#A63A3A] border border-[#E6B8B8] font-bold rounded-xl inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>حذف پیوند</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingLinkRecord(null)}
+                    className="min-h-[40px] px-4 py-1.5 bg-[#FAF5EE] border border-[#D8C7B2] text-[#332218] font-bold rounded-xl cursor-pointer"
+                  >
+                    انصراف
+                  </button>
+                  <button
+                    type="submit"
+                    className="min-h-[40px] px-5 py-1.5 bg-[#1F4E79] hover:bg-[#163A5B] text-white font-bold rounded-xl inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>ذخیره و همگام‌سازی</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </ModalWindow>
+        );
+      })()}
     </div>
   );
 };

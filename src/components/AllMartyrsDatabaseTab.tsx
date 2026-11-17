@@ -34,6 +34,7 @@ import {
   compactPersianForMatch
 } from '../data/soorehMehrResearch';
 import { ModalWindow } from './ModalWindow';
+import { BookQuickInspectorModal } from './BookQuickInspectorModal';
 import {
   registerInnerBackStep,
   getMartyrsCrossTabTarget,
@@ -328,6 +329,7 @@ interface AllMartyrsDatabaseTabProps {
   onNavigateToSmartSearch?: (martyrName: string) => void;
   onReturnToMartyrDossier?: () => void;
   onLinkMartyrToBook: (newLink: BookMartyrLinkRecord) => void;
+  onSaveAuditRecord?: (record: FieldAuditRecord) => void;
   onNotify: (msg: string, type?: 'success' | 'warning') => void;
 }
 
@@ -352,6 +354,7 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
   onNavigateToSmartSearch,
   onReturnToMartyrDossier,
   onLinkMartyrToBook,
+  onSaveAuditRecord,
   onNotify
 }) => {
   const [records, setRecords] = useState<AllMartyrRecord[]>(
@@ -413,10 +416,30 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
   const [bookPickerQuery, setBookPickerQuery] = useState('');
   const [linkPageRef, setLinkPageRef] = useState('');
   const [linkNote, setLinkNote] = useState('');
+  const [inspectingBook, setInspectingBook] = useState<{
+    bookId?: string;
+    title: string;
+    publisher?: string;
+  } | null>(null);
 
   const linkableBooks = useMemo(
     () => buildLinkableBookOptions(catalogRows, auditRecords, bookCopies),
     [catalogRows, auditRecords, bookCopies]
+  );
+
+  const resolveLiveBookMeta = React.useCallback(
+    (bookId?: string, fallbackTitle?: string, fallbackPublisher?: string) => {
+      const cleanId = (bookId || '').trim();
+      const cat = cleanId ? catalogRows.find((c) => c.tempBookId === cleanId) : undefined;
+      const aud =
+        (cat ? auditRecords[cat.rowKey] : undefined) ||
+        (cleanId ? Object.values(auditRecords).find((a) => a.tempBookId === cleanId) : undefined);
+      return {
+        title: aud?.title?.trim() || fallbackTitle?.trim() || cat?.titleRaw || '—',
+        publisher: aud?.publisher?.trim() || fallbackPublisher?.trim() || cat?.publisherRaw || 'سوره مهر'
+      };
+    },
+    [catalogRows, auditRecords]
   );
 
   useEffect(() => {
@@ -1704,16 +1727,31 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                               </span>
                             </div>
                             <div className="space-y-1 max-h-28 overflow-y-auto">
-                              {mBooks.map((lnk) => (
+                              {mBooks.map((lnk) => {
+                                const liveMeta = resolveLiveBookMeta(lnk.tempBookId, lnk.bookTitleRaw, lnk.publisherRaw);
+                                return (
                                 <div
                                   key={lnk.id}
                                   className="text-[11px] bg-white border border-amber-200/80 rounded-lg px-2 py-1 space-y-0.5"
                                 >
                                   <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
-                                    <span>کتاب «{lnk.bookTitleRaw}»</span>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setInspectingBook({
+                                          bookId: lnk.tempBookId,
+                                          title: liveMeta.title,
+                                          publisher: liveMeta.publisher
+                                        })
+                                      }
+                                      className="text-right font-bold text-[#1F4E79] hover:text-[#8C3B2B] underline decoration-dotted underline-offset-4 cursor-pointer"
+                                      title="مشاهده و ویرایش درجا شناسنامه کتاب"
+                                    >
+                                      کتاب «{liveMeta.title}»
+                                    </button>
                                     <TehranMartyrBadge size="xs" />
                                     <span className="font-normal text-slate-600">
-                                      ({lnk.publisherRaw || 'سوره مهر'})
+                                      ({liveMeta.publisher})
                                     </span>
                                   </div>
                                   <div className="text-[10.5px] text-slate-700 flex flex-wrap items-center gap-1.5">
@@ -1729,7 +1767,8 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                                     )}
                                   </div>
                                 </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </div>
                         );
@@ -1803,7 +1842,9 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
               </div>
             ) : (
               <div className="space-y-1.5">
-                {martyrLinks.map((lnk) => (
+                {martyrLinks.map((lnk) => {
+                  const liveMeta = resolveLiveBookMeta(lnk.tempBookId, lnk.bookTitleRaw, lnk.publisherRaw);
+                  return (
                   <div
                     key={lnk.id}
                     className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1.5"
@@ -1811,14 +1852,25 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <strong className="text-slate-900 inline-flex items-center gap-1.5 flex-wrap">
-                          <span>
-                            کتاب «{lnk.bookTitleRaw}»{' '}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setInspectingBook({
+                                bookId: lnk.tempBookId,
+                                title: liveMeta.title,
+                                publisher: liveMeta.publisher
+                              })
+                            }
+                            className="text-right font-bold text-[#1F4E79] hover:text-[#8C3B2B] underline decoration-dotted underline-offset-4 cursor-pointer"
+                            title="مشاهده و ویرایش درجا شناسنامه کتاب"
+                          >
+                            کتاب «{liveMeta.title}»{' '}
                             {lnk.tempBookId ? `(${lnk.tempBookId})` : ''}
-                          </span>
+                          </button>
                           <TehranMartyrBadge size="xs" />
                         </strong>
                         <span className="text-slate-600 mr-1.5">
-                          ({lnk.publisherRaw || 'سوره مهر'} · صفحه:{' '}
+                          ({liveMeta.publisher} · صفحه:{' '}
                           <strong className="text-[#8C3B2B]">
                             {toPersianDigits(lnk.pageReferenceRaw || 'ثبت‌نشده')}
                           </strong>
@@ -1853,7 +1905,8 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
                       منبع: {lnk.sourceFile} ({lnk.sourceSheet} · ردیف {toPersianDigits(lnk.sourceExcelRow)})
                     </div>
                   </div>
-                ))}
+                  );
+                })}
                 {martyrExtracts.map((ex) => (
                   <div
                     key={ex.id}
@@ -2575,6 +2628,22 @@ export const AllMartyrsDatabaseTab: React.FC<AllMartyrsDatabaseTabProps> = ({
             )}
           </form>
         </ModalWindow>
+      )}
+
+      {/* پنجره سریع مشاهده و ویرایش درجا شناسنامه کتاب متصل */}
+      {inspectingBook && (
+        <BookQuickInspectorModal
+          bookId={inspectingBook.bookId}
+          fallbackTitle={inspectingBook.title}
+          fallbackPublisher={inspectingBook.publisher}
+          catalogRows={catalogRows}
+          auditRecords={auditRecords}
+          bookCopies={bookCopies}
+          links={links}
+          onSaveAuditRecord={onSaveAuditRecord}
+          onClose={() => setInspectingBook(null)}
+          onNotify={onNotify}
+        />
       )}
     </div>
   );

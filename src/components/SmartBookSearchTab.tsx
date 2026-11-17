@@ -30,6 +30,7 @@ import {
   Eye
 } from 'lucide-react';
 import { ModalWindow } from './ModalWindow';
+import { BookQuickInspectorModal } from './BookQuickInspectorModal';
 import { guardExternalInternetSearch } from '../utils/githubSyncService';
 import {
   ExpertApprovalStatusButton,
@@ -325,6 +326,7 @@ interface SmartBookSearchTabProps {
   onClearAllSuggestions?: () => void;
   onApproveSuggestionToLinks: (sug: SmartSearchSuggestion, newLink: BookMartyrLinkRecord) => void;
   onUpdateLinkStatus?: (linkId: string, status: string, note: string) => void;
+  onSaveAuditRecord?: (record: FieldAuditRecord) => void;
   onNotify: (message: string, type?: 'success' | 'warning') => void;
 }
 
@@ -373,6 +375,7 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
   onClearAllSuggestions,
   onApproveSuggestionToLinks,
   onUpdateLinkStatus,
+  onSaveAuditRecord,
   onNotify
 }) => {
   const [twoWayQuery, setTwoWayQuery] = useState(initialMartyrQuery || '');
@@ -476,8 +479,70 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
 
   const [selectedMartyrName, setSelectedMartyrName] = useState(initialMartyrQuery || '');
   const [customAltNames, setCustomAltNames] = useState('');
-  const [rejectedHistory, setRejectedHistory] = useState<RejectedSuggestionHistory[]>(loadRejectedHistory);
-  const [selectedCatalogDetail, setSelectedCatalogDetail] = useState<ReferenceCatalogRow | null>(null);
+  const [rejectedHistory, setRejectedHistory] = useState<RejectedSuggestionHistory[]>(() => {
+    const localList = loadRejectedHistory();
+    const byKey = new Map<string, RejectedSuggestionHistory>();
+    localList.forEach((h) => {
+      byKey.set(`${normalizePersianText(h.martyrName)}::${normalizePersianText(h.bookTitle)}`, h);
+    });
+    rejectedSuggestionsArchive.forEach((arch) => {
+      const k = `${normalizePersianText(arch.martyrName)}::${normalizePersianText(arch.bookTitle)}`;
+      if (!byKey.has(k)) {
+        byKey.set(k, {
+          martyrName: arch.martyrName,
+          bookTitle: arch.bookTitle,
+          catalogBookId: arch.bookId,
+          reason: arch.rejectionReason,
+          rejectedBy: arch.rejectedBy,
+          rejectedAt: arch.rejectedAt
+        });
+      }
+    });
+    return Array.from(byKey.values());
+  });
+
+  useEffect(() => {
+    setRejectedHistory((prev) => {
+      const archiveKeys = new Set(
+        rejectedSuggestionsArchive.map(
+          (a) => `${normalizePersianText(a.martyrName)}::${normalizePersianText(a.bookTitle)}`
+        )
+      );
+      const nextMap = new Map<string, RejectedSuggestionHistory>();
+      // همگام‌سازی کامل با rejectedSuggestionsArchive از IndexedDB (حذف موارد پاک‌شده در بازیابی بکاپ)
+      rejectedSuggestionsArchive.forEach((arch) => {
+        const k = `${normalizePersianText(arch.martyrName)}::${normalizePersianText(arch.bookTitle)}`;
+        nextMap.set(k, {
+          martyrName: arch.martyrName,
+          bookTitle: arch.bookTitle,
+          catalogBookId: arch.bookId,
+          reason: arch.rejectionReason,
+          rejectedBy: arch.rejectedBy,
+          rejectedAt: arch.rejectedAt
+        });
+      });
+      // حفظ موارد محلی صرفاً اگر آرشیو مرکزی خالی نباشد یا هنوز ثبت نشده باشد
+      if (rejectedSuggestionsArchive.length === 0 && prev.length > 0) {
+        saveRejectedHistory([]);
+        return [];
+      }
+      prev.forEach((h) => {
+        const k = `${normalizePersianText(h.martyrName)}::${normalizePersianText(h.bookTitle)}`;
+        if (archiveKeys.has(k) && !nextMap.has(k)) {
+          nextMap.set(k, h);
+        }
+      });
+      const synced = Array.from(nextMap.values());
+      saveRejectedHistory(synced);
+      return synced;
+    });
+  }, [rejectedSuggestionsArchive]);
+  const [inspectingBook, setInspectingBook] = useState<{
+    bookId?: string;
+    title: string;
+    publisher?: string;
+    initialRow?: ReferenceCatalogRow | null;
+  } | null>(null);
   const [selectedSourceCode, setSelectedSourceCode] = useState<string>('ALL');
   const [queueFilter, setQueueFilter] = useState<'ALL' | SmartSuggestionReviewStatus>('ALL');
   const [queueOriginFilter, setQueueOriginFilter] = useState<'ALL' | 'manual' | 'single_search' | 'bulk_match'>('ALL');
@@ -2428,7 +2493,20 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                               </span>
                             )}
                             <h3 className="font-bold text-sm sm:text-base text-slate-900 inline-flex items-center gap-1.5 flex-wrap">
-                              <span>کتاب «{grp.bookTitle}»</span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setInspectingBook({
+                                    bookId: grp.tempBookId,
+                                    title: grp.bookTitle,
+                                    publisher: grp.publisher
+                                  })
+                                }
+                                className="text-right font-bold text-[#1F4E79] hover:text-[#8C3B2B] underline decoration-dotted underline-offset-4 cursor-pointer"
+                                title="مشاهده و ویرایش درجا شناسنامه کتاب"
+                              >
+                                کتاب «{grp.bookTitle}»
+                              </button>
                               {grp.allBookLinks.some(
                                 (lnk) =>
                                   evaluateMartyrTehranStatus({
@@ -3494,7 +3572,20 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                             </span>
                             <span className="font-bold text-[#332218] inline-flex items-center gap-1.5 flex-wrap">
                               <BookOpen className="w-4 h-4 text-[#8C3B2B] shrink-0" />
-                              <span>کتاب «{sug.bookTitle}»</span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setInspectingBook({
+                                    bookId: sug.matchedCatalogBookId,
+                                    title: sug.bookTitle,
+                                    publisher: sug.publisher
+                                  })
+                                }
+                                className="text-right font-bold text-[#1F4E79] hover:text-[#8C3B2B] underline decoration-dotted underline-offset-4 cursor-pointer"
+                                title="مشاهده و ویرایش درجا شناسنامه کتاب"
+                              >
+                                کتاب «{sug.bookTitle}»
+                              </button>
                               {tehranEval.isTehran && <TehranMartyrBadge size="xs" />}
                             </span>
                           </>
@@ -3747,11 +3838,12 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                             const row = allUnifiedBooks.find(
                               (r) => r.tempBookId === sug.matchedCatalogBookId
                             );
-                            if (row) {
-                              setSelectedCatalogDetail(row);
-                            } else {
-                              onNotify(`کتاب با شناسه ${sug.matchedCatalogBookId} در فهرست موجود است.`);
-                            }
+                            setInspectingBook({
+                              bookId: sug.matchedCatalogBookId,
+                              title: row?.titleRaw || sug.bookTitle,
+                              publisher: row?.publisherRaw || sug.publisher,
+                              initialRow: row || null
+                            });
                           }}
                           className="min-h-[34px] px-2.5 py-1 rounded-xl bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#5C4636] border border-[#D8C7B2] text-xs font-bold inline-flex items-center justify-center gap-1 cursor-pointer transition-colors"
                         >
@@ -3898,7 +3990,20 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                       <td className="py-2 px-2.5 font-mono">{toPersianDigits(idx + 1)}</td>
                       <td className="py-2 px-2.5 font-bold text-[#8C3B2B]">{item.martyrNameRaw}</td>
                       <td className="py-2 px-2.5">
-                        <div className="font-bold text-slate-900">{item.bookTitleRaw}</div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setInspectingBook({
+                              bookId: item.tempBookId,
+                              title: item.bookTitleRaw,
+                              publisher: item.publisherRaw
+                            })
+                          }
+                          className="text-right font-bold text-[#1F4E79] hover:text-[#8C3B2B] underline decoration-dotted underline-offset-4 cursor-pointer"
+                          title="مشاهده و ویرایش درجا شناسنامه کتاب"
+                        >
+                          {item.bookTitleRaw}
+                        </button>
                         <div className="text-[11px] text-slate-500">ناشر: {item.publisherRaw || '—'}</div>
                       </td>
                       <td className="py-2 px-2.5 tabular-nums font-semibold">
@@ -4003,7 +4108,21 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
                       </td>
                       <td className="py-2 px-2.5">
                         <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
-                          <span>{m.book.titleRaw}</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setInspectingBook({
+                                bookId: m.book.tempBookId,
+                                title: m.book.titleRaw,
+                                publisher: m.book.publisherRaw,
+                                initialRow: m.book
+                              })
+                            }
+                            className="text-right font-bold text-[#1F4E79] hover:text-[#8C3B2B] underline decoration-dotted underline-offset-4 cursor-pointer"
+                            title="مشاهده و ویرایش درجا شناسنامه کتاب"
+                          >
+                            {m.book.titleRaw}
+                          </button>
                           <TehranMartyrBadge size="xs" />
                           <span className="font-mono text-[10.5px] text-[#1F4E79]">({m.book.tempBookId})</span>
                         </div>
@@ -4289,84 +4408,20 @@ export const SmartBookSearchTab: React.FC<SmartBookSearchTabProps> = ({
         </ModalWindow>
       )}
 
-      {/* مودال شناسنامه ثبتی کتاب در مخزن کتابخانه */}
-      {selectedCatalogDetail && (
-        <ModalWindow
-          onClose={() => setSelectedCatalogDetail(null)}
-          title={`شناسنامه ثبتی کتاب در مخزن (${selectedCatalogDetail.tempBookId})`}
-          maxWidthClass="max-w-lg"
-        >
-          <div className="space-y-3 text-xs text-slate-800 leading-relaxed">
-            <div className="p-3 bg-slate-50 rounded-xl space-y-1.5 border border-slate-200">
-              <div className="font-bold text-sm text-[#1F4E79]">{selectedCatalogDetail.titleRaw}</div>
-              <div className="text-slate-600">
-                نویسنده / پدیدآور: {selectedCatalogDetail.authorRaw || 'نامشخص'}
-              </div>
-              <div className="text-slate-600">ناشر: {selectedCatalogDetail.publisherRaw || 'نامشخص'}</div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 text-[11px]">
-              <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
-                <span className="font-bold text-slate-600">شناسه موقت: </span>
-                <span className="font-mono text-slate-900 font-bold">
-                  {selectedCatalogDetail.tempBookId}
-                </span>
-              </div>
-              <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
-                <span className="font-bold text-slate-600">محل در قفسه: </span>
-                <span className="text-slate-900 font-bold">
-                  {selectedCatalogDetail.locationRaw || 'نامشخص'}
-                </span>
-              </div>
-              <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
-                <span className="font-bold text-slate-600">شابک: </span>
-                <span className="text-slate-900 font-mono">{selectedCatalogDetail.isbnRaw || '—'}</span>
-              </div>
-              <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
-                <span className="font-bold text-slate-600">فیپا: </span>
-                <span className="text-slate-900 font-mono">{selectedCatalogDetail.fipaRaw || '—'}</span>
-              </div>
-            </div>
-
-            {selectedCatalogDetail.categoryRaw && (
-              <div className="p-2 bg-blue-50/60 rounded-lg border border-blue-100 text-[11px]">
-                <span className="font-bold text-blue-950">گروه موضوعی: </span>
-                <span className="text-blue-900">{selectedCatalogDetail.categoryRaw}</span>
-              </div>
-            )}
-
-            {selectedCatalogDetail.descriptionRaw && (
-              <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-[11px]">
-                <span className="font-bold text-slate-700 block mb-1">توضیحات ثبت اولیه:</span>
-                <p className="text-slate-600 leading-relaxed">{selectedCatalogDetail.descriptionRaw}</p>
-              </div>
-            )}
-
-            <div className="pt-2 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100">
-              <a
-                href={`https://www.google.com/search?q=${encodeURIComponent(
-                  'site:ketab.ir "' + selectedCatalogDetail.titleRaw + '"'
-                )}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => {
-                  guardExternalInternetSearch(e, 'خانه کتاب (استعلام کتاب)', onNotify);
-                }}
-                className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg font-semibold inline-flex items-center gap-1 transition-colors"
-              >
-                <ExternalLink className="w-3.5 h-3.5 text-emerald-700" />
-                <span>استعلام در خانه کتاب</span>
-              </a>
-              <button
-                type="button"
-                onClick={() => setSelectedCatalogDetail(null)}
-                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg font-bold cursor-pointer"
-              >
-                بستن
-              </button>
-            </div>
-          </div>
-        </ModalWindow>
+      {/* مودال شناسنامه و ویرایش درجا کتاب در مخزن کتابخانه */}
+      {inspectingBook && (
+        <BookQuickInspectorModal
+          bookId={inspectingBook.bookId}
+          fallbackTitle={inspectingBook.title}
+          fallbackPublisher={inspectingBook.publisher}
+          initialRow={inspectingBook.initialRow}
+          catalogRows={catalogRows}
+          auditRecords={auditRecords}
+          links={links}
+          onSaveAuditRecord={onSaveAuditRecord}
+          onClose={() => setInspectingBook(null)}
+          onNotify={onNotify}
+        />
       )}
     </div>
   );

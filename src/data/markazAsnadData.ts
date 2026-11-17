@@ -966,23 +966,47 @@ export const INITIAL_MULTI_MARTYR_GROUPS: MultiMartyrGroupAudit[] = [
   { groupCode: 'G016', startExcelRow: 174, sourceRowA: 16, registeredTitle: 'مردان رستگار', registeredPublisher: 'یا زهرا', martyrRowsCount: 26, incompleteGraveRows: 'ندارد', initialFlag: 'بازبینی عادی', boundaryApproved: 'نامشخص', allMartyrsLinked: 'نامشخص', decisionStatus: 'در انتظار بازبینی کارشناس', reviewerName: '', reviewDate: '', reviewNote: '' }
 ];
 
-// تابع نرمال‌سازی استاندارد فارسی مطابق با کدهای مرکز اسناد
+// تابع نرمال‌سازی جامع و استاندارد فارسی مطابق با قواعد مرکز اسناد
 export function normalizePersianText(input: unknown): string {
   if (input === null || input === undefined) return '';
   return String(input)
     .normalize('NFKC')
-    .replace(/[يیئى]/g, 'ی')
-    .replace(/ك/g, 'ک')
+    // حذف کاراکترهای کنترلی جهت‌نما و علائم نامرئی
+    .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+    // تبدیل نیم‌فاصله و فاصله نشکن به فاصله استاندارد برای تفکیک دقیق واژه‌ها
+    .replace(/[\u200B-\u200D\u00A0]/g, ' ')
+    // یکسان‌سازی ی، ک، ه، و، الف و حذف کشیده و اعراب
+    .replace(/[يیئىێے]/g, 'ی')
+    .replace(/[كڪکګ]/g, 'ک')
     .replace(/[ۀة]/g, 'ه')
-    .replace(/[أإآ]/g, 'ا')
-    .replace(/ؤ/g, 'و')
-    .replace(/[\u064B-\u065F\u0670]/g, '')
-    .replace(/[\u200B-\u200D\uFEFF]/g, ' ')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/[ؤٶ]/g, 'و')
+    .replace(/\u0640/g, '')
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '')
     .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
     .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
+}
+
+// کلید فشرده بدون فاصله برای تطبیق بدون حساسیت به نیم‌فاصله و فاصله بین اجزای نام (مانند سیدعلیرضا / سید علیرضا)
+export function compactPersianText(input: unknown): string {
+  return normalizePersianText(input).replace(/[\s‌_\-ـ]+/g, '');
+}
+
+// جست‌وجوی هوشمند چندکلمه‌ای فارسی با پشتیبانی هم‌زمان از تطبیق کلمه‌محور و فشرده (بدون حساسیت به نیم‌فاصله)
+export function matchesPersianSearch(haystack: unknown, query: string): boolean {
+  const qNorm = normalizePersianText(query);
+  if (!qNorm) return true;
+  const hNorm = normalizePersianText(haystack);
+  if (!hNorm) return false;
+  const words = qNorm.split(' ').filter(Boolean);
+  if (words.every((w) => hNorm.includes(w))) return true;
+  const hCompact = hNorm.replace(/\s+/g, '');
+  const qCompact = qNorm.replace(/\s+/g, '');
+  if (qCompact && hCompact.includes(qCompact)) return true;
+  return words.every((w) => hNorm.includes(w) || hCompact.includes(w));
 }
 
 export function toPersianDigits(input: unknown): string {

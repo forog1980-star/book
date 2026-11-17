@@ -1003,13 +1003,17 @@ export const HomeDashboardTab: React.FC<HomeDashboardTabProps> = ({
             selectedBookDossier.physicalStatus === 'unchecked'
               ? 'verified'
               : selectedBookDossier.physicalStatus,
-          copyStatus: 'verified_present',
+          copyStatus: existingAudit?.copyStatus || 'verified_present',
           shelf: moveTargetShelf,
           level: moveTargetLevel,
           location: newLocation,
           countedCopies: selectedBookDossier.countedCopies || '1',
           checkedBy: existingAudit?.checkedBy || 'کارشناس کتابخانه',
-          notes: selectedBookDossier.notes || '',
+          notes: existingAudit?.notes ?? selectedBookDossier.notes ?? '',
+          relatedMartyrs: existingAudit?.relatedMartyrs,
+          excludedMartyrs: existingAudit?.excludedMartyrs,
+          needsReview: existingAudit?.needsReview ?? false,
+          expertApproved: existingAudit?.expertApproved ?? true,
           backupSourceSheet: existingAudit?.backupSourceSheet || catRow?.backupSourceSheet,
           backupSourceRow: existingAudit?.backupSourceRow || catRow?.backupSourceRow,
           updatedAt: new Date().toISOString()

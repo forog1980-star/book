@@ -19,7 +19,11 @@ import {
   Sparkles,
   ShieldCheck,
   Building2,
-  BookmarkCheck
+  BookmarkCheck,
+  Plus,
+  Pencil,
+  Trash2,
+  AlertCircle
 } from 'lucide-react';
 import {
   BookCopyRecord,
@@ -29,6 +33,7 @@ import {
   PendingReviewItem,
   ReferenceCatalogRow,
   WorkbookGolzarMartyr,
+  matchesPersianSearch,
   normalizePersianText,
   toPersianDigits
 } from '../data/markazAsnadData';
@@ -53,6 +58,17 @@ interface DepositoryAndExportHubProps {
   pendingReviews: PendingReviewItem[];
   workbookMartyrs?: WorkbookGolzarMartyr[];
   extractedItems: ExtractedContentItem[];
+  pendingReviewsOpenCount?: number;
+  openGroupsCount?: number;
+  onOpenAddLink?: () => void;
+  onOpenReviewQueues?: (target?: 'pending567' | 'groups16') => void;
+  onExportGhatatExcel?: () => void;
+  onExtractPassageFromLink?: (linkId: string) => void;
+  onQuickEditLink?: (linkId: string) => void;
+  onQuickDeleteLink?: (linkId: string) => void;
+  onQuickUpdateLinkStatus?: (linkId: string, nextStatus: string) => void;
+  onInspectBook?: (bookId: string, fallbackTitle: string) => void;
+  onInspectMartyr?: (martyrName: string, linkId?: string) => void;
   onNotify: (msg: string, type?: 'success' | 'warning') => void;
   onJumpToSmartSearch?: (martyrName: string) => void;
 }
@@ -103,6 +119,17 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
   pendingReviews,
   workbookMartyrs = [],
   extractedItems,
+  pendingReviewsOpenCount = 0,
+  openGroupsCount = 0,
+  onOpenAddLink,
+  onOpenReviewQueues,
+  onExportGhatatExcel,
+  onExtractPassageFromLink,
+  onQuickEditLink,
+  onQuickDeleteLink,
+  onQuickUpdateLinkStatus,
+  onInspectBook,
+  onInspectMartyr,
   onNotify,
   onJumpToSmartSearch
 }) => {
@@ -168,7 +195,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
     return map;
   }, [extractedItems]);
 
-  // 1. Consolidated Martyr-centric rows (All resolved / determined links without * or empty)
+  // 1. Consolidated Martyr-centric rows (All resolved / determined links without * or empty + live auditRecords title/publisher)
   const allMartyrRows = useMemo<ResolvedMartyrExportItem[]>(() => {
     const rows: ResolvedMartyrExportItem[] = [];
 
@@ -177,6 +204,12 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
         return;
       }
       const bObj = catalogMap.get(l.tempBookId);
+      const auditRec =
+        (l.tempBookId ? bookAuditAndCopyMap.auditByBookId.get(l.tempBookId) : undefined) ||
+        (bObj ? auditRecords[bObj.rowKey] : undefined);
+      const resolvedTitle = auditRec?.title?.trim() || l.bookTitleRaw || bObj?.titleRaw || '—';
+      const resolvedPublisher = auditRec?.publisher?.trim() || l.publisherRaw || bObj?.publisherRaw || '—';
+
       const exKey = `${normalizePersianText(l.martyrNameRaw)}::${l.tempBookId}`;
       const matchedExtracts = extractedMap.get(exKey) || [];
       const tEval = evaluateMartyrTehranStatus({
@@ -195,8 +228,8 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
         graveRow: l.graveRowRaw || '—',
         graveNumber: l.graveNumberRaw || '—',
         bookId: l.tempBookId || 'BK-????',
-        bookTitle: l.bookTitleRaw || bObj?.titleRaw || '—',
-        publisher: l.publisherRaw || bObj?.publisherRaw || '—',
+        bookTitle: resolvedTitle,
+        publisher: resolvedPublisher,
         relationSubject:
           l.sourceDescriptionRaw && l.sourceDescriptionRaw !== '-'
             ? l.sourceDescriptionRaw
@@ -213,7 +246,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
     });
 
     return rows;
-  }, [links, catalogMap, extractedMap]);
+  }, [links, catalogMap, bookAuditAndCopyMap, auditRecords, extractedMap]);
 
   // 2. Consolidated Book-centric rows (Books that have determined martyr links)
   const allBookRows = useMemo<ResolvedBookExportItem[]>(() => {
@@ -327,7 +360,7 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
 
   // Filtered views based on search, status & source sheet
   const filteredMartyrRows = useMemo(() => {
-    const q = normalizePersianText(searchQuery);
+    const hasQ = Boolean(normalizePersianText(searchQuery));
     return allMartyrRows.filter((r) => {
       if (sourceSheetFilter === 'ghatat_one' && r.sourceSheet !== 'یک شهید') return false;
       if (sourceSheetFilter === 'ghatat_multi' && r.sourceSheet !== 'چند شهید') return false;
@@ -347,16 +380,16 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
         return false;
       }
 
-      if (!q) return true;
-      const hay = normalizePersianText(
-        `${r.id} ${r.martyrName} ${r.bookTitle} ${r.bookId} ${r.publisher} ${r.gravePiece} ${r.relationSubject} ${r.pageReference} ${r.sourceSheet}`
+      if (!hasQ) return true;
+      return matchesPersianSearch(
+        `${r.id} ${r.martyrName} ${r.bookTitle} ${r.bookId} ${r.publisher} ${r.gravePiece} ${r.relationSubject} ${r.pageReference} ${r.sourceSheet}`,
+        searchQuery
       );
-      return q.split(' ').every((w) => hay.includes(w));
     });
   }, [allMartyrRows, searchQuery, statusFilter, sourceSheetFilter]);
 
   const filteredBookRows = useMemo(() => {
-    const q = normalizePersianText(searchQuery);
+    const hasQ = Boolean(normalizePersianText(searchQuery));
     return allBookRows.filter((b) => {
       if (statusFilter === 'tehran_only' && !b.hasTehranMartyr) {
         return false;
@@ -374,11 +407,11 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
         return false;
       }
 
-      if (!q) return true;
-      const hay = normalizePersianText(
-        `${b.bookId} ${b.bookTitle} ${b.author} ${b.publisher} ${b.category} ${b.locationCode} ${b.martyrsListSummary}`
+      if (!hasQ) return true;
+      return matchesPersianSearch(
+        `${b.bookId} ${b.bookTitle} ${b.author} ${b.publisher} ${b.category} ${b.locationCode} ${b.martyrsListSummary}`,
+        searchQuery
       );
-      return q.split(' ').every((w) => hay.includes(w));
     });
   }, [allBookRows, searchQuery, statusFilter]);
 
@@ -477,8 +510,19 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
 
   const resolveActiveExportLinks = (): BookMartyrLinkRecord[] => {
     const activeRows = exportScope === 'filtered' ? filteredMartyrRows : allMartyrRows;
-    const allowedIds = new Set(activeRows.map((r) => r.id));
-    const matched = links.filter((l) => allowedIds.has(l.id));
+    const resolvedById = new Map(activeRows.map((r) => [r.id, r]));
+    const matched = links
+      .filter((l) => resolvedById.has(l.id))
+      .map((l) => {
+        const res = resolvedById.get(l.id);
+        return res
+          ? {
+              ...l,
+              bookTitleRaw: res.bookTitle,
+              publisherRaw: res.publisher
+            }
+          : l;
+      });
     return matched.length > 0 ? matched : links;
   };
 
@@ -815,6 +859,46 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
             )}
           </div>
         </div>
+
+        {/* نوار ابزار اقدام سریع میز کار پژوهش — چیدمان واکنش‌گرا و بدون سرریز افقی در موبایل */}
+        {(onOpenAddLink || onOpenReviewQueues || onExportGhatatExcel) && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-[#EFE4D6] text-xs">
+            {onOpenAddLink && (
+              <button
+                type="button"
+                onClick={onOpenAddLink}
+                className="min-h-[44px] px-3 py-2 rounded-xl bg-[#1F4E79] hover:bg-[#163A5B] text-white font-bold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Plus className="w-4 h-4 shrink-0" />
+                <span>ثبت پیوند جدید کتاب و شهید</span>
+              </button>
+            )}
+
+            {onOpenReviewQueues && (
+              <button
+                type="button"
+                onClick={() => onOpenReviewQueues('pending567')}
+                className="min-h-[44px] px-3 py-2 rounded-xl bg-[#FFF8EA] hover:bg-[#F6E9CE] text-[#6B3E26] border border-[#E2C896] font-bold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0 text-[#8C5208]" />
+                <span>
+                  صف بازبینی ({toPersianDigits(pendingReviewsOpenCount)} مورد + {toPersianDigits(openGroupsCount)} گروه)
+                </span>
+              </button>
+            )}
+
+            {onExportGhatatExcel && (
+              <button
+                type="button"
+                onClick={onExportGhatatExcel}
+                className="min-h-[44px] px-3 py-2 rounded-xl bg-[#FAF5EE] hover:bg-[#F3E9DC] text-[#332218] border border-[#D8C7B2] font-bold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-[#2E6F40] shrink-0" />
+                <span>اکسل قطعات شهدا (یک/چند شهید)</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Live Data Depository Table Preview (کشویی و بسته در حالت پیش‌فرض) */}
@@ -923,6 +1007,9 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                   <th className="py-2.5 px-3 min-w-[120px] border-b border-[#E2D2BE] bg-[#F6EFE6]">
                     شیت منبع
                   </th>
+                  <th className="py-2.5 px-3 min-w-[190px] border-b border-[#E2D2BE] bg-[#F6EFE6] text-center">
+                    وضعیت و عملیات درجا
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -933,7 +1020,18 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                     </td>
                     <td className="sticky right-[44px] sm:right-[52px] z-10 bg-white group-hover:bg-[#FAF5EE] py-2.5 px-2.5 sm:px-3 min-w-[130px] max-w-[148px] sm:min-w-[160px] sm:max-w-[195px] font-bold text-[#332218] border-b border-l border-[#E2D2BE] shadow-[-3px_0_6px_-3px_rgba(51,34,24,0.1)] whitespace-normal break-words leading-relaxed">
                       <span className="inline-flex items-center gap-1.5 flex-wrap">
-                        <span className="break-words">{row.martyrName}</span>
+                        {onInspectMartyr ? (
+                          <button
+                            type="button"
+                            onClick={() => onInspectMartyr(row.martyrName, row.id)}
+                            className="text-right font-bold text-[#1F4E79] hover:text-[#6B3E26] hover:underline break-words cursor-pointer"
+                            title="مشاهده و ویرایش پرونده شهید و پیوندها بدون خروج از صفحه"
+                          >
+                            {row.martyrName}
+                          </button>
+                        ) : (
+                          <span className="break-words">{row.martyrName}</span>
+                        )}
                         {row.isTehranMartyr && <TehranMartyrBadge size="xs" />}
                       </span>
                     </td>
@@ -944,8 +1042,18 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                     </td>
                     <td className="py-2.5 px-3 font-bold text-[#6B3E26] border-b border-[#EFE4D6] whitespace-normal break-words leading-relaxed">
                       <span className="inline-flex items-center gap-1.5 flex-wrap">
-                        <span className="break-words">{row.bookTitle}</span>
-                        {row.isTehranMartyr && <TehranMartyrBadge size="xs" />}
+                        {onInspectBook ? (
+                          <button
+                            type="button"
+                            onClick={() => onInspectBook(row.bookId, row.bookTitle)}
+                            className="text-right font-bold text-[#6B3E26] hover:text-[#332218] hover:underline break-words cursor-pointer"
+                            title="مشاهده و ویرایش اطلاعات کتاب و قفسه درجا"
+                          >
+                            {row.bookTitle}
+                          </button>
+                        ) : (
+                          <span className="break-words">{row.bookTitle}</span>
+                        )}
                         <span className="font-mono text-[10.5px] text-[#78604E] font-normal" dir="ltr">
                           ({row.bookId})
                         </span>
@@ -962,6 +1070,52 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                         : row.sourceSheet === 'چند شهید'
                         ? 'قطعات شهدا (چند شهید)'
                         : 'سوره مهر'}
+                    </td>
+                    <td className="py-2.5 px-3 border-b border-[#EFE4D6]">
+                      <div className="flex flex-wrap items-center justify-center gap-1">
+                        {onQuickUpdateLinkStatus && row.reviewStatus !== 'تأییدشده کارشناسی' && (
+                          <button
+                            type="button"
+                            onClick={() => onQuickUpdateLinkStatus(row.id, 'تأییدشده کارشناسی')}
+                            className="min-h-[30px] px-2 py-1 rounded-lg bg-[#2E6F40] hover:bg-[#235632] text-white text-[10.5px] font-bold cursor-pointer"
+                            title="تأیید نهایی پیوند"
+                          >
+                            ✓ تأیید
+                          </button>
+                        )}
+                        {onQuickEditLink && (
+                          <button
+                            type="button"
+                            onClick={() => onQuickEditLink(row.id)}
+                            className="min-h-[30px] px-2 py-1 rounded-lg bg-[#FAF5EE] hover:bg-[#EFE4D6] border border-[#D8C7B2] text-[#332218] text-[10.5px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                            title="ویرایش پیوند، مزار و شماره صفحه"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            <span>ویرایش</span>
+                          </button>
+                        )}
+                        {onExtractPassageFromLink && (
+                          <button
+                            type="button"
+                            onClick={() => onExtractPassageFromLink(row.id)}
+                            className="min-h-[30px] px-2 py-1 rounded-lg bg-[#EDF4FA] hover:bg-[#DCEAF7] text-[#1F4E79] text-[10.5px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                            title="ثبت مطلب یا خاطره صفحه‌ای"
+                          >
+                            <FileText className="w-3 h-3" />
+                            <span>مطلب</span>
+                          </button>
+                        )}
+                        {onQuickDeleteLink && (
+                          <button
+                            type="button"
+                            onClick={() => onQuickDeleteLink(row.id)}
+                            className="min-h-[30px] px-1.5 py-1 rounded-lg bg-[#FDF0F0] hover:bg-[#F9DADA] border border-[#E6B8B8] text-[#A63A3A] text-[10.5px] font-bold inline-flex items-center cursor-pointer"
+                            title="حذف پیوند"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1016,7 +1170,18 @@ export const DepositoryAndExportHub: React.FC<DepositoryAndExportHubProps> = ({
                     </td>
                     <td className="sticky right-[44px] sm:right-[52px] z-10 bg-white group-hover:bg-[#FAF5EE] py-2.5 px-2.5 sm:px-3 min-w-[140px] max-w-[160px] sm:min-w-[175px] sm:max-w-[215px] font-bold text-[#332218] border-b border-l border-[#E2D2BE] shadow-[-3px_0_6px_-3px_rgba(51,34,24,0.1)] whitespace-normal break-words leading-relaxed">
                       <span className="inline-flex items-center gap-1.5 flex-wrap">
-                        <span className="break-words">{row.bookTitle}</span>
+                        {onInspectBook ? (
+                          <button
+                            type="button"
+                            onClick={() => onInspectBook(row.bookId, row.bookTitle)}
+                            className="text-right font-bold text-[#6B3E26] hover:text-[#332218] hover:underline break-words cursor-pointer"
+                            title="مشاهده و ویرایش شناسنامه کتاب و قفسه درجا"
+                          >
+                            {row.bookTitle}
+                          </button>
+                        ) : (
+                          <span className="break-words">{row.bookTitle}</span>
+                        )}
                         {row.hasTehranMartyr && <TehranMartyrBadge size="xs" />}
                       </span>
                     </td>
